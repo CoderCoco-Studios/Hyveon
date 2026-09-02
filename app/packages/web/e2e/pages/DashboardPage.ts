@@ -22,22 +22,12 @@ export class DashboardPage {
   }
 
   /**
-   * Show the dashboard inside the Electron shell, where `page.goto('/')` is an
-   * invalid URL — the packaged app loads from a `file://` origin with no
-   * dev-server base. Instead of navigating by URL this:
-   *
-   *  1. Returns to the `/` route via in-app history navigation (a full reload
-   *     would re-run the preload and wipe the `window.hyveon.__test` mock registry
-   *     that the test just seeded), so it works even after a sidebar-nav test
-   *     left the app on another route. Sets `location.hash` directly rather
-   *     than `pushState` + a synthetic `popstate` dispatch — the app routes
-   *     via `HashRouter` (see `app.component.tsx`'s doc comment), which
-   *     listens for the native `hashchange` event a `location.hash`
-   *     assignment fires, not `popstate`.
-   *  2. Clicks the top-bar "Refresh all" button. The app-level status poller
-   *     fires once at launch — before the test registers its IPC mocks — so the
-   *     grid must be re-fetched for the seeded `games.status` mock to take
-   *     effect.
+   * Show the dashboard inside the Electron shell. Sets `location.hash` to
+   * `/` — a same-value set fires no `hashchange`, so `HashRouter` would not
+   * re-render (see `e2e/pages/index.ts`) — then clicks "Refresh all", since
+   * the app-level status poller fires once at launch, before the test
+   * registers its IPC mocks, so the grid must be re-fetched for the seeded
+   * `games.status` mock to take effect.
    *
    * Call after `applyHyveonMocks()` so the mocks are in place before the refresh.
    */

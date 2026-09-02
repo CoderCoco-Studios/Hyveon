@@ -429,37 +429,18 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   }, [target]);
 
   /**
-   * Derives the boundary/exclusion pair for the next `getNewer` call from
-   * the *current* actual newest-visible line in `linesRef.current`, instead
-   * of trusting a scalar pinned once at historical-mode entry.
+   * Derives the boundary/exclusion pair for the next `getNewer` call from the
+   * *current* newest-visible line in `linesRef.current`, not a scalar pinned
+   * once at historical-mode entry — a pinned scalar goes stale once
+   * {@link loadOlder}'s evict-from-bottom drops the window's original tail,
+   * which would open an unbridged temporal gap in the displayed log stream.
    *
    * @remarks
-   * This replaces the old model where `newestTimestampRef`/`newestEventIdsRef`
-   * were seeded once at the moment `'live'`→`'historical'` was entered and
-   * never revised afterward. That pinned scalar goes stale the moment
-   * {@link loadOlder}'s prepend-then-evict-from-bottom evicts the window's
-   * original tail: the operator can scroll up far enough that backward
-   * paging evicts past the original live-tail content into purely
-   * backfilled history, then scroll back down toward the bottom of *that*
-   * historical window — not toward "now" — and a pinned-at-entry boundary
-   * would jump straight to fetching events near "now" again, opening an
-   * unbridged temporal gap in the displayed log stream. Deriving fresh from
-   * `linesRef.current` on every call instead self-corrects after any
-   * eviction, because the boundary is always read off whatever the window
-   * actually shows right now.
-   *
-   * When the newest-visible line has a `timestamp` (i.e. it came from a
-   * backend page — the window has been backfilled at least once), the
-   * cursor is that timestamp, and `excludeEventIds` is every line in
-   * `linesRef.current` sharing that exact timestamp's `eventId` (mirroring
-   * what {@link LogsService.fetchAcrossStreams}'s multiset exclusion
-   * expects — see that method's TSDoc). When the newest-visible line has no
-   * `timestamp` (still an original live-tailed line — no eviction into
-   * backfilled content has happened yet), this falls back to
-   * {@link liveInterruptedAtRef} (seeded once, at the moment `loadOlder`
-   * first interrupted live tailing) with an empty exclude list, matching the
-   * old seeding behavior for that one specific case where it was already
-   * correct.
+   * When the newest-visible line has a `timestamp` (backfilled at least
+   * once), the cursor is that timestamp and `excludeEventIds` is every line
+   * sharing that `eventId` (mirroring {@link LogsService.fetchAcrossStreams}'s
+   * multiset exclusion). Otherwise it falls back to {@link liveInterruptedAtRef}
+   * with an empty exclude list.
    *
    * @returns The `afterTimestamp`/`excludeEventIds` pair for the next `getNewer` call.
    */
