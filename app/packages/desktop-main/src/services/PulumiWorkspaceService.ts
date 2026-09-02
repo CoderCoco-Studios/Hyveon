@@ -563,7 +563,16 @@ export class PulumiWorkspaceService {
    * was wiped (reinstall, cache clear) while the store's legacy
    * `pulumi.passphrase` survived fails this migration with a "no Pulumi
    * project found"-style CLI error — that install needs a full manual reset
-   * (clear the legacy store entry) rather than an automatic retry.
+   * rather than an automatic retry. Clearing the legacy `pulumi.passphrase`
+   * store entry alone is NOT a safe reset here: this migration fails before
+   * re-encryption ever runs, so the remote stack's secrets provider is still
+   * protected by the legacy passphrase — clearing the entry would make the
+   * next `getOrCreateStack` call use the new derived passphrase against
+   * state still encrypted with the old one. A real reset must either restore
+   * the missing `workDir` project files (so the migration can run and
+   * actually re-encrypt) or explicitly account for the remote stack, e.g. by
+   * re-running `change-secrets-provider` by hand with the legacy passphrase
+   * before clearing the store entry.
    *
    * @param legacyPassphrase - Decrypted legacy passphrase, read by the caller
    *   via {@link ElectronStoreService.getPulumiPassphrase} before this is

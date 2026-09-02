@@ -366,9 +366,14 @@ export class GuidedIamService {
    *    `{ status: 'verification-failed', error }` without touching
    *    `aws.profile` or the bootstrap key — this cleanup is what makes a
    *    retry safe, since an orphaned new key would otherwise hit IAM's
-   *    2-access-key-per-user limit on the retry's step 1. A failed cleanup
-   *    delete is logged and swallowed; the staged entry is then deliberately
-   *    left in place (it still matches the live orphan key).
+   *    2-access-key-per-user limit on the retry's step 1. Both deletes share
+   *    one try/catch, so a failure here is logged and swallowed either way,
+   *    but the two failure points leave different state: if
+   *    `iam:DeleteAccessKeyCommand` itself fails, the staged entry still
+   *    matches the live orphan key; if it succeeds but
+   *    {@link ElectronStoreService.deletePastedCredentials} then throws, the
+   *    orphan key is already gone and the staged entry is stale (no matching
+   *    live key) until the next successful rotation overwrites it.
    * 4. Only once verification succeeds: `ElectronStoreService.set('aws', ...)`
    *    with `profile` set to {@link GUIDED_PROFILE_NAME} — the moment the new
    *    key becomes the active credential source (picked up automatically by

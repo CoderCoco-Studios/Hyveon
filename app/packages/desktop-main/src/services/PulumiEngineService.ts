@@ -290,11 +290,13 @@ function removeDirBestEffort(path: string, context: string): void {
  * {@link isProvablyBadCacheEntry}), the verified staging install is swapped
  * in rather than overwriting: the existing occupant is `renameSync`'d aside
  * to a `.trash-<uuid>` directory first, then the new install renamed into
- * `root` (same-parent renames are atomic, so `root` is never observed
- * empty). The trash directory is kept until a post-rename re-verification
- * `get()` confirms the swapped-in install actually works; if that fails, the
- * trashed entry is renamed back into `root` instead of discarded, so a
- * transient failure can't leave neither the old nor the new install usable.
+ * `root` in a second, separate `renameSync` — each rename is individually
+ * atomic, but the two-step sequence means `root` can be observed absent
+ * between them. The trash directory is kept until a post-rename
+ * re-verification `get()` confirms the swapped-in install actually works;
+ * if that fails, the trashed entry is renamed back into `root` on a
+ * best-effort basis — that restore rename can itself fail, in which case
+ * neither the old nor the new install is left usable at `root`.
  *
  * {@link resolve} memoizes the in-flight *promise*, so concurrent callers
  * share exactly one provisioning attempt. A **rejected** attempt is
@@ -502,7 +504,8 @@ export class PulumiEngineService {
     // rather than deleting on inconclusive evidence — move it aside first
     // rather than deleting it before the new install is confirmed to
     // succeed. Both renames are same-parent (`versionsDir`), so each is
-    // atomic: `root` is never observed empty or partially written.
+    // individually atomic — but they're two separate renames, not one
+    // transaction, so `root` can be briefly absent between them.
     const trashDir = existsSync(root) ? join(versionsDir, `.trash-${randomUUID()}`) : null;
     try {
       if (trashDir) renameSync(root, trashDir);
