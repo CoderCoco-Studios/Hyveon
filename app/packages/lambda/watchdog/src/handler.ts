@@ -1,5 +1,5 @@
 /**
- * Watchdog Lambda — TypeScript port of the original `watchdog.py`.
+ * Watchdog Lambda.
  *
  * Runs on a schedule (EventBridge rate). For each running game server task:
  *   - A game with a declared health check (`HEALTH_CHECKS[game]`) is
