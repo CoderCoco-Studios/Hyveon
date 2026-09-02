@@ -13,24 +13,24 @@
  * seventh role/policy pair conditional on at least one game declaring a
  * `healthCheck`:
  *
- * | HCL address | This file |
+ * | Role/policy | This file |
  * | --- | --- |
- * | `aws_iam_role.ecs_task_execution` | {@link IamRoleResources.ecsTaskExecutionRole} |
- * | `aws_iam_role_policy_attachment.ecs_task_execution` | {@link IamRoleResources.ecsTaskExecutionPolicyAttachment} |
- * | `aws_iam_role.watchdog_lambda` | {@link IamRoleResources.watchdogLambdaRole} |
- * | `aws_iam_role_policy.watchdog_lambda` | {@link IamPolicyResources.watchdogLambdaPolicy} |
- * | `aws_iam_role.followup_lambda` | {@link IamRoleResources.followupLambdaRole} |
- * | `aws_iam_role_policy.followup_lambda` | {@link IamPolicyResources.followupLambdaPolicy} |
- * | `aws_iam_role.interactions_lambda` | {@link IamRoleResources.interactionsLambdaRole} |
- * | `aws_iam_role_policy.interactions_lambda` | {@link IamPolicyResources.interactionsLambdaPolicy} |
- * | `aws_iam_role.dns_updater_lambda` | {@link IamRoleResources.dnsUpdaterLambdaRole} |
- * | `aws_iam_role_policy.dns_updater_lambda` | {@link IamPolicyResources.dnsUpdaterLambdaPolicy} |
- * | `aws_iam_role.efs_seeder` (`for_each`) | {@link IamRoleResources.efsSeederRoles} |
- * | `aws_iam_role_policy.efs_seeder` (`for_each`) | {@link IamPolicyResources.efsSeederPolicies} |
- * | *(no HCL analogue — added post-migration)* | {@link IamRoleResources.fileBrowserSchedulerRole} |
- * | *(no HCL analogue — added post-migration)* | {@link IamPolicyResources.fileBrowserSchedulerPolicy} |
- * | *(no HCL analogue — post-migration; conditional)* | {@link IamRoleResources.healthCheckLambdaRole} |
- * | *(no HCL analogue — post-migration; conditional)* | {@link IamPolicyResources.healthCheckLambdaPolicy} |
+ * | ECS task-execution role | {@link IamRoleResources.ecsTaskExecutionRole} |
+ * | ECS task-execution managed-policy attachment | {@link IamRoleResources.ecsTaskExecutionPolicyAttachment} |
+ * | Watchdog Lambda role | {@link IamRoleResources.watchdogLambdaRole} |
+ * | Watchdog Lambda inline policy | {@link IamPolicyResources.watchdogLambdaPolicy} |
+ * | Followup Lambda role | {@link IamRoleResources.followupLambdaRole} |
+ * | Followup Lambda inline policy | {@link IamPolicyResources.followupLambdaPolicy} |
+ * | Interactions Lambda role | {@link IamRoleResources.interactionsLambdaRole} |
+ * | Interactions Lambda inline policy | {@link IamPolicyResources.interactionsLambdaPolicy} |
+ * | DNS-updater Lambda role | {@link IamRoleResources.dnsUpdaterLambdaRole} |
+ * | DNS-updater Lambda inline policy | {@link IamPolicyResources.dnsUpdaterLambdaPolicy} |
+ * | Per-game EFS-seeder roles | {@link IamRoleResources.efsSeederRoles} |
+ * | Per-game EFS-seeder inline policies | {@link IamPolicyResources.efsSeederPolicies} |
+ * | FileBrowser auto-stop scheduler role | {@link IamRoleResources.fileBrowserSchedulerRole} |
+ * | FileBrowser auto-stop scheduler inline policy | {@link IamPolicyResources.fileBrowserSchedulerPolicy} |
+ * | Health-check Lambda role (conditional) | {@link IamRoleResources.healthCheckLambdaRole} |
+ * | Health-check Lambda inline policy (conditional) | {@link IamPolicyResources.healthCheckLambdaPolicy} |
  *
  * ## Why this is two functions, not one
  *
@@ -57,23 +57,23 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import type { GameServerConfig } from '@hyveon/shared';
 
-/** Every IAM role and the managed-policy attachment {@link defineIamRoles} declares — see this file's doc for the full HCL→Pulumi address table. */
+/** Every IAM role and the managed-policy attachment {@link defineIamRoles} declares — see this file's doc for the full resource table. */
 export interface IamRoleResources {
-  /** ECS task-execution role (`aws_iam_role.ecs_task_execution`) — assumed by `ecs-tasks.amazonaws.com` to pull images and write logs on every game-server task. */
+  /** ECS task-execution role — assumed by `ecs-tasks.amazonaws.com` to pull images and write logs on every game-server task. */
   ecsTaskExecutionRole: aws.iam.Role;
-  /** Attaches the AWS-managed `AmazonECSTaskExecutionRolePolicy` to {@link ecsTaskExecutionRole} (`aws_iam_role_policy_attachment.ecs_task_execution`). */
+  /** Attaches the AWS-managed `AmazonECSTaskExecutionRolePolicy` to {@link ecsTaskExecutionRole}. */
   ecsTaskExecutionPolicyAttachment: aws.iam.RolePolicyAttachment;
-  /** Watchdog Lambda's role (`aws_iam_role.watchdog_lambda`). */
+  /** Watchdog Lambda's role. */
   watchdogLambdaRole: aws.iam.Role;
-  /** Followup Lambda's role (`aws_iam_role.followup_lambda`). */
+  /** Followup Lambda's role. */
   followupLambdaRole: aws.iam.Role;
-  /** Interactions Lambda's role (`aws_iam_role.interactions_lambda`). */
+  /** Interactions Lambda's role. */
   interactionsLambdaRole: aws.iam.Role;
-  /** DNS-updater Lambda's role (`aws_iam_role.dns_updater_lambda`). */
+  /** DNS-updater Lambda's role. */
   dnsUpdaterLambdaRole: aws.iam.Role;
   /**
    * Per-game EFS-seeder role, keyed by game name — one entry per
-   * {@link gamesWithFileSeeds} key (`aws_iam_role.efs_seeder`'s `for_each`).
+   * {@link gamesWithFileSeeds} key.
    */
   efsSeederRoles: Record<string, aws.iam.Role>;
   /**
@@ -93,20 +93,19 @@ export interface IamRoleResources {
   healthCheckLambdaRole: aws.iam.Role | undefined;
 }
 
-/** Every inline policy {@link defineIamPolicies} declares — see this file's doc for the full HCL→Pulumi address table. */
+/** Every inline policy {@link defineIamPolicies} declares — see this file's doc for the full resource table. */
 export interface IamPolicyResources {
-  /** Watchdog Lambda's inline policy (`aws_iam_role_policy.watchdog_lambda`). */
+  /** Watchdog Lambda's inline policy. */
   watchdogLambdaPolicy: aws.iam.RolePolicy;
-  /** Followup Lambda's inline policy (`aws_iam_role_policy.followup_lambda`). */
+  /** Followup Lambda's inline policy. */
   followupLambdaPolicy: aws.iam.RolePolicy;
-  /** Interactions Lambda's inline policy (`aws_iam_role_policy.interactions_lambda`). */
+  /** Interactions Lambda's inline policy. */
   interactionsLambdaPolicy: aws.iam.RolePolicy;
-  /** DNS-updater Lambda's inline policy (`aws_iam_role_policy.dns_updater_lambda`). */
+  /** DNS-updater Lambda's inline policy. */
   dnsUpdaterLambdaPolicy: aws.iam.RolePolicy;
   /**
    * Per-game EFS-seeder inline policy, keyed the same way as
-   * {@link IamRoleResources.efsSeederRoles} (`aws_iam_role_policy.efs_seeder`'s
-   * `for_each`).
+   * {@link IamRoleResources.efsSeederRoles}.
    */
   efsSeederPolicies: Record<string, aws.iam.RolePolicy>;
   /**
@@ -135,7 +134,7 @@ export type IamResources = IamRoleResources & IamPolicyResources;
 
 /** Arguments {@link defineIamRoles} needs to declare every IAM role and the managed-policy attachment. */
 export interface DefineIamRolesArgs {
-  /** Mirrors `var.project_name` — every role name below is `${projectName}-...`, matching the HCL exactly. */
+  /** Every role name below is `${projectName}-...`. */
   projectName: string;
   /**
    * The configured game-server map (`DeploymentConfig.gameServers`) —
@@ -149,7 +148,7 @@ export interface DefineIamRolesArgs {
 
 /** Arguments {@link defineIamPolicies} needs to declare every inline policy. */
 export interface DefineIamPoliciesArgs {
-  /** Mirrors `var.project_name` — every policy name below is `${projectName}-...`, matching the HCL exactly. */
+  /** Every policy name below is `${projectName}-...`. */
   projectName: string;
   /** The regional AWS provider every resource is declared against (region + default tags). */
   provider: aws.Provider;

@@ -125,9 +125,8 @@ describe('defineDiscordDomain', () => {
 
     // Asserted against `EXPECTED_CERTIFICATE_ARN` (computed independently of
     // the resource graph — see its doc), not by comparing the two live
-    // outputs to each other: two `undefined`s used to compare equal too,
-    // which made this assertion pass even when neither field actually
-    // resolved to a real ARN.
+    // outputs to each other: comparing two possibly-`undefined` outputs
+    // would pass even when neither field actually resolved to a real ARN.
     expect(await promiseOf(result.certificate.arn)).toBe(EXPECTED_CERTIFICATE_ARN);
     expect(await promiseOf(result.certificateValidation.certificateArn)).toBe(EXPECTED_CERTIFICATE_ARN);
     expect(await promiseOf(result.certificateValidation.validationRecordFqdns)).toEqual([
