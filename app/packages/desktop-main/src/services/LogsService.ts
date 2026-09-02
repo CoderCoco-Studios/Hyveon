@@ -355,63 +355,38 @@ export class LogsService {
    *
    * @remarks
    * Lists up to {@link MAX_STREAMS_SCANNED} streams in `logGroup` (newest
-   * first, paginating `DescribeLogStreamsCommand` via `nextToken`), then
-   * pages `GetLogEventsCommand` against each stream in turn — `endTime` +
-   * `startFromHead: false` for `'older'`, `startTime` + `startFromHead: true`
-   * for `'newer'` — accumulating events until at least `limit` have been
-   * collected (over-fetching per stream is tolerated; streams can interleave
-   * in time under overlapping retention, so events aren't necessarily in
-   * global order until sorted below).
+   * first), then pages `GetLogEventsCommand` against each in turn,
+   * accumulating events until at least `limit` are collected, sorts by
+   * timestamp, and trims to the `limit` closest to `boundaryTimestamp` — no
+   * unbounded page ever reaches the caller.
    *
-   * Stream processing order matters for which streams get skipped once
-   * `limit` is reached: `'older'` walks newest-to-oldest (the listed order),
-   * since the events closest to a backward boundary are, by construction,
-   * in the newest streams that could contain them. `'newer'` walks the
-   * *reverse* — oldest-to-newest — because the events closest to a forward
-   * boundary are typically in whichever stream was active just after it,
-   * which is often an older, since-rotated stream; iterating newest-first
-   * for `'newer'` could fill `limit` from the current stream's much-later
-   * events and break before ever querying the older stream that actually
-   * holds the boundary-adjacent history (the same class of bug this
-   * multi-stream rework exists to fix, recreated in the forward direction).
+   * `'older'` walks streams newest-to-oldest: the events closest to a
+   * backward boundary are, by construction, in the newest streams that could
+   * contain them. `'newer'` walks the *reverse* — oldest-to-newest — because
+   * the events closest to a forward boundary typically sit in whichever
+   * stream was active just after it, often an older, since-rotated stream;
+   * iterating newest-first for `'newer'` could fill `limit` from the current
+   * stream's much-later events and break before ever querying the older
+   * stream that actually holds the boundary-adjacent history.
    *
-   * Once enough streams have been scanned,
-   * the accumulated events are sorted by timestamp and trimmed to the
-   * `limit` closest to `boundaryTimestamp` (the oldest `limit` for
-   * `'older'`, the newest `limit` for `'newer'`) — no unbounded page ever
-   * reaches the caller.
-   *
-   * `'older'`'s `atOldest` is `true` only when every stream in the log group
-   * was scanned (the `DescribeLogStreamsCommand` pagination was exhausted
+   * `'older'`'s `atOldest` is `true` only once every stream in the group has
+   * genuinely been scanned (`DescribeLogStreamsCommand` pagination exhausted
    * without hitting {@link MAX_STREAMS_SCANNED}) and the trimmed result is
-   * still empty — a log group with more than {@link MAX_STREAMS_SCANNED}
-   * streams that scan cap is hit before, so an empty page in that case does
-   * NOT report `atOldest: true`; the operator sees no further backward
-   * progress on that call, but the UI doesn't render the "beginning of
-   * retention" marker for a boundary this scan couldn't actually reach. This
-   * is a deliberate simplification for a group this large — see
-   * {@link MAX_STREAMS_SCANNED}'s doc comment.
+   * still empty — a group larger than the scan cap never reports
+   * `atOldest: true`, since this scan can't actually confirm it reached the
+   * boundary.
    *
-   * `'newer'`'s inclusive `startTime` bound would otherwise re-deliver
-   * whatever event(s) sit exactly at `boundaryTimestamp` on every subsequent
-   * call — `excludeEventIds` filters those already-delivered events back
-   * out; a bare `boundaryTimestamp + 1` can't do this safely, since a
-   * distinct event that happens to share that exact millisecond but wasn't
-   * yet delivered would be skipped along with the duplicate.
-   *
-   * `excludeEventIds` is filtered as a **multiset** (occurrence-counted),
-   * not a `Set`. The synthesized `eventId` (`${timestamp}:${message}`) is a
-   * *global* identity, not a per-stream one — two different streams can each
-   * have an event with the exact same timestamp and message (e.g. a
-   * repeated static heartbeat line occurring across a rotated-stream
-   * boundary). A `Set`-based exclusion would treat both occurrences as "the
-   * same already-delivered event" and drop the second, genuinely-undelivered
-   * one, permanently losing it. Counting occurrences instead — one count
-   * consumed per matching accumulated event, in whatever order streams are
-   * scanned — preserves the *count* of real events sharing a key, even
-   * though which specific duplicate-content event is "the one already seen"
-   * is unknowable (and irrelevant, since same-key events are byte-identical
-   * by construction).
+   * `excludeEventIds` is filtered as a **multiset** (occurrence-counted), not
+   * a `Set`. The synthesized `eventId` (`${timestamp}:${message}`) is a
+   * *global* dedupe key, not a per-stream one — two different streams can
+   * each hold a genuinely distinct event sharing that exact key (e.g. a
+   * repeated static heartbeat line straddling a rotated-stream boundary). A
+   * `Set`-based exclusion would treat both as "already delivered" and drop
+   * the second, undelivered one. Counting occurrences instead — one count
+   * consumed per matching accumulated event — preserves the *count* of real
+   * events sharing a key, even though which specific duplicate-content event
+   * is "the one already seen" is unknowable (and irrelevant, since same-key
+   * events are byte-identical by construction).
    *
    * @param logGroup - Resolved CloudWatch log group name.
    * @param direction - `'older'` pages backward from `boundaryTimestamp`;

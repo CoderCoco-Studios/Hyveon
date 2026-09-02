@@ -326,52 +326,17 @@ const LOCK_CLEAR_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
  * by {@link PulumiService.assertFreshDestroyConfirmation} the moment a
  * {@link PulumiService.destroy} call validates it.
  *
- * ## Target binding
- *
- * The `iac-destroy-flow` spec requires a minted token to record the
- * workspace/stack it was issued for, and `destroy` to reject a token whose
- * recorded target doesn't match the stack about to be destroyed.
- *
- * This app operates exactly ONE bare stack name
- * ({@link PULUMI_STACK_NAME} — `'production'`, a constant, never
- * `org/project/stack`), so "a token minted for a different stack" cannot mean
- * what it means in a genuinely multi-stack system — there is no second stack
- * name it could ever diverge to. Binding on `stackName` alone would therefore
- * be real but permanently vacuous: the comparison can never fail in this
- * app's lifetime.
- *
- * What CAN genuinely change between minting a token (when the renderer opens
- * its destroy-confirmation modal) and consuming it (when the operator
- * confirms): the self-managed backend's **state bucket / region** the destroy
- * would run against. `PulumiWorkspaceService.getOrCreateStack`'s
- * `stateBucket`/`stateBucketRegion` inputs come straight from
- * `ElectronStoreService`'s `bootstrap.stateBucket`/`aws.region` — both
- * writable by the First-Run Wizard's "Reconfigure" flow at any time,
- * including while a destroy-confirmation modal is sitting open. An operator
- * who opens that modal against one backend, then (in another window, or after
- * a Reconfigure completes in the same session) points the app at a
- * *different* S3 state bucket before clicking confirm, would otherwise have
- * their original token silently authorize destroying whatever stack now
- * happens to live in the NEW bucket — exactly the "assurance a destroy gate
- * exists to provide" the spec's prose warns a token binds nothing without.
- * `stateBucket`/`stateBucketRegion` together are this app's actual
- * `PulumiWorkspaceInput`-shaped "target" — the pair that, combined with the
- * (always-constant) stack name, fully determines which real Pulumi stack
- * `stack.destroy()` will run against.
- *
- * `stackName`/`projectName` are still recorded and compared (`PULUMI_STACK_NAME`/
- * `PULUMI_PROJECT_NAME`, unconditionally) even though NEITHER can ever
- * mismatch today (both are hardcoded constants, never `org/project/stack`
- * user input) — cheap to check, literally what the spec's prose names ("the
- * workspace **and stack** it was issued for"), and future-proof for free: if
- * this app ever grows a second stack or project, the binding mechanism
- * already accounts for it without a schema change, only a population
- * change.
+ * Binds `stateBucket`/`stateBucketRegion` (not just `stackName`/`projectName`,
+ * which are hardcoded constants and can never mismatch): the First-Run
+ * Wizard's "Reconfigure" flow can repoint the self-managed backend at a
+ * different S3 state bucket while a destroy-confirmation modal is open, and
+ * without this binding a stale token would silently authorize destroying
+ * whatever stack now lives in the new bucket.
  *
  * `null` when no token has been minted, or once the most recently minted one
- * has been consumed or superseded by a newer {@link PulumiService.mintDestroyConfirmationToken}
- * call — minting always supersedes, so only the most recently minted token
- * is ever accepted.
+ * has been consumed or superseded by a newer
+ * {@link PulumiService.mintDestroyConfirmationToken} call — minting always
+ * supersedes, so only the most recently minted token is ever accepted.
  */
 interface PulumiPendingDestroyConfirmation {
   /** The single-use token the renderer must supply back to {@link PulumiService.destroy}. */
@@ -778,43 +743,24 @@ export class PulumiService {
 
   /**
    * Dedicated reentrancy guard for {@link initializeStack} — deliberately
-   * NOT folded into {@link operationInFlight} itself. Widening that field's
-   * (and {@link PulumiOperationInFlightError.inFlight}'s) declared union to a
-   * fifth `'stack-init'` value would ripple into every place that already
-   * types itself against the current four-value union verbatim —
-   * `IacController`'s `conflict` mapping and the `IacPlanAck.conflict`
-   * type it feeds (`iac.controller.ts`, mirrored in
-   * `@hyveon/desktop-preload/src/hyveon-api.ts`), and `iac.page.tsx`'s own
-   * `Conflict`/`CONFLICT_LABELS` — none of which `initializeStack` has any
-   * other reason to touch.
+   * NOT folded into {@link operationInFlight} (widening that union to a
+   * fifth `'stack-init'` value would ripple into `IacController`'s
+   * `conflict` mapping and its mirrors in `@hyveon/desktop-preload` and
+   * `iac.page.tsx`).
    *
-   * `initializeStack` itself refuses to start while {@link operationInFlight} is
-   * set (see its own TSDoc, "Workspace mutual exclusion"), and
-   * `preview`/`apply`/`destroy`/`confirmRollback`/`clearStaleLock` each
-   * refuse to start while THIS flag is set too, via
+   * `initializeStack` itself refuses to start while {@link operationInFlight}
+   * is set (see its own TSDoc, "Workspace mutual exclusion") and refuses to
+   * start a second time while this flag is already set; `preview`/`apply`/
+   * `destroy`/`confirmRollback`/`clearStaleLock` each refuse to start while
+   * THIS flag is set too, via
    * {@link assertStackInitNotInFlight}. This closes a race reachable via
    * Settings → Reconfigure → advance to the stack-init step (starts
-   * `initializeStack` in the background) → click Cancel: the step's cleanup
-   * calls the returned stream handle's `cancel()`, which — per
-   * `HyveonStreamHandle`'s own contract — only stops the RENDERER from
-   * consuming further progress, while `initializeStack` itself keeps running
-   * to completion regardless. Without this guard, `clearStaleLock` could
-   * confirm-clear a lock while a legitimate `initializeStack()` refresh was
-   * still genuinely running, cancelling live, correct work instead of a
-   * genuinely stale one; likewise `preview()`/`apply()`/`destroy()`/
-   * `confirmRollback()` would sail straight through their own
-   * `operationInFlight` check (still `null` — `initializeStack` never
-   * touches it) while `stack.refresh()` was still running against the SAME
-   * reused local `workDir`/`Pulumi.<stack>.yaml`/`PULUMI_HOME` plugin cache —
-   * and none of those operations take the durable S3 backend lock either
-   * (see {@link preview}'s TSDoc, "Does preview take the backend lock?"), so
-   * nothing else guards that shared local-workspace state while
-   * `initializeStack` is running. The REMAINING asymmetry —
-   * `initializeStack` itself only guards against a second concurrent
-   * `initializeStack` call via this same flag, not a fifth
-   * `operationInFlight` value the other four could also be checked
-   * against — is deliberate, to avoid the union-widening cost described
-   * above.
+   * `initializeStack` in the background) → click Cancel: the renderer's
+   * `HyveonStreamHandle.cancel()` only stops the RENDERER from consuming
+   * further progress — `initializeStack` itself keeps running against the
+   * shared local `workDir`/`Pulumi.<stack>.yaml`/`PULUMI_HOME` cache
+   * regardless, and none of those other operations take the durable S3
+   * backend lock either, so nothing else guards that shared local state.
    */
   private stackInitInFlight = false;
 
@@ -981,96 +927,31 @@ export class PulumiService {
 
   /**
    * Reads every value the app cares about off the deployed Pulumi stack.
-   * Returns `null` — NEVER throws, full stop. Every one of the ~14 call
-   * sites that use `getStackOutputs()` is written against that never-throw
-   * contract (several inside `finally` blocks, or ahead of code that must
-   * not be skipped by an unhandled rejection — e.g. `RunService.releaseRun`'s
-   * lock release, or `AuditService.record`'s documented "never throws"
-   * promise): see the catch-all around the Pulumi call below, which
-   * swallows every failure — a missing file, unparseable JSON, a thrown
-   * projection error — and returns `null`/logs rather than ever
-   * propagating. See `StackOutputs`'s own doc comment for the "not deployed
-   * yet" framing this degrades to.
-   *
-   * ## Concurrency guard
+   * Returns `null` — NEVER throws, full stop. Every call site is written
+   * against that never-throw contract (several inside `finally` blocks, or
+   * ahead of code that must not be skipped by an unhandled rejection) — the
+   * catch-all around the Pulumi call below swallows every failure and
+   * degrades to `null`/logs rather than ever propagating.
    *
    * Returns `null` immediately, without touching the shared workspace, while
-   * {@link stackInitInFlight} or {@link operationInFlight} is set — `initializeStack()`
-   * can run `stack.refresh()` and the other operations run `preview`/`up`/`destroy`
-   * against the same on-disk workspace `getOrCreateStack()` would otherwise reuse
-   * concurrently for this read.
+   * {@link stackInitInFlight} or {@link operationInFlight} is set — another
+   * operation may be using the same on-disk workspace `getOrCreateStack()`
+   * would otherwise reuse for this read.
    *
-   * ## Never deployed yet: three independent short-circuits, no Pulumi call
+   * Before ever calling into Pulumi, checks three local signals that a
+   * stack could possibly exist: `bootstrap.stateBucket` is configured,
+   * `pulumi.stackInitialized` is `true` in the store, and `aws.region` is
+   * configured. **This is a proxy for "a stack might exist", not a proof**
+   * — a destroyed stack, or `stackInitialized` left set by a failed create
+   * attempt, both look like "existing stack" locally — but the worst case
+   * if it's wrong is an extra round-trip, never a corrupted stack, since
+   * {@link PulumiWorkspaceService.getOrCreateStack} never trusts a caller's
+   * belief about stack existence.
    *
-   * A mere outputs *read* should never make a real Pulumi call at all when
-   * the store already makes "nothing has ever been deployed" obvious
-   * locally. So this method checks, in order, for evidence that a stack
-   * could possibly exist BEFORE ever calling into Pulumi, returning `null`
-   * immediately if any check fails:
-   *
-   * 1. `bootstrap.stateBucket` is configured — no backend has even been
-   *    bootstrapped otherwise (mirrors `PulumiBackendNotBootstrappedError`'s
-   *    condition, checked here directly so the "not deployed" path never
-   *    even constructs a `PulumiWorkspaceInput`).
-   * 2. `pulumi.stackInitialized` is `true` in the store
-   *    (`store.get('pulumi')?.stackInitialized === true`) — set by
-   *    {@link PulumiWorkspaceService.getOrCreateStack} only after a real
-   *    `Stack.createOrSelect` call has succeeded once for this install. Its
-   *    absence means nothing has ever been deployed from this install, so
-   *    this method degrades to "not deployed" rather than pay for a real
-   *    Pulumi round-trip on a mere read. Since the secrets passphrase is now
-   *    derived from the authenticated AWS account (see
-   *    {@link PulumiWorkspaceService.getOrCreateStack}), there is no longer a
-   *    "protect passphrase generation" concern this flag needs to guard —
-   *    the flag exists purely as a local shortcut to skip an unnecessary
-   *    round-trip, not to prevent an unsafe regeneration.
-   * 3. `aws.region` is configured — needed to build the backend URL; absent
-   *    only if the wizard's credentials step was never completed, which
-   *    implies nothing was ever deployed either.
-   *
-   * **These three checks are a proxy for "a stack might exist", not a
-   * proof.** A destroyed stack, or `stackInitialized` left set by a failed/
-   * abandoned create attempt, both leave the store looking exactly like
-   * "existing stack" when the remote stack may not actually be there — this
-   * is a best-effort no-create guarantee, not a proven one; but the WORST
-   * case if it's ever wrong is an extra `getOrCreateStack` round-trip, never
-   * a corrupted stack, since {@link PulumiWorkspaceService.getOrCreateStack}
-   * itself never trusts any caller's belief about stack existence at all.
-   *
-   * Only once all three checks pass does this call
-   * {@link PulumiWorkspaceService.getOrCreateStack} (with `backendReady: true`
-   * and a no-op `program` — reading `stack.outputs()` never invokes the
-   * program; see below) and `stack.outputs()`, inside a
-   * catch-all: ANY failure from either call — `PulumiBackendNotBootstrappedError`,
-   * `PulumiCredentialsNotConfiguredError`, engine-resolution failures, or a
-   * `CommandError` from the underlying `pulumi stack output` invocation — is
-   * logged and degraded to `null`. This is a deliberate, blunt catch-all
-   * rather than a nuanced per-error classification: callers cannot tell
-   * "genuinely not deployed" apart from "deployed, but this read failed"
-   * from the return value alone, which is an acceptable trade against the
-   * alternative (an unhandled rejection reaching code that assumed
-   * synchronous-style read semantics never throw). A future change that
-   * wants callers to distinguish those cases should do so deliberately,
-   * call-site by call-site, not by loosening this method's contract back
-   * open.
-   *
-   * ## Why a no-op `program` is safe here
-   *
-   * `LocalWorkspace.createOrSelectStack`'s `program` option is only ever
-   * invoked by `stack.preview()`/`.up()`/`.refresh()` — `stack.outputs()`
-   * reads the already-persisted checkpoint/state, never re-running the
-   * program (confirmed against `@pulumi/pulumi/automation/stack.js`). This
-   * method is read-only, so it passes a trivial `async () => ({})` rather
-   * than importing `@hyveon/infra`'s real `createInfraProgram` (which needs
-   * a full `DeploymentConfig` this read has no reason to assemble) — keeping
-   * this read path decoupled from the `@hyveon/infra` package entirely.
-   *
-   * ## "Empty outputs" also degrades to `null`
-   *
-   * A stack that exists but has never had a successful `up()` (e.g. only
-   * `preview()` has ever run) reports `stack.outputs()` as `{}` — treated as
-   * "not deployed" here too: an empty outputs map means infra isn't yet
-   * deployed.
+   * Only once all three pass does this call `getOrCreateStack` (with a
+   * no-op `program` — `stack.outputs()` never re-runs the program) and
+   * `stack.outputs()`. An outputs map of `{}` (a stack that exists but has
+   * never had a successful `up()`) also degrades to `null`.
    */
   async getStackOutputs(): Promise<StackOutputs | null> {
     logger.debug('PulumiService.getStackOutputs: reading stack outputs');
@@ -1162,137 +1043,57 @@ export class PulumiService {
   }
 
   /**
-   * The wizard's stack-initialization step (`IacController.init` is a
-   * permanent, documented-dead rejection stub — see that method's own
-   * TSDoc for the full history). Initializes — or, on a retry, re-verifies — the one Pulumi
-   * stack this app manages end to end: resolves the engine, constructs (or
-   * selects) the Automation API workspace/stack against the operator's S3
-   * backend via {@link PulumiWorkspaceService.getOrCreateStack} (generating
-   * a fresh secrets passphrase the first time this stack is ever created,
-   * verified against the real backend rather than any caller-supplied
-   * belief — see that method's own doc comment, "Call order"), explicitly
-   * installs the pinned `@pulumi/aws`
-   * provider plugin, then runs a real (if inert) `pulumi refresh` against
-   * the brand-new, zero-resource stack to prove the whole round trip —
-   * engine, backend, credentials, and plugin — actually works.
+   * The wizard's stack-initialization step. Initializes — or, on a retry,
+   * re-verifies — the one Pulumi stack this app manages end to end:
+   * resolves the engine, constructs (or selects) the Automation API
+   * workspace/stack against the operator's S3 backend via
+   * {@link PulumiWorkspaceService.getOrCreateStack}, explicitly installs the
+   * pinned `@pulumi/aws` provider plugin, then runs a real (if inert)
+   * `pulumi refresh` against the brand-new, zero-resource stack to prove the
+   * whole round trip — engine, backend, credentials, and plugin — works.
    *
-   * ## Why this exists, and why its `program` is inert
+   * @remarks
+   * This runs before any `DeploymentConfig` has ever been written (the
+   * wizard's bootstrap step only provisions S3 buckets; game servers are
+   * configured later from the dashboard), so `program` here is
+   * {@link noOpProgram} — an inert, zero-resource {@link PulumiFn} — rather
+   * than a real infra program. Because it registers zero resources, nothing
+   * would implicitly trigger an `aws` provider plugin download the way a
+   * real `preview`/`up`/`destroy` does, so the `'plugins'` phase here is a
+   * real, explicit `workspace.installPlugin(...)` call rather than an
+   * approximation, using the version read from `@pulumi/aws`'s own
+   * installed `package.json` (see {@link resolveAwsProviderVersion}) so it
+   * can never drift from what a real deployment would install.
    *
-   * The wizard's final step needs something to run and report live progress
-   * on before "Finish setup" can enable — this is that something. Unlike
-   * every other stack-touching method on this class (`preview`/`apply`/
-   * `destroy`), this one runs before any `DeploymentConfig` has ever been
-   * written to the configuration bucket — the wizard's bootstrap step only
-   * provisions the S3 buckets themselves; game servers are configured later,
-   * from the dashboard. So `program` here is {@link noOpProgram}, an inert,
-   * zero-resource {@link PulumiFn}, never `createInfraProgram(deploymentConfig, ...)`.
-   * That has a real consequence for the 'plugins' phase below.
+   * Rethrows every failure as {@link PulumiStackInitializationError}, tagged
+   * with the phase that failed: `'engine'` for anything
+   * {@link classifyGetOrCreateStackFailure} attributes to at-or-before
+   * `engine.resolve()` (including a missing state bucket/region, checked
+   * directly before `getOrCreateStack` is called), `'operation'` if
+   * `getOrCreateStack` fails after the engine resolved (a bad backend URL,
+   * a stale bucket), or `'plugins'`/`'operation'` for a failure inside the
+   * respective step directly.
    *
-   * ## The three phases, and why 'plugins' needs an explicit step here
+   * `stack.refresh()`, unlike `preview()`, does take the DIY backend lock, so
+   * this records lock ownership immediately before calling it — mirroring
+   * `apply`/`destroy`'s own "recorded immediately before, cleared on every
+   * normal settlement" pattern — but deliberately does not also wire their
+   * full retry-on-reclaimable-orphan / `PulumiUnrecognizedLockError`
+   * classification: against a brand-new, zero-resource stack, the wizard's
+   * own Retry button is already a strictly simpler recovery path.
    *
-   * `PulumiEngineService.resolve`'s own TSDoc ("What 4.6 could not complete
-   * now") expected a future caller to report `'plugins'`/`'operation'` by
-   * approximating them around an *implicit* provider-plugin download that
-   * happens lazily the first time a real resource is registered during
-   * `preview()`/`up()`/`destroy()`. That approximation cannot work here:
-   * {@link noOpProgram} registers zero resources, so nothing would ever
-   * implicitly trigger an `aws` provider plugin download — `stack.refresh()`
-   * against an empty program and empty state genuinely never touches the
-   * `aws` plugin at all. So 'plugins' here is a real, explicit
-   * `workspace.installPlugin(...)` call (the equivalent of running
-   * `pulumi plugin install resource aws <version>` directly) rather than
-   * an approximation — a stronger, more literal signal than `preview`/`apply`/
-   * `destroy` get, not a weaker one. The exact version installed is read
-   * from `@pulumi/aws`'s own installed `package.json` (see
-   * {@link resolveAwsProviderVersion}) so it
-   * can never drift from the version `createInfraProgram`'s real resource
-   * declarations would themselves request once a real deployment config
-   * exists (both `@hyveon/infra` and this package pin the identical
-   * `@pulumi/aws` version today — confirmed by reading both `package.json`s
-   * — and `@pulumi/aws`'s own `resourceOptsDefaults()` resolves every real
-   * resource's provider version from that same installed `package.json`).
+   * Refuses to start while {@link operationInFlight} is set — this method
+   * touches the same shared local `workDir`/`Pulumi.<stack>.yaml` that
+   * `preview`/`apply`/`destroy`/`confirmRollback` do. See
+   * {@link stackInitInFlight} for why this method's own busy state is a
+   * separate flag rather than a fifth {@link operationInFlight} value.
    *
-   * 'engine' is reported by {@link PulumiWorkspaceService.getOrCreateStack}
-   * itself (threaded through to `PulumiEngineService.resolve`) —
-   * this method does not fire it directly, only forwards `onPhase` into that
-   * call. 'operation' wraps the `stack.refresh()` call: with zero resources
-   * in state, this is trivially a no-op change-wise (and, as the spike
-   * demonstrated against its `file://` backend — it does not exercise the DIY
-   * S3 backend — `LocalWorkspace.createOrSelectStack`'s own stack-init
-   * path already durably writes the stack's empty checkpoint to the backend
-   * as part of the 'engine' step above — this call is not literally the
-   * moment the stack first becomes durable) — but it still exercises the
-   * full engine-execution path end to end (spawns the CLI, connects the
-   * in-process language runtime, reads/writes against the real S3 backend)
-   * — the closest thing to "prove this stack actually works" available
-   * before any real infrastructure is configured, which is what the
-   * renderer's UI frames this phase as ("stack creation" / "verifying
-   * stack").
-   *
-   * `onPhase` receives a `'start'`/`'end'` pair for every phase this method
-   * actually reaches, in order. `'end'` fires whether that phase succeeded
-   * or failed — mirrors `PulumiPhaseStatus`'s own documented meaning
-   * ("beginning or has settled, success or failure alike"). A phase never
-   * reached (because an earlier one failed) never fires at all — a caller
-   * can treat "no `'start'` ever received" as "still pending" for that
-   * phase.
-   *
-   * ## Error attribution
-   *
-   * Rethrows every failure as {@link PulumiStackInitializationError}, tagging
-   * exactly which of the three phases failed:
-   *  - `'engine'` for anything {@link classifyGetOrCreateStackFailure}
-   *    identifies as happening at or before `engine.resolve()` settles —
-   *    covers a missing state bucket/region (checked directly by this
-   *    method, before `getOrCreateStack` is ever called), a genuine engine
-   *    provisioning failure (`PulumiEngineNetworkError`/
-   *    `PulumiEngineIntegrityError`/`PulumiEngineCacheWriteError`), and
-   *    anything thrown strictly before `engine.resolve()` runs
-   *    (`PulumiCredentialsNotConfiguredError`, `AwsPastedCredentialDecryptError`)
-   *    — none of the pre-engine cases has its own phase slot in this
-   *    method's 3-phase model, so they bucket into
-   *    'engine' as the closest fit.
-   *  - `'operation'` if `getOrCreateStack` fails AFTER `engine.resolve()`
-   *    already succeeded — i.e. the underlying `LocalWorkspace.createOrSelectStack`
-   *    (`stack init`/`stack select`) call itself failed for some other
-   *    reason (a bad backend URL, a stale bucket) — since that call's whole
-   *    purpose IS creating/selecting the stack, which is what the
-   *    'operation' phase represents in this method's UI framing, even
-   *    though the failure surfaces from inside the same `getOrCreateStack`
-   *    call that also resolves the engine. See
-   *    {@link classifyGetOrCreateStackFailure}'s own TSDoc for exactly how
-   *    this is determined — deliberately by the thrown error's own type,
-   *    NOT by whether `onPhase` already reported `('engine', 'end')` (fixed
-   *    in review — `PulumiEngineService.resolve` fires `'end'` on both its
-   *    success and failure paths, so that signal alone can't tell them
-   *    apart).
-   *  - `'plugins'` / `'operation'` for a failure inside the respective step
-   *    directly.
-   *
-   * ## Workspace mutual exclusion
-   *
-   * Refuses to start while {@link operationInFlight} is set, exactly like
-   * `preview`/`apply`/`destroy`/`confirmRollback` — this method touches the
-   * same shared local `workDir`/`Pulumi.<stack>.yaml` they do (via
-   * `getOrCreateStack`), so two operations racing that shared state would be
-   * just as unsafe here as anywhere else on this class. See
-   * {@link stackInitInFlight}'s own doc comment for why THIS method's own
-   * busy state is a separate flag rather than a fifth {@link operationInFlight}
-   * value, and for the accepted, documented scope cut that follows from that
-   * choice (preview/apply/destroy do not refuse while `initializeStack` is
-   * running) — the DIY S3 backend's own distributed lock (surfaced elsewhere
-   * on this class as `PulumiUnrecognizedLockError`) is the backstop for that
-   * gap if it is ever actually hit, not a substitute for closing it properly
-   * should a real need for symmetric protection show up later.
-   *
-   * @param onPhase - Optional progress callback; see above for exactly which
-   *   events it receives and when.
+   * @param onPhase - Optional progress callback; receives a `'start'`/`'end'`
+   *   pair for every phase actually reached, in order. A phase never
+   *   reached never fires.
    * @throws {@link PulumiOperationInFlightError} if `preview`/`apply`/
    *   `destroy`/`confirmRollback` is already running.
    * @throws `Error` if this method is already running (reentrancy guard).
-   * @throws `Error` if the state bucket / AWS region has not been configured
-   *   yet (wrapped as {@link PulumiStackInitializationError} with
-   *   `phase: 'engine'`).
    * @throws {@link PulumiStackInitializationError} for every other failure —
    *   see "Error attribution" above.
    */
@@ -1348,24 +1149,7 @@ export class PulumiService {
       }
 
       onPhase?.('operation', 'start');
-      // Lock-recovery bookkeeping — recorded
-      // immediately before the call that can actually take the DIY
-      // backend lock, mirroring `apply()`/`destroy()`'s identical
-      // "recorded immediately before, cleared on every normal settlement"
-      // pattern (see either method's own "Lock-recovery wiring" TSDoc
-      // section). `stack.refresh()`, unlike `stack.preview()` (which
-      // `preview()`'s own TSDoc documents never takes this lock at all),
-      // does take it — so a force-quit mid-refresh needs the same
-      // ownership record `apply`/`destroy` leave behind, or a later
-      // `PulumiUnrecognizedLockError` can never be proven this
-      // installation's own orphan. Deliberately does NOT also wire the
-      // full retry-on-reclaimable-orphan / `PulumiUnrecognizedLockError`
-      // classification `apply`/`destroy` build around their own
-      // lock-taking call — this records ownership for accountability
-      // only, not the full recovery apparatus: against a
-      // brand-new, zero-resource stack, the wizard's own Retry button is
-      // already a strictly simpler, always-available recovery path than
-      // reproducing that machinery here would add.
+      // Lock-recovery bookkeeping only (see TSDoc) — not the full apply/destroy recovery apparatus.
       const lockAttemptId = this.store.recordPulumiLockAttempt(PULUMI_STACK_NAME);
       try {
         await stack.refresh();
@@ -1594,7 +1378,6 @@ export class PulumiService {
    * `appliedGameServers` (`program.ts`). This deliberately redacts ALL
    * values unconditionally rather than only ones an operator marks
    * sensitive — `GameServerConfig` has no per-key sensitivity marker today.
-   * @remarks
    * Values are applied longest-first so that a shorter value which happens
    * to be a substring of a longer one (e.g. `abcd` inside `abcd-secret`)
    * cannot redact the longer value's prefix and leave its suffix exposed in
@@ -1616,207 +1399,34 @@ export class PulumiService {
    * Runs `pulumi preview` against the current deployment configuration,
    * yielding a {@link PulumiRunChunk} per line of stdout/stderr as the
    * operation produces it, and resolving to a {@link PulumiPreviewResult}
-   * once it settles. A generator (positional args, `runId`/`startedAt`
-   * hoisted above the `try` so a force-closed generator's outer `finally`
-   * can still persist a cancelled record, an operation-in-flight guard,
-   * `beginActiveRun` registered before the pre-spawn awaits so an early
-   * `streamRunOutput` subscriber never falls through to "unknown run").
+   * once it settles.
    *
-   * ## This method is a thin lock-owning wrapper around {@link previewCore}
-   *
-   * Everything this doc comment describes about the actual plan operation
-   * (streaming, hashing, persistence, cancellation, …) lives in
-   * {@link previewCore} — this method itself does exactly two things: refuse
-   * if {@link operationInFlight} is already set, then set it to `'preview'`
-   * for the duration of the delegated call. This split exists so
-   * {@link confirmRollback} can run the SAME plan logic under a
-   * lock it already acquired itself (`'rollback'`, not `'preview'`) —
-   * without it, `confirmRollback` calling this method directly would either
-   * refuse itself (this method's own busy check seeing the lock
-   * `confirmRollback` is already holding) or, if this method's guard were
-   * bypassed some other way, leave two independent owners of
-   * {@link operationInFlight} racing to clear it. See {@link previewCore}'s
-   * own doc comment and {@link confirmRollback}'s "Lock acquisition" section
-   * for the full design.
-   *
-   * ## Does `preview` take the DIY backend lock?
-   *
-   * **No — verified against the Pulumi CLI's Go source.** `pkg/backend/diy/backend.go`
-   * (fetched from the `pulumi/pulumi` GitHub repo, `master` branch)
-   * shows `diyBackend.Preview` calling `b.apply`
-   * directly:
-   *
-   * ```go
-   * func (b *diyBackend) Preview(...) (*deploy.Plan, sdkDisplay.ResourceChanges, error) {
-   *     // We can skip PreviewThenPromptThenExecute and just go straight to Execute.
-   *     opts := backend.ApplierOptions{DryRun: true, ShowLink: true}
-   *     return b.apply(ctx, apitype.PreviewUpdate, stack, op, opts, events)
-   * }
-   * ```
-   *
-   * — with **no** `b.Lock`/`b.Unlock` call anywhere in that path. Contrast
-   * `diyBackend.Update` (the `up` path), which wraps its own
-   * call in `err := b.Lock(ctx, stack.Ref()); defer b.Unlock(ctx, stack.Ref())`
-   * before proceeding — same for `Import`/`Refresh`/`Destroy`. `Lock` itself
-   * calls `checkForLock` (`pkg/backend/diy/lock.go`), which is what produces
-   * the `"the stack is currently locked by"` conflict text
-   * `PulumiLockRecovery.ts` classifies — since `Preview` never calls `Lock`,
-   * it can never observe or report a conflicting lock at all; it reads
-   * whatever state snapshot is on disk at the moment it runs, unlocked and
-   * unsynchronized with any concurrent `up`/`destroy`. **Conclusion: this
-   * method deliberately does NOT wire `ElectronStoreService.recordPulumiLockAttempt`/
-   * `clearPulumiLockAttempt` or `PulumiLockRecovery`'s classification** —
-   * there is nothing for them to guard here. `up` needs this wiring, since
-   * `Update` genuinely takes the lock — see {@link apply}'s own
-   * lock-recovery wiring.
-   *
-   * ## Leaked-promise `recoverResult`
-   *
-   * Confirmed against the SDK's own `PreviewResult` shape (`stack.d.ts`):
-   * `{ stdout, stderr, changeSummary }` — nothing this method doesn't
-   * already have in hand by the time a leak could occur. `stack.js`'s
-   * `preview()` computes `changeSummary` from the exact same `summaryEvent`
-   * this method's own `onEvent` callback (below) already captures — the SDK
-   * only loses access to it because the leak-check throw replaces the
-   * `return` statement, not because the data itself is unavailable. The
-   * saved plan artifact (`--save-plan`) is written by the CLI subprocess
-   * *before* it exits — i.e. before `runPulumiCmd` resolves and the SDK's
-   * `finally`-block leak check even runs — so it's already on disk
-   * regardless of which path (clean success or leak-recovery) is taken.
-   * **Conclusion: `recoverResult` needs to re-read nothing** — it
-   * synthesizes `{ stdout: '', stderr: '', changeSummary }` from the
-   * `changeSummary` this method already captured via `onEvent`. `stdout`/
-   * `stderr` are left empty in the synthetic result because this method
-   * never reads `PreviewResult.stdout`/`.stderr` anyway (the chunk-streaming
-   * loop below already captured and yielded every line via `onOutput`/
-   * `onError` as it streamed, independent of the SDK's own buffered
-   * `stdout`/`stderr` strings).
-   *
-   * ## Engine-version stamping
-   *
-   * The saved plan artifact's own `manifest.version` field (e.g.
-   * `"v3.255.0"`, WITH a `v` prefix) is read by
-   * {@link readEngineVersionFromPlanArtifact}, which strips the prefix
-   * before returning — so {@link PulumiPreviewResult.engineVersion} is
-   * stored un-prefixed (`"3.255.0"`), directly comparable via a bare string
-   * equality against `PulumiEngineService.getResolvedVersion()`'s own
-   * un-prefixed shape (`SemVer.toString()` never includes one). Normalizing
-   * once here, at write time, means apply's later comparison is a
-   * plain `===` with no format trap to rediscover.
-   *
-   * `engineVersion` is persisted as a field *separate from* {@link planHash}
-   * rather than folded into it. Folding it into the hash would make an
-   * apply-time mismatch unable to tell "the plan or config changed"
-   * apart from "only the engine was upgraded" — the `iac-plan-apply-page`
-   * spec's "Engine upgraded between plan and apply" scenario requires an
-   * error that *names the version change* specifically, which needs the two
-   * failure causes distinguishable. A separate field lets `apply` check
-   * independently: hash mismatch → generic staleness error; hash match but
-   * `engineVersion` differs from `PulumiEngineService.getResolvedVersion()`
-   * → the specific "engine upgraded" error.
-   *
-   * ## Structured `changeSummary`, not scraped stdout
-   *
-   * `onEvent` captures `event.summaryEvent.resourceChanges` into a local
-   * variable exactly the way the SDK's own internal `onEvent` wrapper does
-   * (`stack.js`'s `preview()`) — this method's own capture exists
-   * specifically so the leaked-promise recovery path above still has it
-   * (the SDK's internal capture is not exposed to a caller once the throw
-   * replaces its `return`). The returned result's `changeSummary` is this
-   * captured value after passing through {@link resolveChangeSummaryFallback},
-   * not `previewResult.changeSummary` directly — see that method's TSDoc for
-   * when it substitutes a `stack.history()`-derived value instead — see
-   * {@link ChangeSummary}'s doc comment for the `{}`-means-"summary missed"
-   * sharp edge every reader must respect.
-   *
-   * ## Chunk streaming (ported from `spawnAndStream`'s algorithm)
-   *
-   * `onOutput`/`onError` deliver **unbounded chunks, not lines** — the exact same shape
-   * `spawnAndStream`'s `child.stdout`/`.stderr` `'data'` handlers received.
-   * The line-splitting algorithm is ported verbatim: accumulate a per-stream
-   * buffer, `split(/\r?\n/)`, hold back the trailing partial line, flush any
-   * remainder once the operation settles. What's ported *differently* is the
-   * production side: `spawnAndStream` drives its queue from `child.on('data'/'close')`
-   * event-emitter callbacks; this method has no child-process handle to
-   * listen on (the Automation API's `onOutput`/`onError` are plain callbacks
-   * passed into `stack.preview()`), so the same queue/wake/notify consumer
-   * loop is instead fed by those callbacks directly, and "closed" is
-   * signalled by the wrapped `stack.preview()` promise settling (success or
-   * error alike) rather than a `child.on('close', ...)` event.
-   *
-   * ## Cancellation
-   *
-   * The whole `stack.preview()` call (wrapped in the leaked-promise
-   * recovery above) is wrapped again in {@link runWithEscalatingCancellation},
-   * which forwards a signal into `PreviewOptions.signal` and
-   * escalates to a logical forced-termination if the operation doesn't
-   * settle within the bounded window after that signal aborts — see that
-   * function's own TSDoc for the three distinct settlement shapes
-   * ({@link PulumiOperationNotStartedError}/{@link PulumiOperationAbortedError}/
-   * {@link PulumiOperationEscalatedError}) this method treats as "aborted"
-   * (ending the generator cleanly, resolving `undefined`) rather than a
-   * genuine {@link PulumiPreviewError} failure. No `onEscalate` hook is
-   * supplied — `preview` has no backend lock to forcefully clear (see
-   * above), so there is nothing for this extension point to do here;
-   * `apply`'s `up` path is the more likely place for one.
-   *
-   * The signal actually forwarded is an internal `AbortController` this
-   * method owns (mirroring `signal` when the caller supplies one — abort
-   * events are chained one-way, caller → internal), NOT `signal` directly.
-   * This exists so a **force-closed generator** (a consumer calling
-   * `break`/`.return()`/`.throw()` on the generator itself, independent of
-   * whether `signal` was ever provided or aborted) still has something to
-   * cancel: the outer `finally` below aborts this internal controller and
-   * AWAITS the resulting settlement before clearing {@link operationInFlight},
-   * so a torn-down consumer can never leave the CLI subprocess (and the
-   * shared workspace directory it's still writing to) running unsupervised
-   * while this instance reports itself free for a new operation — see the
-   * outer `finally`'s own comment for the full rationale.
-   *
-   * ## Persistence
-   *
-   * Once the operation settles (success, failure, or abort), this method
-   * writes the accumulated transcript (`writeRunLog`), settles the active-run buffer
-   * (`endActiveRun`), writes the local `<runsDir>/<runId>/run.json`
-   * (`writeRunRecord`), and persists the same record to the cloud-agnostic
-   * run-history store (`persistRunRecord`, via {@link RunRecordPersister}) —
-   * on every exit path, including the force-closed-generator path handled
-   * by the outer `finally` below. A persistence failure is wrapped in
-   * {@link PulumiRunPersistError} (carrying the already-computed outcome)
-   * rather than discarding it.
+   * A thin lock-owning wrapper around {@link previewCore}, which does the
+   * actual plan work (streaming, hashing, persistence, cancellation — see
+   * its own TSDoc). This method does exactly two things: refuse if
+   * {@link operationInFlight} is already set, then set it to `'preview'` for
+   * the duration of the delegated call. The split exists so
+   * {@link confirmRollback} can run the SAME plan logic under a lock it
+   * already acquired itself (`'rollback'`, not `'preview'`) — without it,
+   * `confirmRollback` calling this method directly would either refuse
+   * itself (seeing the lock it's already holding) or leave two independent
+   * owners of {@link operationInFlight} racing to clear it.
    *
    * @param configVersionId - The deployment-config object's S3 version id
-   *   this preview is expected to run against, if the caller has one (e.g.
-   *   re-running a preview after a prior stale one). When supplied and it no
-   *   longer matches the configuration object's current head version, throws
-   *   before any Pulumi call is made — an inline staleness check unrelated
-   *   to {@link planHash}'s hash mechanism, which always covers whatever
-   *   version id was actually observed. Ignored entirely when omitted —
-   *   there is no prior expectation to compare against.
-   * @param signal - Optional cancellation signal — see "Cancellation" above.
+   *   this preview is expected to run against, if the caller has one. When
+   *   supplied and it no longer matches the configuration object's current
+   *   head version, throws before any Pulumi call is made.
+   * @param signal - Optional cancellation signal.
    * @param preMintedRunId - Optional caller-minted `runId` — must match
    *   {@link RUN_ID_PATTERN}.
    * @param rolledBackFrom - The `runId` of the `apply` run this preview is
-   *   re-planning after a rollback — passed
-   *   through to the persisted run record unchanged.
+   *   re-planning after a rollback — passed through to the persisted run
+   *   record unchanged.
    * @throws A descriptive `Error` if another `preview`/`up`/`destroy` is
    *   already in flight on this instance, or if `preMintedRunId` doesn't
-   *   match {@link RUN_ID_PATTERN} — checked at the very top of the method
-   *   body, so the throw happens the instant the generator is first driven
-   *   (its first `.next()` call), before any `await`; note this is NOT the
-   *   same as "synchronously from the `preview(...)` call itself" — like any
-   *   async generator, calling `preview(...)` only constructs the generator
-   *   object and runs none of this method's body until iteration begins.
-   * @throws A descriptive `Error` if no configuration bucket is configured,
-   *   the configuration object doesn't exist, or `configVersionId` is stale
-   *   (see above).
-   * @throws {@link PulumiPreviewError} if `stack.preview()` itself fails (not
-   *   an abort).
-   * @throws {@link PulumiPlanHashError} if the operation succeeded but the
-   *   saved plan artifact couldn't be hashed or its `manifest.version`
-   *   couldn't be read afterward.
-   * @throws {@link PulumiRunPersistError} if the operation settled but the
-   *   run record couldn't be persisted afterward.
+   *   match {@link RUN_ID_PATTERN}.
+   * @throws See {@link previewCore} for the full set of failure modes
+   *   (config staleness, engine failures, hashing, persistence).
    */
   async *preview(
     configVersionId?: string,
@@ -1844,30 +1454,68 @@ export class PulumiService {
   }
 
   /**
-   * The actual `pulumi preview` operation {@link preview} runs — every
-   * behavior preview's own TSDoc documents (streaming, plan-hash
-   * computation, cancellation, persistence, the force-closed-generator
-   * safety net) lives here unchanged. Split out from {@link preview} by task
-   * 7.6 for exactly one reason: {@link confirmRollback} needs to run this
-   * SAME logic while it, not this method, owns {@link operationInFlight}
-   * (acquired as `'rollback'` before the historic configuration is
-   * restored, and held across the restore AND this call — see
-   * {@link confirmRollback}'s TSDoc). This method therefore does NOT touch
-   * {@link operationInFlight} at all — neither the busy check nor the
-   * set/clear — trusting whichever caller invoked it ({@link preview} or
-   * {@link confirmRollback}) to have already claimed it and to release it
-   * once this generator (and, for {@link confirmRollback}, whatever runs
-   * after it) has fully settled. Never call this method without
-   * {@link operationInFlight} already set by the caller — it has no guard of
-   * its own against two concurrent invocations racing the shared local
-   * workspace directory.
+   * The actual `pulumi preview` operation {@link preview} runs.
    *
-   * `preMintedRunId` validation also moved to each caller's own top-of-
-   * function guard (mirroring `apply()`/`destroy()`'s identical pattern)
-   * rather than living here, so both {@link preview} and
-   * {@link confirmRollback} reject a malformed id before either one ever
-   * touches {@link operationInFlight} — this method trusts it's already
-   * valid by the time it's called.
+   * Split out from {@link preview} so {@link confirmRollback} can run this
+   * SAME logic while it, not this method, owns {@link operationInFlight}
+   * (acquired as `'rollback'` before the historic configuration is restored,
+   * held across the restore AND this call). This method therefore does NOT
+   * touch {@link operationInFlight} at all — neither the busy check nor the
+   * set/clear — trusting whichever caller invoked it to have already
+   * claimed it and to release it once this generator has fully settled.
+   * Never call this method without {@link operationInFlight} already set by
+   * the caller. `preMintedRunId` validation is likewise the caller's
+   * responsibility (mirrors `apply()`/`destroy()`'s pattern).
+   *
+   * @remarks
+   * **Does not take the DIY backend lock.** Verified against the Pulumi CLI's
+   * Go source: `diyBackend.Preview` calls straight into `b.apply` with no
+   * `Lock`/`Unlock` around it, unlike `Update`/`Import`/`Refresh`/`Destroy`.
+   * So `preview` never observes or reports a conflicting lock, and
+   * deliberately does not wire `PulumiLockRecovery` or
+   * `ElectronStoreService.recordPulumiLockAttempt` — there's nothing here
+   * for them to guard. `apply`'s `up` path does need that wiring, since
+   * `Update` genuinely takes the lock.
+   *
+   * On the SDK's leaked-promise recovery path (see `PulumiLeakedPromise.ts`),
+   * `recoverResult` needs to re-read nothing: it synthesizes
+   * `{ stdout: '', stderr: '', changeSummary }` from the `changeSummary`
+   * this method already captured via `onEvent` — the same event the SDK's
+   * own internal capture uses, just no longer reachable once the leak-check
+   * throw replaces its `return`. `stdout`/`stderr` are left empty because
+   * this method never reads the SDK's buffered strings anyway; the chunk
+   * loop below already captured and yielded every line via `onOutput`/
+   * `onError` as it streamed.
+   *
+   * The plan artifact's `manifest.version` (`"v3.255.0"`, with a `v` prefix)
+   * is stripped by {@link readEngineVersionFromPlanArtifact} before storage,
+   * so {@link PulumiPreviewResult.engineVersion} is directly comparable via
+   * `===` against `PulumiEngineService.getResolvedVersion()`'s un-prefixed
+   * form. It's stored as a field separate from {@link planHash} (not folded
+   * into it) so `apply` can distinguish "the plan or config changed" from
+   * "only the engine was upgraded" and report the latter with its own
+   * specific error.
+   *
+   * The whole `stack.preview()` call is wrapped in
+   * {@link runWithEscalatingCancellation}, which forwards a signal into
+   * `PreviewOptions.signal` and escalates to a forced termination if the
+   * operation doesn't settle in time. The signal actually forwarded is an
+   * internal `AbortController` this method owns (chained one-way from the
+   * caller's `signal`), not `signal` directly — so a force-closed generator
+   * (consumer `break`/`.return()`/`.throw()`, independent of `signal`) still
+   * has something to cancel: the outer `finally` aborts this controller and
+   * AWAITS the resulting settlement before clearing {@link operationInFlight},
+   * so a torn-down consumer can never leave the CLI subprocess running
+   * unsupervised while this instance reports itself free for a new
+   * operation. No `onEscalate` hook — there's no backend lock here to
+   * forcefully clear.
+   *
+   * The `signal`-forwarding listener is named (not an inline anonymous
+   * handler) with `{ once: true }`, plus an unconditional
+   * `removeEventListener` in the outer `finally` — mirroring `apply`/
+   * `destroy`'s identical fix — so a caller reusing one long-lived
+   * `AbortSignal` across many `preview`/`confirmRollback` calls doesn't
+   * accumulate one listener per call.
    */
   private async *previewCore(
     configVersionId?: string,
@@ -1875,10 +1523,7 @@ export class PulumiService {
     preMintedRunId?: string,
     rolledBackFrom?: string,
   ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
-    // Hoisted above the try block: a force-closed generator (consumer
-    // break/.return()/.throw()) unwinds straight from `yield chunk` below,
-    // past the writeRunRecord call further down, to the outer finally,
-    // which needs to see these.
+    // Hoisted so a force-closed generator's outer `finally` can still see these after unwinding past `writeRunRecord`.
     let runId: string | undefined;
     let startedAt: string | undefined;
     let runRecordWritten = false;
@@ -1886,38 +1531,8 @@ export class PulumiService {
     // written to `<runsDir>/<runId>/pulumi.log` in a single `writeFileSync`
     // once the operation has settled.
     const logLines: string[] = [];
-    // `internalController`/`operationPromise`/`operationSettled` are hoisted
-    // (not declared inside the try block) so the outer `finally` can abort
-    // AND await a still-running `stack.preview()` call if this generator is
-    // force-closed (consumer `break`/`.return()`/`.throw()`) while the
-    // operation is in flight — see the outer `finally`'s own comment for why
-    // this is required, not optional. This generator has no inner
-    // sub-generator to delegate cancellation to (the Automation API's
-    // `onOutput`/`onError` are plain callbacks, not a stream this code owns
-    // the lifecycle of) — the `internalController`/`operationPromise` pair
-    // below is a hand-built equivalent: on force-close, it aborts the
-    // in-flight `stack.preview()` call and awaits its settlement before this
-    // generator's own outer finally proceeds to clear `operationInFlight`.
-    //
-    // `internalController` is ALWAYS the signal actually forwarded to
-    // `stack.preview()` (via `runWithEscalatingCancellation`) — never the
-    // caller-supplied `signal` directly. When `signal` is supplied, this
-    // controller mirrors it (aborting the instant `signal` does); when the
-    // generator is force-closed, the outer `finally` aborts THIS controller
-    // directly, regardless of whether the caller ever supplied a `signal` at
-    // all — otherwise a caller that never passes `signal` would have no
-    // cancellation path at all on a force-close, leaving the CLI subprocess
-    // to run to completion ungoverned while `operationInFlight` is already
-    // cleared for a new call.
-    // `onAbort` is named (not an inline anonymous handler) with
-    // `{ once: true }`, plus an unconditional `removeEventListener` in the
-    // outer `finally` below — this method (not `preview()` itself, which
-    // just delegates to it) owns this cancellation shape, mirroring
-    // apply()/destroy()'s identical fix (see either method's own TSDoc,
-    // "Cancellation and abort-listener leak"). Without the explicit
-    // detach, a caller reusing one long-lived `AbortSignal` across many
-    // `preview()`/`confirmRollback()` calls would accumulate one listener
-    // per call.
+    // Hoisted (not declared inside the try block) so the outer `finally` can abort AND await a still-running
+    // `stack.preview()` call on force-close — see TSDoc's "cancellation" paragraph.
     const internalController = new AbortController();
     const onAbort = (): void => internalController.abort();
     if (signal) {
@@ -1927,18 +1542,9 @@ export class PulumiService {
         signal.addEventListener('abort', onAbort, { once: true });
       }
     }
-    // Set once `stack.preview()` has actually been invoked (via
-    // `runWithEscalatingCancellation`) — `undefined` for the whole method if
-    // an early guard (bucket not configured, stale config version, etc.)
-    // returns/throws before ever reaching that point, in which case the
-    // outer `finally` has nothing to abort/await.
+    // Stays undefined if an early guard (bucket not configured, stale config version, etc.) returns/throws first.
     let operationPromise: Promise<PreviewResult> | undefined;
-    // Flips to `true` once `operationPromise` has genuinely settled (success,
-    // failure, or the bounded escalation timeout `runWithEscalatingCancellation`
-    // itself enforces — see that function's own TSDoc for why awaiting
-    // `operationPromise` in the outer `finally` below is still a BOUNDED
-    // wait, not an indefinite one, even for a wedged engine). Doubles as the
-    // chunk-drain loop's own "operation is done" signal further down.
+    // Bounded wait even for a wedged engine — runWithEscalatingCancellation enforces its own timeout.
     let operationSettled = false;
     try {
       if (internalController.signal.aborted) {
@@ -1948,11 +1554,7 @@ export class PulumiService {
         return undefined;
       }
 
-      // Mint (or adopt the pre-minted) runId and register its active-run
-      // buffer *here* — before the pre-spawn awaits below (the config
-      // fetch, then `getOrCreateStack`'s engine resolution) — so a
-      // `streamRunOutput()` subscriber that arrives before those awaits
-      // settle still finds the run already in flight.
+      // Register the active-run buffer before the pre-spawn awaits so an early `streamRunOutput()` subscriber finds it.
       runId = preMintedRunId ?? randomUUID();
       this.beginActiveRun(runId);
 
@@ -1981,12 +1583,7 @@ export class PulumiService {
       if (!obj) {
         throw new Error(`Configuration object "${key}" not found in S3 bucket "${bucket}".`);
       }
-      // The version this run actually ran against — either the caller's
-      // expectation (just confirmed to still be the head above) or, when no
-      // expectation was supplied, whatever the head happened to be. Always
-      // defined by the time `startedAt` is set below, so it's safe to record
-      // on every outcome (success/failure/abort) — mirrors how `pullVarFile`
-      // always resolves a var-file path before `plan()`'s own `startedAt` is set.
+      // Always defined by the time `startedAt` is set below, so it's safe to record on every outcome.
       const observedConfigVersionId = head.versionId;
       const deploymentConfig = JSON.parse(new TextDecoder().decode(obj.body)) as DeploymentConfig;
       const redactedEnvironmentValues = PulumiService.buildEnvironmentRedactionSet(deploymentConfig);
@@ -2058,10 +1655,7 @@ export class PulumiService {
         }
       };
 
-      // Captured immediately before the operation is invoked, mirroring
-      // plan()'s `startedAt = new Date().toISOString()` placement — the
-      // active-run buffer was already registered above, ahead of the
-      // pre-spawn awaits.
+      // Captured immediately before the operation is invoked, mirroring plan()'s `startedAt` placement.
       startedAt = new Date().toISOString();
 
       operationPromise = runWithEscalatingCancellation(
@@ -2075,12 +1669,7 @@ export class PulumiService {
         internalController.signal,
       );
 
-      // Mirrors spawnAndStream's `child.on('close', ...)` handler: flush any
-      // trailing partial line from both buffers, then mark settled — done
-      // from the SAME handler (attached to both the resolve and reject
-      // paths) so the drain loop below needs no special-casing between them.
-      // Also the outer `finally`'s signal that a force-close has nothing
-      // left to await — see that block's comment.
+      // Mirrors spawnAndStream's `child.on('close', ...)`; attached to both resolve and reject so no special-casing.
       const onOperationSettled = (): void => {
         for (const stream of ['stdout', 'stderr'] as const) {
           if (buffers[stream].length > 0) {
@@ -2132,10 +1721,7 @@ export class PulumiService {
         );
       }
 
-      // Read the saved plan artifact back off disk once the operation has
-      // genuinely succeeded — mirrors plan()'s `computePlanHash` call site
-      // exactly, including catching a post-success read failure into a
-      // typed error rather than letting it propagate raw.
+      // Mirrors plan()'s `computePlanHash` call site — a post-success read failure is caught into a typed error.
       let planHash: string | undefined;
       let engineVersion: string | undefined;
       let planHashError: PulumiPlanHashError | undefined;
@@ -2219,49 +1805,15 @@ export class PulumiService {
       }
       throw outcome.error;
     } finally {
-      // Unconditionally detach the internal-controller abort listener —
-      // `{ once: true }` alone only removes it
-      // once `signal` itself fires; on the overwhelmingly common path (the
-      // caller's signal never aborts across a normal completion), it would
-      // otherwise stay attached for the signal's whole lifetime, so a caller
-      // reusing one long-lived `AbortSignal` across many `preview()`/
-      // `confirmRollback()` calls (both of which delegate here) would
-      // accumulate one listener per call. Mirrors apply()/destroy()'s
-      // identical fix (see either method's own TSDoc, "Cancellation and
-      // abort-listener leak") — safe/idempotent to call even when the
-      // listener already detached itself (a `{ once: true }` listener that
-      // already fired).
+      // Unconditional detach — `{ once: true }` alone leaks a listener across long-lived signal reuse; see TSDoc.
       signal?.removeEventListener('abort', onAbort);
 
-      // Covers the force-closed generator case (consumer `break`/`.return()`/
-      // `.throw()`): if `stack.preview()` was actually invoked and hasn't
-      // settled yet, this generator was torn down while the CLI subprocess
-      // was still genuinely running. Abort it — `internalController.abort()`
-      // fires the SAME signal already forwarded into `stack.preview({ signal })`,
-      // triggering the SDK's own `SIGINT` handling — and AWAIT the resulting
-      // settlement before doing anything else, most importantly before
-      // `this.operationInFlight = null` below. Without this await,
-      // `operationInFlight` would be cleared while the subprocess (and the
-      // shared `workDir`/`Pulumi.<stack>.yaml` it's still writing to) is
-      // still live, letting a new `preview()`/`up()`/`destroy()` call start
-      // immediately and race against it on that shared local state — exactly
-      // what `operationInFlight`'s own doc comment says this guard exists to
-      // prevent. This generator has no inner sub-generator to delegate
-      // cancellation to (the Automation API's `onOutput`/`onError` are plain
-      // callbacks, not a stream), so the `internalController`/`operationPromise`
-      // pair is a hand-built equivalent. The wait is still BOUNDED, not indefinite:
-      // `runWithEscalatingCancellation` (already wrapping `operationPromise`)
-      // gives up waiting on a genuinely wedged operation after its own
-      // escalation timeout and settles anyway — see that function's TSDoc.
+      // Force-closed generator with the operation still running: abort and AWAIT settlement before clearing
+      // operationInFlight below, else a new preview/up/destroy could race the still-live shared workDir — see TSDoc.
       if (operationPromise && !operationSettled) {
         internalController.abort();
-        await operationPromise.catch(() => {
-          // Only here to observe settlement — the actual outcome (success,
-          // `PulumiOperationAbortedError`, `PulumiOperationEscalatedError`,
-          // or a genuine failure) is irrelevant to a generator that's
-          // already being torn down for an unrelated reason; the point is
-          // only that the underlying call has now genuinely finished.
-        });
+        // Outcome is irrelevant here — only settlement matters, since the generator is already tearing down.
+        await operationPromise.catch(() => {});
       }
 
       if (runId !== undefined) {
@@ -2271,405 +1823,110 @@ export class PulumiService {
         logger.warn('pulumi preview cancelled — generator force-closed while running', { runId });
         this.writeRunLog(runId, logLines);
         const completedAt = new Date().toISOString();
-        // `configVersionId` (the caller's original expectation, in scope
-        // from the function signature) is threaded through here rather than
-        // `observedConfigVersionId` (the version this run actually resolved
-        // to reading the configuration object) — that variable is
-        // block-scoped inside the `try` above and unreachable here; the
-        // caller-supplied `configVersionId` is the best available fallback
-        // for this force-killed path.
+        // `observedConfigVersionId` is block-scoped inside the `try` above and unreachable here; use the caller's.
         try {
           this.writeRunRecord(runId, 'plan', startedAt, completedAt, null, configVersionId, undefined, rolledBackFrom);
         } catch {
-          // Nothing meaningful to do with a persistence failure while the
-          // generator is already tearing down for an unrelated reason.
+          // Nothing meaningful to do with a persistence failure while already tearing down.
         }
         await this.persistRunRecord(runId, 'plan', startedAt, completedAt, null, configVersionId, undefined, rolledBackFrom);
       }
-      // NOTE: `operationInFlight` is deliberately NOT cleared here — this
-      // method never sets it either. See this method's own doc comment,
-      // "split out from preview()": the caller ({@link preview}
-      // or {@link confirmRollback}) owns the full set/clear lifecycle in its
-      // OWN `finally`, which only runs once this generator (including this
-      // very `finally` block) has fully completed.
+      // operationInFlight is deliberately NOT cleared here — the caller (preview/confirmRollback) owns it; see TSDoc.
     }
   }
 
   /**
    * Runs `pulumi up` constrained by a previously approved, unexpired plan,
-   * behind a **self-contained** gate this method owns end-to-end — there is
-   * no `PulumiController` yet, and this method needs none.
+   * behind a **self-contained** 8-step gate this method owns end-to-end —
+   * there is no `PulumiController` yet, and this method needs none.
    *
-   * ## The 8-step gate, in the exact order the `iac-plan-apply-page` spec
-   * requires ("The gate MUST verify, in order: ...")
+   * @remarks
+   * Gate, checked in order (steps 1-7 are pure reads; nothing is reserved
+   * until step 8):
+   * 1. A run record exists for `planRunId` ({@link PulumiPlanRunNotFoundError}).
+   * 2. `record.kind === 'plan'` ({@link PulumiPlanRunWrongKindError}).
+   * 3. `record.approvedBy`/`approvedAt` are both set ({@link PulumiPlanNotApprovedError}).
+   * 4. The approval hasn't expired — the fixed 15-minute `APPROVAL_WINDOW_MS`
+   *    window ({@link PulumiApprovalExpiredError}).
+   * 5. The caller-supplied `planHash` matches the record's stored hash
+   *    ({@link PulumiPlanHashMismatchError}).
+   * 6. The record is re-verified against reality without ever parsing the
+   *    plan artifact as JSON: the config object's current head version must
+   *    still match `record.configVersionId` ({@link StalePlanError}), and the
+   *    artifact is re-hashed and compared byte-for-byte against
+   *    `record.planHash` ({@link PulumiPlanArtifactStaleError}).
+   * 7. The plan's stamped engine version must match
+   *    `PulumiEngineService.getResolvedVersion()` ({@link PulumiEngineVersionMismatchError}).
+   * 8. **THEN, AND ONLY THEN**: `RunLockService.createRun()` — the atomic
+   *    compare-and-set that actually reserves the
+   *    run. Two concurrent `apply()` calls for the same plan race through
+   *    steps 1-7 harmlessly; only one wins this step, and the loser's
+   *    `createRun` rejects with `RunLockHeldError`, propagated raw.
    *
-   * 1. `RunRecordPersister.getByRunId(planRunId)` — a record exists at all.
-   *    Throws {@link PulumiPlanRunNotFoundError} otherwise.
-   * 2. `record.kind === 'plan'`. Throws {@link PulumiPlanRunWrongKindError}
-   *    otherwise.
-   * 3. `record.approvedBy && record.approvedAt` are both set. Throws
-   *    {@link PulumiPlanNotApprovedError} otherwise.
-   * 4. `!isApprovalExpired(record.approvedAt)` (the fixed 15-minute
-   *    `APPROVAL_WINDOW_MS` window, `@hyveon/shared/runs.js`). Throws
-   *    {@link PulumiApprovalExpiredError} otherwise.
-   * 5. `record.planHash === planHash` — the caller-supplied hash matches the
-   *    record's own stored hash. Throws {@link PulumiPlanHashMismatchError}
-   *    otherwise (a forged or stale hash can never reach `stack.up()`).
-   * 6. Re-verifies the record's hash against reality, in two parts, NEITHER
-   *    of which ever parses the on-disk plan artifact as JSON — satisfying
-   *    the spec's "the configuration check MUST NOT depend on the plan file
-   *    being parseable":
-   *    - 6a. The configuration object's CURRENT head version id
-   *      (`RemoteFileStore.listVersions`) is compared directly against
-   *      `record.configVersionId` (the version the plan actually ran
-   *      against). A mismatch means the configuration has been written
-   *      again since the plan was reviewed — throws {@link StalePlanError}
-   *      (reused, not reinvented: this is exactly the condition that class
-   *      already exists to describe — the same staleness check
-   *      {@link preview}'s own `configVersionId` guard performs).
-   *    - 6b. The on-disk plan artifact is re-hashed
-   *      (`computePlanHash(artifactPath, currentConfigVersionId)` — raw
-   *      bytes only, never `JSON.parse`d) and compared against
-   *      `record.planHash`. Since 6a already proved the config version is
-   *      unchanged, a mismatch here can only mean the artifact's *bytes*
-   *      differ from what was hashed at plan time — i.e. the file was
-   *      swapped or tampered with since review. Throws
-   *      {@link PulumiPlanArtifactStaleError} — a NEW class (7.9's 13 didn't
-   *      anticipate this specific byte-tamper case; `StalePlanError`'s shape
-   *      is about S3 config-object versions, not artifact bytes, so it does
-   *      not fit here) — also thrown, wrapping the read/hash failure as
-   *      `cause`, if the artifact can't be read/hashed at all.
-   * 7. The plan's stamped `record.engineVersion` (already normalized,
-   *    no `v` prefix, by `preview()`/`readEngineVersionFromPlanArtifact`)
-   *    is compared against `PulumiEngineService.getResolvedVersion()` —
-   *    `this.engine.resolve()` is awaited first to guarantee that accessor
-   *    is populated even on a fresh app session where no prior
-   *    `preview()`/`up()` call has resolved the engine yet (its own
-   *    memoization makes this a no-op, not a re-provision, once already
-   *    resolved — e.g. by an earlier `preview()` in the same process).
-   *    A mismatch throws {@link PulumiEngineVersionMismatchError}, naming
-   *    both versions, satisfying the spec's "an error that names the
-   *    version change".
-   * 8. **THEN, AND ONLY THEN**: `RunLockService.createRun('apply', initiator, planRunId)`
-   *    — the atomic compare-and-set, the FINAL and
-   *    AUTHORITATIVE step. Steps 1-7 above are pure reads (no
-   *    `getWorkspaceInFlight()`-style "is it free" pre-check is performed
-   *    anywhere in this method, deliberately — that is exactly the
-   *    anti-pattern this gate step exists to eliminate); two concurrent `apply()`
-   *    calls for the same plan race through steps 1-7 harmlessly and only
-   *    ONE of them wins this step's atomic reservation
-   *    (`RunService.createRun`'s in-memory check-then-set is synchronous,
-   *    before its own first `await`; its DynamoDB layer is a genuine
-   *    conditional `PutItem` — both confirmed already atomic, not
-   *    reinvented here). The loser's `createRun` call rejects with
-   *    `RunLockHeldError` (`@hyveon/shared`), which this method does not
-   *    catch or reclassify — it propagates raw, carrying the winning lock's
-   *    detail, for a future controller to map onto an ack shaped like
-   *    `{ started: false, conflict: 'apply' }`.
+   * `operationInFlight` is checked at the top (refusing a call that arrives
+   * while `preview`/`destroy`/an already-running `apply` holds the shared
+   * local workspace) but is only ever SET after step 8 resolves, followed by
+   * one more re-check to close the TOCTOU gap between the top-of-function
+   * check and step 8 — setting it any earlier would itself be the
+   * "preceding workspace-is-free observation" the gate exists to forbid.
+   * `runId` always equals `planRunId` (never a fresh id) so the plan
+   * artifact and both run records share one `<runsDir>/<planRunId>/`
+   * directory.
    *
-   * ## `operationInFlight` is checked, but never set, before gate step 8
+   * **`up()` DOES take the DIY backend lock** (unlike {@link preview} —
+   * `diyBackend.Update` wraps its call in `Lock`/`Unlock`, `Preview` does
+   * not), so this method wires the lock-recovery primitives `preview` skips:
+   * before calling `stack.up()` it records a lock-ownership attempt
+   * (`ElectronStoreService.recordPulumiLockAttempt`), cleared on every
+   * settlement except a forced escalation (that record is the backstop that
+   * lets a LATER operation reclaim this run's lock as a provably dead orphan
+   * if `stack.up()` itself ever wedges past the escalating-cancellation
+   * timeout). A lock-conflict rejection is classified via
+   * `PulumiLockRecovery.classifyStackLockConflict`: a provable own-orphan is
+   * reclaimed and retried once automatically; anything else throws
+   * {@link PulumiUnrecognizedLockError} for the operator to confirm.
    *
-   * Setting `operationInFlight` at the top of the method, before gate step 1
-   * ran, would itself be the forbidden "preceding workspace-is-free
-   * observation" the `iac-plan-apply-page` spec forbids as part of the gate
-   * — it would let two `apply()` calls in the same process (the only
-   * concurrency case that matters for a single desktop app) never both reach
-   * step 8: the second would be refused immediately, before reading
-   * anything, with a generic `Error` rather than `RunLockHeldError`.
+   * `onEvent`'s `resOutputsEvent` stream (never `resourcePreEvent`, which
+   * fires too early) is used to detect a **partial apply**: any mutating op
+   * type ({@link MUTATING_OP_TYPES}) that completes before a subsequent
+   * failure sets `completedSteps.length > 0`, wrapping the failure in
+   * {@link PulumiPartialApplyError} instead of {@link PulumiUpError}. This is
+   * recorded as the additive `partialApply: true` field (see
+   * {@link PulumiRunRecord.partialApply}), **independent of whether the run
+   * ultimately settled `'failed'` or `'aborted'`** — an operator cancel
+   * mid-`up()` is just as likely to leave a partial apply as a genuine
+   * failure. Any consumer MUST check `partialApply` directly and must not
+   * gate it behind `status === 'failed'` first.
    *
-   * `operationInFlight` is instead only ever SET once — synchronously,
-   * immediately after `createRun` above resolves (see the re-check
-   * immediately below), never at the top. The top-of-function check still
-   * exists, but for a narrower purpose: refusing an `apply()` call that
-   * arrives while a `preview`/`destroy` call, or an `apply` that has
-   * ALREADY won its lock and is actively running the engine, is genuinely
-   * using the shared local workspace directory (`operationInFlight`'s own
-   * doc comment — a concern entirely independent of the durable apply lock,
-   * since two Automation API invocations against the same
-   * `workDir`/`Pulumi.<stack>.yaml` would corrupt local state regardless of
-   * what `RunService` thinks). Two `apply()` calls both racing through steps
-   * 1-7 never observe each other via this field — only `createRun`'s own
-   * atomicity orders them.
+   * On a leaked-promise rejection, `recoverResult` re-reads
+   * `stack.outputs()`/`stack.info()` (the update already succeeded by then —
+   * see `PulumiLeakedPromise.ts`) to reconstruct a well-typed result;
+   * `changeSummary` itself doesn't need re-reading, since it was already
+   * captured via this method's own `onEvent` closure.
    *
-   * `initiator` is resolved internally via {@link resolveInitiator}
-   * (`os.userInfo().username`) rather than taken as a parameter — this
-   * method is self-contained per the ruling above, and there is no
-   * controller yet to resolve it instead.
+   * On success only, `ConfigCacheInvalidator.invalidateCache()` runs
+   * BEFORE `persistRunRecord` — `RunRecordService.persist` itself reads
+   * `runsTableName` off the same cache, so invalidating after would let the
+   * run record resolve it against stale pre-apply outputs.
    *
-   * `runId` is always `planRunId` itself (never a fresh `randomUUID()`) —
-   * the applied plan and its apply run record share the same
-   * `<runsDir>/<runId>/` lineage: the plan's own `runId` is reused so the
-   * plan artifact, the plan's `run.json`, and the apply's `run.json` all
-   * live under one `<runsDir>/<planRunId>/` directory, and so `RunLockService.createRun`'s
-   * `runId` parameter *is* the atomic reservation key both the gate
-   * and the plan/apply lineage need to agree on.
+   * Immediately after step 8 acquires the lock, and before `stack.up()` is
+   * ever called, a durable in-doubt marker (`kind: 'apply'`,
+   * `partialApply: true`) is written under `runId`'s `sk` — the same `sk`
+   * the eventual settlement write uses, so a normal settlement overwrites it
+   * in place. This closes the gap where a settlement write that itself fails
+   * to persist would otherwise leave the original `plan` record as the only
+   * observable state for `runId`, letting a blind retry pass every gate
+   * check again against infrastructure this attempt may have already
+   * mutated. Deliberately not best-effort — see
+   * {@link PulumiPreflightMarkerError} for the fail-closed behavior.
    *
-   * ## Nothing is reserved before step 8 — verified, not just asserted
-   *
-   * `this.beginActiveRun(runId)`, `this.operationInFlight = 'up'`, and
-   * `this.store.recordPulumiLockAttempt(...)` (the
-   * DIY-lock ownership record, see below) are ALL called only after step 8's
-   * `createRun` has already resolved successfully AND the post-`createRun`
-   * local-workspace re-check immediately below has itself passed — reading
-   * this method top-to-bottom confirms no side effect precedes the atomic
-   * reservation, satisfying the gate's "nothing before this point may
-   * reserve anything" requirement. Gate step 8 is immediately followed by exactly one
-   * more check before anything is actually reserved: a re-read of
-   * `operationInFlight`, closing the residual TOCTOU gap between the
-   * top-of-function check and this point (a `preview`/`destroy` call could
-   * have started and set the field during the `await`s gate steps 1-7 took;
-   * a concurrent plan/init could have reserved the workspace during that
-   * gap, so this re-check closes it). If that re-check finds the field already set, the durable lock this call
-   * just won is released (`RunLockService.releaseRun`) and the call is
-   * refused — nothing was ever reserved from the operator's point of view
-   * (no run record, no active-run buffer), so releasing here is simply
-   * undoing gate step 8, not a failure-recovery backstop. This re-check can
-   * only ever observe `'preview'`/`'destroy'` in practice, never `'up'` from
-   * a sibling `apply` — `RunService`'s lock is a single global slot, so two
-   * `createRun` calls can never both succeed while either is still held.
-   *
-   * ## Does `up()` take the DIY backend lock?
-   *
-   * **Yes.** {@link preview}'s own TSDoc ("Does `preview` take the DIY
-   * backend lock?") already verified `diyBackend.Preview` calls `b.apply`
-   * directly, with no `Lock`/`Unlock` anywhere in that path. The SAME Go
-   * source (`pkg/backend/diy/backend.go`) shows `diyBackend.Update` — the
-   * path `stack.up()` reaches — wraps its call in
-   * `err := b.Lock(ctx, stack.Ref()); defer b.Unlock(ctx, stack.Ref())`
-   * before proceeding. This confirms `up` genuinely takes and releases the
-   * DIY backend lock around the whole update, and is why (unlike `preview`)
-   * this method wires the lock-recovery primitives below.
-   *
-   * ## Lock-recovery wiring
-   *
-   * Immediately before calling `stack.up()` (never earlier — see "Nothing
-   * is reserved before step 8" above), this method records a lock-ownership
-   * attempt via `ElectronStoreService.recordPulumiLockAttempt(PULUMI_STACK_NAME)`,
-   * keeping the returned attempt id in scope. On every settlement of the
-   * wrapped `stack.up()` call EXCEPT {@link PulumiOperationEscalatedError},
-   * the attempt is cleared via `clearPulumiLockAttempt` — a normal CLI exit
-   * (success, a genuine failure, or a cancellation the CLI itself
-   * acknowledged via `SIGINT`) releases its own DIY lock via the backend's
-   * own `Unlock()`, so the record is no longer needed as reclaim evidence
-   * (mirrors `recordPulumiLockAttempt`'s own doc comment: "Never call
-   * [`clearPulumiLockAttempt`] when the operation was forcefully
-   * terminated"). An {@link PulumiOperationEscalatedError} settlement is
-   * exactly that forceful-termination case — see "Force-close safety net"
-   * below for why the record is deliberately left behind on that path.
-   *
-   * If `stack.up()` itself rejects with a lock conflict
-   * (`isStackLockConflict` — `instanceof ConcurrentUpdateError`, or the
-   * DIY-backend message pattern as a backstop), the rejection is classified
-   * via `PulumiLockRecovery.classifyStackLockConflict`:
-   * - `'reclaimable-own-orphan'` — every lock present is provably this
-   *   installation's own dead orphan (identity + liveness + time-consistency,
-   *   per that function's own TSDoc). Per `PulumiLockRecovery.ts`'s own doc
-   *   comment ("the caller acts on that classification directly —
-   *   calling `stack.cancel()` and retrying — without ever constructing or
-   *   throwing an error for it"), this method clears the lock via
-   *   `stack.cancel()` and retries `stack.up()` exactly once with the same
-   *   options/signal. No operator confirmation is involved — the spec's
-   *   "The app MAY reclaim it without prompting" — and this is the FIRST
-   *   real exercise of that classification anywhere in the codebase.
-   * - `'requires-confirmation'` (anything not provably an own orphan,
-   *   including "no locks could even be parsed") — throws
-   *   {@link PulumiUnrecognizedLockError} (holder + age already carried on
-   *   `locks`, per spec), and this method does NOT clear anything — clearing
-   *   an unrecognized lock needs explicit operator confirmation, a later
-   *   phase's UI concern.
-   *
-   * ## Force-close safety net for a wedged engine (a residual gap,
-   * now higher-stakes since `up()` holds the real backend lock)
-   *
-   * `preview()`'s outer `finally` — mirrored here — aborts and awaits its
-   * internal operation on a force-closed generator, but that `finally` can
-   * only run once the generator's CURRENT suspension point resolves. If the
-   * generator is parked mid-drain-loop on its own internal
-   * `await new Promise((resolveWait) => { wake = resolveWait })` (not a
-   * `yield`) waiting for `stack.up()` to settle, and `stack.up()` is
-   * genuinely wedged (ignores `SIGINT`, or is stuck between signal checks in
-   * a cloud-provider API call) — `runWithEscalatingCancellation`'s own
-   * escalation timer NEVER ARMS, because arming it requires `internalController.abort()`
-   * to have already fired, and the only thing that calls that (absent a
-   * caller-supplied `signal` that itself aborts) is this method's own outer
-   * `finally`. That `finally` cannot run until the pending internal `await`
-   * resolves; that `await` cannot resolve until the escalation timer fires;
-   * the escalation timer cannot arm until `finally` calls `abort()`. This is
-   * a genuine circular dependency — a wedged engine with no caller-supplied
-   * `signal` can leave this generator (and its outer `finally`) suspended
-   * indefinitely, with the DIY backend lock still held by the CLI
-   * subprocess. Fully closing this gap (an unconditional watchdog
-   * independent of `.return()` ever being called, or the "unofficial `run`
-   * override" `PulumiCancellation.ts`'s TSDoc floats for a real killable
-   * process handle) is out of scope here — this section documents the
-   * finding rather than silently leaving it unstated.
-   *
-   * **The lock-ownership record recorded above IS a sufficient backstop for
-   * this exact gap.** `ElectronStoreService.recordPulumiLockAttempt` is a
-   * synchronous, already-completed write to `electron-store` made BEFORE
-   * `stack.up()` is ever invoked — entirely unaffected by any later hang
-   * inside that call. Whether this run's own generator ever gets a chance
-   * to run its `finally` again or not, the record survives (in
-   * `userData`'s persisted store, on disk) for
-   * `PULUMI_LOCK_OWNERSHIP_RECORD_MAX_AGE_MS` (2 hours) as evidence: once
-   * the wedged CLI process eventually exits — by any means: the OS finally
-   * delivers `SIGINT`, the operator kills it manually, the app or machine
-   * restarts — its PID becomes provably dead, and the NEXT `preview`/`up`/
-   * `destroy` attempt against this stack that hits the same DIY lock
-   * conflict will have `classifyStackLockConflict` find this run's record,
-   * confirm identity (same username/hostname) + liveness (PID now dead) +
-   * time-consistency (`startedAt` at or before the stale lock's
-   * `lockedAt`), and classify it `'reclaimable-own-orphan'` — reclaiming and
-   * proceeding automatically, exactly the same path a fresh `up()` call
-   * exercises above. **Yes: the recorded evidence is sufficient for a LATER
-   * operation to recognize and reclaim the orphan even when THIS run cannot
-   * clean up after itself.**
-   *
-   * ## Partial-apply detection (this task's headline requirement)
-   *
-   * `UpResult` itself carries no "was this partial" signal (confirmed
-   * against `@pulumi/pulumi/automation/stack.d.ts`'s
-   * `{ stdout, stderr, outputs, summary }` shape — `summary.resourceChanges`,
-   * when present, is a final tally, not a partial/complete distinction) — this must be
-   * inferred from the `onEvent` stream, as the brief's own research
-   * anticipated. `onEvent`'s `resOutputsEvent` fires once per resource
-   * "finished being provisioned" (confirmed against `events.d.ts` — distinct
-   * from `resourcePreEvent`, which fires BEFORE a resource is touched and
-   * would over-count in-flight-but-not-yet-complete steps as "applied").
-   * Every `resOutputsEvent` whose `metadata.op` is in {@link MUTATING_OP_TYPES}
-   * (excludes `'same'`/read/refresh/discard-family no-ops) is accumulated
-   * into `completedSteps` as it streams. If `stack.up()` ultimately fails
-   * (not aborted, not a leaked-promise-recovered success) and
-   * `completedSteps.length > 0`, the failure is wrapped in
-   * {@link PulumiPartialApplyError} (carrying `completedSteps`) instead of
-   * {@link PulumiUpError} — a clean failure (nothing mutated yet) still gets
-   * {@link PulumiUpError}. `PulumiUnrecognizedLockError` is a distinct third
-   * shape (the update never even started against the backend — see above)
-   * and is thrown as-is, never wrapped in either.
-   *
-   * ## Terminal-state representation
-   *
-   * `RunRecord.status`/`PulumiRunRecord.exitCode` stay a closed
-   * success/failed/aborted (0/1/null) triple, per the additive
-   * `partialApply: true` boolean field (see {@link PulumiRunRecord.partialApply}'s
-   * doc comment for why an additive field was chosen over a fourth
-   * `RunStatus` value: `RunStatus` is the `status-index` DynamoDB GSI's hash
-   * key, and widening a GSI key's value set is a materially bigger,
-   * infra-affecting change that is not attempted here without
-   * explicit sign-off).
-   *
-   * **`partialApply` is independent of which non-`'success'` `status` the
-   * run settled with.** A resource step can have
-   * already been applied whether the run subsequently *failed*
-   * (`exitCode: 1` → `status: 'failed'`) OR was *aborted* (`exitCode: null`
-   * → `status: 'aborted'`, e.g. the operator pressing Cancel mid-`up()` —
-   * arguably the single most likely real-world way this system ends up
-   * partway through). `partialApply` is computed from whether
-   * `completedSteps` is non-empty, gated only on `outcome.kind !== 'success'`
-   * (see {@link apply}'s implementation) — never on `status === 'failed'`
-   * specifically. **Any
-   * consumer (the UI, a future controller, run-history rendering) MUST check
-   * `partialApply` directly and MUST NOT gate that check behind
-   * `status === 'failed'` first** — doing so silently drops the aborted-
-   * cancel case, exactly the scenario the spec's
-   * "the UI MUST direct the operator to re-plan rather than retry blindly
-   * after a partial failure" requirement most needs to catch. The correct
-   * check is simply `record.partialApply` on its own — re-plan, don't retry
-   * blindly, whenever it's `true` — independent of `record.status`.
-   *
-   * ## Leaked-promise `recoverResult`
-   *
-   * Unlike `preview` — where nothing needed re-reading — `up`'s recovery
-   * does need to re-read state. If `stack.up()` rejects with the SDK's leaked-promise message
-   * (`isLeakedPromiseError`), `PulumiLeakedPromise.ts`'s own TSDoc proves
-   * this can only happen after the actual update already succeeded — the
-   * update landed in the backend, but the synthetic `UpResult` the SDK would
-   * have returned is unrecoverable from the rejected promise itself.
-   * `recoverResult` re-reads `stack.outputs()` and `stack.info()` — fresh,
-   * independent, read-only calls, per that file's own guidance — to
-   * reconstruct a well-typed `UpResult`. `stack.info()`'s `result` field
-   * (`UpdateResult`) is checked and a mismatch from `'succeeded'` is logged
-   * as a sanity-check WARN, but does not override the recovery — trusting
-   * `isLeakedPromiseError`'s proven-sufficient classification, not a second
-   * heuristic, per that file's "provably sufficient" section. What does NOT
-   * need re-reading: `changeSummary` — the `capturedChangeSummary` this
-   * method's own `onEvent` closure already captured (the same mechanism
-   * `preview()` uses) survives the leak untouched, since it lives in this
-   * method's own local state, not inside the SDK's rejected promise.
-   *
-   * ## Cache invalidation
-   *
-   * On a successful apply — and ONLY then; a failed/aborted/partial apply
-   * did not durably change what a fresh `getStackOutputs()` read would
-   * report — `ConfigCacheInvalidator.invalidateCache()` (the real
-   * `ConfigService.invalidateCache()`, resolved lazily via
-   * {@link getConfigCacheInvalidator}) is called. Best-effort: a failure to
-   * resolve or call it is logged and swallowed, mirroring
-   * `persistRunRecord`'s "never let a side-effect write mask an otherwise-
-   * successful apply" policy — nothing else in production calls this after a
-   * deploy, so without it the dashboard would show "not deployed"
-   * indefinitely after the first real apply.
-   *
-   * Called BEFORE `persistRunRecord`, not after — `persistRunRecord` →
-   * `RunRecordService.persist` reads `runsTableName` off
-   * `ConfigService.getStackOutputs()`, a cache this same
-   * `invalidateCache()` call clears. Invalidating afterward would let this
-   * apply's own run-record write resolve `runsTableName` against PRE-apply
-   * cached outputs — wrong for any apply that itself changes the runs table.
-   *
-   * ## Cancellation and abort-listener leak
-   *
-   * Mirrors {@link preview}'s `internalController`/`operationPromise`
-   * cancellation shape exactly (see that method's TSDoc for the full
-   * rationale). The `signal.addEventListener('abort', ...)`
-   * call below passes `{ once: true }`, so a caller that reuses the same
-   * `AbortSignal` across repeated calls (or whose signal fires more than
-   * once for any reason) never accumulates more than one live listener per
-   * `apply()` invocation. The escalation timer arms on
-   * every force-close, even with no caller-supplied `signal`.
-   *
-   * ## Persistence
-   *
-   * Once gate step 8 succeeds, every settlement (success, failure, partial
-   * failure, or abort) goes through the same
-   * `writeRunLog`/`endActiveRun`/`writeRunRecord`/`persistRunRecord`
-   * sequence {@link preview} uses — `kind: 'apply'`, `configVersionId`/
-   * `planHash`/`engineVersion` passed through from the validated plan
-   * record (not re-derived), plus the new `partialApply` indicator. As
-   * documented on {@link persistRunRecord}, `RunRecordService.persist`'s own
-   * `finally` releases the durable apply lock gate step 8 acquired — no
-   * separate `RunLockService.releaseRun` call is made by this method itself,
-   * relying on that release happening one layer down. A gate failure (steps 1-7) never
-   * reaches this point at all — `runId` is only ever assigned after step 8
-   * succeeds, so a rejected gate call writes no run record and holds no
-   * lock to release.
-   *
-   * ## Pre-flight durable marker (issue #399)
-   *
-   * Immediately after gate step 8 acquires the lock — and BEFORE `stack.up()`
-   * is ever called — `RunRecordService.writePreflightMarker` writes a
-   * durable, in-doubt placeholder `RunRecord` (`kind: 'apply'`,
-   * `partialApply: true`) for `runId`, sharing the same `sk` the eventual
-   * settlement write below uses (so a normal settlement overwrites it in
-   * place, leaving exactly one record for the attempt). This closes the gap
-   * where a partial apply whose FINAL settlement write itself fails to
-   * persist would otherwise leave the original approved `plan` record as the
-   * only observable record for `runId`, passing every gate check above all
-   * over again on a subsequent call and permitting a blind retry against
-   * infrastructure this very attempt may have already mutated. This write is
-   * deliberately NOT best-effort — see {@link PulumiPreflightMarkerError}'s
-   * doc comment for the fail-closed behavior when it itself fails.
-   *
-   * @param planRunId - The `runId` of the approved `plan` run to apply — also
-   *   reused, unchanged, as this apply run's own `runId` (see "run id"
-   *   above).
+   * @param planRunId - The `runId` of the approved `plan` run to apply —
+   *   also reused, unchanged, as this apply run's own `runId`.
    * @param planHash - The plan hash the caller expects this plan run to
-   *   still carry (gate step 5) — normally the same value the originating
-   *   `preview()` call returned.
-   * @param signal - Optional cancellation signal — see "Cancellation" above.
+   *   still carry (gate step 5).
+   * @param signal - Optional cancellation signal.
    * @throws {@link PulumiOperationInFlightError} if another `preview`/`up`/
-   *   `destroy`/`rollback` is already in flight on this instance (the
-   *   top-of-function busy check, before gate step 1).
+   *   `destroy`/`rollback` is already in flight on this instance.
    * @throws {@link PulumiPlanRunNotFoundError}, {@link PulumiPlanRunWrongKindError},
    *   {@link PulumiPlanNotApprovedError}, {@link PulumiApprovalExpiredError},
    *   {@link PulumiPlanHashMismatchError}, {@link StalePlanError}, or
@@ -2677,16 +1934,14 @@ export class PulumiService {
    *   (1-6) fails.
    * @throws {@link PulumiPartialApplyRetryBlockedError} if gate step 2 finds
    *   an `apply`-kind record for `planRunId` with `partialApply: true` — a
-   *   prior attempt against this same plan either diverged partway through,
-   *   or never confirmed that it didn't (issue #399).
+   *   prior attempt against this same plan either diverged partway through
+   *   or never confirmed that it didn't.
    * @throws {@link PulumiEngineVersionMismatchError} if gate step 7 fails.
    * @throws `RunLockHeldError` (`@hyveon/shared`, unwrapped) if gate step 8
    *   loses the atomic race for the apply lock.
-   * @throws {@link PulumiPreflightMarkerError} if the durable pre-flight
-   *   marker `RunRecordService.writePreflightMarker` writes immediately
-   *   after gate step 8 (before `stack.up()` is ever called) itself fails —
-   *   `apply` fails closed on this: `stack.up()` is never reached, and the
-   *   durable apply lock is released explicitly in this same path.
+   * @throws {@link PulumiPreflightMarkerError} if the pre-flight marker write
+   *   itself fails — `apply` fails closed: `stack.up()` is never reached,
+   *   and the durable apply lock is released explicitly on this path.
    * @throws {@link PulumiUnrecognizedLockError} if `stack.up()` hits a
    *   backend lock conflict that cannot be proven this installation's own
    *   orphan.
@@ -2703,91 +1958,37 @@ export class PulumiService {
     signal?: AbortSignal,
   ): AsyncGenerator<PulumiRunChunk, PulumiUpResult | undefined> {
     logger.debug('PulumiService.apply: starting pulumi apply', { planRunId });
-    // Checked (never SET here — see "Nothing is reserved before step 8"
-    // below) so an `apply()` call arriving while a `preview`/
-    // `destroy`/already-lock-won `apply` is genuinely running the engine is
-    // refused immediately, without wasting a gate read that would lose
-    // anyway. Deliberately does NOT gate two applies racing for the SAME
-    // (or different) plan: those must both reach gate step 8 and be ordered
-    // by `RunLockService.createRun`'s own atomicity, never by this
-    // observation — see this method's TSDoc, "Nothing is reserved before
-    // step 8": setting this field here would be exactly the forbidden
-    // "preceding workspace-is-free observation" the `iac-plan-apply-page`
-    // spec explicitly rules out as the gate.
+    // Checked, never set here — see TSDoc "Nothing is reserved before step 8"; two applies racing the same plan
+    // are ordered by RunLockService.createRun's atomicity at step 8, never by this observation.
     if (this.operationInFlight) {
       throw new PulumiOperationInFlightError(this.operationInFlight);
     }
     this.assertStackInitNotInFlight('apply');
     PulumiService.assertValidRunId(planRunId);
-    // Hoisted above the try block — mirrors preview()'s identical hoist and
-    // rationale: a force-closed generator unwinds straight to the outer
-    // `finally`, which needs to see these regardless of how far the gate/
-    // operation got.
+    // Hoisted above the try block — mirrors preview()'s identical hoist; the outer `finally` needs these regardless
+    // of how far the gate/operation got.
     let runId: string | undefined;
     let startedAt: string | undefined;
     let runRecordWritten = false;
-    // `true` only once THIS invocation has itself set `operationInFlight`
-    // (post gate-step-8, see below) — gates the outer `finally`'s reset so a
-    // gate failure that never touched the field can never null out some
-    // OTHER concurrently-running operation's own flag: since the top check
-    // above only reads the field, never sets it, a failing gate call
-    // can reach the outer `finally` having never touched `operationInFlight`
-    // at all, while a genuinely unrelated `preview`/`destroy` call is live.
+    // True only once this invocation has itself set operationInFlight (post gate-step-8) — a gate failure that
+    // never touched the field must never null out an unrelated concurrent operation's own flag.
     let ownsOperationInFlight = false;
-    // `true` once a call that genuinely attempted to release the durable
-    // apply lock has completed — set after the NORMAL-path `persistRunRecord`
-    // call (whose own `RunRecordService.persist` releases the lock in its
-    // own `finally`) and after the force-close fallback's equivalent call.
-    // Gates the outer `finally`'s unconditional backstop
-    // `releaseRun` call (see below) so it does NOT also fire on every
-    // ordinary successful apply — `RunService.releaseRun` awaits
-    // `ConfigService.getStackOutputs()`, which the just-run
-    // `invalidateCache()` call (on the success path) guarantees will MISS
-    // its cache and re-invoke `PulumiService.getStackOutputs()` — two more
-    // real `pulumi` CLI subprocess spawns (`stack select` + `stack output`)
-    // on the hot path of every successful apply, delaying the generator's
-    // final settlement for no reason (the lock was already correctly
-    // released moments earlier). The backstop is only ever actually needed
-    // on the ONE path this flag stays `false` for: `writeRunRecord` itself
-    // throwing, which skips `persistRunRecord` entirely (see the backstop's
-    // own comment).
+    // Gates the outer `finally`'s backstop releaseRun call so it doesn't also fire (and re-spawn CLI subprocesses)
+    // on every ordinary successful apply — only needed when writeRunRecord itself throws; see that backstop.
     let lockReleased = false;
-    // The gate-validated configVersionId/engineVersion, hoisted the instant
-    // the plan record is fetched (well before the lock is acquired) so the
-    // outer `finally`'s force-closed fallback can still thread them through
-    // its own best-effort run-record write — mirrors why `runId`/`startedAt`
-    // are hoisted, just for record-persistence completeness rather than
-    // control flow.
+    // Hoisted the instant the plan record is fetched so the force-closed fallback can still thread these through.
     let configVersionId: string | undefined;
     let engineVersion: string | undefined;
-    // Hoisted so the outer `finally`'s force-closed fallback
-    // can persist real changeSummary/partial-apply data instead of nothing —
-    // see this method's TSDoc, "Partial-apply detection", for why this must
-    // be visible on every settlement path, not only a clean `outcome.kind
-    // === 'failed'`.
+    // Hoisted so the force-closed fallback can persist real data — see TSDoc "Partial-apply detection".
     let capturedChangeSummary: ChangeSummary = {};
-    // Hoisted so the post-settlement `resolveChangeSummaryFallback` call
-    // (which needs the `Stack` to call `.history()` on) can run outside the
-    // try block below, once `wasAborted`/`upError` are known — mirrors why
-    // `capturedChangeSummary` itself is hoisted.
+    // Hoisted so the post-settlement resolveChangeSummaryFallback call can run outside the try block below.
     let capturedStack: Stack | undefined;
     const completedSteps: PulumiPartialApplyStep[] = [];
-    // The id `ElectronStoreService.recordPulumiLockAttempt` returns, kept in
-    // scope so both the normal-completion path and the outer `finally`'s
-    // force-close path can clear it — see the TSDoc's "Lock-recovery wiring"
-    // section for exactly when each does and does not clear it.
+    // Kept in scope so both the normal path and the force-close path can clear it — see TSDoc "Lock-recovery wiring".
     let lockAttemptId: string | undefined;
     const logLines: string[] = [];
-    // Same internal-controller pattern as preview() — see that method's
-    // TSDoc for the full rationale. Named (rather than inline) `onAbort` so
-    // the outer `finally` can unconditionally `removeEventListener` it on
-    // every exit path, not only once it fires: `{ once: true }`
-    // alone only detaches the listener once `signal` itself
-    // aborts; on the overwhelmingly common path (the caller's signal never
-    // aborts at all), the listener would otherwise stay attached for the
-    // signal's entire lifetime, so a caller reusing one long-lived
-    // `AbortSignal` across many `apply()` calls would accumulate one
-    // listener per call.
+    // Same internal-controller pattern as preview() — named `onAbort` so the outer `finally` can unconditionally
+    // removeEventListener it on every exit path, avoiding a leaked listener across long-lived signal reuse.
     const internalController = new AbortController();
     const onAbort = (): void => internalController.abort();
     if (signal) {
@@ -3549,276 +2750,83 @@ export class PulumiService {
    * {@link PulumiRunChunk} per line of stdout/stderr as the operation
    * produces it, and resolving to a {@link PulumiDestroyResult} once it
    * settles, gated behind a confirmation-token mechanism that is genuinely
-   * target-bound (see {@link PulumiPendingDestroyConfirmation}'s doc comment).
+   * target-bound (see {@link PulumiPendingDestroyConfirmation}).
    *
-   * ## No plan-hash gate — the token IS the gate
+   * @remarks
+   * Unlike {@link apply}, there is no preceding plan to validate against —
+   * no artifact, no `planHash`, no approval lineage. **The confirmation
+   * token IS the entire safety gate here**, not one of several redundant
+   * checks: {@link assertFreshDestroyConfirmation} is consumed synchronously
+   * (step 3 below), with nothing async above it, so two calls racing the
+   * same token are strictly ordered by JS itself — the loser observes the
+   * token already spent and throws {@link DestroyNotConfirmedError}, never
+   * touching `RunLockService`.
    *
-   * Unlike {@link apply}, `destroy` has no preceding `preview()` plan to
-   * validate against: there is no saved artifact, no `planHash`, no approval
-   * lineage. Destroy cannot be plan-constrained the way apply is — the destroy
-   * path therefore relies ENTIRELY on the confirmation-token gate for its
-   * safety, with no plan artifact behind it — the token gate is load-bearing
-   * in a way the apply path's is not. Every design decision below treats the
-   * token check as THE safety-critical
-   * step of this method, not one of several redundant checks.
+   * Gate, in order:
+   * 1. {@link operationInFlight} busy check (synchronous, no reservation).
+   * 2. Synchronous config-presence checks (state bucket/region configured, a
+   *    stack has actually been created).
+   * 3. **The token check** — {@link assertFreshDestroyConfirmation}, consumed
+   *    here. Nothing has been reserved yet, so a rejection is a clean,
+   *    zero-side-effect unwind.
+   * 4. **Forced to come after the token**: `RunLockService.createRun()` — the
+   *    same atomic compare-and-set `apply`'s gate uses. This ordering is the
+   *    one genuinely spec-mandated constraint: `createRun` is this method's
+   *    first real `await` boundary, so if it ran before the token check, a
+   *    same-token race would be decided by its atomicity instead — the loser
+   *    would see `RunLockHeldError`, not `DestroyNotConfirmedError`. A losing
+   *    race here rejects with `RunLockHeldError`, propagated unwrapped.
+   * 5. The same post-`createRun` {@link operationInFlight} TOCTOU re-check
+   *    `apply` performs — on a loss, the just-acquired lock is released and
+   *    the call refused.
+   * 6. **Commit**: `operationInFlight = 'destroy'`, `beginActiveRun(runId)`.
    *
-   * ## Gate structure (simpler than `apply`'s, and
-   * ordered differently, not just shorter)
+   * Because step 4 can still lose its race against a different process
+   * already holding the durable lock, a destroy call can spend its token on
+   * an attempt that's still refused with `RunLockHeldError` — there's no way
+   * to know `createRun` will win before awaiting it. This is accepted:
+   * within this single-desktop-app context it's rare, and a spent token only
+   * forces re-confirmation, never a silent no-op.
    *
-   * `apply`'s 8-step gate exists because two independent things must be true
-   * before `stack.up()` runs: the plan is still valid (steps 1-7, all
-   * idempotent reads — safe to repeat on a retry, so they're free to run
-   * BEFORE the one non-idempotent step) AND no other run is allowed to start
-   * (step 8, the atomic reservation, placed last). `destroy` has no analogue
-   * to steps 1-7 at all — there is no plan to re-validate. What it has
-   * instead is the confirmation token, which is NOT an idempotent read: it
-   * is a single-use credential, and the `orchestrator-integration-coverage`
-   * spec's "Concurrent submissions cannot share one token" scenario is
-   * explicit that the LOSER of a same-token race must observe
-   * `DestroyNotConfirmedError` specifically — not `RunLockHeldError`, not a
-   * generic "busy" refusal.
+   * **`stack.destroy()` DOES take the DIY backend lock** (`diyBackend.Destroy`
+   * wraps `Lock`/`Unlock` around its call, identically to `Update`), so this
+   * method wires the same lock-recording + reclaim-of-provable-own-orphan
+   * mechanism {@link apply} uses, unchanged.
    *
-   * **Only ONE ordering constraint below is actually forced by that spec
-   * requirement — everything else is a deliberate choice, and this section
-   * is explicit about which is which**, since generalizing "the token must
-   * precede the one genuinely-forced boundary" into "the token must precede
-   * everything else" would needlessly burn tokens on refusals that have
-   * nothing to do with the race the ordering is protecting against:
+   * Passes a no-op `async () => ({})` program to `getOrCreateStack` — a
+   * plain `pulumi destroy` never runs the program (it only reads the
+   * existing state checkpoint), so this method never needs to read the
+   * deployment configuration object at all. That's operationally important:
+   * `destroy` can tear down a stack even when the current configuration
+   * object is missing, malformed, or describes a different layout than
+   * what's actually deployed.
    *
-   * - **Forced**: the token MUST be consumed before {@link RunLockService.createRun}
-   *   (gate step 4 below) — `createRun` is this method's first genuine
-   *   `await` boundary (a DynamoDB round trip when the runs table is
-   *   deployed), so any ordering that reaches it before the token is
-   *   consumed would let a same-token race be decided by `createRun`'s own
-   *   atomicity instead — the loser would observe `RunLockHeldError`, not
-   *   `DestroyNotConfirmedError`, violating the spec scenario outright.
-   * - **NOT forced**: whether the pure, synchronous config-presence checks
-   *   (gate step 2 below — state bucket/region configured, a stack has
-   *   actually been created) run before or after the token. Both orderings
-   *   are equally synchronous (neither has an `await` in it), so EITHER
-   *   ordering decides a same-token race identically — at the token check,
-   *   with nothing async above it, with `RunLockService` never touched by
-   *   the loser. These checks are placed BEFORE the token: a call that was
-   *   always going to fail an ordinary "is anything even deployed yet" check
-   *   should not additionally burn the operator's single-use confirmation on
-   *   top of that failure, and nothing about the spec requires it to.
-   *
-   * 1. {@link operationInFlight} busy check (top, cheap, no reservation,
-   *    still synchronous) — mirrors `apply`'s identical top-of-function
-   *    check: refuses immediately if `preview`/`up`/an already-running
-   *    `destroy` (from an EARLIER, already-committed call) is using the
-   *    shared local workspace, before the token is ever even read.
-   * 2. Pure, synchronous config-presence checks — state bucket/region
-   *    configured, a stack has actually been created (passphrase on
-   *    record). NOT forced to precede the token (see above) — ordered here
-   *    as a deliberate choice, not a spec requirement.
-   * 3. **THE authoritative safety gate, consumed here — still synchronously,
-   *    with nothing async above it (steps 1-2 are also synchronous, so this
-   *    property holds regardless of their relative order)**:
-   *    {@link assertFreshDestroyConfirmation}. Two calls sharing the same
-   *    token, driven "concurrently" (their `.next()` calls issued
-   *    back-to-back before either has awaited anything), are strictly
-   *    ordered by JS itself — whichever call's `.next()` executes first
-   *    runs this whole gate step, including the token's synchronous clear,
-   *    to completion before the other call's `.next()` begins at all. The
-   *    loser observes the token already consumed and throws
-   *    {@link DestroyNotConfirmedError} — exactly the spec's required
-   *    outcome, decided without ever touching `RunLockService`. Nothing has
-   *    been reserved anywhere by the time this step could throw (no lock,
-   *    no `operationInFlight`, no active-run buffer), so a rejection here is
-   *    a clean, zero-side-effect unwind.
-   * 4. **THEN, and only then — this ordering IS forced (see above)**:
-   *    `RunLockService.createRun()` (called with `'destroy'`, the resolved
-   *    initiator, and this run's `runId`) — the SAME atomic
-   *    compare-and-set `apply`'s gate step 8 uses, reserving this app's
-   *    single durable run slot for `runId`. A losing race rejects with
-   *    `RunLockHeldError`, propagated unwrapped, exactly like `apply`.
-   * 5. The SAME post-`createRun` {@link operationInFlight} TOCTOU re-check
-   *    `apply` performs (closing the gap a concurrent `preview`/already-
-   *    winning `up` could have opened during that `await`) — on a loss, the
-   *    just-acquired durable lock is released and the call refused, mirroring
-   *    `apply`'s identical branch byte-for-byte.
-   * 6. **Commit**: `operationInFlight = 'destroy'`, `beginActiveRun(runId)`,
-   *    `startedAt` captured. Nothing above this line has reserved anything
-   *    that survives a refusal EXCEPT the token itself (step 3 — spec-
-   *    mandated to be spent regardless of what happens afterward; there is
-   *    no "un-consume") — every other branch that throws before this point
-   *    either reserved nothing at all, or explicitly released what it
-   *    reserved (the durable lock) before throwing.
-   *
-   * **Residual, genuinely-forced trade-off, stated explicitly**: because
-   * step 4 (the ONE ordering the spec actually forces after the token) can
-   * still lose its race — a DIFFERENT process already holding the durable
-   * lock — a destroy can still spend its token on a call that was always
-   * going to be refused with `RunLockHeldError`. There is no synchronous way
-   * to know whether `createRun` will win BEFORE calling it (the durable lock
-   * is only observable via that same async round trip), so this one case
-   * cannot be moved earlier the way the config checks were. It is rare in
-   * this single-desktop-app context (this app never runs two instances
-   * against the same stack under normal operation) and, per the destroy
-   * gate's own governing spec, burning a token here is the fail-safe
-   * outcome, not an unsafe one — a spent token only forces re-confirmation,
-   * never a silent no-op. Step 1's {@link operationInFlight} check fully
-   * protects the actually-common conflict case (a second click, or a second
-   * IPC submission, while THIS process's own destroy/apply/preview is
-   * already running) without spending anything, and step 2 now fully
-   * protects the "nothing is configured yet" case too. Checking the token
-   * strictly last is not a viable alternative ordering: it cannot satisfy the
-   * spec's concurrent-shared-token scenario at all (see the "Forced" bullet
-   * above).
-   *
-   * `operationInFlight` is, exactly like `apply`, only ever SET once —
-   * immediately after commit (step 6) — never at the top-of-function check
-   * (step 1), for the identical reason `apply`'s TSDoc documents: setting it
-   * early would be the forbidden "preceding workspace-is-free observation"
-   * that prevents two genuinely-concurrent calls from both reaching the
-   * atomic reservation at all.
-   *
-   * ## Does `stack.destroy()` take the DIY backend lock?
-   *
-   * **Yes.** `pkg/backend/diy/backend.go`'s `diyBackend.Destroy` (fetched
-   * from the `pulumi/pulumi` GitHub repo, `master` branch):
-   *
-   * ```go
-   * func (b *diyBackend) Destroy(...) (sdkDisplay.ResourceChanges, error) {
-   *     if op.Opts.PreviewOnly { ... }  // this method never sets PreviewOnly
-   *     err := b.Lock(ctx, stack.Ref())
-   *     if err != nil { return nil, err }
-   *     defer b.Unlock(ctx, stack.Ref())
-   *     return backend.PreviewThenPromptThenExecute(ctx, apitype.DestroyUpdate, stack, op, b.apply, nil, nil)
-   * }
-   * ```
-   *
-   * — identical shape to `diyBackend.Update` (`apply`'s own path): `Lock`
-   * before, deferred `Unlock` after. This method never sets
-   * `DestroyOptions.previewOnly`, so it always takes the real (non-preview)
-   * path shown above. Confirms the SAME lock-recording +
-   * `ConcurrentUpdateError` classification + auto-reclaim-of-provable-own-
-   * orphan mechanism `apply` established applies here unchanged — wired below via the identical
-   * `ElectronStoreService.recordPulumiLockAttempt`/`clearPulumiLockAttempt`/
-   * `PulumiLockRecovery.classifyStackLockConflict` calls `apply` uses, not a
-   * rederived variant.
-   *
-   * ## No-op inline program
-   *
-   * Unlike `preview`/`apply`, this method passes a trivial
-   * `async () => ({})` program to {@link PulumiWorkspaceService.getOrCreateStack}
-   * — the SAME no-op {@link getStackOutputs} already established is safe for
-   * an operation that doesn't need the program's actual resource graph.
-   * Verified against `stack.js`'s own `destroy()` implementation: the CLI
-   * args it builds only ever include `--run-program=<bool>` when
-   * `DestroyOptions.runProgram` is explicitly set
-   * (`if (opts.runProgram !== undefined)`); this method never sets it, so the
-   * CLI's own default applies — a plain `pulumi destroy` does NOT run the
-   * program, it deletes whatever the existing state checkpoint says exists,
-   * using each resource's own provider. The inline program's role in an
-   * Automation API call is to stand up the gRPC language-server handshake
-   * `LocalWorkspace.createOrSelectStack` requires — not to redescribe the
-   * resources being destroyed. Using a no-op program also means this method
-   * never needs to read the deployment configuration object from S3 at all:
-   * `destroy` can tear down a stack even if the current configuration object
-   * is missing, malformed, or describing a different game-server layout than
-   * what's actually deployed — an operationally important property (you must
-   * be able to destroy broken infrastructure) this method would otherwise
-   * accidentally lose by depending on `createInfraProgram(deploymentConfig, ...)`
-   * succeeding first.
-   *
-   * ## `changeSummary`
-   *
-   * `DestroyResult` (`stack.d.ts`) is `{ stdout, stderr, summary: UpdateSummary }`
-   * — structurally identical to `UpResult`'s shape (`apply`'s own result),
-   * NOT `PreviewResult`'s flatter `{ stdout, stderr, changeSummary }`.
-   * `UpdateSummary.resourceChanges` is optional and, per `apply`'s own TSDoc,
-   * its exact population semantics from the CLI were never independently
-   * verified. This method therefore handles it exactly like `apply` does —
-   * NOT `preview` — capturing `capturedChangeSummary` from `onEvent`'s
-   * `summaryEvent` and using that captured value directly for the returned
-   * result on every path, never reading `DestroyResult.summary.resourceChanges`.
-   * This also means the leaked-promise-recovery path and the normal-
-   * completion path can never disagree about where `changeSummary` came
-   * from, for the identical reason `apply`'s TSDoc gives.
-   *
-   * ## No partial-destroy concept (investigated, per the brief's explicit
-   * instruction not to invent one unprompted)
-   *
-   * `DestroyResult` carries no partial/complete distinction beyond the
-   * generic `summary.result` (`UpdateResult`) — nothing analogous to
-   * `apply`'s `resOutputsEvent`-derived `completedSteps` tracking exists here,
-   * because the brief's own instruction was explicit: don't build a parallel
-   * mechanism unless evidence in `DestroyResult`'s actual shape calls for it.
-   * It doesn't — {@link PulumiDestroyOutcome} is a plain three-way
-   * success/aborted/failed union, with no `partialApply`-style fourth signal,
-   * mirroring {@link PulumiPreviewOutcome}'s shape rather than
-   * {@link PulumiApplyOutcome}'s.
-   *
-   * ## Leaked-promise `recoverResult`
-   *
-   * Mirrors `apply`'s real (re-reading) implementation, not `preview`'s
-   * "nothing to re-read" one: `stack.info()` is re-read (a fresh, independent,
-   * read-only call) purely as a sanity-check WARN log if its `result` isn't
-   * `'succeeded'` — it does not gate or override the recovery, trusting
-   * `isLeakedPromiseError`'s proven-sufficient classification per
-   * `PulumiLeakedPromise.ts`'s "provably sufficient" section. Unlike `apply`,
-   * `stack.outputs()` is NOT re-read — {@link PulumiDestroyResult} carries no
-   * outputs (there is nothing meaningful to report post-destroy), and a
-   * destroyed stack's outputs read would itself be racing the very teardown
-   * this recovery path exists to confirm succeeded.
-   *
-   * ## Cancellation, chunk streaming, force-close safety net
-   *
-   * All THREE mirror `apply`'s shapes byte-for-byte: the named
-   * `onAbort` handler with unconditional `removeEventListener` in the outer
-   * `finally`, the `internalController`/`operationPromise`/
-   * `operationSettled` triple for a force-closed generator's bounded
-   * abort-and-await, and the identical queue/wake/notify chunk-streaming
-   * consumer loop. See {@link apply}'s TSDoc for the full rationale of each;
-   * nothing about the engine swap or the simpler gate changes any of it.
-   *
-   * ## Cache invalidation
-   *
-   * On a successful destroy — and ONLY then — {@link getConfigCacheInvalidator}'s
-   * `invalidateCache()` is called, best-effort, mirroring `apply`'s identical
-   * requirement: a destroyed stack's `getStackOutputs()` must stop reporting
-   * stale "deployed" data immediately, not after the next unrelated cache
-   * expiry. Called BEFORE `persistRunRecord`, not after — see `apply()`'s
-   * own "Cache invalidation" TSDoc section for the full
-   * `runsTableName`-staleness reasoning, identical here.
-   *
-   * ## Persistence
-   *
-   * `kind: 'destroy'`, same `writeRunLog`/`endActiveRun`/`writeRunRecord`/
-   * `persistRunRecord` sequence `preview`/`apply` use. No `configVersionId`,
-   * `planHash`, or `engineVersion` is recorded — all three are left
-   * `undefined` (there
-   * is no configuration version or plan artifact this run ran against — see
-   * "No-op inline program" above for why this method never even reads the
-   * configuration object). `persistRunRecord`'s own `RunRecordService.persist`
-   * releases the durable lock step 3 acquired, in its own `finally` — no
-   * separate `RunLockService.releaseRun` call is made on that path, mirroring
-   * `apply`'s identical reliance; the outer `finally`'s `lockReleased`-gated
-   * backstop below exists for the one path that skips it (`writeRunRecord`
-   * itself throwing), for the identical reason `apply`'s TSDoc documents.
+   * `changeSummary` is captured from `onEvent`'s `summaryEvent` exactly like
+   * `apply` (not `preview`), never read off `DestroyResult.summary`
+   * directly. There is no partial-destroy concept — {@link PulumiDestroyOutcome}
+   * is a plain three-way success/aborted/failed union, unlike
+   * {@link PulumiApplyOutcome}'s `partialApply` variant. Cancellation, chunk
+   * streaming, the force-close safety net, cache invalidation, and
+   * persistence all mirror `apply`'s shapes exactly (see that method's
+   * TSDoc) — `configVersionId`/`planHash`/`engineVersion` are simply left
+   * `undefined` on the persisted record, since there is no plan or config
+   * version this run ran against.
    *
    * @param confirmationToken - The token returned by a prior
-   *   {@link mintDestroyConfirmationToken} call. See "Gate structure" above
-   *   for exactly when this is validated relative to the durable lock.
-   * @param signal - Optional cancellation signal — see "Cancellation, chunk
-   *   streaming, force-close safety net" above.
+   *   {@link mintDestroyConfirmationToken} call.
+   * @param signal - Optional cancellation signal.
    * @param preMintedRunId - Optional caller-minted `runId` — must match
    *   {@link RUN_ID_PATTERN}.
    * @throws {@link PulumiOperationInFlightError} if another `preview`/`up`/
-   *   `destroy`/`rollback` is already in flight on this instance (the
-   *   top-of-function busy check).
+   *   `destroy`/`rollback` is already in flight on this instance.
    * @throws A descriptive `Error` if `preMintedRunId` doesn't match
    *   {@link RUN_ID_PATTERN}, if the state bucket/region aren't configured, or
-   *   if no stack has ever been created (no Pulumi stack initialization on
-   *   record).
+   *   if no stack has ever been created.
    * @throws `RunLockHeldError` (`@hyveon/shared`, unwrapped) if the durable
    *   lock reservation loses its atomic race.
    * @throws {@link DestroyNotConfirmedError} if `confirmationToken` is
    *   missing, unknown, expired, already consumed, or bound to a different
-   *   target (see {@link PulumiPendingDestroyConfirmation}'s doc comment,
-   *   "Target binding").
+   *   target.
    * @throws {@link PulumiUnrecognizedLockError} if `stack.destroy()` hits a
    *   backend lock conflict that cannot be proven this installation's own
    *   orphan.
@@ -4485,120 +3493,46 @@ export class PulumiService {
    * against that restored version — tagged `rolledBackFrom: applyRunId` —
    * reusing {@link previewCore} directly rather than duplicating its logic.
    *
-   * ## Why restore and plan are one guarded unit
+   * @remarks
+   * Restore and plan are one guarded unit: both happen inside a single
+   * `try`/`finally` that owns {@link operationInFlight} (set to `'rollback'`,
+   * a state distinct from `'preview'`) for its entire duration — acquired
+   * before {@link resolveRollbackTarget} is even re-invoked, not merely
+   * before the write, closing the window where a concurrent
+   * `preview`/`up`/`destroy` could otherwise change the configuration
+   * object's head between the re-resolve and the write. Without this, a
+   * crashed controller or dropped IPC response after the restore write could
+   * leave the restored configuration as head with no plan describing it.
+   * This method never calls `RunLockService.createRun()` (the durable,
+   * cross-process lock `apply`/`destroy` take) — like `preview`, it relies
+   * only on the in-process {@link operationInFlight} guard. It calls
+   * {@link previewCore} directly rather than `preview()` itself, since
+   * `preview()` would either throw seeing the `'rollback'` state already set,
+   * or race this method's own clear of the field in its `finally`.
    *
-   * A naive implementation could write the restore and return, trusting the
-   * caller to invoke `preview()` next. Nothing would hold any lock across
-   * those two calls — a `destroy()` (or a second, racing rollback)
-   * could interleave between them, and if the caller's follow-up preview
-   * call simply never happened (a crashed controller, a dropped IPC
-   * response), the restored configuration would be left as the head with no
-   * plan describing it, silently. The `iac-rollback` spec requires closing
-   * exactly this gap: "The restore and the
-   * plan's creation SHALL be performed as one guarded unit... so no other
-   * operation can interleave between the two." This method is that guarded
-   * unit — restore and plan-record persistence both happen inside a single
-   * `try`/`finally` that owns {@link operationInFlight} for its entire
-   * duration.
+   * Once the restore has resolved successfully, anything that fails
+   * afterward (a missing `versionId`, or `previewCore` itself throwing) is
+   * handled by record-and-surface rather than attempting a second corrective
+   * write: `ElectronStoreService.recordOrphanedRollback` writes a durable
+   * marker naming `applyRunId`, the orphaned `restoredVersionId`, and the
+   * failure (so a controller/UI can discover it even after an app restart),
+   * then {@link PulumiRollbackPlanFailedError} is thrown synchronously.
+   * Restoring the previous head as a second write was considered and
+   * rejected — that write can fail too, compounding an orphan with an
+   * unverified undo attempt. Failures BEFORE the restore resolves are NOT
+   * compensating-semantics cases — nothing was written, so pre-existing
+   * typed errors ({@link RollbackTargetNotFoundError} etc.) propagate
+   * unwrapped.
    *
-   * ## Lock acquisition
-   *
-   * {@link operationInFlight} is set to `'rollback'` — a state DISTINCT from
-   * `'preview'` (see that field's own doc comment) — before
-   * {@link resolveRollbackTarget} is even re-invoked, i.e. before ANY work
-   * this method does, not merely before the restore write. This is stronger
-   * than the spec's literal "acquired before the restore is written"
-   * requirement, deliberately: holding the lock across the re-resolve too
-   * closes a race the spec's wording alone wouldn't — a concurrent
-   * `preview`/`up`/`destroy` starting between the re-resolve and the write
-   * could otherwise still change the configuration object's head in that
-   * window. The lock is released in this method's own `finally`, covering
-   * every exit path (a pre-write rejection, a post-write compensating
-   * failure, a clean success, or a force-closed generator) — mirroring
-   * `apply`/`destroy`'s established lock-releasing `finally` discipline.
-   *
-   * This method never calls `RunLockService.createRun()` — the DURABLE,
-   * cross-process lock `apply`/`destroy` take. Neither does the
-   * {@link previewCore} call this method delegates into (see `preview`'s own
-   * TSDoc, "Does preview take the DIY backend lock?": no, the underlying
-   * `stack.preview()` call never does). The "shared operation lock" the
-   * governing spec requires is this file's existing IN-PROCESS
-   * {@link operationInFlight} guard, not the durable one — consistent with
-   * every other plan-shaped operation in this class.
-   *
-   * ## Why `previewCore`, not `preview()`
-   *
-   * `preview()` itself checks and sets {@link operationInFlight} — calling
-   * it here would either throw immediately (seeing the `'rollback'` state
-   * this method already set) or, if that guard were somehow bypassed, race
-   * this method's own clear of the field in its `finally`. {@link previewCore}
-   * is `preview()`'s method body with that concern removed entirely (task
-   * 7.6's refactor — see its own TSDoc), letting this method reuse the
-   * identical streaming/hashing/persistence/cancellation logic while
-   * keeping sole ownership of the lock for the combined restore+plan unit.
-   *
-   * ## Compensating semantics: record-and-surface, not restore-previous-head
-   *
-   * Once {@link DeploymentConfigRestorer.restoreRawConfig} has resolved successfully,
-   * anything that fails afterward — a missing `versionId` in its result, or
-   * {@link previewCore} itself throwing (engine provisioning, network, or
-   * local/cloud run-record persistence — the spec's own enumerated causes)
-   * — is caught by the inner `try`/`catch` below and handled by:
-   *
-   * 1. `ElectronStoreService.recordOrphanedRollback` — a durable marker
-   *    (survives an app restart) naming `applyRunId`, the now-orphaned
-   *    `restoredVersionId`, and the underlying failure, so a controller/UI
-   *    can discover and present it even if the operator
-   *    closed the app before seeing this call's own error.
-   * 2. Throwing {@link PulumiRollbackPlanFailedError} — surfacing the SAME
-   *    failure synchronously to whatever is driving this generator, so a
-   *    caller doesn't have to separately poll the store to learn the
-   *    rollback didn't fully complete.
-   *
-   * The spec also permits restoring the PREVIOUS head as a second
-   * corrective write, but that write can ALSO fail (a transient S3/network
-   * issue is exactly the kind of failure already in play here), compounding
-   * the problem into a state that's not just orphaned but has an unverified
-   * "undo" attempt layered on top. Record-and-surface never risks a second
-   * failure: it only ever WRITES a plain-object marker to a local file
-   * ({@link ElectronStoreService}, already proven reliable elsewhere in this
-   * class — `recordPulumiLockAttempt`'s identical pattern is never wrapped
-   * in its own try/catch either) and throws, both effectively infallible
-   * compared to a second remote write. "Surfaces it to the operator"
-   * concretely means exactly these two things: the durable store marker
-   * plus the thrown, richly-typed error — no polling mechanism, no IPC
-   * channel, no auto-retry.
-   *
-   * Failures BEFORE `restoreRawConfig` resolves (a stale/missing rollback
-   * target, a missing historic version, or `restoreRawConfig` itself
-   * throwing) are NOT treated as compensating-semantics cases — nothing was
-   * written in any of those cases, so the current head is untouched and the
-   * pre-existing typed errors ({@link RollbackTargetNotFoundError} etc.)
-   * propagate unwrapped, exactly like {@link resolveRollbackTarget}'s own
-   * contract.
-   *
-   * ## Return shape: a generator, mirroring `preview()`
-   *
-   * `confirmRollback`'s ultimate effect — "restore, then start a plan
-   * against the restored version" — produces a plan run that streams output
-   * exactly like an ordinary `preview()` call (log pane, chunks,
-   * `changeSummary`). Returning the same `AsyncGenerator` shape `preview()`
-   * itself returns (rather than a `Promise` that drives a preview to
-   * completion internally and discards the stream) lets a caller watch that
-   * queued plan's output directly, the same way it would for a plan started
-   * via `preview()` — there is no reason a rollback's plan should be a
-   * second-class, unobservable operation compared to an ordinary one, and
-   * `preview()`'s own pre-existing `rolledBackFrom` parameter already
-   * assumed a generator-shaped caller.
+   * Returns the same `AsyncGenerator` shape `preview()` returns, so a caller
+   * can watch the rollback's plan stream (log pane, chunks, `changeSummary`)
+   * exactly like an ordinary `preview()` call.
    *
    * @param applyRunId - The `runId` of the `apply` run to roll back.
    * @param signal - Optional cancellation signal, forwarded to
-   *   {@link previewCore} — see `preview()`'s own "Cancellation" doc section.
+   *   {@link previewCore}.
    * @param preMintedRunId - Optional caller-minted `runId` for the resulting
-   *   plan run (mirrors `preview()`'s identically-named parameter) — must
-   *   match {@link RUN_ID_PATTERN}, validated here before this method
-   *   touches {@link operationInFlight}, mirroring `preview()`/`apply()`/
-   *   `destroy()`'s identical top-of-function pattern.
+   *   plan run — must match {@link RUN_ID_PATTERN}.
    * @throws A descriptive `Error` if another `preview`/`up`/`destroy`/
    *   rollback is already in flight on this instance, or if `preMintedRunId`
    *   doesn't match {@link RUN_ID_PATTERN}.
@@ -4607,8 +3541,7 @@ export class PulumiService {
    *   version's bytes can no longer be read — the write never happens in
    *   that case either.
    * @throws {@link PulumiRollbackPlanFailedError} if the restore succeeded
-   *   but the follow-up plan could not be completed — see "Compensating
-   *   semantics" above.
+   *   but the follow-up plan could not be completed.
    */
   async *confirmRollback(
     applyRunId: string,
@@ -4683,97 +3616,48 @@ export class PulumiService {
   }
 
   /**
-   * Clears an UNRECOGNIZED Pulumi backend lock
-   * after an operator has explicitly confirmed they believe it's genuinely
-   * stale — the human-confirmed counterpart to `apply()`/`destroy()`'s own
-   * internal auto-reclaim of a *provable* own-orphan lock (see
-   * `PulumiLockRecovery.ts`, `classifyStackLockConflict`'s
-   * `'reclaimable-own-orphan'` branch, wired into `apply()`/`destroy()`
-   * already). This method makes NO attempt to classify or prove anything
-   * about the lock it clears — by the time a caller reaches this method,
-   * `PulumiUnrecognizedLockError` has already told them the lock could NOT be
-   * proven this installation's own, and the confirmation UI (`iac.page.tsx`'s
-   * stale-lock banner) has already required an explicit, separately-worded
-   * confirmation specifically because clearing a genuinely still-active lock
-   * elsewhere would risk corrupting a real concurrent deployment. This method
-   * is the mechanical "do it" step once that human judgment call has already
-   * been made — it does not, and cannot, re-derive or re-check the judgment
-   * itself.
+   * Clears an UNRECOGNIZED Pulumi backend lock after an operator has
+   * explicitly confirmed they believe it's genuinely stale — the
+   * human-confirmed counterpart to `apply()`/`destroy()`'s own internal
+   * auto-reclaim of a *provable* own-orphan lock.
    *
-   * ## Why refuse under `operationInFlight` and `stackInitInFlight`
+   * @remarks
+   * This method proves nothing about the lock it clears — by the time a
+   * caller reaches it, `PulumiUnrecognizedLockError` has already said the
+   * lock could NOT be proven this installation's own, and the confirmation
+   * UI has already required an explicit, separately-worded confirmation.
+   * This is the mechanical "do it" step once that human judgment call has
+   * already been made.
    *
-   * If THIS app instance already has `preview`/`up`/`destroy`/`rollback`
-   * running, the backend lock the operator is looking at is (almost
-   * certainly) the one that same in-flight operation is correctly holding —
-   * it is not stale, and clearing it out from under a legitimately-running
-   * operation would let a second, uncoordinated `pulumi` invocation touch the
-   * same state concurrently, exactly the corruption this whole recovery flow
-   * exists to avoid causing. Reuses {@link PulumiOperationInFlightError}
-   * rather than introducing a new error class — the shape
-   * (`inFlight: 'preview' | 'up' | 'destroy' | 'rollback'`) and meaning
-   * ("cannot run this operation while X is already running") are identical
-   * to every other caller of that class in this file; a bespoke class here
-   * would only duplicate it for no behavioral gain.
+   * Refuses under BOTH {@link operationInFlight} and {@link stackInitInFlight}:
+   * if this instance already has `preview`/`up`/`destroy`/`rollback` or
+   * `initializeStack()` running, the lock the operator is looking at is
+   * almost certainly the one that operation is correctly holding — clearing
+   * it would let a second, uncoordinated `pulumi` invocation touch the same
+   * state concurrently. This is a synchronous, top-of-function check only —
+   * unlike `apply()`/`destroy()`, this method never itself sets
+   * {@link operationInFlight}, so a narrow window remains where a fresh
+   * operation legitimately starts and re-takes the lock between this check
+   * and `stack.cancel()` actually running. That residual race is inherent to
+   * clearing a lock at all (including the manual "delete the S3 lock object
+   * by hand" recovery this replaces) — this method's safety property is
+   * refusing the common case (an operation already running in THIS
+   * instance), not eliminating every possible race with another instance.
    *
-   * The identical reasoning applies to `initializeStack()`, which takes the
-   * SAME durable backend lock around its own `stack.refresh()` call but
-   * never touches {@link operationInFlight} (see {@link stackInitInFlight}'s
-   * own doc comment) — without a separate check, an operator hitting
-   * `PulumiUnrecognizedLockError` while a legitimate stack-init refresh was
-   * still in flight could confirm-clear that lock and cancel their own live,
-   * correct work. Checked via {@link assertStackInitNotInFlight} immediately
-   * after the `operationInFlight` check above.
-   *
-   * This is a synchronous, top-of-function check only — unlike `apply()`/
-   * `destroy()`, this method never itself sets {@link operationInFlight}
-   * (there is no multi-step gate here for a second call to race against), so
-   * a narrow window still exists where a fresh `preview`/`up`/`destroy`/
-   * `initializeStack` legitimately starts and re-takes the lock between this
-   * check and `stack.cancel()` actually running. That risk is inherent to
-   * clearing a lock at all — including the manual "delete the S3 lock object
-   * by hand" recovery this feature replaces — and is not something a single
-   * synchronous flag check can fully close; the meaningful safety property
-   * this method (and the confirmation dialog in front of it) provides is
-   * refusing the *common* case (an operation already running in THIS
-   * instance), not eliminating every theoretically possible race with some
-   * *other* instance or CLI invocation.
-   *
-   * ## No-op inline program
-   *
-   * Mirrors `destroy()`'s "No-op inline program" decision exactly (see that
-   * method's own TSDoc) — an `async () => ({})` program passed to
-   * {@link PulumiWorkspaceService.getOrCreateStack} only stands up the
-   * Automation API's gRPC handshake; `stack.cancel()` never runs the program
-   * or reads the deployment configuration object, so this method doesn't
-   * either. That also means clearing a lock never depends on the current
-   * configuration object being present or well-formed — operationally
-   * important, since a lock left behind by a crashed run is exactly the kind
-   * of situation where the configuration object might also be in a
-   * questionable state.
-   *
-   * ## Does not retry
-   *
-   * This method only clears the lock — it never re-attempts the
-   * plan/apply/destroy that originally hit the conflict. The operator
-   * retries by resubmitting through the normal plan/apply/destroy button
-   * afterward — a fresh, separate operator
-   * action, not an automatic one-more-attempt inside this call the way
-   * `apply()`/`destroy()`'s own reclaim-and-retry path works.
+   * Passes a no-op inline program, mirroring `destroy()` — `stack.cancel()`
+   * never runs the program or reads the deployment configuration object.
+   * Only clears the lock; never retries the plan/apply/destroy that
+   * originally hit the conflict — the operator resubmits separately.
    *
    * @param token - The single-use confirmation token minted by
-   *   {@link mintLockClearConfirmationToken} — validated by
-   *   {@link assertFreshLockClearConfirmation} before anything else runs.
+   *   {@link mintLockClearConfirmationToken}.
    * @throws {@link PulumiOperationInFlightError} if another `preview`/`up`/
    *   `destroy`/`rollback` is already running against this shared workspace.
    * @throws A plain `Error` (via {@link assertStackInitNotInFlight}) if
    *   `initializeStack()` is currently running against this shared
-   *   workspace: this method's whole purpose is clearing a lock an operator
-   *   has judged stale, and a genuinely in-progress `initializeStack()`
-   *   refresh is never that, exactly like a genuinely in-progress
-   *   `preview`/`apply`/`destroy` isn't.
+   *   workspace.
    * @throws A descriptive `Error` if the state bucket/region isn't configured
-   *   yet, or no Pulumi stack has ever been created for this installation —
-   *   mirrors `destroy()`'s identical config-presence checks.
+   *   yet, or no Pulumi stack has ever been created for this installation.
    * @throws {@link LockClearNotConfirmedError} if `token` is missing, wrong,
    *   expired, or bound to a different target.
    * @throws {@link PulumiLockClearError} if `stack.cancel()` itself fails —

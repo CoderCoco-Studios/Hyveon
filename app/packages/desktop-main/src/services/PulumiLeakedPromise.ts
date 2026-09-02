@@ -2,133 +2,32 @@ import { logger } from '../logger.js';
 
 /**
  * Leaked-promise-handling primitive: if the inline Pulumi program leaves
- * dangling promises, the SDK's `onPulumiExit` throws *after* an otherwise
- * successful operation. This module lets a caller treat "succeeded, then
- * threw because of a leaked promise" as a success rather than a failure.
+ * dangling promises, the SDK's `onPulumiExit` runs a leak check inside the
+ * `finally` block of `stack.up()`/`.preview()`/`.destroy()` — only on the
+ * branch where the CLI call itself succeeded, since a genuine CLI failure
+ * skips the check entirely. A throw partway through `finally` replaces the
+ * successful return, so a real success gets reported as a rejection even
+ * though the operation's data (outputs, summary) was already obtained.
  *
- * ## Verified from source: exactly where and why this throw happens
+ * Because the leak check only runs on that success branch, any caught error
+ * whose message matches the SDK's leak-message format is, by construction,
+ * proof the CLI operation itself succeeded — message matching alone is
+ * sufficient, no separate exit-code tracking needed.
  *
- * `node_modules/@pulumi/pulumi/automation/server.js`'s `LanguageServer.onPulumiExit`:
+ * The same throw also aborts the rest of that `finally` block, so the
+ * language-server and event-log gRPC servers and the temp log file that
+ * `finally` would otherwise have torn down are left dangling for the life of
+ * the Electron process — the same class of leak as the `@cdktf/hcl2json`
+ * quit-hang incident. Nothing in this module can close them (they're local
+ * variables inside the SDK, never exposed to a caller); recovering "success"
+ * here only makes that leak silent, it doesn't fix it.
  *
- * ```js
- * onPulumiExit(hasError) {
- *     // Check for leaks once the CLI exits but skip if the program otherwise
- *     // errored to keep error output clean
- *     if (!hasError) {
- *         const [leaks, leakMessage] = debuggable.leakedPromises();
- *         if (leaks.size !== 0) {
- *             throw new Error(leakMessage);
- *         }
- *     }
- * }
- * ```
- *
- * and `stack.js`'s `up()` (`preview()`/`destroy()` are structured
- * identically — same `onExit`/`try`/`finally` shape, confirmed by reading
- * all six `onPulumiExit` call sites in that file):
- *
- * ```js
- * let upResult;
- * try {
- *     upResult = await this.runPulumiCmd(args, opts?.onOutput, opts?.onError, opts?.signal);
- * } catch (e) {
- *     didError = true;
- *     throw e;
- * } finally {
- *     onExit(didError);  // -> languageServer.onPulumiExit(didError)
- *     await cleanUp(logFile, await logPromise, eventsServer);
- * }
- * // outputs()/info()/return only reached if the `finally` block above didn't throw
- * ```
- *
- * JavaScript's `try`/`catch`/`finally` semantics mean a throw *inside*
- * `finally` replaces whatever the `try`/`catch` block was about to do — so
- * when `runPulumiCmd` succeeds (`didError` stays `false`), `onPulumiExit(false)`
- * runs the leak check, and if it throws, that exception **replaces the
- * successful return** even though `upResult` (the actual CLI operation's
- * result) was already obtained. The caller's `stack.up()`/`.preview()`/`.destroy()`
- * promise rejects with a bare `new Error(leakMessage)`, and `outputs()`/`info()`
- * (lines after the `finally` block) are never reached — the summary/outputs
- * data is genuinely unavailable from that same call, not merely inconvenient
- * to extract.
- *
- * ## Why message-pattern matching is provably sufficient (not just best-effort)
- *
- * `onPulumiExit`'s leak check is *only ever reached* when `hasError` is
- * `false` — i.e. only on the branch where `runPulumiCmd` itself succeeded.
- * When `runPulumiCmd` throws (a genuine CLI failure), `didError` is set
- * `true` *before* `finally` runs, so `onPulumiExit(true)` skips the leak
- * check entirely (`if (!hasError)`) and never throws for that reason. These
- * two throw paths are therefore mutually exclusive by construction of the
- * SDK's own control flow: **any** error caught from `stack.up()`/`.preview()`/
- * `.destroy()` whose message matches `debuggable.leakedPromises()`'s format
- * (`node_modules/@pulumi/pulumi/runtime/debuggable.js` — a message starting
- * "The Pulumi runtime detected that N promise(s) was/were still active...")
- * is, by that same construction, proof the actual CLI operation succeeded —
- * no separate CLI-exit-code tracking is needed to corroborate it.
- *
- * ## Recovering "success" this way still leaks gRPC servers and a temp log file
- *
- * `stack.js`'s `up()` (lines ~276-279 for `onExit`'s definition, ~303-306 for
- * the `finally` block that calls it): `onExit` itself is
- *
- * ```js
- * onExit = (hasError) => {
- *     languageServer.onPulumiExit(hasError);  // <- can throw (the leak check)
- *     server.forceShutdown();                 // <- never reached if the line above throws
- * };
- * ```
- *
- * and the `finally` block that calls it is
- *
- * ```js
- * finally {
- *     onExit(didError);
- *     await cleanUp(logFile, await logPromise, eventsServer);  // <- never reached either
- * }
- * ```
- *
- * A throw partway through a `finally` block aborts the *rest of that same
- * `finally` block*, not just the `try`'s outcome. So when the leak check
- * throws: `server.forceShutdown()` — which would have torn down the
- * inline-program language-server gRPC server bound to `127.0.0.1:<port>` —
- * **never runs**, and neither does `cleanUp(logFile, ..., eventsServer)`,
- * which would have closed the event-log gRPC server (when `onEvent` was
- * used) and deleted the temp log file. All three resources are left
- * dangling for the lifetime of the Electron process. Converting this
- * rejection into a reported success (via
- * {@link runTreatingLeakedPromiseAsSuccess}) makes the leak *silent* on top
- * of that — the operation is recorded as having succeeded, so nothing
- * downstream has any reason to notice a server or file was left behind.
- *
- * This one exit path — a genuine success with a leaked promise — is the only
- * exit from `up`/`preview`/`destroy` where the gRPC servers and the temp log
- * file are NOT torn down. This is the same class of failure as the
- * `@cdktf/hcl2json` quit-hang incident this repo has already been burned by
- * once. Nothing in this module can fix it — `server`, `eventsServer`, and
- * `logFile` are local variables entirely inside `stack.js`, never exposed to
- * any caller — so the mitigation has to be process-level, not code-level: an
- * "app quits cleanly after an operation" e2e check needs to specifically
- * include a run that exercises this leaked-promise-recovery path (an inline
- * program that deliberately leaves a dangling promise), not only the
- * ordinary happy-path `up`/`destroy`, since the happy path alone cannot catch
- * this.
- *
- * ## Division of responsibility with the caller
- *
- * {@link isLeakedPromiseError} (the classifier) and
- * {@link runTreatingLeakedPromiseAsSuccess} (the generic recovery wrapper) do
- * not reconstruct the lost `UpResult`/`PreviewResult`/`DestroyResult`
- * (outputs, summary, stdout/stderr) once the SDK's promise has rejected this
- * way, since that data was never returned to any caller in the first place —
- * it's local to the now-unwinding `stack.up()` call inside the SDK, not
- * something this module can reach after it has already thrown. The caller's
- * `recoverResult` is responsible for rebuilding a result — `PulumiService`
- * does this by calling `stack.outputs()` and `stack.info()` again as fresh,
- * independent read-only calls (these don't re-run the operation, they just
- * read current stack state) to reconstruct a synthetic success result, since
- * the update itself already landed in the backend by the time this throw
- * happens.
+ * {@link isLeakedPromiseError} and {@link runTreatingLeakedPromiseAsSuccess}
+ * cannot reconstruct the lost `UpResult`/`PreviewResult`/`DestroyResult` —
+ * that data was never returned to any caller. The caller's `recoverResult`
+ * rebuilds it instead; `PulumiService` does this via fresh `stack.outputs()`/
+ * `stack.info()` reads, since the update already landed in the backend by the
+ * time this throw happens.
  */
 
 /**

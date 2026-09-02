@@ -66,11 +66,6 @@ export class SafeStorageService {
    * Outside an Electron process the input is returned unchanged (on the
    * assumption it was stored as plaintext by the degraded `encrypt()` path).
    *
-   * @param ciphertext - Base64-encoded encrypted string, or raw plaintext when
-   *   produced outside Electron.
-   * @returns Decrypted plaintext, or the original `ciphertext` when decryption
-   *   is unavailable.
-   *
    * @remarks
    * The caller must ensure that `isAvailable()` returns the same value at
    * both write time (`encrypt`) and read time (`decrypt`). A ciphertext blob
@@ -79,6 +74,11 @@ export class SafeStorageService {
    * writes and reads within the same Electron process, or data shared across
    * Electron and non-Electron contexts). In that scenario `decrypt()` returns
    * the raw base64 blob unchanged — treat the output as untrusted.
+   *
+   * @param ciphertext - Base64-encoded encrypted string, or raw plaintext when
+   *   produced outside Electron.
+   * @returns Decrypted plaintext, or the original `ciphertext` when decryption
+   *   is unavailable.
    */
   decrypt(ciphertext: string): string {
     const available = this.isAvailable();
