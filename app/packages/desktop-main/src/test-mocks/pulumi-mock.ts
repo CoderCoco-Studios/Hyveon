@@ -50,45 +50,18 @@ async function* playScriptedRun<TResult>(
 
 /**
  * In-process stand-in for `PulumiService`, substituted at the DI seam via
- * `ipc-harness.ts`'s `createIpcHarness()` (`Test.createTestingModule(...).overrideProvider(PulumiService).useValue(stub)`) — the
- * `orchestrator-integration-coverage` delta spec's "In-process engine stub
- * injected via DI" requirement. Every method below is a plain in-memory
- * implementation: no subprocess is ever spawned, no real Pulumi engine
- * binary is ever downloaded, and no real AWS call is ever issued, so every
- * integration spec dispatched through a harness built with this stub is
- * structurally incapable of reaching a real engine or real AWS.
+ * `ipc-harness.ts`'s `createIpcHarness()` — the `orchestrator-integration-coverage`
+ * delta spec's "In-process engine stub injected via DI" requirement.
  *
- * **Scripting surface.** `getStackOutputs()`/`preview()`/`apply()`/
- * `destroy()` — the four operations the governing spec explicitly calls out
- * ("script preview, apply, destroy, AND stack-output responses, including
- * structured change summaries and failure outcomes") — are scriptable via
- * `script*` setters below, each taking effect for every subsequent call
- * until re-scripted (not a one-shot FIFO queue like `mock-store.ts`'s ECS
- * queues, since a single spec typically drives exactly one preview/apply/
- * destroy per stub instance, unlike the many ECS calls one spec can make).
- * `getOperationInFlight()`/`mintDestroyConfirmationToken()` are scriptable
- * too, since the DI-seam proof spec (`pulumi-di-seam.spec.ts`) needs a
- * distinctive, non-random return value to prove dispatch reached this stub
- * rather than a real `PulumiService`.
+ * Every method is a plain in-memory implementation: no subprocess is ever
+ * spawned, no real Pulumi engine binary is ever downloaded, and no real AWS
+ * call is ever issued — so any integration spec dispatched through a harness
+ * built with this stub is structurally incapable of reaching real infra.
  *
- * **Un-scripted surface.** `initializeStack`/`resolveRollbackTarget`/
- * `computeRollbackDiff`/`confirmRollback`/`clearStaleLock`/`computePlanHash`/
- * `readRunRecord`/`hasPlanArtifact`/`streamRunOutput` have no `script*`
- * setter yet — no current spec drives them, so they resolve fixed, harmless
- * placeholder values (mirroring `iac.controller.test.ts`'s `makePulumi()`
- * unit-test stub defaults byte-for-byte where the two overlap). Adding
- * `script*` setters for these is follow-up work for whichever spec needs to
- * exercise Plan/Apply/Destroy gating, ANSI-preservation, or
- * run-record-persistence integration coverage through them.
- *
- * **Lifecycle.** `createIpcHarness()` constructs one fresh instance per
- * harness (per Playwright test, via the `ipc` fixture) — unlike
- * `mockStore`/`runRecordMockStore`/`remoteFileStoreMockStore` (process-wide
- * singletons reset between harnesses because `aws-sdk-client-mock`
- * interceptors patch a shared client prototype), a fresh `PulumiServiceStub`
- * needs no `reset()` call for cross-test isolation. `reset()` still exists
- * for a spec that wants to re-arm a fresh default mid-test after scripting a
- * one-off response.
+ * `getStackOutputs()`/`preview()`/`apply()`/`destroy()`/
+ * `getOperationInFlight()`/`mintDestroyConfirmationToken()` are scriptable via
+ * the `script*` setters below; other methods have no setter yet and resolve
+ * fixed placeholder values. `reset()` re-arms a fresh default mid-test.
  */
 export class PulumiServiceStub {
   private stackOutputs: StackOutputs | null = null;

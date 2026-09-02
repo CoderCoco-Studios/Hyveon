@@ -17,30 +17,19 @@ export class LogsController implements OnModuleInit {
   constructor(private readonly logs: LogsService) {}
 
   /**
-   * Registers an `ipcMain.handle` bridge for the `logs.stream` channel after
-   * the Nest module initialises, so that `ipcRenderer.invoke('logs.stream')`
-   * in the preload resolves with `{ streamId }`.
+   * Registers an `ipcMain.handle` bridge for `logs.stream` after Nest module
+   * init, since `@MessagePattern` alone never calls `ipcMain.handle` and
+   * `ipcRenderer.invoke` would otherwise hang. `logs.stream` is excluded from
+   * the generic `registerIpcMainBridges` helper (`SELF_BRIDGED_PATTERNS` in
+   * `ipc-main-bridge.ts`) because its handler mints a `streamId` and pushes
+   * follow-up chunk/end messages over side channels derived from it.
    *
-   * `@MessagePattern('logs.stream')` only wires the transport's internal
-   * dispatcher — it does **not** call `ipcMain.handle`, so `ipcRenderer.invoke`
-   * would otherwise hang. This hook bridges the gap.
-   *
-   * `logs.stream` bridges itself here rather than through the generic
-   * `registerIpcMainBridges` helper (`../ipc-main-bridge.js`) because its
-   * handler needs to mint a `streamId` and push follow-up chunk/end messages
-   * over side channels derived from it — see `SELF_BRIDGED_PATTERNS` in
-   * `ipc-main-bridge.ts`, which excludes `logs.stream` for that reason. Every
-   * other `@MessagePattern` channel in this app is bridged generically by
-   * that helper instead of being hand-wired like this.
-   *
-   * Only runs inside a real Electron main process. In plain-Node runtimes
-   * (integration test server, Docker, CI) `process.versions.electron` is
-   * undefined and importing `electron` would throw — either MODULE_NOT_FOUND
-   * or "Electron failed to install correctly" when the package is present but
-   * its binary isn't — so we skip the bridge entirely rather than guessing
-   * which error means "no Electron" from the message. When we *are* in
-   * Electron, the import succeeds and any `ipcMain.handle` failure propagates
-   * so a broken bridge fails startup loudly instead of hanging invoke.
+   * Gated on `process.versions.electron` rather than a try/catch around the
+   * `electron` import: in plain-Node runtimes (integration test server,
+   * Docker, CI) that import throws either MODULE_NOT_FOUND or "Electron
+   * failed to install correctly" depending on whether the package is present
+   * — there's no single error signature to catch reliably, so absence of
+   * `process.versions.electron` is the only trustworthy "not Electron" check.
    */
   async onModuleInit(): Promise<void> {
     if (!process.versions.electron) {

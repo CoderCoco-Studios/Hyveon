@@ -62,18 +62,13 @@ export interface CloudBindings {
 
 /**
  * Resolves the `{ bucket, region }` config the AWS `RemoteFileStore`'s
- * `getConfig` callback needs to target the configuration bucket: the bucket
- * comes from `ConfigService.getConfigurationBucket()` (falling back to `''`
- * — an empty bucket name — when no bucket is configured, so
- * `AwsRemoteFileStore` surfaces its own "bucket not configured" error rather
- * than this factory silently defaulting somewhere), and the region from
- * `getRegion()`. `credentials` comes from `resolveAwsClientCredentials(store)`
- * — omitting it left `AwsRemoteFileStore`'s `S3Client` falling back to the
- * SDK's default provider chain, which resolves nothing in a GUI-launched
- * Electron process. Exported as a standalone function (rather than inlined in
- * {@link CLOUD_BINDINGS}) so a unit test can exercise the resolution logic
- * directly without constructing an `@aws-sdk/client-s3`-backed store, which
- * `@hyveon/desktop-main` tests aren't permitted to import.
+ * `getConfig` callback needs: bucket from `ConfigService.getConfigurationBucket()`
+ * (falls back to `''` so `AwsRemoteFileStore` surfaces its own "not configured"
+ * error rather than this factory defaulting silently), region from `getRegion()`.
+ * `credentials` comes from `resolveAwsClientCredentials(store)` — omitting it
+ * left `S3Client` falling back to the SDK's default provider chain, which
+ * resolves nothing in a GUI-launched Electron process. Exported standalone so
+ * a unit test can exercise it without an `@aws-sdk/client-s3`-backed store.
  */
 export function resolveDeploymentConfigFileStoreConfig(
   config: ConfigService,
@@ -90,40 +85,18 @@ export function resolveDeploymentConfigFileStoreConfig(
 
 /**
  * Resolves the `{ tableName, region }` config the AWS `AuditLogStore`'s
- * `getConfig` callback needs to target the audit DynamoDB table: the table
- * name comes from `ConfigService.getStackOutputs()`'s `auditTableName`
- * (falling back to `''` when nothing has been deployed yet, so
- * `AwsAuditLogStore` surfaces its own "table not configured" error rather
- * than this factory silently defaulting somewhere), and the region from the
- * SAME resolved `outputs.awsRegion` when a stack is deployed (falling back
- * to `getRegion()`'s wizard-configured value only when nothing is deployed
- * yet). Exported as a standalone function — see
- * {@link resolveDeploymentConfigFileStoreConfig} for why.
+ * `getConfig` callback needs: table name from `ConfigService.getStackOutputs()`'s
+ * `auditTableName` (falls back to `''` when nothing is deployed yet, so
+ * `AwsAuditLogStore` surfaces its own "not configured" error), region from
+ * `outputs.awsRegion` once a stack is deployed — preferred over
+ * `getRegion()`'s wizard-configured value because `DeploymentConfig.awsRegion`
+ * is operator-edited and is the value actually provisioned into; nothing
+ * keeps it in sync with the wizard's credentials-step region.
  *
- * Region source, revisited: `ConfigService.getRegion()` reads the
- * wizard-configured `aws.region` rather than the deployed stack's own
- * `awsRegion` output (see that method's doc comment for why it can't
- * synchronously read stack outputs). But this function is already async and
- * already resolves `outputs` — so once a stack IS deployed, preferring
- * `outputs.awsRegion` here restores the old self-correcting behavior
- * (`DeploymentConfig.awsRegion`, operator-edited, is the value actually
- * provisioned into; nothing enforces it staying in sync with the wizard's
- * credentials-step region) for these DynamoDB clients specifically, at zero
- * extra cost.
- *
- * Async because `getStackOutputs()` is an async read. This is not a
- * DI-factory async hazard: `CLOUD_BINDINGS.aws.auditLogStore` below passes
- * `() => resolveAuditLogStoreConfig(config)` as `AwsAuditLogStore`'s lazy
- * `getConfig` closure, not as something the (synchronous) `useFactory`
- * provider below awaits itself; the closure is only ever invoked later, from
- * inside `AwsAuditLogStore`'s own already-`async` methods, where awaiting a
- * `Promise`-returning closure costs nothing extra. See `AwsAuditLogStore`'s
- * constructor doc comment for the same reasoning spelled out at the
- * consumer end.
- *
- * `credentials` comes from `resolveAwsClientCredentials(store)` — see
- * {@link resolveDeploymentConfigFileStoreConfig}'s doc comment for why this
- * field is required.
+ * Passed to `AwsAuditLogStore` as a lazy `getConfig` closure (not awaited by
+ * the synchronous `useFactory` provider itself), so being `async` here costs
+ * nothing extra. `credentials` comes from `resolveAwsClientCredentials(store)`
+ * — see {@link resolveDeploymentConfigFileStoreConfig} for why it's required.
  */
 export async function resolveAuditLogStoreConfig(
   config: ConfigService,
@@ -141,18 +114,11 @@ export async function resolveAuditLogStoreConfig(
 
 /**
  * Resolves the `{ tableName, region }` config the AWS `DiscordConfigStore`'s
- * `resolveConfig` callback needs to target the Discord DynamoDB table: the
- * table name comes from `ConfigService.getStackOutputs()`'s
- * `discordTableName` (falling back to `''` when nothing has been deployed
- * yet, so `AwsDiscordConfigStore` surfaces its own "table not configured"
- * error rather than this factory silently defaulting somewhere), and the
- * region from the same resolved `outputs.awsRegion` when a stack is deployed
- * (falling back to `getRegion()`'s wizard-configured value otherwise) — same
- * reasoning as {@link resolveAuditLogStoreConfig}.
- *
- * `credentials` comes from `resolveAwsClientCredentials(store)` — see
- * {@link resolveDeploymentConfigFileStoreConfig}'s doc comment for why this
- * field is required.
+ * `resolveConfig` callback needs to target the Discord DynamoDB table — same
+ * `auditTableName`-style fallback and region-source reasoning as
+ * {@link resolveAuditLogStoreConfig}. `credentials` comes from
+ * `resolveAwsClientCredentials(store)`, per
+ * {@link resolveDeploymentConfigFileStoreConfig}.
  */
 export async function resolveDiscordConfigStoreConfig(
   config: ConfigService,
@@ -170,41 +136,29 @@ export async function resolveDiscordConfigStoreConfig(
 
 /**
  * Resolves the `{ tableName, bucket, region }` config the AWS `RunRecordStore`'s
- * `getConfig` callback needs to target the runs DynamoDB table and the
- * configuration S3 bucket used for offloaded run logs: the bucket from
- * `ConfigService.getConfigurationBucket()` (falling back to `''` when no
- * bucket is configured), the region from the same resolved
- * `outputs.awsRegion` when a stack is deployed (falling back to
- * `getRegion()`'s wizard-configured value otherwise), and the table name from
- * `ConfigService.getStackOutputs()`'s `runsTableName` — falling back, when
- * that's empty, to `resolvePreApplyRunsTableName(remoteFileStore)`
+ * `getConfig` callback needs. `tableName` comes from
+ * `ConfigService.getStackOutputs()`'s `runsTableName`, falling back — only
+ * when that's empty — to `resolvePreApplyRunsTableName(remoteFileStore)`
  * (`@hyveon/shared`), which reads the persisted `DeploymentConfig` directly
- * to compute the table's deterministic name without ever touching Pulumi.
+ * to compute the table's deterministic name without touching Pulumi.
  *
- * This fallback is the fix for a Critical bootstrap deadlock (see
- * `BootstrapService.ensureRunsTable`'s own doc for the full story):
- * `getStackOutputs()` only reports a value after a stack's first successful
- * `apply`, but the runs table is now created via the AWS SDK at
- * wizard-bootstrap time, before any apply has ever run — without this
- * fallback, `AwsRunRecordStore` would resolve an empty table name and throw
- * "not configured" on every plan/apply of a fresh install, even though the
- * table itself already exists. Only reached when `outputs?.runsTableName` is
- * falsy (short-circuited by `||` otherwise), so a deployed stack's report is
- * always preferred and this never costs an extra read once one exists.
+ * That fallback fixes a Critical bootstrap deadlock (see
+ * `BootstrapService.ensureRunsTable`): `getStackOutputs()` only reports a
+ * value after a stack's first successful `apply`, but the runs table is now
+ * created via the AWS SDK at wizard-bootstrap time, before any apply has
+ * run — without this fallback, `AwsRunRecordStore` would throw "not
+ * configured" on every plan/apply of a fresh install even though the table
+ * already exists.
  *
- * `remoteFileStore` is a second parameter (not resolved via `config`, unlike
- * every other field here) because it must be the SAME `RemoteFileStore`
- * singleton the caller already has bound to the configuration bucket — see
+ * `remoteFileStore` is a second parameter (unlike every other field here,
+ * not resolved via `config`) because it must be the SAME `RemoteFileStore`
+ * singleton already bound to the configuration bucket — see
  * `CloudProviderModule`'s `RUN_RECORD_STORE` provider, which injects
- * `REMOTE_FILE_STORE` alongside `ConfigService` for exactly this purpose (an
- * intra-module provider dependency, not a new module `imports:` edge — both
- * tokens are already provided by this same module).
+ * `REMOTE_FILE_STORE` alongside `ConfigService` for exactly this purpose.
  *
- * Exported as a standalone function — see {@link resolveDeploymentConfigFileStoreConfig}
- * for why. Async for the same reason, and with the same "not a DI-factory
- * hazard" and "prefer `outputs.awsRegion` once deployed" reasoning, as
- * {@link resolveAuditLogStoreConfig} — see its doc comment. `credentials`
- * comes from `resolveAwsClientCredentials(store)` for the same reason too.
+ * Bucket/region/credentials resolution and the async/lazy-closure shape
+ * follow {@link resolveAuditLogStoreConfig} and
+ * {@link resolveDeploymentConfigFileStoreConfig}.
  */
 export async function resolveRunRecordStoreConfig(
   config: ConfigService,
@@ -286,12 +240,8 @@ export function resolveCloudBindings(config: ConfigService): CloudBindings {
  *
  * `PulumiService.preview` resolves `REMOTE_FILE_STORE` from this module
  * lazily via a `ModuleRef.get()` strict-false lookup rather than a
- * constructor dependency: a static `imports:` edge from `PulumiServiceModule`
- * back to this module (reachable from `ConfigModule`, which imports
- * `PulumiServiceModule`) would deadlock the module graph even with every
- * cycle edge `forwardRef()`-wrapped (see `run-record.module.ts`'s doc
- * comment). This module's own `ConfigModule` import therefore stays the
- * plain, non-circular import it always was.
+ * constructor dependency — module-cycle rationale: see the canonical
+ * explanation in {@link RunRecordModule}.
  */
 @Module({
   imports: [ConfigModule, ElectronStoreModule],

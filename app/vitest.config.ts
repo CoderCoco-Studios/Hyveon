@@ -18,18 +18,10 @@ export default defineConfig({
       '@hyveon/shared/gameServerValidator': resolve(__dirname, 'packages/shared/src/gameServerValidator.ts'),
       '@hyveon/shared/secrets/secretsStore': resolve(__dirname, 'packages/shared/src/secrets/secretsStore.ts'),
       '@hyveon/shared': resolve(__dirname, 'packages/shared/src/index.ts'),
-      // Same rationale as @hyveon/shared above — desktop-main imports
-      // @hyveon/cloud-aws directly, and CI runs `vitest run` without a prior
-      // `npm run build -w @hyveon/cloud-aws`, so its dist/ never exists.
       '@hyveon/cloud-aws': resolve(__dirname, 'packages/cloud-aws/src/index.ts'),
-      // Same rationale — desktop-main's PulumiService imports @hyveon/infra
-      // directly, and CI runs `vitest run` without a prior
-      // `npm run build -w @hyveon/infra`, so its dist/ never exists.
       '@hyveon/infra': resolve(__dirname, 'packages/infra/src/index.ts'),
-      // Same rationale — @hyveon/web imports value exports (not just types,
-      // e.g. GUIDED_PROFILE_NAME) from @hyveon/desktop-preload, and CI runs
-      // `vitest run` without a prior `npm run build -w @hyveon/desktop-preload`,
-      // so its dist/ never exists.
+      // @hyveon/web imports value exports (not just types, e.g. GUIDED_PROFILE_NAME)
+      // from @hyveon/desktop-preload, so this needs the same source alias.
       '@hyveon/desktop-preload': resolve(__dirname, 'packages/desktop-preload/src/index.ts'),
       // The @hyveon/web package uses `@/foo` as a shortcut for `./src/foo`
       // (matches its tsconfig + Vite config). Re-declare it here so the

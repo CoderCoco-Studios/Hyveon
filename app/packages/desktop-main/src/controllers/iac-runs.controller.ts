@@ -241,26 +241,15 @@ export class IacRunsController implements OnModuleInit {
   /**
    * Opens a live/replayed log stream for the run identified by `payload.runId`
    * and returns an opaque `streamId` immediately. Chunks are pushed to the
-   * renderer via `sender.send` on {@link LOGS_CHUNK_CHANNEL} as
-   * `{ streamId, chunk }`, forwarded in order straight from
-   * `PulumiService.streamRunOutput` — which itself either replays an
-   * in-flight run's buffered + live output or, for a finished run, replays
-   * its persisted `pulumi.log`.
+   * renderer via `sender.send` on {@link LOGS_CHUNK_CHANNEL}, forwarded in
+   * order from `PulumiService.streamRunOutput`, terminating with exactly one
+   * message on {@link LOGS_END_CHANNEL}.
    *
-   * Exactly one terminal message is sent on {@link LOGS_END_CHANNEL} once the
-   * run reaches a terminal status: `{ streamId }` when
-   * `PulumiService.streamRunOutput`'s generator ends cleanly (the run
-   * settled, or a finished run's log finished replaying), or
-   * `{ streamId, error }` when it throws (e.g. `runId` doesn't match any
-   * known run).
-   *
-   * Mirrors `LogsController.streamLogs`/`IacController.init`'s
-   * fire-and-forget streaming shape: the controller creates its own
-   * `AbortController` per invocation (since `ElectronIPCTransport` passes
-   * `{ evt }` as the execution context, with no `signal` injected), and a
-   * `'destroyed'` listener on the `WebContents` aborts it — and stops any
-   * further `sender.send` calls — the instant the window/webview goes away,
-   * in addition to the chunk loop's own `isDestroyed()` check between chunks.
+   * Mints its own `AbortController` per invocation rather than accepting a
+   * caller-supplied one: `ElectronIPCTransport` passes `{ evt }` as the
+   * execution context, with no `signal` to propagate from the IPC caller. A
+   * `'destroyed'` listener on the `WebContents` aborts it — and stops further
+   * `sender.send` calls — the instant the window/webview goes away.
    *
    * @throws `BadRequestException` when `payload.runId` isn't a non-empty
    *   string.

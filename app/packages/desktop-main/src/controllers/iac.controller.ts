@@ -493,52 +493,25 @@ interface IacDestroyEndMessage {
 }
 
 /**
- * IPC-only Iac controller. Handles Electron main-process messages via
- * `@MessagePattern` — no HTTP routes are registered here. Every
- * orchestration call site delegates to `PulumiService`, the
- * Automation-API-backed provisioning engine; where its methods are
- * self-contained gates rather than thin CLI wrappers ({@link apply},
- * {@link destroy}), this controller does no extra pre-flight bookkeeping of
- * its own. See each method's own TSDoc for the specifics.
+ * IPC-only Iac controller. Handles Electron main-process messages via `@MessagePattern` — no
+ * HTTP routes are registered here. Every orchestration call site delegates to `PulumiService`.
  *
- * {@link plan} bridges `PulumiService.preview`'s async-generator output onto
- * the fixed `iac.plan.chunk` / `iac.plan.end` side channels, plus
- * a pre-flight `PulumiService.getOperationInFlight()` conflict check and a
- * persisted `AuditService.record()` entry for every accepted submission.
- * {@link approve} needs no such bridging — it resolves a single value, so
- * the generic `ipcMain.handle` bridge in `../ipc-main-bridge.ts` wires it
- * automatically — and delegates the actual write to
- * `RunRecordService.approveRun` (see issue #109). {@link apply} mirrors
- * {@link plan}'s streaming/bridging shape, but — since `PulumiService.apply`'s
- * 8-step gate is entirely self-contained — this controller performs none of
- * the plan-hash/approval/lock pre-checks itself; it awaits the gate's own
- * outcome (the generator's first `.next()`) before
- * acking, and only then starts forwarding chunks. {@link destroy} mirrors
- * {@link apply}'s shape a third time, gated behind a short-lived confirmation
- * token minted by {@link mintDestroyToken} (issue #307) instead of a
- * plan/approval lineage — `mintDestroyToken` itself needs no bridging, same
- * as {@link approve}.
+ * {@link plan} bridges `PulumiService.preview`'s async-generator output onto the fixed
+ * `iac.plan.chunk`/`iac.plan.end` side channels. {@link apply} and {@link destroy} mirror that
+ * streaming shape but delegate their entire pre-flight gate (plan-hash/approval/lock checks) to
+ * `PulumiService.apply`/`.destroy`, which are self-contained — this controller performs none of
+ * that bookkeeping itself. See each method's own TSDoc for specifics.
  */
 @Controller()
 export class IacController implements OnModuleInit {
   /**
-   * `audit`/`runRecord`/`config` are typed optional (`?`) purely so existing
-   * test call sites that construct `new IacController(pulumi)` directly
-   * (bypassing Nest's DI container) keep compiling without also stubbing
-   * them — every real bootstrap through `AppModule` still resolves concrete
-   * `AuditService`/`RunRecordService`/`ConfigService` instances regardless of
-   * this TS-level optionality. `runRecord` backs {@link approve}'s
-   * `RunRecordService.approveRun` write (unrelated to `PulumiService.apply`'s
-   * own internal plan-record lookup, which does not go through this
-   * controller at all). `config` backs {@link output}'s preferred
-   * `ConfigService.getStackOutputs()` delegate (falling back to
-   * `PulumiService.getStackOutputs()` directly when unavailable — see that
-   * method's own TSDoc).
+   * `audit`/`runRecord`/`config` are typed optional (`?`) so existing test call sites that
+   * construct `new IacController(pulumi)` directly (bypassing Nest's DI container) keep
+   * compiling without stubbing them — a real bootstrap through `AppModule` always resolves
+   * concrete instances.
    *
-   * There is no `RunService` dependency here: `PulumiService.apply`/`.destroy`'s
-   * self-contained gates acquire and release the durable apply lock entirely
-   * internally, so this controller has nothing left to do with `RunService`
-   * directly.
+   * No `RunService` dependency: `PulumiService.apply`/`.destroy`'s self-contained gates acquire
+   * and release the durable apply lock entirely internally.
    */
   constructor(
     private readonly pulumi: PulumiService,
@@ -576,38 +549,21 @@ export class IacController implements OnModuleInit {
   private readonly activeDestroys = new Map<string, AbortController>();
 
   /**
-   * Registers an `ipcMain.handle` bridge for the `iac.plan` channel
-   * (and `iac.apply`/`iac.destroy`) after the Nest module
-   * initialises, so that `ipcRenderer.invoke(...)` in the preload actually
-   * resolves.
+   * Registers an `ipcMain.handle` bridge for the streaming channels (`iac.plan`, `iac.apply`,
+   * `iac.destroy`, `iac.rollback.confirm`, `iac.stack.initialize`) after the Nest module
+   * initializes.
    *
-   * `@MessagePattern(...)` only wires the transport's internal dispatcher —
-   * it does **not** call `ipcMain.handle`, so `ipcRenderer.invoke` would
-   * otherwise hang. This hook bridges the gap, mirroring
-   * `LogsController.onModuleInit`'s handling of `logs.stream` — see
-   * `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts`, which excludes these
-   * five channels from the generic bridge for the same reason: each handler
-   * pushes follow-up chunk/end messages over side channels for the duration
-   * of a long-running run rather than resolving a single value.
+   * @remarks
+   * `@MessagePattern(...)` only wires the transport's internal dispatcher — it does **not** call
+   * `ipcMain.handle`, so `ipcRenderer.invoke` would otherwise hang. These five channels are
+   * excluded from the generic bridge in `../ipc-main-bridge.ts` (`SELF_BRIDGED_PATTERNS`) because
+   * each pushes follow-up chunk/end messages over side channels rather than resolving a single
+   * value; `iac.rollback.confirm` additionally needs manual bridging because its undecorated
+   * `ctx: { evt }` parameter would otherwise be dropped by NestJS's `RpcContextCreator`, which
+   * sizes `initialArgs` to the one decorated parameter it sees.
    *
-   * `iac.stack.initialize` is in this set for the same reason
-   * `iac.plan`/`iac.apply`/`iac.destroy` are: {@link initializeStack} pushes
-   * phase-event/end messages over its own side channels for the duration of
-   * the run rather than resolving a single value.
-   *
-   * `iac.rollback.confirm` is also in this set: {@link confirmRollback}'s own
-   * `ctx: { evt }` second parameter has no `@Payload()`/etc. decorator,
-   * exactly like `plan`/`apply`/`destroy` — leaving it off the generic bridge
-   * would mean NestJS's `RpcContextCreator` sizes its `initialArgs` array to
-   * the one decorated parameter it sees (`@Payload()` at index 0) and
-   * silently drops `ctx`, which would arrive as `undefined` at runtime and
-   * throw on {@link confirmRollback}'s first line.
-   *
-   * Only runs inside a real Electron main process. In plain-Node runtimes
-   * (integration test server, Docker, CI) `process.versions.electron` is
-   * undefined and importing `electron` would throw, so the bridge is skipped
-   * entirely rather than guessing which error means "no Electron" from the
-   * message.
+   * Only runs inside a real Electron main process — `process.versions.electron` is undefined in
+   * plain-Node runtimes (integration test server, Docker, CI), so the bridge is skipped entirely.
    */
   async onModuleInit(): Promise<void> {
     if (!process.versions.electron) {
@@ -659,60 +615,23 @@ export class IacController implements OnModuleInit {
   }
 
   /**
-   * Replacement for the `iac.init` channel — Pulumi has no one-shot CLI init
-   * analogue, so this streams `PulumiService.initializeStack`'s phase-by-phase
-   * provisioning instead of a one-shot init call.
-   * Kicks off `PulumiService.initializeStack` and streams its `onPhase`
-   * progress back to the renderer — structurally the same shape as
-   * {@link plan}/{@link apply}/{@link destroy} (a caller starts a
-   * long-running operation and wants live progress), but the payload is
-   * `{ phase, status }` provisioning-phase events, not `PulumiRunChunk` log
-   * lines, and there is no plan-hash/approval/lock gate to await first: the
-   * only pre-flight check is `PulumiService.getOperationInFlight()`, exactly
-   * like {@link plan}'s.
+   * Replacement for the `iac.init` channel — Pulumi has no one-shot CLI init analogue, so this
+   * streams `PulumiService.initializeStack`'s phase-by-phase provisioning instead. Mints a
+   * `streamId` and pushes every `onPhase` event on {@link STACK_INIT_CHUNK_CHANNEL}; a single
+   * terminal message follows on {@link STACK_INIT_END_CHANNEL}.
    *
-   * Mints a `streamId` (there is no natural run id here — this operation
-   * produces no `PulumiRunRecord`) and pushes every `onPhase` event on
-   * {@link STACK_INIT_CHUNK_CHANNEL} tagged with it, mirroring
-   * `IacController.init`'s original fixed-side-channel-plus-streamId shape
-   * (see `hyveon-api.ts`/`preload.ts` — the same pattern reused for this
-   * channel). Checks `getOperationInFlight()` first and, with no
-   * `await` between that check and the call to
-   * `this.pulumi.initializeStack(...)`, closes the same TOCTOU gap
-   * {@link plan}'s own doc comment explains: `initializeStack`'s own busy
-   * check (a distinct `stackInitInFlight` flag, see that method's TSDoc) is
-   * set synchronously, before its own first `await`.
-   *
-   * Once accepted, `initializeStack`'s promise is driven to completion in a
-   * fire-and-forget block (mirrors {@link plan}'s streaming loop, but there
-   * is no per-chunk drive loop to write since `onPhase` already pushes each
-   * event as it happens) — a single terminal message is sent on
-   * {@link STACK_INIT_END_CHANNEL} once it settles: `{ streamId }` on
-   * success, or `{ streamId, error }` on failure. `error` is always a
-   * human-readable message — for a `PulumiStackInitializationError`
-   * specifically, that message already names the failed phase in prose
-   * (see that error class's own TSDoc/message format in `PulumiService.ts`).
-   *
+   * @remarks
    * ## Why no structured `failedPhase` field
    *
-   * This message deliberately carries no structured
-   * `failedPhase?: PulumiProvisioningPhase` field. `failedPhase` would cross
-   * this side channel fine (a plain `sender.send(...)` IPC message — structured
-   * data clones reliably), but the renderer only learns about a stream's
-   * failure via the preload-internal generator's `throw`, which crosses the
-   * **contextBridge** as a rejected promise — and Electron's contextBridge
-   * uses the same structured-clone algorithm as Node's `structuredClone()`,
-   * which preserves only `name`/`message`/`stack` on an `Error`, not custom
-   * own properties like `.phase`. The renderer instead derives the same
-   * phase attribution independently and reliably from the
-   * {@link STACK_INIT_CHUNK_CHANNEL} event stream itself (plain data, proven
-   * to cross correctly) — see `StackInitializationStep`'s own
-   * `lastStartedPhase` tracking in `@hyveon/web`.
+   * `StackInitializeEndMessage` deliberately carries no structured `failedPhase` field.
+   * Electron's contextBridge uses the same structured-clone algorithm as `structuredClone()`,
+   * which preserves only `name`/`message`/`stack` on a thrown `Error` — custom own properties
+   * like `.phase` do not survive the crossing to the renderer. The renderer instead derives the
+   * same phase attribution independently from the {@link STACK_INIT_CHUNK_CHANNEL} event stream
+   * itself (plain data, proven to cross correctly).
    *
-   * Reachable via the Electron IPC transport (`iac.stack.initialize`) — this
-   * channel self-bridges (see {@link onModuleInit}'s own TSDoc and
-   * `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts`), the same reason
-   * {@link plan}/{@link apply}/{@link destroy} do.
+   * Reachable via the Electron IPC transport (`iac.stack.initialize`); self-bridged — see
+   * {@link onModuleInit}.
    */
   @MessagePattern('iac.stack.initialize')
   async initializeStack(
@@ -778,57 +697,19 @@ export class IacController implements OnModuleInit {
   }
 
   /**
-   * Kicks off a Pulumi preview and streams its output back to the
-   * renderer — pre-mints a `runId` since
-   * `PulumiService.preview` already needs one to name its saved plan
-   * artifact directory.
+   * Kicks off a Pulumi preview and streams its output back to the renderer — pre-mints a
+   * `runId` since `PulumiService.preview` needs one to name its saved plan artifact directory.
    *
-   * Checks `PulumiService.getOperationInFlight()` first: if a `preview`,
-   * `up`, `destroy`, or `rollback` operation is already running against the
-   * shared workspace, no run is attempted — the method resolves immediately
-   * with `{ started: false, error, conflict: <in-flight op> }` naming
-   * whichever operation is in flight. No chunk/end messages are sent and no
-   * audit entry is recorded for a rejected submission.
+   * @remarks
+   * The generator's first step is driven synchronously, with no `await` between the
+   * `getOperationInFlight()` check above and the call to `this.pulumi.preview(...)` — this
+   * closes the TOCTOU gap a busy-workspace check would otherwise leave open, because
+   * `preview`'s own `operationInFlight` check-and-set also runs synchronously, before its own
+   * first `await`.
    *
-   * Otherwise a `runId` (`randomUUID()`) is minted up front and handed to
-   * `PulumiService.preview` as `preMintedRunId`, and the generator's first
-   * step is driven synchronously (before anything is awaited) to reserve the
-   * shared workspace — `PulumiService.preview`'s own `operationInFlight`
-   * check-and-set runs synchronously, before its own first `await`, so
-   * driving `.next()` here, with no `await` between the
-   * `getOperationInFlight()` check above and this call, closes the TOCTOU gap
-   * a busy-workspace check would otherwise leave open. The `.catch()` below exists
-   * solely to mark `firstStep` as "handled" so Node doesn't log an
-   * unhandledRejection warning while it sits unawaited during the
-   * `audit.record()` call further down — the real handling of whatever it
-   * settles to happens in the streaming loop below, the same way every later
-   * `.next()` result already is.
-   *
-   * Only once that reservation has happened is an audit entry
-   * (`action: 'plan'`) recorded via `AuditService.record()` for the
-   * now-accepted submission, and the streaming loop fired and forgotten
-   * (`void (async () => { ... })()`); the method resolves immediately with
-   * `{ started: true, runId }`, well before the preview run itself settles.
-   * Every chunk/end message is tagged with that same `runId`. Each chunk
-   * `PulumiService.preview` yields is forwarded, in order, via `sender.send`
-   * on {@link PLAN_CHUNK_CHANNEL} as `{ runId, chunk }`. Once the run settles
-   * a single terminal message is sent on {@link PLAN_END_CHANNEL}:
-   * `{ runId, exitCode: 0, result }` on success, or
-   * `{ runId, exitCode: null, error }` on failure.
-   *
-   * Drives `PulumiService.preview`'s async generator manually via repeated
-   * `.next()` calls (rather than `for await...of`) so the terminal
-   * `PulumiPreviewResult` (the generator's return value once it's `done`)
-   * can be attached to the end message's `result` field. If the `WebContents`
-   * is destroyed mid-stream, the generator is explicitly finalized via
-   * `stream.return()` so `PulumiService.preview`'s own force-closed-generator
-   * cleanup (persisting a cancelled run record) still runs.
-   *
-   * Creates its own `AbortController` per invocation, registers it in
-   * {@link activePlans} keyed by `runId` so a future cancel channel can reach
-   * it, and passes its `signal` through to `PulumiService.preview`. A
-   * `'destroyed'` listener on the `WebContents` aborts the controller the
-   * instant the window/webview goes away.
+   * Drives the generator manually via repeated `.next()` calls rather than `for await...of` so
+   * the terminal `PulumiPreviewResult` (the generator's return value once `done`) can be
+   * attached to the end message's `result` field — a `for await` loop discards that value.
    *
    * Reachable via the Electron IPC transport (`iac.plan`).
    */
@@ -915,66 +796,21 @@ export class IacController implements OnModuleInit {
   }
 
   /**
-   * Applies the approved plan run `payload.planRunId` and streams its output
-   * back to the renderer — mirrors {@link plan}'s streaming shape, but the
-   * gate structure underneath it is different: `PulumiService.apply`'s
-   * 8-step gate is entirely self-contained — plan-record lookup,
-   * approval/expiry checks, plan-hash verification (both the stored-hash
-   * comparison and the on-disk artifact re-hash), engine-version check, and
-   * the durable apply-lock reservation (`RunLockService.createRun`'s atomic
-   * compare-and-set) all happen INSIDE `PulumiService.apply` itself.
+   * Applies the approved plan run `payload.planRunId` and streams its output back to the
+   * renderer — mirrors {@link plan}'s streaming shape, but the gate underneath is different:
+   * `PulumiService.apply`'s entire 8-step gate (plan-record lookup, approval/expiry checks,
+   * plan-hash verification, engine-version check, durable apply-lock reservation) runs to
+   * completion before the generator's first `yield`.
    *
-   * This controller must NOT reintroduce any of that gate's checks itself —
-   * the gate is the single, authoritative place those checks live — it only
-   * needs to know that the gate is entirely synchronous-relative-to-yielding:
-   * every one of `PulumiService.apply`'s 8 steps runs to completion before
-   * the generator's first `yield` (the first real chunk of `stack.up()`'s
-   * output) ever happens. So the first `.next()` call on the returned
-   * generator either REJECTS (any gate-step failure — most importantly
-   * `RunLockHeldError`, propagated unwrapped by gate step 8's losing race,
-   * mapped below to `conflict: 'up'`; or `PulumiOperationInFlightError`,
-   * thrown by the gate's own top-of-function `operationInFlight` busy check,
-   * mapped to `conflict: <its own inFlight value>` — this cheaper,
-   * earlier in-process mutex check needs the same `conflict` treatment as
-   * the durable lock race, since the renderer's busy banner reads
-   * `ack.conflict` regardless of which guard refused the submission) or
-   * RESOLVES with the operation genuinely under way. This method exploits
-   * that: it `await`s the first `.next()` call BEFORE acking, so
-   * `{ started: true, runId }` is only ever returned once the gate has
-   * actually passed.
-   *
-   * Validates `payload` first (`planRunId`/`planHash` both non-empty
-   * strings) — the only validation this controller still performs itself;
-   * everything else is the gate's job. A gate failure resolves
-   * `{ started: false, error }` (plus `conflict: 'up'` for a lost
-   * `RunLockHeldError` race, or `conflict: <inFlight>` for a busy-workspace
-   * `PulumiOperationInFlightError`) without ever touching
+   * @remarks
+   * Because the gate runs to completion before the first `yield`, this method awaits the
+   * generator's first `.next()` call BEFORE acking — `{ started: true, runId }` is only ever
+   * returned once the gate has actually passed. A gate-step failure (rejection) is caught and
+   * mapped to `{ started: false, error, conflict? }` without ever populating
    * {@link activeApplies} or recording an audit entry.
    *
-   * Once the gate has passed, {@link activeApplies} is populated, a
-   * `'destroyed'` listener is armed on the `WebContents`, a best-effort audit
-   * entry (`action: 'apply'`) is recorded, and the (now partially-drained)
-   * generator is driven to completion in a fire-and-forget streaming loop —
-   * mirrors {@link plan}'s loop shape exactly, starting from the
-   * already-resolved first step rather than an unawaited one. Each
-   * subsequent chunk is forwarded via `sender.send` on
-   * {@link APPLY_CHUNK_CHANNEL} as `{ runId, chunk }`; once the run settles a
-   * single terminal message is sent on {@link APPLY_END_CHANNEL}:
-   * `{ runId, exitCode: 0, result }` on success, or
-   * `{ runId, exitCode: null, error }` on failure — see
-   * {@link IacPlanEndMessage}'s doc comment for why `exitCode` is a
-   * plain `0`/`null` pair now rather than a recovered process exit code.
-   *
-   * There is no `RunService.createRun`/`releaseRun` call anywhere in this
-   * controller, and no redundant "release the lock in this controller's own
-   * `finally` too" safety net — `PulumiService.apply`'s own gate acquires the
-   * durable lock and its own persistence path (`RunRecordService.persist`'s
-   * `finally`) releases it on every settlement path, including a
-   * force-closed generator (see that method's TSDoc for the full guarantee).
-   *
-   * Creates its own `AbortController` per invocation and registers it in
-   * {@link activeApplies} keyed by `runId`, the same reasoning as
-   * {@link plan}.
+   * There is no `RunService.createRun`/`releaseRun` call anywhere in this controller —
+   * `PulumiService.apply`'s own gate and persistence path own the durable lock's full lifecycle.
    *
    * Reachable via the Electron IPC transport (`iac.apply`).
    */
@@ -1125,53 +961,15 @@ export class IacController implements OnModuleInit {
   }
 
   /**
-   * Destroys the deployed stack and streams its output back to the renderer
-   * — mirrors {@link apply}'s streaming/gate-awaiting shape, gated behind
-   * `payload.confirmationToken` (minted via {@link mintDestroyToken}) instead
-   * of a plan/approval lineage, since a destroy has no preceding plan to
-   * inherit a `runId` from.
+   * Destroys the deployed stack and streams its output back to the renderer — mirrors
+   * {@link apply}'s streaming/gate-awaiting shape, gated behind `payload.confirmationToken`
+   * (minted via {@link mintDestroyToken}) instead of a plan/approval lineage.
    *
-   * Like {@link apply}, `PulumiService.destroy`'s gate is entirely
-   * self-contained: the `operationInFlight` busy check, config-presence
-   * checks, the single-use confirmation-token consumption (synchronous, so a
-   * same-token race is decided cleanly without ever touching
-   * `RunLockService` — see that method's own TSDoc, "Gate structure"), and
-   * the durable apply-lock reservation all happen before the generator's
-   * first `yield`. This method awaits that first `.next()` call before
-   * acking, exactly like {@link apply} — a gate failure (most notably
-   * `DestroyNotConfirmedError` for a missing/stale/already-consumed token,
-   * `RunLockHeldError` for a lost lock race mapped to `conflict: 'destroy'`,
-   * or `PulumiOperationInFlightError` for the top-of-function busy check
-   * mapped to `conflict: <its own inFlight value>`, mirroring {@link apply}'s
-   * identical treatment)
-   * resolves `{ started: false, error }` without ever touching
-   * {@link activeDestroys} or recording an audit entry, and — critically —
-   * without burning a token that a genuinely concurrent, unrelated rejection
-   * (e.g. `RunLockHeldError`) shouldn't have consumed; `PulumiService.destroy`'s
-   * own gate ordering (token consumed only once the cheap, synchronous
-   * config-presence checks have already passed) protects that, not this
-   * controller.
-   *
-   * Validates only `payload.confirmationToken` is present — everything else
-   * is the gate's job, mirroring {@link apply}'s pared-down validation. Once
-   * the gate has passed, `runId` is minted fresh (`randomUUID()`, matching
-   * `PulumiService.destroy`'s `preMintedRunId` parameter — a destroy has no
-   * inherited id to reuse), {@link activeDestroys} is populated, a
-   * `'destroyed'` listener is armed, a best-effort audit entry
-   * (`action: 'destroy'`) is recorded, and the streaming loop is driven to
-   * completion from the already-resolved first step — mirrors {@link apply}'s
-   * loop shape exactly. Each chunk is forwarded via `sender.send` on
-   * {@link DESTROY_CHUNK_CHANNEL} as `{ runId, chunk }`; once the run settles
-   * a single terminal message is sent on {@link DESTROY_END_CHANNEL}, mirroring
-   * {@link IacApplyEndMessage}'s `exitCode` convention.
-   *
-   * There is no `RunService.createRun`/`releaseRun` call anywhere in this
-   * controller — `PulumiService.destroy`'s own gate and persistence path own
-   * that entirely, mirroring {@link apply}.
-   *
-   * Creates its own `AbortController` per invocation and registers it in
-   * {@link activeDestroys} keyed by `runId`, the same reasoning as
-   * {@link apply}.
+   * @remarks
+   * `PulumiService.destroy`'s gate consumes (invalidates) the confirmation token only after its
+   * cheap, synchronous config-presence checks have already passed — so a genuinely concurrent,
+   * unrelated rejection (e.g. `RunLockHeldError`) never burns a token that an invalid request
+   * would otherwise waste.
    *
    * Reachable via the Electron IPC transport (`iac.destroy`).
    */
@@ -1273,42 +1071,20 @@ export class IacController implements OnModuleInit {
   }
 
   /**
-   * Returns the current stack outputs. Unlike {@link plan}, this channel
-   * needs no manual bridging — it resolves a single value rather than
-   * streaming progress, so the generic `ipcMain.handle` bridge in
-   * `../ipc-main-bridge.ts` wires `ipcRenderer.invoke('iac.output', ...)`
-   * to this handler automatically.
+   * Returns the current stack outputs. Resolves a single value, so the generic `ipcMain.handle`
+   * bridge wires this automatically — no manual bridging needed.
    *
-   * ## Return shape: `StackOutputs`, not a raw state-file shape
+   * @remarks
+   * Returns `StackOutputs` (`@hyveon/shared`), not a raw state-file shape — a Pulumi-orchestrated
+   * stack's state lives in the DIY S3 backend, never as a local file this app reads directly.
    *
-   * There is no local state file to read — a
-   * Pulumi-orchestrated stack's state lives in the DIY S3 backend, never as
-   * a local file this app reads directly — so this method returns
-   * `StackOutputs` (`@hyveon/shared`), the type
-   * `ConfigService.getStackOutputs()`/`PulumiService.getStackOutputs()`
-   * establishes as the canonical "what a deployed stack looks like" shape
-   * and every OTHER controller in this codebase already returns to the
-   * renderer (`GamesController`, `DiscordController`, `CostsController`,
-   * `EnvController`, etc.). Nothing in `@hyveon/web`'s production code reads
-   * `iac.output`'s result today (only a screenshot-demo fixture resolves it
-   * to `null`).
+   * `payload.force` is accepted for payload compatibility but ignored: `PulumiService.apply`/
+   * `.destroy` already invalidate the outputs cache on a successful settlement, so the next call
+   * after a real change misses the cache with no caller-supplied bypass needed.
    *
-   * ## `force` is accepted but ignored
-   *
-   * `payload.force` is kept in {@link IacOutputPayload} for payload
-   * compatibility but is otherwise unused: `PulumiService.apply`/`.destroy`
-   * both call `ConfigService.invalidateCache()` on a successful settlement
-   * (see those methods' own TSDoc, "Cache invalidation"), so the next
-   * `getStackOutputs()` call after a real change already misses its cache
-   * with no caller-supplied bypass needed.
-   *
-   * Prefers `ConfigService.getStackOutputs()` (`this.config`, already wired
-   * into this controller for other reasons) over calling
-   * `PulumiService.getStackOutputs()` directly, since `ConfigService`'s own
-   * delegate adds its own request-coalescing cache on top (see that method's
-   * TSDoc) — falls back to `PulumiService.getStackOutputs()` directly only
-   * in the test-construction path where `config` isn't supplied (see the
-   * constructor's own doc comment).
+   * Prefers `ConfigService.getStackOutputs()` (adds its own request-coalescing cache) over
+   * `PulumiService.getStackOutputs()` directly; falls back to the latter only in the
+   * test-construction path where `config` isn't supplied.
    *
    * Reachable via the Electron IPC transport (`iac.output`).
    */
@@ -1320,35 +1096,16 @@ export class IacController implements OnModuleInit {
   }
 
   /**
-   * Approves a successful `plan` run for a later apply, delegating the
-   * actual write to `RunRecordService.approveRun` (see issue #109). This
-   * method never calls `PulumiService` — it only ever touches
-   * `RunRecordService`/`AuditService`.
+   * Approves a successful `plan` run for a later apply, delegating the write to
+   * `RunRecordService.approveRun` (see issue #109).
    *
-   * Validates `payload` first: `planRunId` must be a non-empty string. If
-   * validation fails, neither `RunRecordService.approveRun` nor
-   * `AuditService.record` is ever called and the method resolves immediately
-   * with `{ approved: false, error }`.
+   * @remarks
+   * The approver identity is never taken from the client — it's resolved server-side via
+   * {@link resolveApprover} (the local OS username), so an IPC caller can't spoof who approved
+   * a run.
    *
-   * The approver identity is never taken from the client — it's resolved
-   * server-side via {@link resolveApprover} (the local OS username), so an
-   * IPC caller can't spoof who approved a run. `RunRecordService.approveRun`
-   * is then awaited directly (unlike {@link plan}, there is no streaming
-   * output to bridge — this resolves a single value):
-   *
-   * - On success, a best-effort `AuditService.record()` entry (action
-   *   `'approve'`) is recorded — mirroring {@link plan}'s audit shape, this
-   *   never throws and never blocks/fails the response — and the method
-   *   resolves `{ approved: true, approvedBy, approvedAt }` with the values
-   *   `RunRecordService.approveRun` stamped onto the persisted `RunRecord`.
-   * - On failure (the run-history table isn't configured, no record exists
-   *   for `planRunId`, the record isn't a `plan` run, or the record's status
-   *   isn't `success`), the thrown error's `message` is surfaced as
-   *   `{ approved: false, error }`. Nothing is written in this case.
-   *
-   * Reachable via the Electron IPC transport (`iac.approve`), bridged
-   * automatically by the generic `ipcMain.handle` bridge in
-   * `../ipc-main-bridge.ts`.
+   * Reachable via the Electron IPC transport (`iac.approve`), bridged automatically by the
+   * generic `ipcMain.handle` bridge.
    */
   @MessagePattern('iac.approve')
   async approve(@Payload() payload: IacApprovePayload): Promise<IacApproveAck> {
@@ -1444,63 +1201,26 @@ export class IacController implements OnModuleInit {
   }
 
   /**
-   * Confirms the rollback flow (#112) for `payload.applyRunId`.
+   * Confirms the rollback flow (#112) for `payload.applyRunId`. `PulumiService.confirmRollback`
+   * fuses a historic-configuration restore write and its follow-up plan into one guarded
+   * `AsyncGenerator`, driven here via a manual `.next()` loop (mirrors {@link plan}) so the
+   * generator's return value is reachable; every intermediate chunk is also forwarded on
+   * {@link ROLLBACK_CONFIRM_CHUNK_CHANNEL}.
    *
-   * ## Streaming vs. the renderer's existing one-shot contract
+   * @remarks
+   * **Accepted consequence, not a bug**: the renderer submits a separate `iac.plan` call after a
+   * successful ack, so a confirmed rollback produces TWO `PulumiRunRecord`s tagged
+   * `rolledBackFrom: applyRunId` — this method's own internal plan run (never surfaced to the
+   * renderer) and the renderer's own subsequent one (which is what the operator actually sees
+   * and can approve/apply).
    *
-   * `PulumiService.confirmRollback` fuses the historic-configuration restore
-   * write and its follow-up plan into one guarded unit, held under a single
-   * `operationInFlight` lock for its entire duration — it's an
-   * `AsyncGenerator` that streams a real plan run internally, exactly like
-   * {@link plan} does, not a one-shot `Promise` (see that method's own
-   * TSDoc for the gap this design closes).
+   * The restored configuration version id the renderer needs (`IacRollbackConfirmAck.versionId`)
+   * is not a field of `PulumiPreviewResult` — it's recovered via
+   * `PulumiService.readRunRecord(result.runId).configVersionId`, which `previewCore` always
+   * persists for a successful plan run before returning.
    *
-   * The renderer expects `iac.rollback.confirm` to resolve a single
-   * `IacRollbackConfirmAck`, with a SEPARATE `iac.plan` call still
-   * queuing the plan the operator watches (see `@hyveon/web`'s
-   * `iac.page.tsx`, `RollbackNavState`). This method reconciles the
-   * two: it drives `PulumiService.confirmRollback`'s generator to completion
-   * INTERNALLY (via a manual `.next()` loop, mirroring {@link plan}'s
-   * manual-drive shape so `PulumiPreviewResult` — the generator's return
-   * value — is reachable), forwarding every intermediate chunk on the new
-   * {@link ROLLBACK_CONFIRM_CHUNK_CHANNEL} purely as a forward-compatible
-   * bonus (no current subscriber), and only resolves this method's own
-   * `Promise` once the WHOLE restore+plan unit has settled.
-   *
-   * **Known, accepted consequence, not silently swallowed**: because the
-   * renderer's `RollbackAction`/`IacPage` still submit a follow-up
-   * `iac.plan` call after a successful `confirmRollback` ack, and
-   * `PulumiService.confirmRollback` also runs a real plan internally as part
-   * of the restore, a successful rollback produces TWO `PulumiRunRecord`s
-   * tagged `rolledBackFrom: applyRunId` — the one this method's internal
-   * generator just completed (whose `runId` isn't surfaced to the renderer
-   * at all) and the one the renderer's own subsequent `iac.plan` call starts
-   * (which IS what the operator actually sees and can approve/apply). This
-   * is wasteful (a redundant `pulumi preview` invocation and an orphaned,
-   * browsable-but-unreferenced run-history entry) but not incorrect from the
-   * renderer's point of view — every rollback flow still completes
-   * successfully end-to-end. Closing this duplication requires updating the
-   * renderer to consume `confirmRollback`'s already-completed plan directly
-   * instead of re-submitting one.
-   *
-   * The restored configuration version id the renderer needs
-   * (`IacRollbackConfirmAck.versionId`) is NOT a field of
-   * `PulumiPreviewResult` (which describes the plan artifact, not the
-   * configuration version it ran against) — it's recovered via
-   * `PulumiService.readRunRecord(result.runId)` once the generator settles,
-   * reading back the `PulumiRunRecord.configVersionId` that `PulumiService`'s
-   * internal `previewCore` call persisted for this exact run (guaranteed
-   * present: `previewCore` always records the configuration version id it
-   * actually observed for a successful plan before returning).
-   *
-   * Reachable via the Electron IPC transport (`iac.rollback.confirm`).
-   * Despite ultimately resolving a single `IacRollbackConfirmAck`, this
-   * channel is bridged manually by {@link onModuleInit}, not by the generic
-   * `ipcMain.handle` bridge — see that method's own TSDoc and
-   * `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts` for why: the
-   * `ctx: { evt }` second parameter below is undecorated, exactly like
-   * {@link plan}/{@link apply}/{@link destroy}, and the generic bridge cannot
-   * supply it correctly through NestJS's transport layer.
+   * Reachable via the Electron IPC transport (`iac.rollback.confirm`); bridged manually by
+   * {@link onModuleInit} (undecorated `ctx: { evt }` parameter), not the generic bridge.
    */
   @MessagePattern('iac.rollback.confirm')
   async confirmRollback(

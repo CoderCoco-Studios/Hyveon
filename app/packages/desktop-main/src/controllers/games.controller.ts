@@ -29,36 +29,23 @@ export class GamesController {
   ) {}
 
   /**
-   * Lists games merged from the declared view (the `deployment-config.json`
-   * `gameServers` map, via {@link DeploymentConfigService}), the deployed view
-   * (the deployed stack's `gameNames` output, via {@link ConfigService}), and
-   * per-game drift findings (computed via {@link computeDriftFromOutputs}) —
-   * see {@link mergeGameLists}. This surfaces games that are declared but not
-   * yet applied (`declared: true, deployed: false`), games whose declared
-   * config has diverged from what's deployed (`drift.kind === 'config_drift'`),
-   * alongside live in-sync games, so the renderer can distinguish all three
-   * states instead of just presence.
+   * Lists games merged from the declared view, the deployed view, and
+   * per-game drift — see {@link mergeGameLists}.
    *
-   * Drift is derived locally from the same `declared`/`outputs` pair fetched
-   * below via the pure {@link computeDriftFromOutputs} rather than by calling
-   * `DriftService.getDrift()`, which would redundantly re-fetch and
-   * re-invalidate `DeploymentConfigService` (a second, racing S3 read of
-   * `deployment-config.json` on every `games.list` call) and — unlike
-   * `getGameServers()`/`getStackOutputs()`, which both degrade every failure
-   * to a safe default — reject on internal failure, which would fail the
-   * entire games list instead of just omitting drift.
+   * Drift is computed locally via the pure {@link computeDriftFromOutputs}
+   * against the `declared`/`outputs` pair already fetched below, rather than
+   * calling `DriftService.getDrift()`, which would redundantly re-fetch and
+   * re-invalidate `DeploymentConfigService` — a second, racing S3 read of
+   * `deployment-config.json` on every `games.list` call.
    *
-   * Invalidates only the `DeploymentConfigService` cache (cheap — an in-memory S3
-   * object cache with its own short TTL), NOT {@link ConfigService}'s stack-
-   * outputs cache. `ConfigService.getStackOutputs()` is a genuinely expensive
-   * round-trip (Pulumi engine resolution, passphrase, S3 backend), and this
-   * channel is called on every visit to pages that show the games list
-   * (Discord config, Logs), so eagerly invalidating that cache here would pay
-   * that cost far more often than a fresh deploy could plausibly have
-   * happened. The stack-outputs cache is invalidated on write instead — when
-   * `PulumiService.apply`/`.destroy` persists a successful run, or when
-   * `GamesWriteService.successResult()` applies a games.create/update/delete
-   * change — not on every read here.
+   * Invalidates only the `DeploymentConfigService` cache (cheap, in-memory,
+   * short TTL) — NOT {@link ConfigService}'s stack-outputs cache. That cache
+   * is a genuinely expensive round-trip (Pulumi engine resolution,
+   * passphrase, S3 backend), and this is a hot read path (Discord config,
+   * Logs pages), so eagerly invalidating it here would pay that cost far
+   * more often than a fresh deploy could plausibly have happened; it's
+   * invalidated on write instead (`PulumiService.apply`/`.destroy`,
+   * `GamesWriteService.successResult()`).
    *
    * Reachable via the Electron IPC transport (`games.list`).
    */

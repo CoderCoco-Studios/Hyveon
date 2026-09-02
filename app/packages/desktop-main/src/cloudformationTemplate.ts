@@ -9,32 +9,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Resolves the on-disk path to `iam-bootstrap.yaml`, the CloudFormation
- * template shell a later group's `GuidedIamService` reads and renders (token
- * substitution, then submits as a stack) during first-run IAM bootstrap.
+ * template shell rendered (token substitution, then submitted as a stack)
+ * during first-run IAM bootstrap.
  *
- * Mirrors `electron-entry.ts`'s `resolveWindowIcon()` candidate-list
- * resolution pattern: packaged builds find it under `process.resourcesPath`
- * (electron-builder copies it there via `extraResources`); a dev Electron run
- * falls back to the repo-relative source location. `electron-vite` bundles
- * every main-process module (this one included) into a single `out/main`
- * chunk, so `__dirname` here resolves to `out/main` just like it does in
- * `electron-entry.ts` — two levels up is the repo root, from which the path
- * descends back into `desktop-main`'s own `resources/` directory (unlike
- * `build/icon.png`, this asset lives inside the package, not at the repo
- * root).
- *
- * A third candidate covers a *different* compiled layout: this module is
- * also loaded directly from `@hyveon/desktop-main`'s plain `tsc` output
- * (`dist/cloudformationTemplate.js`, one level under the package root) by
- * workspace consumers outside the Electron bundle — e.g. the tier-2
- * integration-test harness (`e2e/integration-specs`), which imports
- * `AppModule` straight from `dist/`. `__dirname` there is one level shallower
- * than the `out/main` case above, so the second candidate's two-`..` walk
- * overshoots; this candidate walks up just one level (`dist/` → the package
- * root) instead.
- *
- * Returns `undefined` when none of the three copies is present rather than
- * throwing — callers decide how to surface a missing template.
+ * @remarks
+ * Mirrors `electron-entry.ts`'s `resolveWindowIcon()` candidate-list pattern.
+ * The first candidate covers packaged builds (electron-builder's
+ * `extraResources`); the second covers a dev Electron run, where
+ * `electron-vite` bundles this module into `out/main`, two levels below the
+ * repo root; the third covers plain `tsc` output (`dist/`) used by
+ * non-Electron consumers such as the tier-2 integration-test harness, where
+ * `__dirname` is one level shallower so the walk-up is one `..` instead of
+ * two. Returns `undefined` when none of the three copies is present rather
+ * than throwing — callers decide how to surface a missing template.
  */
 export function resolveCloudFormationTemplatePath(): string | undefined {
   const candidates = [

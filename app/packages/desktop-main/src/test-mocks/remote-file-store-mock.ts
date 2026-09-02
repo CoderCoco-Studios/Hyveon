@@ -125,9 +125,9 @@ export const remoteFileStoreMockStore = new RemoteFileStoreMockStore();
  * configuration object every integration spec cares about, not a
  * general-purpose multi-object S3 double.
  *
- * `AwsRemoteFileStore` builds its `S3Client` lazily (on first `send()` call),
- * so patching the *prototype* is sufficient — this only needs to run once,
- * before the first call anywhere in the process.
+ * Prototype patching is sufficient because `AwsRemoteFileStore` builds its
+ * `S3Client` lazily; see `ecs-mock.ts`'s {@link installEcsMock} doc comment
+ * for the full rationale.
  *
  * @returns the `aws-sdk-client-mock` stub. Specs rarely need it directly
  * since all queued state routes through {@link remoteFileStoreMockStore}, but

@@ -53,13 +53,11 @@ import { WindowService } from './services/WindowService.js';
  *
  * `RunRecordModule` is imported directly (not left to arrive transitively
  * via some other module) because `PulumiService.preview`/`.apply`/`.destroy`
- * resolve `RUN_RECORD_PERSISTER`/`RUN_LOCK_SERVICE` from it lazily at
- * runtime via `ModuleRef.get(token, { strict: false })` — a lookup that only
- * succeeds if the token is provided *somewhere* reachable from this root
- * module, with no static `imports:` edge of its own to prove it (see
- * `run-record.module.ts`'s doc comment for why that's a deliberate design).
- * This direct import keeps `RunRecordModule`'s presence in the graph
- * independent of any other module's own `imports:` list.
+ * resolve `RUN_RECORD_PERSISTER`/`RUN_LOCK_SERVICE` from it lazily via
+ * `ModuleRef.get(token, { strict: false })` — a lookup that only succeeds if
+ * the token is provided *somewhere* reachable from this root module, with no
+ * static `imports:` edge of its own to prove it. Module-cycle rationale: see
+ * the canonical explanation in {@link RunRecordModule}.
  */
 @Module({
   imports: [

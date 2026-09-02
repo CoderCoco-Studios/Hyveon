@@ -109,9 +109,9 @@ export const runRecordMockStore = new RunRecordMockStore();
  * is genuinely retrievable by a subsequent `IacController.approve`/`apply`
  * call in the same spec.
  *
- * `AwsRunRecordStore` builds its `DynamoDBDocumentClient` lazily (on first
- * `send()` call), so patching the *prototype* is sufficient — this only
- * needs to run once, before the first call anywhere in the process.
+ * Prototype patching is sufficient because `AwsRunRecordStore` builds its
+ * `DynamoDBDocumentClient` lazily; see `ecs-mock.ts`'s {@link installEcsMock}
+ * doc comment for the full rationale.
  *
  * @returns the `aws-sdk-client-mock` stub. Specs rarely need it directly
  * since all queued state routes through {@link runRecordMockStore}, but it's

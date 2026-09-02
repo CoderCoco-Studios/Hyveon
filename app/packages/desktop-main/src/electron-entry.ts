@@ -70,9 +70,9 @@ const NO_SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 12, y: 20 };
 /**
  * Builds the platform-conditional `BrowserWindow` chrome options for the
  * custom title bar. `titleBarStyle: 'hidden'` on every platform hides the OS
- * title bar row so the app's own header can act as the draggable title bar
- * (D1). Per-platform additions preserve each OS's native window-control
- * convention rather than drawing app-side buttons everywhere (D2/D3):
+ * title bar row so the app's own header can act as the draggable title bar.
+ * Per-platform additions preserve each OS's native window-control convention
+ * rather than drawing app-side buttons everywhere:
  *
  * - macOS keeps native traffic-light buttons, repositioned via
  *   `trafficLightPosition` to align with the merged header. `x: 252` is not
@@ -89,11 +89,7 @@ const NO_SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 12, y: 20 };
  *   `wireTrafficLightResizeHandling`'s runtime updates can never drift apart.
  * - Windows keeps the native `titleBarOverlay` (including the Windows 11
  *   snap-layout flyout), colored to match the header's background/text.
- * - Linux gets neither — the renderer draws its own buttons there (Task 4).
- *   This is an implementation-simplicity choice for this change's scope, not
- *   a platform limitation: Electron's `titleBarOverlay` has since gained
- *   Linux support (see `design.md`'s D3), so a future change could migrate
- *   Linux to the native overlay path instead.
+ * - Linux gets neither — the renderer draws its own buttons there.
  *
  * The overlay's `height: 56` matches the header's `h-14` Tailwind class; its
  * `color`/`symbolColor` match `--color-surface` (#1a1d2e) and
@@ -122,16 +118,16 @@ function platformWindowChromeOptions(): Partial<Electron.BrowserWindowConstructo
  * Keeps macOS's traffic-light cluster aligned with the header as the window
  * is resized across the sidebar's responsive breakpoint. `trafficLightPosition`
  * is a `BrowserWindow` constructor-time constant, so a fixed sidebar-offset
- * value would be correct only while the sidebar stays visible (width at least
- * 768px) —
- * below that the sidebar is `display: none` (`app-layout.component.tsx`'s
- * `hidden md:flex`) and the header starts at x: 0, leaving the constructor's
- * offset floating in the middle of a now-sidebar-less header. Electron's
- * `win.setWindowButtonPosition()` (the runtime setter for the
- * `trafficLightPosition` constructor option — renamed in Electron's API, the
- * constructor option itself is unchanged) can update the position at
- * runtime, so this listens for the window's native `resize` event and
- * switches between the two positions based on the window's current width.
+ * value is correct only while the sidebar stays visible (width at least
+ * 768px) — below that the sidebar is `display: none`
+ * (`app-layout.component.tsx`'s `hidden md:flex`) and the header starts at
+ * x: 0, leaving the constructor's offset floating in the middle of a
+ * now-sidebar-less header. Electron's `win.setWindowButtonPosition()` (the
+ * runtime setter for the `trafficLightPosition` constructor option —
+ * renamed in Electron's API, the constructor option itself is unchanged)
+ * can update the position at runtime, so this listens for the window's
+ * native `resize` event and switches between the two positions based on the
+ * window's current width.
  *
  * The comparison against `SIDEBAR_BREAKPOINT_PX` — a *CSS*-px value matching
  * the renderer's Tailwind `md` breakpoint — divides `getBounds().width` (a
