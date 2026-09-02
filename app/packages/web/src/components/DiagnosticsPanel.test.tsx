@@ -203,16 +203,17 @@ describe('DiagnosticsPanel', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<DiagnosticsPanel />);
-    // Wait for the initial fetch to actually commit (not just be called) — otherwise its
-    // pending state update can flush later, during the Pause click below, and its legitimate
-    // paused=false autoscroll would fire after we've reset scrollTop but before pause applies.
     await waitFor(() => expect(screen.getByText(SAMPLE_LINES[0]!)).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Pause' }));
+    // Confirm the paused state has actually committed before touching scrollTop — otherwise a
+    // straggling pre-pause autoscroll effect can flush after the reset below, reintroducing the
+    // exact race this test exists to catch.
+    await screen.findByRole('button', { name: 'Resume' });
 
     const box = screen.getByTestId('diagnostics-log-box');
     Object.defineProperty(box, 'scrollHeight', { value: 999, configurable: true });
     box.scrollTop = 0;
-
-    await user.click(screen.getByRole('button', { name: 'Pause' }));
 
     apiMock.diagnosticsTail.mockResolvedValue({ lines: [...SAMPLE_LINES, '2026-05-23T10:00:03Z INFO Ignored while paused'] });
     await act(async () => {
