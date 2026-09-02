@@ -5,7 +5,7 @@
  * IPC bridge without importing anything from `electron` or Node.js.
  *
  * Keep this file in sync with the `contextBridge.exposeInMainWorld('hyveon', {...})`
- * call in `src/index.ts` — the two must always agree on method signatures and
+ * call in `src/preload.ts` — the two must always agree on method signatures and
  * namespace names.
  */
 

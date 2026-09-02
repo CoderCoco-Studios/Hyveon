@@ -8,6 +8,11 @@
  *
  * Channel naming convention: `<namespace>.<action>`
  *
+ * There is no bearer token, no `fetch`, and no API base URL anywhere in this file — the desktop
+ * app has no HTTP transport at all. `desktop-main` is an Electron IPC microservice; every call
+ * crosses the `contextBridge` above, never a network socket. See
+ * `openspec/specs/desktop-only-operator-surface`.
+ *
  * ## Streaming channels and the contextBridge clone boundary
  *
  * `contextBridge.exposeInMainWorld` structured-clones every value crossing

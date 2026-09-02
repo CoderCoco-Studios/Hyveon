@@ -16,6 +16,8 @@ interface SeederEvent {
   container_path: string;
 }
 
+// Must stay identical to `infra/src/lambdas.ts`'s `localMountPath: '/mnt/efs'` — the other
+// half of this pair; changing one without the other breaks the seed-file mount.
 const MOUNT_POINT = '/mnt/efs';
 
 /**

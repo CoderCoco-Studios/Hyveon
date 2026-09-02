@@ -3329,6 +3329,9 @@ export class PulumiService {
         ownsOperationInFlight = false;
       }
 
+      // Same `sk` as the pre-flight marker written before `stack.up()` (both derive from
+      // `startedAt`) — this settlement overwrites that marker in place, leaving exactly one
+      // record per attempt rather than a duplicate in-doubt record.
       await this.persistRunRecord(
         runId,
         'apply',

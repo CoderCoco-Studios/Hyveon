@@ -45,6 +45,9 @@ export interface DefineNetworkArgs {
  * `aws_subnet.public`'s `count = 2` — a hardcoded constant in the HCL, not
  * driven by any configuration variable, so it stays a hardcoded constant
  * here too rather than becoming a spurious `DeploymentConfig` field.
+ *
+ * Not a safe knob to raise: changing this replaces every public subnet and its
+ * EFS mount targets (one per subnet, declared in `efs.ts`).
  */
 const PUBLIC_SUBNET_COUNT = 2;
 

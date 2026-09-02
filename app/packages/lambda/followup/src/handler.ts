@@ -24,6 +24,7 @@ import {
   EC2Client,
   DescribeNetworkInterfacesCommand,
 } from '@aws-sdk/client-ec2';
+// `canRun` is the single shared copy; never inline or fork it.
 import { canRun, formatGameStatus, getEffectiveDiscordConfig, parseJsonEnv, putPending } from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig, GameStatus } from '@hyveon/shared';
 
