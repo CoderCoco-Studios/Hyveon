@@ -13,7 +13,7 @@ working in an area rather than relying on a summary here.
 | Work already proposed or in flight | `openspec/changes/<change>/` (`proposal.md`, `design.md`, `tasks.md`) |
 | Big picture + invariants | `docs/docs/architecture.md` |
 | The Pulumi infra program's files, resources, and state backend | `docs/docs/components/infra.md` |
-| The six Lambda packages (five always-on, one conditional) and the `/server-start` critical path | `docs/docs/components/lambdas.md` |
+| The six Lambda packages (four always-on, two conditional) and the `/server-start` critical path | `docs/docs/components/lambdas.md` |
 | Nest modules, IPC channels, services, renderer layout | `docs/docs/components/management-app.md` |
 | The operator UI, page by page (dashboard, games, infrastructure, discord, logs, settings, costs, audit, first-run wizard) | `docs/docs/app/` |
 | Installing / distributing the packaged app | `docs/docs/install.md` |
