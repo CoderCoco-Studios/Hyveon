@@ -1,64 +1,6 @@
-# game-environment-variables Specification
+# game-environment-variables Delta Specification
 
-## Purpose
-Lets operators declare and edit a game server's environment variables (e.g. `EULA=TRUE`) from the web UI, in both the add-game wizard and the edit-game form, without hand-editing `deployment-config.json`.
-## Requirements
-### Requirement: Operators can set a game's environment variables from the game form
-
-The web UI SHALL expose `environment` (a list of `name`/`value` rows) as an
-editable control in both the add-game wizard and the edit-game form. In the
-add-game wizard, the control SHALL live in a dedicated "Environment" step
-positioned between the Storage and Review steps. In the edit-game form, the
-control SHALL live in an "Environment" section rendered alongside the
-Identity/Resources/Networking/Storage sections. The list SHALL default to
-empty for a new game and SHALL reflect the game's currently declared rows
-when editing an existing game. The operator SHALL be able to add a new
-blank row, edit a row's `name` or `value`, and remove any row, with no
-minimum row count enforced.
-
-#### Scenario: Creating a game with environment variables
-
-- **WHEN** an operator starts the add-game wizard, reaches the Environment
-  step, and adds a row with name `EULA` and value `TRUE`
-- **THEN** the submitted create payload's config carries
-  `environment: [{ name: "EULA", value: "TRUE" }]`
-
-#### Scenario: Creating a game without adding any environment variables
-
-- **WHEN** an operator completes the add-game wizard without adding any row
-  to the Environment step
-- **THEN** the submitted create payload's config carries no `environment`
-  entries (an empty list or the field omitted)
-
-#### Scenario: Editing a game that already has environment variables declared
-
-- **WHEN** an operator opens the edit form for a game whose declaration
-  includes `environment: [{ name: "EULA", value: "TRUE" }]`
-- **THEN** the Environment section renders one row pre-filled with name
-  `EULA` and value `TRUE`
-
-#### Scenario: Adding an environment variable to an existing game
-
-- **WHEN** an operator opens the edit form for a game with no declared
-  environment variables, adds a row with name `DIFFICULTY` and value
-  `hard`, and saves
-- **THEN** the submitted update payload's config carries
-  `environment: [{ name: "DIFFICULTY", value: "hard" }]`
-
-#### Scenario: Removing an environment variable from an existing game
-
-- **WHEN** an operator opens the edit form for a game with one declared
-  environment variable, removes that row, and saves
-- **THEN** the submitted update payload's config carries no `environment`
-  entries
-
-#### Scenario: Saving an unrelated field does not disturb declared environment variables
-
-- **WHEN** an operator edits only the container image on a game with
-  `environment: [{ name: "EULA", value: "TRUE" }]` and saves without
-  touching the Environment section
-- **THEN** the submitted update payload's config still carries
-  `environment: [{ name: "EULA", value: "TRUE" }]`
+## MODIFIED Requirements
 
 ### Requirement: Environment variable entries must have a non-empty, unique name
 
@@ -114,6 +56,8 @@ set/casing of `name` beyond non-emptiness for rows that do not use
   shell syntax or JSON braces)
 - **THEN** validation for that row's `value` succeeds
 
+## ADDED Requirements
+
 ### Requirement: The environment editor surfaces the available interpolation tokens
 
 The environment variable editor (add-game wizard Environment step and the
@@ -135,4 +79,3 @@ today.
 
 - **WHEN** validation produces an issue at path `environment[1].value`
 - **THEN** the second row's value input displays that issue's message
-

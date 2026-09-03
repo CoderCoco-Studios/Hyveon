@@ -26,8 +26,10 @@
 
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import type { GameServerConfig } from '@hyveon/shared';
+import type { GameServerConfig, GameServerEnvironmentVariable } from '@hyveon/shared';
+import { HYVEON_ENV_TOKENS, substituteHyveonToken, valueUsesToken } from '@hyveon/shared/envTokens';
 import type { EfsResources } from './efs.js';
+import { buildIpv4WrapperScript } from './envTokenWrapper.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 
 /** Every resource {@link defineEcs} declares, keyed by role. */
@@ -85,6 +87,38 @@ function logConfiguration(
       'awslogs-stream-prefix': streamPrefix,
     },
   };
+}
+
+/**
+ * Resolves `${hyveon.network.public-address}` in env values to the game's FQDN at build time. The
+ * ipv4 token is left in place for the boot wrapper to substitute at container start.
+ *
+ * @param game - The game name, for the error message and the substituted FQDN.
+ * @param environment - The game's configured environment variables.
+ * @param strippedHostedZoneName - The dot-stripped hosted zone name (see {@link stripTrailingDots}).
+ * @returns A new array with every public-address token replaced; other entries are returned as-is.
+ * @throws Error when a public-address token is used but `strippedHostedZoneName` is empty. The
+ * hosted zone is validated non-empty in `defineAll` before this runs — this is defense in depth.
+ */
+function resolveGameEnvironment(
+  game: string,
+  environment: GameServerEnvironmentVariable[],
+  strippedHostedZoneName: string,
+): GameServerEnvironmentVariable[] {
+  return environment.map((variable) => {
+    if (!valueUsesToken(variable.value, HYVEON_ENV_TOKENS.publicAddress)) {
+      return variable;
+    }
+    if (strippedHostedZoneName.length === 0) {
+      throw new Error(
+        `defineEcs: game "${game}" uses \${hyveon.network.public-address} but no hosted zone is configured.`,
+      );
+    }
+    return {
+      ...variable,
+      value: substituteHyveonToken(variable.value, HYVEON_ENV_TOKENS.publicAddress, `${game}.${strippedHostedZoneName}`),
+    };
+  });
 }
 
 /**
@@ -166,6 +200,11 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
       });
     }
 
+    const resolvedEnvironment = resolveGameEnvironment(game, config.environment ?? [], strippedHostedZoneName);
+    const usesIpv4Token = resolvedEnvironment.some((variable) =>
+      valueUsesToken(variable.value, HYVEON_ENV_TOKENS.publicIpv4),
+    );
+
     const gameContainer: Record<string, unknown> = {
       name: game,
       image: config.image,
@@ -175,7 +214,17 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
         hostPort: port.container,
         protocol: port.protocol,
       })),
-      environment: config.environment ?? [],
+      environment: resolvedEnvironment,
+      ...(usesIpv4Token
+        ? {
+            entryPoint: [
+              '/bin/sh',
+              '-c',
+              buildIpv4WrapperScript({ environment: resolvedEnvironment, command: config.command ?? [] }),
+            ],
+          }
+        : {}),
+      ...(config.command !== undefined && config.command.length > 0 ? { command: config.command } : {}),
       mountPoints: config.volumes.map((volume) => ({
         sourceVolume: `${game}-${volume.name}`,
         containerPath: volume.container_path,

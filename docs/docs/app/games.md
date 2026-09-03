@@ -263,7 +263,58 @@ Two rules apply to the **name** field only — any string value is accepted for
 
 There is no character-set or casing restriction on the name (unlike the game
 **Name** field in Step 1) — container images vary too much to assume a
-universal naming convention.
+universal naming convention, **unless** the value uses the public IPv4 token
+below, which imposes its own name restriction.
+
+#### Interpolation tokens
+
+A hint under the section heading lists two tokens you can embed in a
+**Value** field:
+
+| Token | Resolves to | When |
+|---|---|---|
+| `${hyveon.network.public-address}` | The game's public DNS hostname, `<game>.<zone>` | Deploy time — stable across restarts |
+| `${hyveon.network.public-ipv4}` | The task's public IPv4 | Container boot — **changes on every restart** |
+
+Prefer the hostname token whenever the game accepts a hostname — it doesn't
+need re-resolving after a restart. Any other `${...}`/`{...}` text (shell
+variable syntax, template placeholders your image expects) is left alone;
+only `${hyveon.*}` sequences are inspected. An unrecognized one is rejected
+under the value field: `Unknown token "${hyveon.foo}" in environment[0].value;
+allowed tokens are ${hyveon.network.public-address} and
+${hyveon.network.public-ipv4}.`
+
+**Using the IPv4 token has two extra requirements**, because there's no way
+to inject a resolved IP into an already-running container — Hyveon has to
+discover it after the task starts and splice it in before the game's own
+process launches:
+
+- The variable's **name** must be a plain shell identifier — letters,
+  digits, underscore, not starting with a digit — because it's re-exported as
+  a shell `export` statement: `environment[0].name must be a valid shell
+  identifier (letters, digits, underscore; not starting with a digit) to use
+  ${hyveon.network.public-ipv4}.`
+- You must fill in the **Start command** editor below (see next section):
+  `command is required when ${hyveon.network.public-ipv4} is used: the
+  boot-time IP resolver replaces the image's built-in start command.`
+
+#### Start command
+
+Below the environment rows, an optional **Start command** editor lets you
+declare the image's own start command argument-by-argument (**Add
+argument** appends a blank field; each has its own **Remove**). Leave it
+empty and the image's built-in `ENTRYPOINT`/`CMD` runs as normal.
+
+Filling it in only matters when a value above uses the IPv4 token: at boot,
+Hyveon replaces the image's built-in start command with a small resolver
+script that retries an IP-echo lookup (`wget`, falling back to `curl`, up to
+30 times), `export`s the token-bearing variables with the discovered address
+spliced in, then `exec`s the start command you entered here — so the image
+needs a POSIX shell environment (BusyBox is sufficient) with `wget` or `curl`
+for this to work. If the address
+can't be discovered after all retries, the resolver exits non-zero instead
+of launching the game, so the server never comes up with a broken address
+silently baked in.
 
 ### Step 6 — Review
 
@@ -411,7 +462,8 @@ to Step 3 of the wizard (including "a credential is already set" next to the
 selector, and every credential field rendering blank rather than echoing back
 a previous value). `environment` is directly editable here too, in its own
 **Environment** card — the same row editor (Variable name / Value, no
-minimum row count) as the wizard's Step 5.
+minimum row count), the same `${hyveon.*}` token interpolation, and the same
+**Start command** editor as the wizard's Step 5.
 
 Above the save button:
 

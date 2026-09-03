@@ -147,7 +147,8 @@ means the count depends on `config.gameServers`.
 | `network.ts` | VPC and public networking. | `aws.ec2.Vpc` (1), `InternetGateway` (1), `Subnet` (2, fixed — not config-driven), `RouteTable` (1, with an inline default route), `RouteTableAssociation` (2). |
 | `securityGroups.ts` | The security groups guarding game tasks, the file manager, EFS, the EFS-seeder Lambdas, and the health-check Lambda. | `aws.ec2.SecurityGroup` — 3 fixed (game servers, file manager, EFS) + 1 conditional (EFS-seeder, only when at least one game declares `file_seeds`) + 1 conditional (health-check, only when at least one game declares `healthCheck`). Ingress/egress on the three fixed groups are inline arrays, EXCEPT the EFS-seeder and health-check groups' egress: each is one or more conditional standalone `aws.ec2.SecurityGroupRule`s instead (EFS-seeder: one rule, port 2049/tcp to the EFS security group; health-check: one rule per distinct declared health-check port, to the game-servers security group) — neither seeder nor health-check group carries any inline `egress` at all, so the standalone rules can't conflict with an inline one on the same group (see the file's own doc, "`efsSeederSg`'s egress — standalone rule, not inline"). The health-check group's matching ingress (into `gameServers`) is a second in-line entry per declared port on that group's own `ingress` array, the same shape as the EFS-seeder group's ingress into `efs`. `gameServers`'s `ingress` array also includes one entry per non-HTTPS game port declared `visibility: 'internal'`, sourced from the VPC's own CIDR block (`aws.ec2.getVpcOutput({ id: vpcId })`, a plain data lookup — no resource declared) rather than `0.0.0.0/0` — alongside the public/HTTPS/health-check-sourced entries already described above. |
 | `efs.ts` | The shared encrypted EFS filesystem and its access points. | `aws.efs.FileSystem` (1), `MountTarget` (one per public subnet), `AccessPoint` (one per game/volume pair, plus one per HTTPS game for Caddy's certificate storage). |
-| `ecs.ts` | The ECS cluster and per-game task definitions. | `aws.ecs.Cluster` (1), `aws.cloudwatch.LogGroup` (one per game, `/ecs/{game}-server`), `aws.ecs.TaskDefinition` (one per game, family `{game}-server`). **No `aws.ecs.Service` is ever declared** — upholding the no-persistent-Service invariant. The per-game log group and task definition both carry a `Game=<game>` tag (see "Cost allocation tags" below); the cluster does not. |
+| `ecs.ts` | The ECS cluster and per-game task definitions. | `aws.ecs.Cluster` (1), `aws.cloudwatch.LogGroup` (one per game, `/ecs/{game}-server`), `aws.ecs.TaskDefinition` (one per game, family `{game}-server`). **No `aws.ecs.Service` is ever declared** — upholding the no-persistent-Service invariant. The per-game log group and task definition both carry a `Game=<game>` tag (see "Cost allocation tags" below); the cluster does not. Env-token interpolation in a game's `environment` values (below) also lives here, alongside `envTokenWrapper.ts`. |
+| `envTokenWrapper.ts` | Generates the inline `/bin/sh -c` boot wrapper `ecs.ts` injects when a game's env values need the public-IPv4 token resolved at container start. | No Pulumi resources — a pure string-building helper consumed by `ecs.ts`'s `defineEcs`. |
 | `iam.ts` | Every IAM role and inline policy, split into `defineIamRoles`/`defineIamPolicies` because policies need a Lambda ARN that doesn't exist until after `lambdas.ts` runs. | `aws.iam.Role` — 6 fixed (task execution, watchdog, followup, interactions, dns-updater, FileBrowser auto-stop scheduler) + 1 per game with `file_seeds` + 1 conditional, **single shared** role (health-check — not per-game, unlike the EFS-seeder role, since one function serves every opted-in game). `RolePolicyAttachment` (1, the managed ECS task-execution policy). `RolePolicy` — 5 fixed + 1 per seeder game + 1 conditional (health-check's own policy). The scheduler role trusts `scheduler.amazonaws.com` and its policy grants only `ecs:StopTask`, scoped to the deployed cluster's tasks — used by `FileManagerService`'s per-launch auto-stop schedule, not by any Lambda. The watchdog's own policy gains a conditional `lambda:InvokeFunction` statement, scoped to the health-check function's ARN, only when that function exists. |
 | `lambdas.ts` | The six Lambda functions (one conditional), their log groups, the interactions Function URL, and the two EventBridge rule/target pairs. | `aws.lambda.Function` — 4 fixed + 1 per seeder game (`{projectName}-efs-seeder-{game}`) + 1 conditional, single shared function (`{projectName}-health-check`). `aws.cloudwatch.LogGroup` — 4 fixed + 1 per seeder game + 1 conditional. `aws.lambda.FunctionUrl` (1). `aws.lambda.Permission` (4 — none for health-check, which is invoked only via the IAM identity-policy grant above, never a resource-based permission). `aws.cloudwatch.EventRule` (2: watchdog schedule, ECS task-state-change). `EventTarget` (2). The per-seeder-game function and log group carry a `Game=<game>` tag; the 4 fixed Lambdas and the health-check Lambda (shared across every opted-in game) do not. |
 | `dynamodb.ts` | The two DynamoDB tables this program manages. | `aws.dynamodb.Table` — 2 fixed: Discord state (TTL on `expiresAt`), audit log. Both `PAY_PER_REQUEST`. The run-history table is bootstrap-managed, not declared here — see "The runs table invariant" below. |
@@ -278,6 +279,60 @@ deployment-wide, not just within the game that declares `https: true`:
 different, non-HTTPS game can't mark 443/tcp `'internal'` and have it leak
 public via the Caddy sidecar's unconditional `0.0.0.0/0` ingress on the same
 port (security-group ingress rules union).
+
+## Env-var token interpolation: `${hyveon.network.*}`
+
+A game's `environment` values (`@hyveon/shared`'s `GameServerEnvironmentVariable[]`)
+may embed one of two allow-listed tokens instead of a literal value — see
+`@hyveon/shared`'s `envTokens.ts`. The two tokens resolve at different times,
+because one is known at apply time and the other genuinely isn't:
+
+- **`` `${hyveon.network.public-address}` `` — resolved at build time, in
+  `ecs.ts`.** `defineEcs`'s `resolveGameEnvironment` substitutes it with the
+  game's own DNS name, `` `<game>.<zone>` ``, while building the container
+  definition — the same hostname `@hyveon/lambda-update-dns` will point at
+  this task once it's running. If the token is used but the stripped hosted
+  zone name is empty, `resolveGameEnvironment` throws; this is defense in
+  depth only; `defineAll` already validates the hosted zone is non-empty
+  before `defineEcs` ever runs.
+- **`` `${hyveon.network.public-ipv4}` `` — left raw in the task definition,
+  resolved at container boot.** The task's public IPv4 doesn't exist until
+  after `RunTask` allocates the ENI, so nothing at apply time or at
+  `RunTask`-call time can supply it. Instead, when any env value carries this
+  token, the game container's `entryPoint` is overridden to
+  `` ['/bin/sh', '-c', <script>] ``, where `<script>` is generated by
+  `envTokenWrapper.ts`'s `buildIpv4WrapperScript`. At container start the
+  script:
+  1. Polls `https://checkip.amazonaws.com` (`wget` first, falling back to
+     `curl`) up to 30 times, 2 seconds apart, stripping whitespace from the
+     response.
+  2. `export`s the discovered IP only into the variables that actually carry
+     the token, splicing it in place of the token text.
+  3. `exec`s the operator's configured `command` — never falls through to the
+     image's own `ENTRYPOINT`/`CMD`, since the wrapper replaced it.
+  4. Exits non-zero without ever reaching step 3 if discovery fails after all
+     30 attempts, so the task stops instead of starting the game with no
+     public address to advertise.
+
+  Overriding `entryPoint` this way clears the image's built-in start chain,
+  so `GameServerConfig.command` (Docker `CMD`, passed straight into
+  `containerDefinitions[].command`) becomes **required** whenever the ipv4
+  token is used — there is nothing else left to `exec`. The image must
+  provide a POSIX shell environment (BusyBox is sufficient) with `wget` or
+  `curl` for the wrapper to run at all.
+  Games that don't use the token get `command` passed through as-is (when
+  set) with no `entryPoint` override — see `gameServerConfig.ts`'s doc on
+  `command`.
+
+  Injection safety: every operator-supplied string (the IP-echo URL, the
+  command, and env values) is embedded single-quoted (`shellSingleQuote`),
+  and every token-bearing variable name must match a shell-identifier pattern
+  before the script is built — both checked in `buildIpv4WrapperScript`
+  itself, not just by the config validator upstream.
+
+A game whose `environment` uses neither token gets a byte-identical
+`containerDefinitions` JSON to before this feature existed — no `entryPoint`
+key, and `command` only appears if the operator set one.
 
 ## The runs table invariant — bootstrap-managed, not Pulumi-managed
 

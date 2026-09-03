@@ -22,6 +22,7 @@
 
 import { z } from 'zod';
 import type { GameServer, GameServerPort } from './gameServerConfig.js';
+import { ALLOWED_HYVEON_ENV_TOKENS, HYVEON_ENV_TOKENS, findHyveonTokenCandidates, valueUsesToken } from './envTokens.js';
 
 /**
  * Matches a game name that's safe to use both as a `DeploymentConfig.gameServers`
@@ -284,6 +285,7 @@ export const gameServerSchema = z.object({
   memory: z.number(),
   ports: z.array(gameServerPortSchema),
   environment: z.array(gameServerEnvironmentVariableSchema).optional(),
+  command: z.array(z.string().min(1, 'command arguments must not be empty.')).optional(),
   volumes: z
     .array(gameServerVolumeSchema)
     .min(1, 'Each game server must have at least one volume entry with non-empty name and container_path.'),
@@ -520,6 +522,56 @@ function checkEnvironmentVariables(entry: GameServerEntryInput): GameServerValid
 
 /** Placeholder tokens allowed inside `connect_message`, matching the app's original config input's doc comment. */
 export const ALLOWED_CONNECT_MESSAGE_PLACEHOLDERS: ReadonlySet<string> = new Set(['host', 'ip', 'port', 'game']);
+
+/** Shell-identifier shape required for env names the boot wrapper re-exports. */
+const SHELL_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Validates `${hyveon.*}` interpolation tokens in `environment[].value`:
+ * rejects tokens outside {@link ALLOWED_HYVEON_ENV_TOKENS}, requires a
+ * non-empty `command` when any value uses `${hyveon.network.public-ipv4}`
+ * (the boot wrapper replaces the image's built-in start command), and
+ * requires ipv4-token rows to have shell-identifier names (the wrapper
+ * re-exports them as shell statements). Exported for the same reason as
+ * {@link checkConnectMessagePlaceholders}: the add-game wizard's per-step
+ * validation reuses the exact rule and messages.
+ */
+export function checkEnvironmentValueTokens(
+  entry: Pick<GameServerEntryInput, 'environment' | 'command'>,
+): GameServerValidationIssue[] {
+  const issues: GameServerValidationIssue[] = [];
+  let usesIpv4 = false;
+
+  entry.environment?.forEach((variable, index) => {
+    for (const candidate of findHyveonTokenCandidates(variable.value)) {
+      if (!ALLOWED_HYVEON_ENV_TOKENS.has(candidate)) {
+        issues.push({
+          path: `environment[${index}].value`,
+          message: `Unknown token "${candidate}" in environment[${index}].value; allowed tokens are \${hyveon.network.public-address} and \${hyveon.network.public-ipv4}.`,
+        });
+      }
+    }
+
+    if (valueUsesToken(variable.value, HYVEON_ENV_TOKENS.publicIpv4)) {
+      usesIpv4 = true;
+      if (!SHELL_IDENTIFIER_PATTERN.test(variable.name)) {
+        issues.push({
+          path: `environment[${index}].name`,
+          message: `environment[${index}].name must be a valid shell identifier (letters, digits, underscore; not starting with a digit) to use \${hyveon.network.public-ipv4}.`,
+        });
+      }
+    }
+  });
+
+  if (usesIpv4 && (entry.command === undefined || entry.command.length === 0)) {
+    issues.push({
+      path: 'command',
+      message: 'command is required when ${hyveon.network.public-ipv4} is used: the boot-time IP resolver replaces the image\'s built-in start command.',
+    });
+  }
+
+  return issues;
+}
 
 /** Matches every `{token}` occurrence in a string, capturing the token itself. */
 export const PLACEHOLDER_TOKEN_PATTERN = /\{([^{}]*)\}/g;
@@ -832,6 +884,7 @@ export function validateGameServer(
     issues.push(...checkFargateCpuMemoryPairing(parsed.data));
     issues.push(...checkAbsolutePaths(parsed.data));
     issues.push(...checkEnvironmentVariables(parsed.data));
+    issues.push(...checkEnvironmentValueTokens(parsed.data));
     issues.push(...checkConnectMessagePlaceholders(parsed.data.connect_message));
     issues.push(...checkHealthCheckRules(parsed.data));
   }

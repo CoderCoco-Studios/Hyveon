@@ -152,6 +152,8 @@ export interface GameServer {
   memory: number;
   ports: { container: number; protocol: string; visibility?: 'public' | 'internal' }[];
   environment?: { name: string; value: string }[];
+  /** Container start command (Docker `CMD`). Required when an `environment` value uses `${hyveon.network.public-ipv4}`. */
+  command?: string[];
   volumes: { name: string; container_path: string }[];
   https?: boolean;
   connect_message?: string;
@@ -236,6 +238,7 @@ export interface GameWizardDraft {
   volumes: { name: string; container_path: string }[];
   file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
   environment: { name: string; value: string }[];
+  command: string[];
   https: boolean;
   healthCheck: {
     enabled: boolean;
