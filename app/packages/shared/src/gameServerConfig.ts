@@ -1,15 +1,10 @@
 import type { DriftKind, DriftChangedField } from './drift.js';
 
 /**
- * Per-game container configuration shape, historically a straight
- * TypeScript mirror of the `game_servers` map entry object type declared in
- * the app's original, now fully retired IaC config input — that retired
- * config input is this shape's historical field-inventory source;
- * `DeploymentConfig.gameServers` (`./deploymentConfig.js`)
- * is the CURRENT source of truth per `CLAUDE.md`'s invariants list.
- * `DeploymentConfigService` parses this shape out of `deployment-config.json`
- * today (originally out of the app's per-deployment IaC values file, before
- * the Pulumi migration).
+ * Per-game container configuration shape. `DeploymentConfig.gameServers`
+ * (`./deploymentConfig.js`) is the CURRENT source of truth per
+ * `CLAUDE.md`'s invariants list. `DeploymentConfigService` parses this
+ * shape out of `deployment-config.json`.
  *
  * `GameServer` (via the key-less {@link GameServerConfig} alias below) is
  * the CANONICAL per-game shape embedded in `DeploymentConfig.gameServers`.
@@ -272,9 +267,7 @@ export interface GameServer {
  * `game_servers` map is represented as `Record<string, GameServerConfig>`
  * rather than a flattened list — e.g. {@link DeploymentConfig.gameServers}
  * (`./deploymentConfig.js`) and {@link StackOutputs.appliedGameServers}
- * (`./stackOutputs.js`). Consolidates the `Omit<GameServer, 'name'>` shape
- * that was previously hand-duplicated (see `DeploymentConfigService`'s
- * `RawGameServerEntry` in `@hyveon/desktop-main`).
+ * (`./stackOutputs.js`).
  */
 export type GameServerConfig = Omit<GameServer, 'name'>;
 
