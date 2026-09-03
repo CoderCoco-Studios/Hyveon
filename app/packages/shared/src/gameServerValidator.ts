@@ -556,11 +556,25 @@ function portKey(port: GameServerPort): string {
   return `${port.container}/${port.protocol.toLowerCase()}`;
 }
 
+/** `visibility` with the `undefined ≡ 'public'` contract applied (see {@link GameServerPort.visibility}). */
+function effectivePortVisibility(visibility: GameServerPort['visibility']): 'public' | 'internal' {
+  return visibility ?? 'public';
+}
+
 /**
  * Detects container-port collisions both within the proposed entry's own
  * `ports` list and against every other declared `game_servers` entry (the
  * entry being re-validated, identified by `name`, is skipped so editing an
  * already-declared game doesn't collide with itself).
+ *
+ * `icmp` pairs are exempt from the cross-game branch of this rule: the same
+ * `(container, protocol)` icmp pair is allowed on multiple games as long as
+ * every declaration shares the same effective visibility, since the shared
+ * security group dedupes identical icmp rules into one (see
+ * `defineSecurityGroups`, `@hyveon/infra`). A visibility mismatch is still
+ * rejected, naming both games. The same-game duplicate rule above (within
+ * `ports` of a single entry) is unaffected and still rejects a repeated
+ * icmp pair.
  */
 function checkPortCollisions(
   name: string,
@@ -572,6 +586,7 @@ function checkPortCollisions(
 
   ports.forEach((port, index) => {
     const key = portKey(port);
+    const isIcmp = port.protocol.toLowerCase() === 'icmp';
 
     const firstIndex = seenWithinEntry.get(key);
     if (firstIndex !== undefined) {
@@ -587,12 +602,27 @@ function checkPortCollisions(
       if (existing.name === name) {
         continue;
       }
-      if (existing.ports.some((existingPort) => portKey(existingPort) === key)) {
-        issues.push({
-          path: `ports[${index}]`,
-          message: `Port ${port.container}/${port.protocol} collides with existing game "${existing.name}".`,
-        });
+      const existingPort = existing.ports.find((candidate) => portKey(candidate) === key);
+      if (existingPort === undefined) {
+        continue;
       }
+
+      if (isIcmp) {
+        const existingVisibility = effectivePortVisibility(existingPort.visibility);
+        const proposedVisibility = effectivePortVisibility(port.visibility);
+        if (existingVisibility !== proposedVisibility) {
+          issues.push({
+            path: `ports[${index}]`,
+            message: `Port ${port.container}/icmp on game "${name}" conflicts with existing game "${existing.name}": effective visibility must match across games for icmp entries (one is "${existingVisibility}", the other "${proposedVisibility}").`,
+          });
+        }
+        continue;
+      }
+
+      issues.push({
+        path: `ports[${index}]`,
+        message: `Port ${port.container}/${port.protocol} collides with existing game "${existing.name}".`,
+      });
     }
   });
 
@@ -649,6 +679,46 @@ function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue
       issues.push({
         path: `ports[${index}]`,
         message: `ports[${index}] uses container port ${port.container}, which is reserved for the Caddy sidecar on an https = true game server.`,
+      });
+    }
+  });
+
+  return issues;
+}
+
+/**
+ * `true` when `value` is a valid ICMP type: an integer between 0 and 255
+ * inclusive.
+ *
+ * Exported (rather than left private to {@link checkIcmpPortRules}) so the
+ * add-game wizard's client-side per-row range check (`checkIcmpPortType`,
+ * `@hyveon/web`'s `wizard-form.utils.ts`) can reuse this exact rule instead
+ * of hand-duplicating it — mirrors the same single-source-of-truth pattern
+ * {@link GAME_NAME_PATTERN} already establishes for name validation.
+ */
+export function isValidIcmpType(value: number): boolean {
+  return Number.isInteger(value) && value >= 0 && value <= 255;
+}
+
+/**
+ * Validates `icmp` port entries for a non-HTTPS game server: `container` is
+ * the ICMP type (not a port number) and must be an integer between 0 and 255
+ * inclusive ({@link isValidIcmpType}). HTTPS games never reach this check —
+ * {@link checkHttpsPortRules} already rejects any `icmp` entry there via its
+ * tcp/udp-only rule.
+ *
+ * Matches `protocol` case-insensitively, like {@link portKey}, so a
+ * hand-edited `deployment-config.json` entry with `protocol: 'ICMP'` still
+ * gets the type-range check rather than silently skipping it.
+ */
+function checkIcmpPortRules(ports: GameServerPort[]): GameServerValidationIssue[] {
+  const issues: GameServerValidationIssue[] = [];
+
+  ports.forEach((port, index) => {
+    if (port.protocol.toLowerCase() === 'icmp' && !isValidIcmpType(port.container)) {
+      issues.push({
+        path: `ports[${index}].container`,
+        message: `ports[${index}].container is the ICMP type when protocol is "icmp" and must be an integer between 0 and 255, got ${port.container}.`,
       });
     }
   });
@@ -803,10 +873,11 @@ function checkHealthCheckRules(entry: GameServerEntryInput): GameServerValidatio
  * pairing, absolute paths for volumes/file_seeds, connect-message placeholder
  * allowlisting, HTTPS port constraints (only when `https === true`),
  * container-port collisions (within the entry itself and against every
- * other entry in `existingGameServers`), and the deployment-wide 443/80/tcp
- * reservation ({@link checkReservedHttpsPortsAcrossDeployment}) that applies
- * to every game, https or not, whenever any game in the deployment has
- * `https: true`.
+ * other entry in `existingGameServers`), the ICMP-type range for `icmp`
+ * ports on non-HTTPS games ({@link checkIcmpPortRules}), and the
+ * deployment-wide 443/80/tcp reservation
+ * ({@link checkReservedHttpsPortsAcrossDeployment}) that applies to every
+ * game, https or not, whenever any game in the deployment has `https: true`.
  *
  * @param name - The `game_servers` map key this entry would be saved under.
  *   Used to build the returned {@link GameServer} on success, and to skip
@@ -849,6 +920,8 @@ export function validateGameServer(
     const isHttps = isRecord(proposed) && proposed['https'] === true;
     if (isHttps) {
       issues.push(...checkHttpsPortRules(portsResult.data));
+    } else {
+      issues.push(...checkIcmpPortRules(portsResult.data));
     }
     issues.push(...checkReservedHttpsPortsAcrossDeployment(name, portsResult.data, isHttps, existingGameServers));
   }

@@ -20,15 +20,23 @@ import type { DriftKind, DriftChangedField } from './drift.js';
  * naming-convention rationale.
  */
 
-/** Single TCP/UDP port a game server container listens on. */
+/** Single TCP/UDP port, or ICMP type, a game server's security group ingresses. */
 export interface GameServerPort {
-  /** Container port number the process listens on (e.g. `25565`). */
+  /**
+   * For `protocol: "tcp"` or `"udp"`, the container port number the process
+   * listens on (e.g. `25565`), passed straight through to ECS
+   * `portMappings`. For `protocol: "icmp"`, this is instead the ICMP type
+   * (8 = echo request) — the entry only shapes a security-group ingress
+   * rule and is never an ECS port mapping.
+   */
   container: number;
   /**
-   * Transport protocol. Must be the exact lowercase string `"tcp"` or
-   * `"udp"` — passed straight through to ECS `portMappings`, which rejects
-   * anything else. Inherited from the app's original `game_servers`
-   * validation block's same requirement.
+   * Transport protocol. Must be the exact lowercase string `"tcp"`, `"udp"`,
+   * or `"icmp"` — `"tcp"`/`"udp"` are passed straight through to ECS
+   * `portMappings`, which rejects anything else, so an `"icmp"` entry is
+   * excluded from `portMappings` and instead only ingresses a security-group
+   * rule. Inherited from the app's original `game_servers` validation
+   * block's same tcp/udp requirement.
    */
   protocol: string;
   /**

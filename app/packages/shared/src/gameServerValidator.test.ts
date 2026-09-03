@@ -341,6 +341,51 @@ describe('validateGameServer', () => {
     });
   });
 
+  describe('cross-game icmp collision exemption', () => {
+    it('should allow the same icmp entry on two games when effective visibility matches', () => {
+      const existing = makeExisting({ name: 'minecraft', ports: [{ container: 8, protocol: 'icmp' }] });
+      const result = validateGameServer('valheim', makeProposed({ ports: [{ container: 8, protocol: 'icmp' }] }), [
+        existing,
+      ]);
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject the same icmp entry across games with conflicting visibility, naming both games', () => {
+      const existing = makeExisting({
+        name: 'minecraft',
+        ports: [{ container: 8, protocol: 'icmp', visibility: 'internal' }],
+      });
+      const result = validateGameServer('valheim', makeProposed({ ports: [{ container: 8, protocol: 'icmp' }] }), [
+        existing,
+      ]);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.issues.some(
+            (i) => i.message.includes('minecraft') && i.message.includes('valheim') && i.message.includes('visibility'),
+          ),
+        ).toBe(true);
+      }
+    });
+
+    it('should still reject a duplicate icmp entry declared twice within a single game', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          ports: [
+            { container: 8, protocol: 'icmp' },
+            { container: 8, protocol: 'icmp' },
+          ],
+        }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.message.includes('collides'))).toBe(true);
+      }
+    });
+  });
+
   describe('https port rules', () => {
     it('should reject an https game server declaring no ports', () => {
       const result = validateGameServer('game', makeProposed({ https: true, ports: [] }), []);
@@ -447,6 +492,62 @@ describe('validateGameServer', () => {
         [],
       );
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('icmp port rules', () => {
+    it('should accept a non-https game server declaring an icmp entry with a valid type', () => {
+      const result = validateGameServer('game', makeProposed({ ports: [{ container: 8, protocol: 'icmp' }] }), []);
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject a non-https game server declaring an icmp entry with an out-of-range type', () => {
+      const result = validateGameServer('game', makeProposed({ ports: [{ container: 8211, protocol: 'icmp' }] }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.issues.some((i) => i.message.includes('ICMP type') && i.message.includes('0 and 255')),
+        ).toBe(true);
+      }
+    });
+
+    it('should still reject an icmp entry on an https game server via the existing tcp/udp-only rule', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          https: true,
+          ports: [
+            { container: 443, protocol: 'tcp' },
+            { container: 8, protocol: 'icmp' },
+          ],
+        }),
+        [],
+      );
+      expect(result.success).toBe(false);
+    });
+
+    it('should apply the type-range check to an uppercase "ICMP" protocol entry', () => {
+      const result = validateGameServer('game', makeProposed({ ports: [{ container: 300, protocol: 'ICMP' }] }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.message.includes('ICMP type') && i.message.includes('0 and 255'))).toBe(
+          true,
+        );
+      }
+    });
+
+    it('should accept the ICMP type range boundaries (0 and 255)', () => {
+      for (const container of [0, 255]) {
+        const result = validateGameServer('game', makeProposed({ ports: [{ container, protocol: 'icmp' }] }), []);
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it('should reject values outside the ICMP type range boundaries', () => {
+      for (const container of [256, -1, 8.5]) {
+        const result = validateGameServer('game', makeProposed({ ports: [{ container, protocol: 'icmp' }] }), []);
+        expect(result.success).toBe(false);
+      }
     });
   });
 

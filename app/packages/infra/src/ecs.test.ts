@@ -204,6 +204,36 @@ describe('defineEcs', () => {
     });
   });
 
+  it('should exclude icmp port entries from portMappings, keeping only tcp/udp entries', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      echo: {
+        image: 'example/echo:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [
+          { container: 8, protocol: 'icmp' },
+          { container: 8211, protocol: 'udp' },
+        ],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+      },
+    };
+    const efs = await arrangeEfs(gameServers, provider);
+    await runDefineEcs({
+      projectName: 'hyveon',
+      awsRegion: 'us-east-1',
+      hostedZoneName: 'example.com',
+      gameServers,
+      efs,
+      executionRoleArn: 'arn:aws:iam::123456789012:role/hyveon-task-execution',
+      provider,
+    });
+
+    const echoTd = findByName(mocks.resources, 'echo-server');
+    const containers = parsedContainerDefinitions(echoTd);
+    expect(containers[0].portMappings).toEqual([{ containerPort: 8211, hostPort: 8211, protocol: 'udp' }]);
+  });
+
   it('should default a game with environment omitted to an empty environment array (matching GameServerConfig.environment\'s optional-field default)', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
