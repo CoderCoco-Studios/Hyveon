@@ -24,41 +24,17 @@ export class AwsAuditLogStore implements AuditLogStore {
   private clientCacheKey: string | null = null;
 
   /**
-   * @param getConfig - Resolves the DynamoDB table (and optional region)
-   *   this store reads/writes, on every call — so a table rename picked up
-   *   between calls (e.g. after a Pulumi apply run through `PulumiService`)
-   *   isn't stuck targeting a stale table. Optional so the class remains constructible with no
-   *   arguments, mirroring `AwsSecretsStore`/`AwsRemoteFileStore`'s
-   *   zero-arg-constructible pattern. When omitted (or when it returns no
-   *   `tableName`), every method throws a clear "table not configured"
-   *   error rather than sending a malformed request. When `region` is
-   *   omitted, it falls back to {@link resolveDefaultAwsRegion} — never read
-   *   from `process.env` directly here, per CLAUDE.md's "no raw
-   *   `process.env` in business logic" guideline.
+   * Resolves table/region/credentials for this store on every call, not once at construction —
+   * the canonical statement of this pattern; `AwsRunRecordStore`, `AwsRemoteFileStore`,
+   * `AwsSecretsStore`, and `AwsCloudProvider` cross-reference it rather than repeating it.
    *
-   *   May return a `Promise`: the table name is sourced from a deployed
-   *   Pulumi stack's async outputs read
-   *   (`ConfigService.getStackOutputs()`) in the real app, via
-   *   `cloud-provider.module.ts`'s `resolveAuditLogStoreConfig`. Every real
-   *   invocation of this callback happens from inside this class's own
-   *   already-`async` public methods below, so awaiting it costs nothing —
-   *   no NestJS async-factory-provider gymnastics needed; the closure Nest's
-   *   (synchronous) `useFactory` passes into the constructor just returns a
-   *   `Promise` now instead of a plain value. Existing sync closures (e.g.
-   *   this file's own tests) keep working unchanged — `await`ing a
-   *   non-`Promise` value resolves to it immediately.
-   *
-   *   `credentials`, when supplied, is passed straight through to
-   *   `DynamoDBClient` — omitting it leaves the SDK's own default provider
-   *   chain in effect, which resolves nothing in a GUI-launched Electron
-   *   process (see `desktop-main`'s `resolveAwsClientCredentials`, the real
-   *   caller's source for this field). `credentialsSignature`, when supplied,
-   *   is a cheap, comparable fingerprint of `credentials` — see
-   *   `desktop-main`'s `resolveAwsClientCredentialsWithSignature` for why
-   *   `credentials` itself can't be compared to detect a rotation.
-   *   {@link getClient} keys its cache on this alongside region so a
-   *   same-region credentials rotation still rebuilds the client instead of
-   *   staying pinned to a stale key indefinitely.
+   * @param getConfig - Resolved per call so a table rename (e.g. after a Pulumi apply) is picked
+   *   up instead of sticking to a stale table. Optional so the class stays zero-arg constructible;
+   *   omitted (or missing `tableName`) makes every method throw "table not configured" instead of
+   *   sending a malformed request. May return a `Promise` — every real call site is already async,
+   *   so awaiting it is free, and existing sync closures keep working unchanged. `credentialsSignature`
+   *   is a cheap fingerprint of `credentials`; {@link getClient} keys its cache on it so a
+   *   credentials rotation rebuilds the client rather than reusing a stale one.
    */
   constructor(
     private readonly getConfig?: () => (
