@@ -21,7 +21,7 @@ export interface UseRunHistoryResult {
 }
 
 /**
- * Fetch orchestration for `/iac/history`'s run table (issue #111): the initial page for the given
+ * Fetch orchestration for `/iac/history`'s run table: the initial page for the given
  * `statusFilter` — server-side via the `status-index` GSI — plus cursor-based "Load more"
  * pagination. Re-fetches the first page whenever `statusFilter` changes.
  */

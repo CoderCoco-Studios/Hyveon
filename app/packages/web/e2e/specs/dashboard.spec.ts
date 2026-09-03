@@ -133,7 +133,7 @@ test.describe('dashboard', () => {
     await applyHyveonMocks(win, { statuses: [ERROR_GAME] });
     await dashboard.gotoElectron();
 
-    // Issue #78: an errored server previously had no recovery path — Start
+    // An errored server needs a recovery path — Start
     // rendered but stayed permanently disabled, and the failure reason was
     // never shown.
     await expect(dashboard.statusBadge('ERROR')).toBeVisible();

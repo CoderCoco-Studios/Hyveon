@@ -17,7 +17,7 @@ const CLOUD_OPTIONS: { id: CloudOption; label: string; description: string }[] =
 ];
 
 /**
- * Second step of the first-run wizard (#186): the operator picks which
+ * Second step of the first-run wizard: the operator picks which
  * cloud to deploy to. AWS is the only option in v1 — the list-driven
  * rendering and `onSelect` callback keep the step structurally ready for
  * more clouds later without an early redesign.

@@ -11,7 +11,7 @@ import { SubmissionBanners } from './submission-banners.component.js';
 
 /**
  * Exact phrase an operator must type into the destroy confirmation dialog
- * before the destructive button enables (issue #307) — the UI's
+ * before the destructive button enables — the UI's
  * defense-in-depth layer; the token minted on confirm is what the backend
  * actually trusts (see `PulumiService.assertFreshDestroyConfirmation`).
  */
