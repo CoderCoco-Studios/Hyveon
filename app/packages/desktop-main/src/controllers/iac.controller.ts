@@ -494,8 +494,7 @@ interface IacDestroyEndMessage {
 
 /**
  * IPC-only Iac controller. Handles Electron main-process messages via
- * `@MessagePattern` — no HTTP routes are registered here. Every
- * orchestration call site delegates to `PulumiService`, the
+ * `@MessagePattern`. Every orchestration call site delegates to `PulumiService`, the
  * Automation-API-backed provisioning engine; where its methods are
  * self-contained gates rather than thin CLI wrappers ({@link apply},
  * {@link destroy}), this controller does no extra pre-flight bookkeeping of
@@ -830,7 +829,6 @@ export class IacController implements OnModuleInit {
    * `'destroyed'` listener on the `WebContents` aborts the controller the
    * instant the window/webview goes away.
    *
-   * Reachable via the Electron IPC transport (`iac.plan`).
    */
   @MessagePattern('iac.plan')
   async plan(
@@ -976,7 +974,6 @@ export class IacController implements OnModuleInit {
    * {@link activeApplies} keyed by `runId`, the same reasoning as
    * {@link plan}.
    *
-   * Reachable via the Electron IPC transport (`iac.apply`).
    */
   @MessagePattern('iac.apply')
   async apply(
@@ -1103,7 +1100,6 @@ export class IacController implements OnModuleInit {
    * `../ipc-main-bridge.ts` wires it automatically (it isn't listed in
    * `SELF_BRIDGED_PATTERNS`).
    *
-   * Reachable via the Electron IPC transport (`iac.destroy.mintToken`).
    */
   @MessagePattern('iac.destroy.mintToken')
   mintDestroyToken(): IacDestroyMintAck {
@@ -1116,7 +1112,6 @@ export class IacController implements OnModuleInit {
    * back on {@link clearStaleLock}'s payload before it expires — mirrors
    * {@link mintDestroyToken} exactly, for the lock-clear confirmation gate.
    *
-   * Reachable via the Electron IPC transport (`iac.lock.clear.mintToken`).
    */
   @MessagePattern('iac.lock.clear.mintToken')
   mintLockClearToken(): IacLockClearMintAck {
@@ -1173,7 +1168,6 @@ export class IacController implements OnModuleInit {
    * {@link activeDestroys} keyed by `runId`, the same reasoning as
    * {@link apply}.
    *
-   * Reachable via the Electron IPC transport (`iac.destroy`).
    */
   @MessagePattern('iac.destroy')
   async destroy(
@@ -1310,7 +1304,6 @@ export class IacController implements OnModuleInit {
    * in the test-construction path where `config` isn't supplied (see the
    * constructor's own doc comment).
    *
-   * Reachable via the Electron IPC transport (`iac.output`).
    */
   @MessagePattern('iac.output')
   async output(@Payload() payload: IacOutputPayload = {}): Promise<StackOutputs | null> {

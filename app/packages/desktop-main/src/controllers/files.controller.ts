@@ -6,7 +6,7 @@ import { logger } from '../logger.js';
 /**
  * IPC-only controller for the ad-hoc EFS file-manager task (browse save files
  * without a running game server). Every handler is bound to an IPC channel via
- * `@MessagePattern` / `@Payload` — no HTTP routes are registered here.
+ * `@MessagePattern` / `@Payload`.
  */
 @Controller()
 export class FilesController {

@@ -1,47 +1,47 @@
 # Graph Report - Hyveon  (2026-09-02)
 
 ## Corpus Check
-- 1018 files · ~1,168,697 words
+- 1014 files · ~1,170,842 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 9360 nodes · 13564 edges · 685 communities (580 shown, 105 thin omitted)
-- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 353 edges (avg confidence: 0.79)
+- 9370 nodes · 13596 edges · 681 communities (581 shown, 100 thin omitted)
+- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 352 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `24c6bcf6`
+- Built from commit: `35c67b53`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- AwsProfileService
-- superpowers-bridge Schema
-- EcsService
-- hyveon-api.ts
-- ConfigService
-- Infra program (@hyveon/infra)
-- FakeRemoteFileStore
-- wizard-form.utils.ts
 - ElectronStoreService
-- GameWizardDraftService.ts
+- superpowers-bridge Schema
+- EcsService.ts
+- hyveon-api.ts
+- DeploymentConfigService
+- Infra program (@hyveon/infra)
+- ConfigService
+- wizard-form.utils.ts
+- logger.ts
+- games.controller.ts
 - PulumiWorkspaceService.test.ts
 - PulumiService
 - integration-specs/index.ts
 - cn
 - WizardController
 - devDependencies
-- ipc-main-bridge.ts
+- main.ts
 - cloud.test.ts
 - desktop-main/src/updater.ts
-- button.component.tsx
+- costs.page.tsx
 - app.module.ts
 - PulumiService.ts
-- DeploymentConfigService.ts
+- games.controller.integration.test.ts
 - Requirement: Automation API workspace seam
 - demo-data.ts
 - gameServerValidator.ts
-- storage-step.component.tsx
+- ../add-game-wizard/networking-step.component.js
 - first-run-wizard.component.test.tsx
 - api.service.ts
 - log-line-display.component.tsx
@@ -67,7 +67,7 @@
 - Tasks: Terraform Run UI
 - IacController
 - PulumiLockRecovery.ts
-- AwsProfileService.test.ts
+- PulumiService.test.ts
 - watchdog/src/handler.ts
 - openspec-review-implementation.js
 - iac.controller.test.ts
@@ -103,8 +103,8 @@
 - Setup Guide (docs page)
 - openspec-review-proposal.js
 - Game Detail Page
-- test
-- AuditService
+- PulumiService.destroy.test.ts
+- PulumiService.preview.test.ts
 - desktop-preload/package.json
 - iam.test.ts
 - interactions/src/handler.ts
@@ -115,7 +115,7 @@
 - interactions/package.json
 - deploymentConfig.ts
 - pages/index.ts
-- input.component.tsx
+- button.component.tsx
 - Game AWS resource tag
 - scripts
 - FakeCloudProvider
@@ -145,7 +145,7 @@
 - PulumiWorkspaceService
 - gameServerConfig.ts
 - iamPolicy.test.ts
-- hook-io.ts
+- guard-enter-worktree-path.ts
 - /terraform page
 - devDependencies
 - AwsCloudProvider.test.ts
@@ -170,10 +170,10 @@
 - desktop-preload/tsconfig.json
 - discordDomain.ts
 - efs-seeder/tsconfig.json
-- .get
+- DiagnosticsBundleService.ts
 - resolveDefaultAwsRegion
 - cloud-aws/tsconfig.json
-- RunRecordService
+- .getStackOutputs
 - Requirement: Diagnostics bundle export
 - FirstRunWizardService
 - PulumiCancellation.ts
@@ -232,7 +232,7 @@
 - migrate-iac-to-pulumi design.md
 - Requirement: Window-control IPC channels
 - @aws-sdk/client-dynamodb
-- CloudHealthService.ts
+- DriftService.ts
 - HyveonDeployAll IAM Policy
 - ADDED Requirements
 - Infrastructure page (operator app)
@@ -259,7 +259,7 @@
 - followup Lambda
 - extraction-spec.md
 - game-combobox.component.tsx
-- EcsService.test.ts
+- rollback-action.component.tsx
 - iac-run-detail.page.test.tsx
 - game-status-provider.component.test.tsx
 - Every IPC handler logs on entry; no error escapes uncaught
@@ -475,11 +475,11 @@
 - Verification Report
 - Requirements
 - WizardProgress
-- remove-game-button.component.tsx
-- IacHistoryPage
-- wizard.controller.test.ts
+- followup/src/handler.test.ts
+- interactions/src/handler.test.ts
+- update-dns/src/handler.test.ts
 - autoUpdateSetting.ts
-- add-guild-form.component.tsx
+- isSnowflake
 - Group 1: CloudFormation template generation
 - Group 7: Wizard UI
 - Verification Report: add-healthcheck-auth-type
@@ -520,7 +520,7 @@
 - 2026-08-21-remove-log-level-filter/tasks.md
 - templates/design.md
 - electron-entry.test.ts
-- main.ts
+- RpcErrorMessageFilter
 - Hyveon
 - Group 3: Credential rotation in AwsProfileService
 - Group 5: IAM permission gate
@@ -559,7 +559,7 @@
 - 2026-08-14-add-infra-log-viewer/proposal.md
 - templates/proposal.md
 - Decision: @pulumi/pulumi must be external, not bundled
-- DiscordConfigService.test.ts
+- use-diagnostics-tail.hook.ts
 - Testing Conventions
 - Bump Lambda runtime to nodejs24.x
 - add-healthcheck-auth-type/proposal.md
@@ -632,26 +632,18 @@
 - 2026-07-26-add-terraform-run-ui/README.md
 - 2026-07-26-remove-legacy-operator-surface/README.md
 - 2026-07-28-replace-alb-with-caddy-sidecar/README.md
-- RunService
-- stack-init-step.component.tsx
-- add-game-wizard.component.test.tsx
-- EnvController
-- games.spec.ts
-- EMPTY_PORT
-- PROTOCOL_OPTIONS
-- VISIBILITY_OPTIONS
 
 ## God Nodes (most connected - your core abstractions)
-1. `cn()` - 120 edges
+1. `cn()` - 121 edges
 2. `ElectronStoreService` - 100 edges
 3. `ConfigService` - 78 edges
-4. `PulumiService` - 74 edges
-5. `logger` - 74 edges
+4. `logger` - 74 edges
+5. `PulumiService` - 74 edges
 6. `DeploymentConfigService` - 54 edges
 7. `GuidedIamWizardPage` - 34 edges
 8. `DiscordPage` - 33 edges
-9. `PulumiEngineService` - 32 edges
-10. `Button` - 32 edges
+9. `Button` - 33 edges
+10. `PulumiEngineService` - 32 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `DiagnosticsPanel.tsx` --calls--> `HighlightedLine()`  [EXTRACTED]
@@ -716,51 +708,55 @@
 - **Shared health-check Lambda credential scope tension with scripted execution** — add_scripted_health_checks_shared_lambda_credential_risk, add_scripted_health_checks_capability_scripted_health_checks, add_pluggable_health_checks [INFERRED 0.85]
 - **Conventional Commits PR title regex duplicated across enforcement points** — claude_md_pr_title_regex, claude_commands_pr_title_validation_regex, github_copilot_instructions_pr_title_regex [INFERRED 0.90]
 
-## Communities (685 total, 105 thin omitted)
+## Communities (681 total, 100 thin omitted)
 
-### Community 0 - "AwsProfileService"
-Cohesion: 0.09
-Nodes (4): AwsProfileService, FailingParseAwsProfileService, TestableAwsProfileService, Injectable
+### Community 0 - "ElectronStoreService"
+Cohesion: 0.04
+Nodes (21): AwsProfileService, DEFAULT_PASTED_PROFILE_NAME, InvalidPastedCredentialsError, EMPTY_HOME, FailingParseAwsProfileService, FIXTURE_HOME, FixtureAwsProfileService, makePastedStore() (+13 more)
 
 ### Community 1 - "superpowers-bridge Schema"
 Cohesion: 0.04
 Nodes (48): 0. Pre-flight — verify required Superpowers skills, 1. Skill-name PRECHECK (Layer 1 capability detection), 1. Workspace — `superpowers:using-git-worktrees`, 2. Executor — `superpowers:subagent-driven-development`, 2. Schema-level vs prompt-level integration, 3. Transitive dependencies made explicit, 3. Verification — `openspec-verify-change`, 4. Opinionated: subagent platforms only, no manual fallback (+40 more)
 
-### Community 2 - "EcsService"
-Cohesion: 0.06
-Nodes (28): FilesController, Controller, MessagePattern, Payload, resolveAuditLogStoreConfig(), resolveDeploymentConfigFileStoreConfig(), resolveDiscordConfigStoreConfig(), resolveRunRecordStoreConfig() (+20 more)
+### Community 2 - "EcsService.ts"
+Cohesion: 0.04
+Nodes (41): FilesController, Controller, MessagePattern, Payload, resolveAwsClientCredentialsWithSignature(), Ec2Service, Injectable, awsCloudProviderLogger (+33 more)
 
 ### Community 3 - "hyveon-api.ts"
 Cohesion: 0.03
 Nodes (101): AdminsResult, AuditAction, AuditEntry, AuditPageResult, BootstrapConfigurationBucketInput, BootstrapDeploymentConfigInput, BootstrapKeyIntakeInput, BootstrapKeyIntakeResult (+93 more)
 
-### Community 4 - "ConfigService"
+### Community 4 - "DeploymentConfigService"
 Cohesion: 0.04
-Nodes (30): CLOUD_BINDINGS, CloudBindings, resolveCloudBindings(), FAKE_BINDINGS, FakeAuditLogStore, FakeDiscordEventReceiver, FakeRunRecordStore, FakeSecretsStore (+22 more)
+Nodes (29): { checkForUpdatesNowMock }, SETTINGS, assertValidGameName(), CachedGameServers, ConfigurationNotConfiguredError, DeploymentConfigService, s3Mock, GameServerEntryError (+21 more)
 
 ### Community 5 - "Infra program (@hyveon/infra)"
 Cohesion: 0.05
 Nodes (59): Audit page, Audit log table (Recent changes), Audit before/after JSON diff panel, Costs page, No AWS Cost Explorer API calls policy, Per-game Fargate cost estimates table, Dashboard page, Dashboard file manager (FileBrowser modal) (+51 more)
 
+### Community 6 - "ConfigService"
+Cohesion: 0.05
+Nodes (18): CLOUD_BINDINGS, CloudBindings, resolveAuditLogStoreConfig(), resolveCloudBindings(), resolveDeploymentConfigFileStoreConfig(), resolveRunRecordStoreConfig(), FAKE_BINDINGS, FakeAuditLogStore (+10 more)
+
 ### Community 7 - "wizard-form.utils.ts"
 Cohesion: 0.06
-Nodes (54): GameServer, GameWriteSuccess, RedactedGameServer, AddGameWizard(), AddGameWizardProps, STEP_LABELS, makeDraft(), IdentityStepProps (+46 more)
+Nodes (59): CreateGamePayload, GameServer, GameServerHealthCheck, GameServerHealthCheckAuthWriteInput, GameServerHealthCheckCondition, GameServerHealthCheckWriteInput, GameWriteSuccess, RedactedGameServer (+51 more)
 
-### Community 8 - "ElectronStoreService"
-Cohesion: 0.02
-Nodes (76): createConsoleOnlyLogger(), createLogger(), devPrintf, logger, __testing, CLOUD_PROVIDER, ListAuditEntriesOpts, AwsCredentialSource (+68 more)
+### Community 8 - "logger.ts"
+Cohesion: 0.05
+Nodes (29): EnvController, Controller, createConsoleOnlyLogger(), createLogger(), devPrintf, logger, __testing, dynamoMock (+21 more)
 
-### Community 9 - "GameWizardDraftService.ts"
-Cohesion: 0.07
-Nodes (24): GamesController, DEFAULT_OUTPUTS, DEFAULT_WRITE_RESULT, Controller, MessagePattern, Payload, describeError(), isGuardRefusal() (+16 more)
+### Community 9 - "games.controller.ts"
+Cohesion: 0.06
+Nodes (30): GamesController, DEFAULT_OUTPUTS, DEFAULT_WRITE_RESULT, Controller, MessagePattern, Payload, computeDriftFromOutputs(), GameWizardDraft (+22 more)
 
 ### Community 10 - "PulumiWorkspaceService.test.ts"
-Cohesion: 0.06
-Nodes (34): AwsClientCredentials, resolveAwsClientCredentials(), clearedEnvVars(), PASTED_KEY_ENV_VARS, PROFILE_ENV_VARS, PulumiCredentialsNotConfiguredError, resolveCredentialEnvVars(), execFileAsync (+26 more)
+Cohesion: 0.04
+Nodes (55): AwsClientCredentials, AwsPastedCredentialDecryptError, resolveAwsClientCredentials(), resolveAwsCredentialSource(), ResolvedAwsClientCredentials, StaticAwsCredentials, clearedEnvVars(), PASTED_KEY_ENV_VARS (+47 more)
 
 ### Community 11 - "PulumiService"
-Cohesion: 0.10
-Nodes (3): PulumiService, RunLockService, Injectable
+Cohesion: 0.08
+Nodes (4): runWithEscalatingCancellation(), hasEverCreatedOrSelectedStack(), PulumiService, Injectable
 
 ### Community 12 - "integration-specs/index.ts"
 Cohesion: 0.07
@@ -768,19 +764,19 @@ Nodes (20): createIpcHarness(), HandlerArgs, HandlerResult, IpcHarness, pushDesc
 
 ### Community 13 - "cn"
 Cohesion: 0.04
-Nodes (63): NetworkingStep(), configItems, logsGroup, monitoringItems, NavGroup, NavItem, NavLink(), AppTopbar() (+55 more)
+Nodes (65): AppLayout(), configItems, logsGroup, monitoringItems, NavGroup, NavItem, NavLink(), AppTopbar() (+57 more)
 
 ### Community 14 - "WizardController"
-Cohesion: 0.18
-Nodes (7): Controller, MessagePattern, Payload, WizardController, BootstrapResult, BootstrapKeyIntakeInput, BootstrapKeyIntakeResult
+Cohesion: 0.24
+Nodes (5): Controller, MessagePattern, Payload, WizardController, BootstrapResult
 
 ### Community 15 - "devDependencies"
 Cohesion: 0.04
 Nodes (44): devDependencies, aws-sdk-client-mock, concurrently, esbuild, eslint, @eslint/js, eslint-plugin-jsdoc, eslint-plugin-react (+36 more)
 
-### Community 16 - "ipc-main-bridge.ts"
-Cohesion: 0.24
-Nodes (5): BridgedElectronIPCTransport, registerIpcMainBridges(), SELF_BRIDGED_PATTERNS, { mockIpcMainHandle, mockIpcMainRemoveHandler, mockLoggerError }, bootstrap()
+### Community 16 - "main.ts"
+Cohesion: 0.15
+Nodes (9): AppModule, Module, applyFixPath(), { fixPathMock }, BridgedElectronIPCTransport, registerIpcMainBridges(), SELF_BRIDGED_PATTERNS, { mockIpcMainHandle, mockIpcMainRemoveHandler, mockLoggerError } (+1 more)
 
 ### Community 17 - "cloud.test.ts"
 Cohesion: 0.06
@@ -790,21 +786,21 @@ Nodes (10): CloudProvider, CostBreakdown, LogChunk, RemoteFileConflictError, Rem
 Cohesion: 0.06
 Nodes (45): app/packages/web/index.html, AppStoreSchema, build/ icon assets (icon.icns, icon.ico, icon.png), Capability: app-icon, Capability: auto-update-scaffold, Capability: install-and-signing-docs, Combined PR (#206 + #207 + #209), desktop-main/src/electron-entry.ts (+37 more)
 
-### Community 19 - "button.component.tsx"
+### Community 19 - "costs.page.tsx"
 Cohesion: 0.07
-Nodes (41): DiscordConfigRedacted, GameListEntry, mockStore, EmptyStateCardProps, EmptyStateCardTone, TONE_STYLES, SectionCardProps, Button (+33 more)
+Nodes (40): api, DiscordConfigRedacted, GameListEntry, mockStore, EmptyStateCardProps, EmptyStateCardTone, TONE_STYLES, SectionCardProps (+32 more)
 
 ### Community 20 - "app.module.ts"
-Cohesion: 0.11
-Nodes (29): AwsModule, Module, CloudProviderModule, Module, AUDIT_LOG_STORE, DISCORD_CONFIG_STORE, DISCORD_RECEIVER, REMOTE_FILE_STORE (+21 more)
+Cohesion: 0.10
+Nodes (32): AwsModule, Module, CloudProviderModule, resolveDiscordConfigStoreConfig(), Module, AUDIT_LOG_STORE, CLOUD_PROVIDER, DISCORD_CONFIG_STORE (+24 more)
 
 ### Community 21 - "PulumiService.ts"
-Cohesion: 0.02
-Nodes (96): _APP_ROOT, ARTIFACT_BYTES, CONFIG_JSON, FakeStackUp, FULLY_CONFIGURED, makeConfigCacheInvalidator(), makeEngine(), makeFullyConfiguredStore() (+88 more)
-
-### Community 22 - "DeploymentConfigService.ts"
 Cohesion: 0.04
-Nodes (47): DriftController, DEFAULT_REPORT, Controller, MessagePattern, CONFIG_DECLARING_ARK, EXPECTED_ARK_CONFIG, mockExists, mockRead (+39 more)
+Nodes (60): _APP_ROOT, ARTIFACT_BYTES, CONFIG_JSON, FakeStackUp, FULLY_CONFIGURED, makeConfigCacheInvalidator(), makeEngine(), makeFullyConfiguredStore() (+52 more)
+
+### Community 22 - "games.controller.integration.test.ts"
+Cohesion: 0.05
+Nodes (30): AuditController, DEFAULT_PAGE, Controller, MessagePattern, Payload, CONFIG_DECLARING_ARK, EXPECTED_ARK_CONFIG, mockExists (+22 more)
 
 ### Community 23 - "Requirement: Automation API workspace seam"
 Cohesion: 0.05
@@ -812,23 +808,23 @@ Nodes (42): pulumi-engine-runtime, Purpose, Requirement: App-managed engine prov
 
 ### Community 24 - "demo-data.ts"
 Cohesion: 0.04
-Nodes (47): IacApproveAck, IacDestroyMintAck, IacRunsGetResult, RunHistoryPageResult, WizardState, FROZEN_TIME, REPO_ROOT, SCREENSHOT_DIR (+39 more)
+Nodes (48): IacApproveAck, IacDestroyMintAck, IacRunsGetResult, RunHistoryPageResult, WizardState, FROZEN_TIME, REPO_ROOT, SCREENSHOT_DIR (+40 more)
 
 ### Community 25 - "gameServerValidator.ts"
 Cohesion: 0.07
 Nodes (39): GameServer, ALLOWED_CONNECT_MESSAGE_PLACEHOLDERS, checkAbsolutePaths(), checkConnectMessagePlaceholders(), checkEnvironmentVariables(), checkFargateCpuMemoryPairing(), checkHealthCheckRules(), checkHttpsPortRules() (+31 more)
 
-### Community 26 - "storage-step.component.tsx"
-Cohesion: 0.07
-Nodes (33): EMPTY_ENVIRONMENT_VARIABLE, EnvironmentStep(), EnvironmentStepProps, HEALTH_CHECK_AUTH_TYPE_OPTIONS, HEALTH_CHECK_METHOD_OPTIONS, HEALTH_CHECK_OPERATOR_OPTIONS, HEALTH_CHECK_SCHEME_OPTIONS, HealthCheckAuthFields() (+25 more)
+### Community 26 - "../add-game-wizard/networking-step.component.js"
+Cohesion: 0.05
+Nodes (48): apiMock, fillHappyPathToReview(), fillIdentityStep(), fillResourcesStep(), fillStorageStep(), goNext(), navigateMock, toastMock (+40 more)
 
 ### Community 27 - "first-run-wizard.component.test.tsx"
-Cohesion: 0.07
-Nodes (26): StackInitPhaseEvent, advanceToBootstrap(), advanceToCredentials(), advanceToPickCloud(), advanceToSatisfiedGuidedCredentialsSummary(), advanceToStackInit(), hyveonMock, SAMPLE_PROFILES (+18 more)
+Cohesion: 0.08
+Nodes (25): StackInitPhaseEvent, advanceToBootstrap(), advanceToCredentials(), advanceToPickCloud(), advanceToSatisfiedGuidedCredentialsSummary(), advanceToStackInit(), hyveonMock, SAMPLE_PROFILES (+17 more)
 
 ### Community 28 - "api.service.ts"
-Cohesion: 0.03
-Nodes (59): StubOptions, ActionResult, api, AuditAction, AuditEntry, CloudHealthCheckStatus, CloudHealthCheckSummary, CloudHealthFixOutcome (+51 more)
+Cohesion: 0.04
+Nodes (52): ActionResult, AuditAction, AuditEntry, CloudHealthCheckStatus, CloudHealthCheckSummary, CloudHealthFixOutcome, CloudHealthFixResult, DeleteGamePayload (+44 more)
 
 ### Community 29 - "log-line-display.component.tsx"
 Cohesion: 0.11
@@ -839,8 +835,8 @@ Cohesion: 0.09
 Nodes (18): ChangeSummary, OpType, RunRecordStore, OptimisticLockError, RunLockHeldError, sampleLock, APPROVAL_WINDOW_MS, buildRunSk() (+10 more)
 
 ### Community 31 - "fixtures/index.ts"
-Cohesion: 0.12
-Nodes (26): applyHyveonMocks(), ElectronHandle, launchElectron(), clearElectronMocks(), seedDiscordMocks(), CONFIGURED_DISCORD_CONFIG, COST_DATA, ENV_DATA (+18 more)
+Cohesion: 0.07
+Nodes (38): GUIDED_PROFILE_NAME, applyHyveonMocks(), ElectronHandle, launchElectron(), clearElectronMocks(), seedDiscordMocks(), CONFIGURED_DISCORD_CONFIG, COST_DATA (+30 more)
 
 ### Community 32 - "PR costexplorer-2-backend (#431)"
 Cohesion: 0.09
@@ -863,8 +859,8 @@ Cohesion: 0.05
 Nodes (39): ADDED Requirements, MODIFIED Requirements, REMOVED Requirements, Requirement: Apply rejects stale and unapproved plans, Requirement: Destroy gated by fresh confirmation token, Requirement: Fake terraform binary injected via PATH, Requirement: In-process engine stub injected via DI, Requirement: Output subcommand integration coverage (+31 more)
 
 ### Community 38 - "CloudHealthService"
-Cohesion: 0.13
-Nodes (7): CloudHealthController, Controller, MessagePattern, Payload, CloudHealthService, TestableCloudHealthService, Injectable
+Cohesion: 0.07
+Nodes (17): CloudHealthCheckSummary, CloudHealthController, Controller, MessagePattern, Payload, CloudHealthCheck, CloudHealthCheckResult, CloudHealthCheckStatus (+9 more)
 
 ### Community 39 - "DiscordConfigService"
 Cohesion: 0.09
@@ -876,27 +872,27 @@ Nodes (29): dependencies, @aws-sdk/client-cloudwatch-logs, @aws-sdk/client-dynam
 
 ### Community 42 - "desktop-preload/src/index.ts"
 Cohesion: 0.06
-Nodes (32): GuidedIamSubState, HyveonMockNamespaces, HyveonTestApi, IacApplyPayload, IacDestroyPayload, IacLockClearAck, IacRollbackConfirmAck, IacRollbackResolveAck (+24 more)
+Nodes (33): GuidedIamSubState, HyveonMockNamespaces, HyveonTestApi, IacApplyPayload, IacDestroyPayload, IacLockClearAck, IacRollbackConfirmAck, IacRollbackResolveAck (+25 more)
 
 ### Community 43 - "first-run-wizard.component.tsx"
 Cohesion: 0.08
-Nodes (29): AwsProfileSummary, IamCheckResult, BootstrapStepProps, RESOURCE_LABELS, NAMES, PENDING, CredentialsStepProps, FirstRunWizard() (+21 more)
+Nodes (28): AwsProfileSummary, IamCheckResult, BootstrapStepProps, RESOURCE_LABELS, NAMES, PENDING, FirstRunWizard(), FirstRunWizardProps (+20 more)
 
 ### Community 44 - "followup/src/handler.ts"
-Cohesion: 0.13
-Nodes (27): CONNECT_MESSAGES, extractEniId(), findRunningTask(), FollowupEvent, GAME_PORTS, gameListFromEnv(), getEc2(), getEcs() (+19 more)
+Cohesion: 0.21
+Nodes (21): CONNECT_MESSAGES, extractEniId(), findRunningTask(), FollowupEvent, GAME_PORTS, gameListFromEnv(), getEc2(), getEcs() (+13 more)
 
 ### Community 45 - "DiagnosticsBundleService"
-Cohesion: 0.06
-Nodes (19): DiagnosticsController, ReportRendererErrorInput, ReportRendererLogBatchInput, ShowInFolderInput, TestableDiagnosticsController, Controller, MessagePattern, Payload (+11 more)
+Cohesion: 0.08
+Nodes (13): DiagnosticsController, TestableDiagnosticsController, Controller, MessagePattern, Payload, buildDiagnosticsConfigSummary(), DiagnosticsConfigSummary, DiagnosticsGameServerSummary (+5 more)
 
 ### Community 46 - "GuidedIamService"
-Cohesion: 0.15
+Cohesion: 0.13
 Nodes (3): GuidedIamService, Injectable, _require
 
 ### Community 47 - "use-iac-run.hook.ts"
 Cohesion: 0.11
-Nodes (22): IacPlanAck, IacPlanPayload, IacRunChunk, IacRunRecord, RunDetailStatus, DestroySection(), BusyBanner(), CONFLICT_LABELS (+14 more)
+Nodes (24): IacPlanAck, IacPlanPayload, IacRunChunk, IacRunRecord, IacStaleLockInfo, RunDetailStatus, IacMockOptions, DestroySection() (+16 more)
 
 ### Community 48 - "devDependencies"
 Cohesion: 0.07
@@ -907,16 +903,16 @@ Cohesion: 0.07
 Nodes (29): AwsRemoteFileStore.listVersions, Capability: terraform-destroy-flow, Capability: terraform-plan-apply-page, Capability: terraform-rollback, Capability: terraform-run-history, Decision: destroy needs plain-invoke mint token plus streaming terraform.destroy channel, Decision: manual do/while loop for IsTruncated pagination fix, Decision: one PR per GitHub issue in dependency order (+21 more)
 
 ### Community 50 - "IacController"
-Cohesion: 0.20
+Cohesion: 0.17
 Nodes (5): IacController, serializeStaleLock(), Controller, MessagePattern, Payload
 
 ### Community 51 - "PulumiLockRecovery.ts"
 Cohesion: 0.11
 Nodes (18): PulumiLockOwnershipRecord, classifyStackLockConflict(), describeUnrecognizedLock(), findReclaimEvidence(), formatLockAge(), isPidAlive(), isRecordFresh(), isStackLockConflict() (+10 more)
 
-### Community 52 - "AwsProfileService.test.ts"
+### Community 52 - "PulumiService.test.ts"
 Cohesion: 0.08
-Nodes (13): DEFAULT_PASTED_PROFILE_NAME, InvalidPastedCredentialsError, EMPTY_HOME, FIXTURE_HOME, FixtureAwsProfileService, makePastedStore(), makeRotationStore(), makeService() (+5 more)
+Nodes (12): PulumiPartialApplyError, PulumiUpError, RollbackNoConfigVersionError, RollbackNotApplyRunError, RollbackTargetNotFoundError, RollbackVersionMissingError, StalePlanError, _changeSummaryMatchesOpMap (+4 more)
 
 ### Community 53 - "watchdog/src/handler.ts"
 Cohesion: 0.09
@@ -944,15 +940,15 @@ Nodes (24): For /graphify add and --watch, For /graphify query, For the commit h
 
 ### Community 59 - "iac.controller.ts"
 Cohesion: 0.09
-Nodes (22): IacApplyPayload, IacApproveAck, IacApprovePayload, IacDestroyMintAck, IacDestroyPayload, IacLockClearAck, IacLockClearMintAck, IacLockClearPayload (+14 more)
+Nodes (23): IacApplyPayload, IacApproveAck, IacApprovePayload, IacDestroyMintAck, IacDestroyPayload, IacLockClearAck, IacLockClearMintAck, IacLockClearPayload (+15 more)
 
 ### Community 60 - "Requirements"
 Cohesion: 0.05
 Nodes (39): Purpose, Requirement: FirstRunWizardService with resumable state, Requirement: Guided IAM provisioning step, Requirement: Pick-cloud step, Requirement: Reconfigure entry point in Settings, Requirement: Resolved Pulumi engine version in Settings, Requirement: Responsive wizard shell layout, Requirement: Stack initialization step with phased progress (+31 more)
 
 ### Community 61 - "update-dns/src/handler.ts"
-Cohesion: 0.07
-Nodes (29): CONNECT_MESSAGES, currentRecordIp(), deleteDns(), DNS_TTL, DOMAIN_NAME, ec2, ecs, EcsStateChangeEvent (+21 more)
+Cohesion: 0.11
+Nodes (23): CONNECT_MESSAGES, currentRecordIp(), deleteDns(), DNS_TTL, DOMAIN_NAME, ec2, ecs, EcsStateChangeEvent (+15 more)
 
 ### Community 62 - "watchdog/package.json"
 Cohesion: 0.08
@@ -965,6 +961,10 @@ Nodes (36): ADDED Requirements, Requirement: App-managed engine provisioning, Re
 ### Community 64 - "OPSX: Onboard command"
 Cohesion: 0.13
 Nodes (26): OPSX: Apply command, OPSX: Archive command, Artifact context/rules vs output separation rule, OPSX: Bulk Archive command, OPSX: Continue command, Delta spec intelligent merge, OPSX: Explore command, OPSX: Fast Forward command (+18 more)
+
+### Community 65 - "IamCheckService"
+Cohesion: 0.08
+Nodes (16): AwsCredentialSource, iamMock, InspectableIamCheckService, stsMock, GUIDED_PROFILE_NAME, IamCheckOrigin, IamCheckResult, IamCheckService (+8 more)
 
 ### Community 66 - "RunRecordService.test.ts"
 Cohesion: 0.08
@@ -979,16 +979,16 @@ Cohesion: 0.13
 Nodes (24): add-pluggable-health-checks (predecessor change), audit trail for script changes, game-health-checks capability (modified), scripted-health-checks capability (new), script source stored in DeploymentConfig, fail-active contract for scripted checks, GameServerHealthCheck discriminated union, http health-check kind (declarative) (+16 more)
 
 ### Community 69 - "PulumiService.rollback.test.ts"
-Cohesion: 0.06
-Nodes (33): DEPLOYMENT_CONFIG_SERVICE, DeploymentConfigRestorer, CONFIG_JSON, FakeStackPreview, FULLY_CONFIGURED, makeEngine(), makeFullyConfiguredStore(), makeModuleRef() (+25 more)
+Cohesion: 0.13
+Nodes (18): DEPLOYMENT_CONFIG_SERVICE, DeploymentConfigRestorer, defaultVersionHistory(), FakeStackPreview, FULLY_CONFIGURED, HISTORIC_RAW_CONFIG, makeConfigStores(), makeDeploymentConfigRestorer() (+10 more)
 
 ### Community 70 - "PR 2: costexplorer-2-backend (base: costexplorer-1-frontend)"
 Cohesion: 0.06
 Nodes (35): Close out (post-merge, not a PR in this stack), Global Constraints, PR 1: costexplorer-1-frontend (base: main), PR 2: costexplorer-2-backend (base: costexplorer-1-frontend), PR 3: costexplorer-3-e2e (base: costexplorer-2-backend), PR 4: costexplorer-4-docs-iam (base: costexplorer-3-e2e), Remove Cost Explorer Calls Implementation Plan, Task 10: `desktop-main/src/controllers/costs.controller.ts` — remove the `costs.actual` handler (+27 more)
 
 ### Community 72 - "game-card.component.tsx"
-Cohesion: 0.09
-Nodes (22): DiscordAdmins, DriftChangedField, DriftKind, GameEstimate, GameCard(), Props, ServerState, Stat() (+14 more)
+Cohesion: 0.19
+Nodes (12): GameEstimate, GameCard(), Props, ServerState, Stat(), STATE_PRESENTATION, StatePresentation, StatRowProps (+4 more)
 
 ### Community 73 - "createIpcHarness() / IpcHarness"
 Cohesion: 0.09
@@ -1022,10 +1022,6 @@ Nodes (21): dependencies, @hyveon/shared, devDependencies, @aws-sdk/client-ecs, 
 Cohesion: 0.09
 Nodes (21): dependencies, @hyveon/shared, devDependencies, @aws-sdk/client-ec2, @aws-sdk/client-ecs, @aws-sdk/client-route-53, @types/aws-lambda, @aws-sdk/client-ec2 (+13 more)
 
-### Community 82 - "IacPage"
-Cohesion: 0.08
-Nodes (5): IacStaleLockInfo, IacPage, IacMockOptions, mockIac(), line()
-
 ### Community 83 - "dashboard.page.tsx"
 Cohesion: 0.10
 Nodes (21): FileMgrCredentials, FileMgrStatus, AsyncContent(), AsyncContentProps, EmptyStateCard(), FileManagerModal(), modalStyle, overlayStyle (+13 more)
@@ -1046,19 +1042,13 @@ Nodes (19): allCandidates, ANGLES, block, byLoc, CANDIDATES_SCHEMA, claim(), fin
 Cohesion: 0.11
 Nodes (22): Add game action (button), Configuration changed pending banner (plan/apply prompt linking to Infrastructure page), Declared Game Servers table (Name, Status, Image, Ports, CPU, Memory), DeploymentConfig.gameServers, DeploymentConfig.gameServers (single source of truth), Container Configuration Panel (image, CPU, memory, HTTPS), Ports Panel (container port, protocol), In Sync Status Badge (+14 more)
 
-### Community 88 - "test"
+### Community 88 - "PulumiService.destroy.test.ts"
 Cohesion: 0.14
-Nodes (9): GUIDED_PROFILE_NAME, test, PULUMI_AUTOMATION, STOPPED_STATUSES, {
-  ELECTRON_RENDERER_URL: _rendererUrl,
-  HYVEON_PULUMI_SPIKE: _pulumiSpike,
-  HYVEON_PULUMI_SPIKE_OUT: _pulumiSpikeOut,
-  HYVEON_PULUMI_SPIKE_QUIT: _pulumiSpikeQuit,
-  ...inheritedEnv
-}, ELECTRON_SPECS, electronEnv, electronMain (+1 more)
+Nodes (16): FakeStackDestroy, FULLY_CONFIGURED, makeConfigCacheInvalidator(), makeEngine(), makeFullyConfiguredStore(), makeHappyPathDestroy(), makeModuleRef(), makeRunLockService() (+8 more)
 
-### Community 89 - "AuditService"
-Cohesion: 0.09
-Nodes (13): AuditController, DEFAULT_PAGE, Controller, MessagePattern, Payload, AuditService, clampLimit(), listEntriesMock (+5 more)
+### Community 89 - "PulumiService.preview.test.ts"
+Cohesion: 0.11
+Nodes (15): CONFIG_JSON, FakeStackPreview, FULLY_CONFIGURED, makeEngine(), makeFullyConfiguredStore(), makeModuleRef(), makeRemoteFileStore(), makeRemoteFileStoreWithSecretEnv() (+7 more)
 
 ### Community 90 - "desktop-preload/package.json"
 Cohesion: 0.10
@@ -1069,8 +1059,8 @@ Cohesion: 0.16
 Nodes (17): assumeRolePolicyForService(), defineIamPolicies(), DefineIamPoliciesArgs, defineIamRoles(), DefineIamRolesArgs, gamesWithFileSeeds(), gamesWithHealthChecks(), IamResources (+9 more)
 
 ### Community 92 - "interactions/src/handler.ts"
-Cohesion: 0.12
-Nodes (27): actionFor(), ephemeralMessage(), extractGameOption(), extractRoleIds(), extractUserId(), FollowupPayload, gameListFromEnv(), getLambdaClient() (+19 more)
+Cohesion: 0.20
+Nodes (20): actionFor(), ephemeralMessage(), extractGameOption(), extractRoleIds(), extractUserId(), FollowupPayload, gameListFromEnv(), getLambdaClient() (+12 more)
 
 ### Community 93 - "shared/src/index.ts"
 Cohesion: 0.08
@@ -1102,12 +1092,12 @@ Cohesion: 0.15
 Nodes (14): CONFIGURATION_OBJECT_KEY, DEPLOYMENT_CONFIG_DEFAULTS, DEPLOYMENT_CONFIG_SCALAR_FIELDS, DeploymentConfig, DeploymentConfigDiff, DeploymentConfigScalarField, diffDeploymentConfig(), resolvePreApplyRunsTableName() (+6 more)
 
 ### Community 99 - "pages/index.ts"
-Cohesion: 0.17
-Nodes (5): ServerStateLabel, DriftLabel, gotoHashRoute(), InfrastructureLogsPage, SettingsPage
-
-### Community 100 - "input.component.tsx"
 Cohesion: 0.09
-Nodes (29): CredentialMode, PasteField, GuidedIamDeleteFailedScreen(), GuidedIamDeleteFailedScreenProps, GuidedIamIntakeScreen(), GuidedIamIntakeScreenProps, GuidedIamRegionScreen(), GuidedIamRegionScreenProps (+21 more)
+Nodes (6): ServerStateLabel, DriftLabel, gotoHashRoute(), IacHistoryPage, InfrastructureLogsPage, SettingsPage
+
+### Community 100 - "button.component.tsx"
+Cohesion: 0.07
+Nodes (44): ConfirmDialogBody(), ConfirmDialogProps, CredentialMode, CredentialsStepProps, PasteField, GuidedIamDeleteFailedScreen(), GuidedIamDeleteFailedScreenProps, GuidedIamIntakeScreen() (+36 more)
 
 ### Community 101 - "Game AWS resource tag"
 Cohesion: 0.13
@@ -1126,8 +1116,8 @@ Cohesion: 0.22
 Nodes (14): defineEcs(), DefineEcsArgs, logConfiguration(), EfsResources, stripTrailingDots(), IamRoleResources, bundlePath(), connectMessagesByGame() (+6 more)
 
 ### Community 106 - "GameStatus"
-Cohesion: 0.09
-Nodes (22): CostEstimates, GameStatus, apiMock, errorStatus, mockIsSuppressed, notDeployedStatus, runningStatus, startingStatus (+14 more)
+Cohesion: 0.08
+Nodes (20): StubOptions, CostEstimates, DriftReport, GameStatus, apiMock, errorStatus, mockIsSuppressed, notDeployedStatus (+12 more)
 
 ### Community 107 - "compilerOptions"
 Cohesion: 0.11
@@ -1138,7 +1128,7 @@ Cohesion: 0.13
 Nodes (19): App sidebar navigation (Monitoring/Configuration groups), Cloud Setup panel (Pulumi Engine), Instruction: upload rendered CloudFormation template to AWS console to create bootstrap IAM user, deployment-config.json (S3 configuration bucket), First-Run Wizard, Bootstrap IAM user (created via CloudFormation for guided IAM setup), Pulumi engine (pinned, self-provisioned), Diagnostics section (+11 more)
 
 ### Community 109 - "costs.controller.test.ts"
-Cohesion: 0.16
+Cohesion: 0.15
 Nodes (8): CostsController, MOCK_ESTIMATE, Controller, MessagePattern, CostEstimates, CostService, GameEstimate, Injectable
 
 ### Community 110 - "Requirements"
@@ -1174,16 +1164,16 @@ Cohesion: 0.11
 Nodes (19): dependencies, @aws-sdk/client-ecs, @aws-sdk/client-iam, bcryptjs, class-validator, @hyveon/infra, @nestjs/core, reflect-metadata (+11 more)
 
 ### Community 120 - "wizard.controller.ts"
-Cohesion: 0.11
-Nodes (18): BootstrapConfigurationBucketInput, BootstrapDeploymentConfigInput, BootstrapStateBucketInput, OpenGuidedIamConsoleInput, SaveWizardProgressInput, SaveWizardStateInput, WizardAwsChoice, WizardBootstrapNames (+10 more)
+Cohesion: 0.05
+Nodes (50): BootstrapConfigurationBucketInput, BootstrapDeploymentConfigInput, BootstrapStateBucketInput, OpenGuidedIamConsoleInput, SaveWizardProgressInput, SaveWizardStateInput, loggerMock, makeAwsProfiles() (+42 more)
 
 ### Community 121 - "iac-runs.controller.test.ts"
 Cohesion: 0.07
 Nodes (12): { mockIpcMainHandle, mockIpcMainRemoveHandler }, LockClearAssertResult, LockClearConfirmationGate, PendingLockClearConfirmation, DEFAULT_LOCK_TTL_MS, RUN_LOCK_CLEAR_CONFIRMATION_TTL_MS, RunLockChangedError, RunLockClearNotConfirmedError (+4 more)
 
 ### Community 122 - "PulumiEngineService"
-Cohesion: 0.06
-Nodes (23): IacSettingsController, { checkForUpdatesNowMock }, SETTINGS, Controller, MessagePattern, Payload, CACHE_WRITE_ERRNO_CODES, classifyProvisioningError() (+15 more)
+Cohesion: 0.09
+Nodes (13): IacSettingsController, Controller, MessagePattern, Payload, isProvablyBadCacheEntry(), PulumiEngineService, removeDirBestEffort(), FakeCommand (+5 more)
 
 ### Community 123 - "Implementation Plan: pulumi-portable-passphrase"
 Cohesion: 0.06
@@ -1197,10 +1187,6 @@ Nodes (17): pulumi-engine-runtime capability, docs/docs/app/first-run-wizard.md,
 Cohesion: 0.18
 Nodes (17): orchestrator-integration-coverage spec, APPROVAL_WINDOW_MS (15-minute approval window), Durable apply lock (atomic workspace lock), DestroyNotConfirmedError, In-process engine stub (DI seam), IacController, mintDestroyConfirmationToken(), planHash (+9 more)
 
-### Community 127 - "PulumiWorkspaceService"
-Cohesion: 0.21
-Nodes (3): PulumiWorkspaceService, TestablePulumiWorkspaceService, Injectable
-
 ### Community 128 - "gameServerConfig.ts"
 Cohesion: 0.06
 Nodes (34): AuditAction, AuditEntry, AuditPageResult, buildAuditSk(), AUDIT_SK_PATTERN, AuditLogStore, DriftChangedField, DriftEntry (+26 more)
@@ -1209,9 +1195,9 @@ Nodes (34): AuditAction, AuditEntry, AuditPageResult, buildAuditSk(), AUDIT_SK_P
 Cohesion: 0.19
 Nodes (14): FnSub, generateHyveonDeployAllPolicy(), generateHyveonSelfRotatePolicy(), HYVEON_DEPLOY_ALL_ACTIONS, HYVEON_DEPLOY_ALL_STATEMENTS, HyveonDeployAllStatement, RenderedPolicyStatement, __dirname (+6 more)
 
-### Community 130 - "hook-io.ts"
+### Community 130 - "guard-enter-worktree-path.ts"
 Cohesion: 0.08
-Nodes (41): EnterWorktreeHookInput, input, isUnderClaudeWorktrees(), { ok, root }, resolveProjectRoot(), resolveReal(), git(), main() (+33 more)
+Nodes (39): EnterWorktreeHookInput, input, isUnderClaudeWorktrees(), { ok, root }, resolveProjectRoot(), resolveReal(), git(), main() (+31 more)
 
 ### Community 131 - "/terraform page"
 Cohesion: 0.14
@@ -1242,8 +1228,8 @@ Cohesion: 0.17
 Nodes (11): HyveonApi, HyveonEnvApi, HyveonGamesApi, buildMockHyveon(), clear(), HyveonNamespace, HyveonNamespaceMap, HyveonPartialNamespaceMap (+3 more)
 
 ### Community 138 - "preload.test.ts"
-Cohesion: 0.13
-Nodes (9): ChunkListener, EndListener, exposed, ipcInvoke, ipcOn, ipcOnce, ipcRemoveListener, ipcSend (+1 more)
+Cohesion: 0.08
+Nodes (18): HyveonStreamHandle, StackInitPhase, ChunkListener, EndListener, exposed, ipcInvoke, ipcOn, ipcOnce (+10 more)
 
 ### Community 139 - "followup/tsconfig.json"
 Cohesion: 0.13
@@ -1305,6 +1291,10 @@ Nodes (4): defineDiscordDomain(), DefineDiscordDomainArgs, DiscordDomainResource
 Cohesion: 0.14
 Nodes (13): compilerOptions, composite, noEmit, outDir, rootDir, exclude, extends, include (+5 more)
 
+### Community 155 - "DiagnosticsBundleService.ts"
+Cohesion: 0.08
+Nodes (13): ReportRendererErrorInput, ReportRendererLogBatchInput, ShowInFolderInput, DiagnosticsBundleAwsSnapshot, DiagnosticsBundleErrorEntry, DiagnosticsBundleMetadata, DiagnosticsBundleWriteResult, CONSOLE_LEVEL_TO_WINSTON_LEVEL (+5 more)
+
 ### Community 156 - "resolveDefaultAwsRegion"
 Cohesion: 0.24
 Nodes (4): AwsDiscordConfigStoreConfig, resolveDefaultAwsRegion(), buildLogKey(), parseStartedAtFromSk()
@@ -1313,21 +1303,21 @@ Nodes (4): AwsDiscordConfigStoreConfig, resolveDefaultAwsRegion(), buildLogKey()
 Cohesion: 0.15
 Nodes (12): compilerOptions, outDir, rootDir, exclude, extends, include, dist, node_modules (+4 more)
 
-### Community 158 - "RunRecordService"
-Cohesion: 0.22
-Nodes (4): clampLimit(), RunRecordService, Inject, Injectable
+### Community 158 - ".getStackOutputs"
+Cohesion: 0.12
+Nodes (8): MessagePattern, clampLimit(), RunRecordService, Inject, Injectable, RunService, Inject, Injectable
 
 ### Community 159 - "Requirement: Diagnostics bundle export"
 Cohesion: 0.06
 Nodes (30): app-diagnostics-logging Specification, Purpose, Requirement: ANSI escape sequence rendering for log lines, Requirement: Diagnostics bundle export, Requirement: Diagnostics panel pause, search, and autoscroll, Requirement: Renderer console forwarding to the main-process log, Requirement: Service-layer diagnostic logging coverage, Requirements (+22 more)
 
 ### Community 160 - "FirstRunWizardService"
-Cohesion: 0.23
+Cohesion: 0.21
 Nodes (3): FirstRunWizardService, TestableFirstRunWizardService, Injectable
 
 ### Community 161 - "PulumiCancellation.ts"
-Cohesion: 0.22
-Nodes (7): EscalatingCancellationOptions, PULUMI_CANCELLATION_ESCALATION_TIMEOUT_MS, PulumiOperationAbortedError, PulumiOperationEscalatedError, PulumiOperationNotStartedError, runWithEscalatingCancellation(), { loggerMock }
+Cohesion: 0.23
+Nodes (6): EscalatingCancellationOptions, PULUMI_CANCELLATION_ESCALATION_TIMEOUT_MS, PulumiOperationAbortedError, PulumiOperationEscalatedError, PulumiOperationNotStartedError, { loggerMock }
 
 ### Community 162 - "Requirements"
 Cohesion: 0.06
@@ -1426,7 +1416,7 @@ Cohesion: 0.07
 Nodes (26): ADDED Requirements, MODIFIED Requirements, Requirement: App-owned credential lifecycle requires no additional account permission, Requirement: App-owned health-check credentials are provisioned and retired by the app, Requirement: Health-check configuration is validated before it is saved, Requirement: Health-check credentials never reach the operator interface, Requirement: The HTTP check kind evaluates a declared request against a declared condition, Scenario: A basic credential is declared (+18 more)
 
 ### Community 189 - "cloudformationTemplate.test.ts"
-Cohesion: 0.33
+Cohesion: 0.29
 Nodes (4): __dirname, resolveCloudFormationTemplatePath(), mockExistsSync, moduleDir
 
 ### Community 190 - "IacRunsController"
@@ -1434,8 +1424,8 @@ Cohesion: 0.38
 Nodes (4): IacRunsController, Controller, MessagePattern, Payload
 
 ### Community 191 - "use-log-tail.hook.ts"
-Cohesion: 0.15
-Nodes (18): HyveonLambdaLogsApi, HyveonStreamHandle, LogChunk, LogEventLine, NewerLogsPage, OlderLogsPage, formatAge(), LogLine (+10 more)
+Cohesion: 0.13
+Nodes (20): HyveonLambdaLogsApi, LogChunk, LogEventLine, NewerLogsPage, OlderLogsPage, mockIac(), formatAge(), LogLine (+12 more)
 
 ### Community 192 - "graphify reference: commit hook and native CLAUDE.md integration"
 Cohesion: 0.50
@@ -1521,9 +1511,9 @@ Nodes (11): migrate-iac-to-pulumi design.md, Decision: DIY S3 backend, configure
 Cohesion: 0.08
 Nodes (24): custom-title-bar Specification, Purpose, Requirement: Platform-appropriate window controls, Requirement: Preload exposes window platform and controls, Requirement: Renderer degrades safely outside Electron, Requirement: Window chrome uses the app's own header, not the OS default, Requirement: Window-control IPC channels, Requirements (+16 more)
 
-### Community 217 - "CloudHealthService.ts"
-Cohesion: 0.13
-Nodes (10): CloudHealthCheckSummary, CloudHealthCheck, CloudHealthCheckResult, CloudHealthCheckStatus, CloudHealthFixOutcome, CloudHealthFixResult, iamMock, mockWrite (+2 more)
+### Community 217 - "DriftService.ts"
+Cohesion: 0.12
+Nodes (13): DriftController, DEFAULT_REPORT, Controller, MessagePattern, canonicalStringify(), changedFields(), COMPARED_FIELDS, computeDrift() (+5 more)
 
 ### Community 218 - "HyveonDeployAll IAM Policy"
 Cohesion: 0.14
@@ -1617,9 +1607,9 @@ Nodes (7): Discord, DynamoDB (CONFIG#discord + PENDING#arn), ECS Fargate tasks, 
 Cohesion: 0.53
 Nodes (3): GameCombobox(), Props, useClickOutside()
 
-### Community 244 - "EcsService.test.ts"
-Cohesion: 0.13
-Nodes (12): buildProviderConfig(), createAwsCloudProvider(), DEFAULT_OUTPUTS, ec2Mock, ecsMock, makeService(), makeStore(), cwMock (+4 more)
+### Community 244 - "rollback-action.component.tsx"
+Cohesion: 0.36
+Nodes (4): RollbackAction(), RollbackActionProps, RollbackResult, formatDiffSummary()
 
 ### Community 245 - "iac-run-detail.page.test.tsx"
 Cohesion: 0.33
@@ -2273,20 +2263,24 @@ Nodes (9): preload-bridge-naming, Purpose, Requirement: Bridge TypeScript types 
 Cohesion: 0.28
 Nodes (7): WizardProgress, GuidedIamStepProps, BootstrapKeyMaterial, GuidedIamPhase, UseGuidedIamOptions, UseGuidedIamResult, UseWizardProgressResult
 
-### Community 491 - "remove-game-button.component.tsx"
+### Community 491 - "followup/src/handler.test.ts"
 Cohesion: 0.22
-Nodes (13): ConfirmDialogBody(), ConfirmDialogProps, Props, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter() (+5 more)
+Nodes (6): ec2Mock, ecsMock, fetchMock, getEffectiveDiscordConfigMock, PERMISSIVE_CONFIG, putPendingMock
 
-### Community 493 - "wizard.controller.test.ts"
-Cohesion: 0.26
-Nodes (10): loggerMock, makeAwsProfiles(), makeBootstrap(), makeController(), makeFirstRunWizard(), makeGuidedIam(), makeIamCheck(), makeStore() (+2 more)
+### Community 492 - "interactions/src/handler.test.ts"
+Cohesion: 0.28
+Nodes (7): autocompleteEvent(), commandEvent(), getEffectiveDiscordConfigMock, getPublicKeyMock, lambdaMock, makeEvent(), verifyAsyncMock
+
+### Community 493 - "update-dns/src/handler.test.ts"
+Cohesion: 0.22
+Nodes (6): deletePendingMock, ec2Mock, ecsMock, fetchMock, getPendingMock, route53Mock
 
 ### Community 494 - "autoUpdateSetting.ts"
 Cohesion: 0.22
 Nodes (8): AutoUpdateSettingGetFailure, AutoUpdateSettingGetResult, AutoUpdateSettingGetSuccess, AutoUpdateSettingUpdatePayload, AutoUpdateSettingWriteFailure, AutoUpdateSettingWriteResult, AutoUpdateSettingWriteSuccess, ManualUpdateCheckResult
 
-### Community 495 - "add-guild-form.component.tsx"
-Cohesion: 0.42
+### Community 495 - "isSnowflake"
+Cohesion: 0.44
 Nodes (6): SnowflakeChipsInput(), isSnowflake(), parseSnowflakes(), uniq(), AddGuildForm(), CredentialsSection()
 
 ### Community 496 - "Group 1: CloudFormation template generation"
@@ -2466,9 +2460,9 @@ Nodes (5): createDarwinWindow(), createWindowOptions(), createWindowOptionsForPl
   onCallbacks,
 }
 
-### Community 536 - "main.ts"
-Cohesion: 0.18
-Nodes (7): AppModule, Module, applyFixPath(), { fixPathMock }, {
+### Community 536 - "RpcErrorMessageFilter"
+Cohesion: 0.33
+Nodes (3): {
   ElectronIPCTransportMock,
   fakeApp,
   createMicroserviceMock,
@@ -2630,9 +2624,9 @@ Nodes (6): Capabilities, Impact, Modified Capabilities, New Capabilities, What C
 Cohesion: 0.40
 Nodes (6): hclSurgeon.ts (deleted), Decision: @pulumi/pulumi must be external, not bundled, migrate-iac-to-pulumi tasks.md, Phase 1: Spikes (gate everything else), Phase 2: Infra workspace scaffold, Phase 3: Infra program resource parity
 
-### Community 575 - "DiscordConfigService.test.ts"
-Cohesion: 0.18
-Nodes (7): getBaseConfigMock, getConfigMock, putConfigMock, secretsExistsMock, secretsGetMock, secretsPutMock, STACK_OUTPUTS
+### Community 575 - "use-diagnostics-tail.hook.ts"
+Cohesion: 0.47
+Nodes (4): DiagnosticsPanel(), PendingSnapshot, useDiagnosticsTail(), UseDiagnosticsTailResult
 
 ### Community 576 - "Testing Conventions"
 Cohesion: 0.33
@@ -2814,26 +2808,6 @@ Nodes (3): Approved design, Background, Decision chain
 Cohesion: 0.50
 Nodes (3): Background, Decision chain, Design presented and approved
 
-### Community 656 - "RunService"
-Cohesion: 0.27
-Nodes (3): RunService, Inject, Injectable
-
-### Community 657 - "stack-init-step.component.tsx"
-Cohesion: 0.20
-Nodes (8): StackInitPhase, pendingPhases(), PHASE_LABELS, PHASE_ORDER, StackInitializationStep(), StackInitializationStepProps, StackInitPhaseState, StackInitStatus
-
-### Community 658 - "add-game-wizard.component.test.tsx"
-Cohesion: 0.25
-Nodes (8): apiMock, fillHappyPathToReview(), fillIdentityStep(), fillResourcesStep(), fillStorageStep(), goNext(), navigateMock, toastMock
-
-### Community 680 - "EnvController"
-Cohesion: 0.40
-Nodes (3): EnvController, Controller, MessagePattern
-
-### Community 681 - "games.spec.ts"
-Cohesion: 0.50
-Nodes (3): declaredDeployed, declaredOnly, ghostRow
-
 ## Ambiguous Edges - Review These
 - `Guilds tab (guild allowlist)` → `Per-Game Permissions tab`  [AMBIGUOUS]
   docs/static/img/app/discord.png · relation: scopes_permissions_relative_to
@@ -2847,9 +2821,9 @@ Nodes (3): declaredDeployed, declaredOnly, ghostRow
   docs/docs/components/management-app.md · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **4089 isolated node(s):** `status`, `message`, `TypeCheck`, `ResolvedAwsClientCredentials`, `StaticAwsCredentials` (+4084 more)
+- **4089 isolated node(s):** `EnterWorktreeHookInput`, `input`, `{ ok, root }`, `input`, `status` (+4084 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **105 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **100 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
@@ -2865,6 +2839,6 @@ _Questions this graph is uniquely positioned to answer:_
 - **What is the exact relationship between `DiscordConfigService` and `HYVEON_TEST_MODE env var`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **Why does `useDiscordConfig()` connect `DiscordConfigService` to `api.service.ts`, `cn`, `WizardController`?**
-  _High betweenness centrality (0.056) - this node is a cross-community bridge._
-- **Why does `DiscordController` connect `DiscordConfigService` to `app.module.ts`?**
-  _High betweenness centrality (0.024) - this node is a cross-community bridge._
+  _High betweenness centrality (0.070) - this node is a cross-community bridge._
+- **Why does `DiscordController` connect `DiscordConfigService` to `logger.ts`, `app.module.ts`?**
+  _High betweenness centrality (0.035) - this node is a cross-community bridge._

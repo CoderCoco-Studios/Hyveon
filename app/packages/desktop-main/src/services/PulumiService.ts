@@ -788,6 +788,7 @@ export class PulumiService {
    * `Conflict`/`CONFLICT_LABELS` — none of which `initializeStack` has any
    * other reason to touch.
    *
+   * `initializeStack` itself refuses to start while {@link operationInFlight} is
    * set (see its own TSDoc, "Workspace mutual exclusion"), and
    * `preview`/`apply`/`destroy`/`confirmRollback`/`clearStaleLock` each
    * refuse to start while THIS flag is set too, via
