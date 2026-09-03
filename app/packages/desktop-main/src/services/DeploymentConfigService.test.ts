@@ -5,11 +5,10 @@
  * objects `JSON.stringify`d — no fixture files needed (there's no
  * comment/heredoc complexity to fixture-test with JSON).
  *
- * There is no local-file fallback — every test that used to select "local mode" via a
- * `null` bucket now exercises the "unconfigured" behaviour instead (see the
- * `unconfigured` describe block below), which asserts `fs` is never touched.
- * `fs` stays mocked here purely so that assertion is meaningful — this
- * module no longer imports `fs` in production code at all.
+ * There is no local-file fallback — a `null` bucket exercises the
+ * "unconfigured" behaviour (see the `unconfigured` describe block below),
+ * which asserts `fs` is never touched. `fs` stays mocked here purely so that
+ * assertion is meaningful.
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';

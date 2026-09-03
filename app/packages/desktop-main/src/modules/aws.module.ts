@@ -19,19 +19,16 @@ import { SchedulerService } from '../services/SchedulerService.js';
  *
  * `ConfigService` is sourced from `ConfigModule` (imported and re-exported
  * here) rather than provided directly, so there is exactly one `ConfigModule`
- * instance backing every feature module — this module no longer owns
- * `ConfigService`'s lifecycle, it just re-exports it for existing consumers
- * (e.g. `DiscordModule`) that import `AwsModule` expecting `ConfigService` to
- * be available. `CloudProviderModule` is imported alongside it so the
- * cloud-agnostic tokens it exports (`CLOUD_PROVIDER`, `SECRETS_STORE`, etc.)
- * are reachable through the same import chain.
+ * instance backing every feature module — this module just re-exports it for
+ * consumers (e.g. `DiscordModule`) that import `AwsModule` expecting
+ * `ConfigService` to be available. `CloudProviderModule` is imported
+ * alongside it so the cloud-agnostic tokens it exports (`CLOUD_PROVIDER`,
+ * `SECRETS_STORE`, etc.) are reachable through the same import chain.
  *
- * The concrete `AwsCloudProvider` / `AwsSecretsStore` providers that used to
- * live here have been removed: `EcsService` now injects `CLOUD_PROVIDER` and
- * `DiscordConfigService` now injects `SECRETS_STORE`, both bound by
- * `CloudProviderModule` to their AWS implementations via `useFactory`. This
- * module only re-exports `CloudProviderModule` for callers that need those
- * tokens.
+ * `EcsService` injects `CLOUD_PROVIDER` and `DiscordConfigService` injects
+ * `SECRETS_STORE`, both bound by `CloudProviderModule` to their AWS
+ * implementations via `useFactory`. This module only re-exports
+ * `CloudProviderModule` for callers that need those tokens.
  *
  * Also imports `ElectronStoreModule` directly (not re-exported by
  * `ConfigModule`/`CloudProviderModule`) so `Ec2Service`/`EcsService` can
