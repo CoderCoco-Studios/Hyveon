@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RunHistoryRecord, RunHistoryStatus } from '@hyveon/desktop-preload';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /** Number of run records fetched per page (initial load and each "Load more"). */
 const PAGE_SIZE = 25;
-
-/** Shown instead of the run table when the hook is used outside Electron, where there is no IPC bridge to query. */
-const BRIDGE_UNAVAILABLE = 'IPC bridge (window.hyveon) is not available in this context.';
 
 /** `status` filter options accepted by {@link useRunHistory}, `'all'` meaning no filter is applied (i.e. the unfiltered `hyveon.iac.runs.list` path). */
 export type StatusFilter = RunHistoryStatus | 'all';

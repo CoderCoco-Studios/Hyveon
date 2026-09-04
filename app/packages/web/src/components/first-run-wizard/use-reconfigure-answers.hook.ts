@@ -16,6 +16,7 @@ import type { AwsProfileSummary } from '@hyveon/desktop-preload';
 import type { CloudOption } from './pick-cloud-step.component.js';
 import type { CredentialMode } from './credentials-step.component.js';
 import type { BootstrapResourceKey, WizardStep } from './wizard.utils.js';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /**
  * Steps in this list start collapsed to a completed summary (with an Edit
@@ -211,7 +212,7 @@ export function useReconfigureAnswers({
    */
   async function commitReconfigureAnswers() {
     if (!window.hyveon) {
-      throw new Error('IPC bridge (window.hyveon) is not available in this context.');
+      throw new Error(BRIDGE_UNAVAILABLE);
     }
     const payload: { activeCloud?: CloudOption; aws?: { profile?: string; region?: string }; bootstrap?: typeof resourceNames } = {};
     if (!completedSteps.has('pick-cloud')) {
