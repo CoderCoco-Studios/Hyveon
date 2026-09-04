@@ -43,16 +43,16 @@ export interface DefineNetworkArgs {
 const PUBLIC_SUBNET_COUNT = 2;
 
 /**
- * Derives one subnet's CIDR block from a base IPv4 CIDR block, network-bit
- * count, and subnet index — the same arithmetic Terraform's built-in
- * `cidrsubnet` function performs, since Pulumi has no built-in equivalent.
- * `vpcCidr` flows into this program as a plain captured string
- * (`DeploymentConfig`, not `pulumi.Config`), so this runs synchronously in
- * plain JS rather than through `pulumi.Output.apply`.
+ * Derives each public subnet's CIDR from the VPC's CIDR block — Pulumi has
+ * no built-in `cidrsubnet`-style function. `vpcCidr` flows in as a plain
+ * captured string, so this runs synchronously in plain JS. Only handles
+ * well-formed IPv4 CIDR blocks whose host bits are already zero (true of
+ * every `vpcCidr` the app's config validation accepts).
  *
- * Only handles well-formed IPv4 CIDR blocks whose host bits are already
- * zero — true of every `vpcCidr` the app's config validation accepts,
- * including the default `"10.0.0.0/16"`.
+ * The derivation must stay byte-identical across changes — every public
+ * subnet's CIDR is recomputed from this function on every apply, and a
+ * changed result replaces (destroys + recreates) every subnet, taking its
+ * EFS mount target with it.
  *
  * @param baseCidr - The base IPv4 CIDR block (e.g. `"10.0.0.0/16"`).
  * @param newBits - Additional network bits to carve out (e.g. `8` turns a
