@@ -34,6 +34,11 @@ import { logger } from '../logger.js';
 import { REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import {
+  readIsPackaged as sharedReadIsPackaged,
+  readResourcesPath as sharedReadResourcesPath,
+  resolveUserDataPath as sharedResolveUserDataPath,
+} from './electronRuntime.js';
+import {
   PulumiEngineService,
   PulumiEngineNetworkError,
   PulumiEngineIntegrityError,
@@ -4373,48 +4378,34 @@ export class PulumiService {
   }
 
   /**
-   * Whether the app is running as a packaged Electron build. Duplicates
-   * `ConfigService.readIsPackaged()`'s exact seam — see
-   * {@link getConfigurationBucket}'s doc comment for why this can't inject
-   * `ConfigService` to reuse it directly.
+   * Whether the app is running as a packaged Electron build. One-line
+   * delegate to the shared {@link sharedReadIsPackaged} (`electronRuntime.ts`) —
+   * see {@link getConfigurationBucket}'s doc comment for why this can't
+   * inject `ConfigService` to reuse a service-level accessor instead.
    */
   private readIsPackaged(): boolean {
-    if (!process.versions['electron']) return false;
-    try {
-      const _require = createRequire(import.meta.url);
-      const electron = _require('electron') as { app: { isPackaged: boolean } };
-      return electron.app.isPackaged;
-    } catch {
-      return false;
-    }
+    return sharedReadIsPackaged();
   }
 
   /**
    * `process.resourcesPath` when running inside a packaged Electron app, or
-   * `undefined` otherwise. Duplicates `ConfigService.readResourcesPath()`'s
-   * exact seam — see {@link getConfigurationBucket}'s doc comment for why.
+   * `undefined` otherwise. One-line delegate to the shared
+   * {@link sharedReadResourcesPath} (`electronRuntime.ts`) — see
+   * {@link getConfigurationBucket}'s doc comment for why.
    */
   private readResourcesPath(): string | undefined {
-    return (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+    return sharedReadResourcesPath();
   }
 
   /**
    * Returns the Electron `userData` directory when running inside an
-   * Electron process, or `null` otherwise. Duplicates
-   * `PulumiWorkspaceService.resolveUserDataPath()`'s (itself duplicated from
-   * `ConfigService.readUserDataPath()`) exact seam — see
+   * Electron process, or `null` otherwise. One-line delegate to the shared
+   * {@link sharedResolveUserDataPath} (`electronRuntime.ts`) — see
    * {@link getConfigurationBucket}'s doc comment for why `PulumiService`
-   * can't inject `ConfigService` to reuse this instead.
+   * can't inject `ConfigService` to reuse a service-level accessor instead.
    */
   private resolveUserDataPath(): string | null {
-    if (!process.versions['electron']) return null;
-    try {
-      const _require = createRequire(import.meta.url);
-      const electron = _require('electron') as { app: { getPath(name: string): string } };
-      return electron.app.getPath('userData');
-    } catch {
-      return null;
-    }
+    return sharedResolveUserDataPath();
   }
 
   /**
