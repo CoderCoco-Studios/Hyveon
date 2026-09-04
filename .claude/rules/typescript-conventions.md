@@ -57,3 +57,26 @@ was byte-identical in 4 files; and `deployment-settings-form.component.tsx`
 once *documented* its duplication of `SnowflakeChipsInput` instead of
 resolving it — with the copy having silently lost snowflake validation (all
 fixed in the `tech-debt-01` PR stack, issue #555).
+
+## Check for an existing helper before writing a new one
+
+Before writing a small utility (error normalization, `sleep`, an env accessor, a type guard,
+a region resolver, a UI primitive), grep `app/packages/shared/src/index.ts` and the target
+package's own `lib` / `ui` / `test-utils` / `services` directory for an existing one.
+
+**Why:** this codebase has repeatedly rewritten helpers that already existed (a
+region-resolution chain rewritten 9 times, a `sleep()` rewritten despite an existing one,
+error-normalization reimplemented 4 times privately) — the fix is cheaper than the audit
+that finds it later.
+
+## `mountedRef` must re-arm under StrictMode
+
+The app renders under `<StrictMode>` (`app/packages/web/src/main.tsx:18`), which mounts,
+unmounts, and remounts every component in dev. A `useRef(true)` "still mounted" guard
+**must** set `mountedRef.current = true` in the effect body, not only `false` in the
+cleanup — otherwise the simulated unmount permanently disables every post-await `setState`
+in that component. `app/packages/web/src/components/first-run-wizard/use-guided-iam.hook.ts:169-174`
+is the correct pattern to copy.
+
+**Why:** two components had this exact defect in production code, both with comments
+claiming to mirror the correct pattern while not actually doing so.
