@@ -26,12 +26,6 @@ export type ActiveCloud = 'aws';
  *
  * Every other service injects this one instead of touching `process.env`
  * directly, so tests can stub env access cleanly.
- *
- * The watchdog tuning knobs this class used to read/write via a local
- * `server_config.json` were removed (#348): the deployed watchdog Lambda
- * never read that file — its real tunables come from `DeploymentConfig`
- * (see `app/packages/infra/src/lambdas.ts`), edited through
- * `DeploymentSettingsForm` instead.
  */
 @Injectable()
 export class ConfigService {

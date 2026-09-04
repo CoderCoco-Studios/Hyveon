@@ -62,8 +62,7 @@ export interface BootstrapStepProps {
 }
 
 /**
- * Fourth step of the first-run wizard (#208, building on the SDK bootstrap
- * services from #200/#203/#205): provisions the two backend resources (state
+ * Fourth step of the first-run wizard: provisions the two backend resources (state
  * bucket, configuration bucket) via granular per-resource IPC calls, then
  * runs a best-effort IAM permission dry-run against the `HyveonDeployAll`
  * action set. The IAM check never blocks progression — only the two

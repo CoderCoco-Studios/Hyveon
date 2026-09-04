@@ -1,8 +1,8 @@
 /**
- * "Health check" subsection of the add-game wizard's Networking step (#99):
+ * "Health check" subsection of the add-game wizard's Networking step:
  * the authoritative-health-check declaration (`scheme`/`port`/`method`/
  * `timeoutMs`/`path`/`jsonPath`/`activeWhen`) plus its optional credential,
- * extracted from `networking-step.component.tsx` (#555) since it is a
+ * extracted from `networking-step.component.tsx` since it is a
  * self-contained subtree that only reads `ports` from its parent (to
  * populate the port dropdown).
  *

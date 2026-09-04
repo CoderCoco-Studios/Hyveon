@@ -73,14 +73,6 @@ const ELECTRON_SPECS = [
   '**/costs.spec.ts',
   '**/logs.spec.ts',
   '**/discord.spec.ts',
-  // Renamed from the pre-migration IaC spec (the IPC channels were renamed
-  // to `iac.*`, see `iac.spec.ts`'s own header comment) — this
-  // glob was left stale, which silently routed the file to the `chromium`
-  // project instead. Harmless in practice (`launchElectron()` calls
-  // `_electron.launch()` directly, independent of which project's `use`
-  // config the test nominally runs under, and `npm run app:test:e2e` always
-  // runs both projects together), but wrong: this IS the Electron-tier
-  // `/iac` spec.
   '**/iac.spec.ts',
   '**/guided-iam-wizard.spec.ts',
 ];

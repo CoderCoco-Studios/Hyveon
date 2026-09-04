@@ -137,7 +137,7 @@ export const RUN_RECORD_PERSISTER = Symbol('RUN_RECORD_PERSISTER');
  * `RunRecordService` as a value — see {@link RUN_RECORD_PERSISTER}'s doc
  * comment.
  *
- * `writePreflightMarker` (issue #399) is the narrow slice of
+ * `writePreflightMarker` is the narrow slice of
  * `RunRecordService.writePreflightMarker`'s surface {@link PulumiService.apply}
  * depends on — a direct, thin write of a durable in-doubt placeholder record,
  * deliberately NOT routed through {@link persist} (which releases the durable
@@ -2016,8 +2016,8 @@ export class PulumiService {
         // SOME prior attempt already reached gate step 8 for this exact
         // `planRunId` — either it settled normally (persisted via
         // `persist()`) or it's still the durable pre-flight marker
-        // `writePreflightMarker` wrote before `stack.up()` ran (issue #399,
-        // the settlement write having failed to overwrite it). Either way,
+        // `writePreflightMarker` wrote before `stack.up()` ran (the
+        // settlement write having failed to overwrite it). Either way,
         // `partialApply: true` means retry safety cannot be assumed —
         // checked directly, never gated behind `record.status === 'failed'`
         // first (see `RunRecord.partialApply`'s own doc comment for why that
@@ -2167,7 +2167,7 @@ export class PulumiService {
       // begins, not only once `stack.up()` is actually about to be called.
       startedAt = new Date().toISOString();
 
-      // --- Pre-flight durable marker (issue #399) — written BEFORE stack.up() ---
+      // --- Pre-flight durable marker — written BEFORE stack.up() ---
       // Closes the retry-safety gap: without this, a partial apply whose
       // FINAL settlement write (`persistRunRecord`, far below) itself fails
       // to persist leaves the original approved `plan` record as the only
@@ -4635,7 +4635,7 @@ export class PulumiPlanRunWrongKindError extends Error {
  * `planRunId` is an `apply`-kind record with `partialApply: true` — i.e. a
  * PRIOR attempt on this same plan either genuinely diverged partway through
  * `stack.up()`, or never got to confirm it didn't (see
- * `RunRecordService.writePreflightMarker`'s doc comment and issue #399):
+ * `RunRecordService.writePreflightMarker`'s doc comment):
  * either way, whether `stack.up()` already mutated real infrastructure for
  * this `planRunId` is unknown or affirmatively partial, so a second `apply()`
  * call for the SAME plan must be refused rather than silently retried.
@@ -4841,7 +4841,7 @@ export class PulumiRunPersistError extends Error {
  * Thrown by {@link PulumiService.apply} when
  * `RunRecordService.writePreflightMarker` — the durable, in-doubt placeholder
  * record it writes immediately after gate step 8 acquires the apply lock, but
- * BEFORE `stack.up()` is ever called (issue #399) — itself fails. `apply`
+ * BEFORE `stack.up()` is ever called — itself fails. `apply`
  * fails closed on this: `stack.up()` is never reached, and the durable apply
  * lock gate step 8 just acquired is released explicitly in this same failure
  * path (NOT the ordinary post-settlement release {@link PulumiRunPersistError}'s

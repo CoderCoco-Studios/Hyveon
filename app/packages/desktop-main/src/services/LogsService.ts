@@ -241,7 +241,6 @@ export class LogsService {
    * and returns up to `limit` of its most recent events, oldest first, plus
    * the oldest event's timestamp.
    *
-   * @param logGroup - Resolved CloudWatch log group name.
    * @param limit - Maximum number of recent log lines to return.
    * @param entityLabel - Game name or Lambda `functionKey`, used only to
    *   phrase the "no streams" error the same way the pre-dedup game/Lambda
@@ -388,7 +387,6 @@ export class LogsService {
    * is "the one already seen" is unknowable (and irrelevant, since same-key
    * events are byte-identical by construction).
    *
-   * @param logGroup - Resolved CloudWatch log group name.
    * @param direction - `'older'` pages backward from `boundaryTimestamp`;
    *   `'newer'` pages forward from it.
    * @param boundaryTimestamp - Epoch-ms bound (`beforeTimestamp`, exclusive,
@@ -500,7 +498,6 @@ export class LogsService {
    * first, paginating `DescribeLogStreamsCommand` via `nextToken` until
    * either the cap is hit or pagination naturally ends.
    *
-   * @param logGroup - Resolved CloudWatch log group name.
    * @returns `streams` — the resolved stream names, newest first; `exhausted`
    *   — `true` when pagination ended naturally (every stream in the group
    *   was listed) before the cap was hit, `false` when the cap was hit

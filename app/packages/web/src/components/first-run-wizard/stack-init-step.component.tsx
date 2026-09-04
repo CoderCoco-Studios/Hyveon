@@ -41,7 +41,7 @@ export interface StackInitializationStepProps {
   onFinished: () => void;
   /**
    * Awaited before `wizard.complete` runs, on the same "Finish" click. Used
-   * by Settings' Reconfigure flow (#211) to commit its buffered
+   * by Settings' Reconfigure flow to commit its buffered
    * `wizard.state.save` call in one shot rather than persisting each step as
    * the operator advances — a rejection here surfaces via the same
    * `finishError` path as a `wizard.complete` failure, and `wizard.complete`
@@ -62,13 +62,12 @@ function pendingPhases(): Record<StackInitPhase, StackInitPhaseState> {
  * Final step of the first-run wizard: initializes the one Pulumi stack this
  * app manages via `hyveon.iac.stack.initialize()`, rendering a
  * 3-step progress checklist (engine resolution → plugin install → stack
- * creation) as `StackInitPhaseEvent`s stream in, rather than the scrolling
- * ANSI log the deleted pre-migration `init` step rendered — there is no log
+ * creation) as `StackInitPhaseEvent`s stream in. There is no log
  * output to show here, only coarse start/end phase transitions (see
  * `PulumiService.initializeStack`'s own TSDoc for why the reporting is
  * necessarily coarse). The Finish button enables only once every phase
  * completes successfully; a failed phase shows an inline error plus a Retry
- * button, mirroring the deleted step's `RotateCcw` pattern.
+ * button.
  */
 export function StackInitializationStep({ onFinished, onBeforeFinish }: StackInitializationStepProps) {
   const [attempt, setAttempt] = useState(0);
@@ -77,8 +76,7 @@ export function StackInitializationStep({ onFinished, onBeforeFinish }: StackIni
 
   /**
    * State of one `iac.stack.initialize()` attempt, tagged with the `attempt`
-   * that produced it — mirrors the deleted pre-migration init step's identical
-   * tagging so Retry presents a clean slate without the effect synchronously
+   * that produced it, so Retry presents a clean slate without the effect synchronously
    * clearing state on the way in (`react-hooks/set-state-in-effect`).
    */
   const [run, setRun] = useState<{
