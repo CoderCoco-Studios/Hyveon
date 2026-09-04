@@ -8,6 +8,9 @@ import type { DeploymentConfigService } from '../services/DeploymentConfigServic
 import type { GameServer, GameWriteResult, StackOutputs } from '@hyveon/shared';
 import type { GameWizardDraftService } from '../services/GameWizardDraftService.js';
 import type { StoredGameWizardDraft } from '../services/ElectronStoreService.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { gameServer, deploymentConfigStub } from '../testing/deployment-config.fixture.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -23,11 +26,7 @@ const DEFAULT_OUTPUTS: Partial<StackOutputs> = {
  * where `getStackOutputs()` resolves to null.
  */
 function makeConfig(outputs: Partial<StackOutputs> | null = DEFAULT_OUTPUTS): ConfigService {
-  const stub: Partial<ConfigService> = {
-    invalidateCache: vi.fn(),
-    getStackOutputs: vi.fn().mockResolvedValue(outputs),
-  };
-  return stub as ConfigService;
+  return configServiceStub({ outputs: outputs === null ? null : stackOutputs(outputs) });
 }
 
 /** Build an EcsService stub with all mutation methods pre-wired to succeed. */
@@ -41,14 +40,7 @@ function makeEcs(): EcsService {
 
 /** Minimal, valid `GameServer` fixture for a single declared game. */
 function buildGameServer(name: string): GameServer {
-  return {
-    name,
-    image: 'example/image:latest',
-    cpu: 1024,
-    memory: 2048,
-    ports: [{ container: 25565, protocol: 'tcp' }],
-    volumes: [{ name: 'saves', container_path: '/data' }],
-  };
+  return gameServer(name);
 }
 
 /**
@@ -58,10 +50,7 @@ function buildGameServer(name: string): GameServer {
  * to know about the declared merge.
  */
 function makeDeploymentConfig(declared: GameServer[] = []): DeploymentConfigService {
-  return {
-    invalidateCache: vi.fn(),
-    getGameServers: vi.fn().mockResolvedValue(declared),
-  } as Partial<DeploymentConfigService> as DeploymentConfigService;
+  return deploymentConfigStub({ declared });
 }
 
 /** A representative successful `GameWriteResult` used as the default stub return value. */

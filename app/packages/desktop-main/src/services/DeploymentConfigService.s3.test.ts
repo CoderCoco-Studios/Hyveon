@@ -24,6 +24,7 @@ import { AwsRemoteFileStore } from '@hyveon/cloud-aws';
 import type { DeploymentConfig } from '@hyveon/shared';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
 import type { ConfigService } from './ConfigService.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
 
 /** Typed stand-in for the AWS S3 SDK client, shared across the tests below. */
 const s3Mock = mockClient(S3Client);
@@ -74,6 +75,7 @@ function fakeBody(bytes: Uint8Array): { transformToByteArray: () => Promise<Uint
  */
 function makeConfig(opts: { bucket: string }): ConfigService {
   const stub: Partial<ConfigService> = {
+    ...configServiceStub(),
     getConfigurationBucket: () => opts.bucket,
     readEnvConfigCacheTtlMs: () => 30000,
   };

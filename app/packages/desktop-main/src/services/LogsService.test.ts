@@ -18,39 +18,12 @@ import { createAwsCloudProvider } from './EcsService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 import type { DeploymentConfigService } from './DeploymentConfigService.js';
-import type { StackOutputs } from '@hyveon/shared';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { deploymentConfigStub } from '../testing/deployment-config.fixture.js';
 
 /** Typed stand-in for the AWS CloudWatch Logs SDK client. */
 const cwMock = mockClient(CloudWatchLogsClient);
-
-/**
- * A minimal set of stack outputs satisfying `AwsCloudProvider`'s
- * `getConfig` callback. `streamLogs` only reads `region` off the resolved
- * config, but `buildProviderConfig` (shared with `EcsService`) always maps
- * the full `StackOutputs` shape, so every field needs a value here.
- */
-const STACK_OUTPUTS: StackOutputs = {
-  awsRegion: 'us-east-1',
-  ecsClusterName: 'game-cluster',
-  ecsClusterArn: 'arn:aws:ecs:us-east-1:123:cluster/game-cluster',
-  subnetIds: ['subnet-a'],
-  securityGroupId: 'sg-game',
-  fileManagerSecurityGroupId: 'sg-files',
-  efsFileSystemId: 'fs-1',
-  efsAccessPoints: {},
-  domainName: 'example.com',
-  gameNames: ['minecraft'],
-  discordTableName: 'discord-table',
-  auditTableName: 'audit-table',
-  runsTableName: 'runs-table',
-  discordBotTokenSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:bot-token',
-  discordPublicKeySecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:public-key',
-  fileBrowserCredentialSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:filebrowser-credential',
-  fileBrowserSchedulerRoleArn: 'arn:aws:iam::123:role/filebrowser-scheduler',
-  interactionsInvokeUrl: null,
-  discordInteractionsUrl: null,
-  appliedGameServers: null,
-};
 
 /**
  * Build a minimal ConfigService stub exposing only the members LogsService
@@ -58,11 +31,7 @@ const STACK_OUTPUTS: StackOutputs = {
  * actually read at runtime.
  */
 function makeConfig(): ConfigService {
-  const stub: Partial<ConfigService> = {
-    getRegion: () => 'us-east-1',
-    getStackOutputs: async () => STACK_OUTPUTS,
-  };
-  return stub as ConfigService;
+  return configServiceStub({ outputs: stackOutputs({ subnetIds: ['subnet-a'], efsAccessPoints: {} }) });
 }
 
 /**
@@ -84,9 +53,7 @@ function makeStore(): ElectronStoreService {
  * `resolveLambdaLogGroup`'s fallback to `DEPLOYMENT_CONFIG_DEFAULTS`.
  */
 function makeDeploymentConfig(projectName?: string): DeploymentConfigService {
-  return {
-    getTopLevelSettings: vi.fn().mockResolvedValue({ settings: projectName ? { projectName } : {} }),
-  } as Partial<DeploymentConfigService> as DeploymentConfigService;
+  return deploymentConfigStub({ projectName });
 }
 
 /**
