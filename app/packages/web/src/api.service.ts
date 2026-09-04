@@ -267,19 +267,20 @@ export const api = {
   filesMgrStatus: async (game: string): Promise<FileMgrStatus> => hyveon().files.list(game),
   filesMgrStart: async (game: string): Promise<FileMgrResult> => hyveon().files.start(game),
   filesMgrStop: async (game: string): Promise<FileMgrResult> => hyveon().files.stop(game),
-  createGame: async (payload: CreateGamePayload): Promise<GameWriteResult> =>
-    hyveon().games.create(payload) as Promise<GameWriteResult>,
-  updateGame: async (payload: UpdateGamePayload): Promise<GameWriteResult> =>
-    hyveon().games.update(payload) as Promise<GameWriteResult>,
-  deleteGame: async (payload: DeleteGamePayload): Promise<GameWriteResult> =>
-    hyveon().games.delete(payload) as Promise<GameWriteResult>,
+  createGame: async (payload: CreateGamePayload): Promise<GameWriteResult> => hyveon().games.create(payload),
+  updateGame: async (payload: UpdateGamePayload): Promise<GameWriteResult> => hyveon().games.update(payload),
+  deleteGame: async (payload: DeleteGamePayload): Promise<GameWriteResult> => hyveon().games.delete(payload),
+  // `GameWizardDraft` has no shared-package counterpart (see file header) — the preload's
+  // independently hand-maintained copy types `ports[].visibility` as optional, this file's as
+  // required. Out of scope here (unlike the CreateGamePayload/UpdateGamePayload drift this PR
+  // fixes at the root): a single-step cast, never `as unknown as`.
   getGameDraft: async (): Promise<StoredGameWizardDraft | null> =>
     hyveon().games.draft.get() as Promise<StoredGameWizardDraft | null>,
   saveGameDraft: async (draft: GameWizardDraft, stepIndex: number): Promise<void> =>
-    hyveon().games.draft.save({ draft, stepIndex }) as Promise<void>,
+    hyveon().games.draft.save({ draft, stepIndex }),
   updateGameDraftStepIndex: async (stepIndex: number): Promise<void> =>
-    hyveon().games.draft.updateStepIndex(stepIndex) as Promise<void>,
-  clearGameDraft: async (): Promise<void> => hyveon().games.draft.clear() as Promise<void>,
+    hyveon().games.draft.updateStepIndex(stepIndex),
+  clearGameDraft: async (): Promise<void> => hyveon().games.draft.clear(),
 
   discordConfig: async (): Promise<DiscordConfigRedacted> =>
     hyveon().discord.getConfig() as Promise<DiscordConfigRedacted>,
