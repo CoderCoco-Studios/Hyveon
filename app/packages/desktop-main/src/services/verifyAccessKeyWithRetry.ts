@@ -1,4 +1,5 @@
 import { logger } from '../logger.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Default backoff schedule for {@link verifyAccessKeyWithRetry}: 5 delays
@@ -58,7 +59,7 @@ export async function verifyAccessKeyWithRetry(
       }
       return;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       options.onAttemptFailed?.(attempt, totalAttempts, err);
       if (attempt === totalAttempts) {
         logger.warn('verifyAccessKeyWithRetry: exhausted all attempts, giving up', {

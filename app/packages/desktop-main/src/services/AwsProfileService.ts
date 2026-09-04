@@ -11,6 +11,7 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 import { verifyAccessKeyWithRetry } from './verifyAccessKeyWithRetry.js';
 import { sleep } from './sleep.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Summary of a single AWS CLI profile discovered in `~/.aws/credentials` or
@@ -154,7 +155,7 @@ export class AwsProfileService {
     try {
       parsed = await this.parseFiles();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('AwsProfileService.listProfiles: failed to parse ~/.aws/credentials or ~/.aws/config', {
         error: message,
       });
@@ -310,7 +311,7 @@ export class AwsProfileService {
         {
           sleep: (ms) => this.sleep(ms),
           onAttemptFailed: (attempt, totalAttempts, attemptErr) => {
-            const attemptMessage = attemptErr instanceof Error ? attemptErr.message : String(attemptErr);
+            const attemptMessage = errMessage(attemptErr);
             logger.warn('AwsProfileService.rotateActiveCredentials: verification attempt failed for newly minted key', {
               accessKeyId: newAccessKeyId,
               attempt,
@@ -321,7 +322,7 @@ export class AwsProfileService {
         },
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('AwsProfileService.rotateActiveCredentials: verification failed for newly minted key after exhausting all retry attempts', {
         accessKeyId: newAccessKeyId,
         error: message,
@@ -334,7 +335,7 @@ export class AwsProfileService {
       try {
         await currentClient.send(new DeleteAccessKeyCommand({ AccessKeyId: newAccessKeyId }));
       } catch (cleanupErr) {
-        const cleanupMessage = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+        const cleanupMessage = errMessage(cleanupErr);
         logger.warn(
           'AwsProfileService.rotateActiveCredentials: failed to clean up orphaned new key after verification failure — may need manual cleanup',
           { accessKeyId: newAccessKeyId, error: cleanupMessage },
@@ -352,7 +353,7 @@ export class AwsProfileService {
       const newClient = this.createIamClient({ accessKeyId: newAccessKeyId, secretAccessKey: newSecretAccessKey, region });
       await newClient.send(new DeleteAccessKeyCommand({ AccessKeyId: currentAccessKeyId }));
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('AwsProfileService.rotateActiveCredentials: failed to delete old access key — still active, revoke manually', {
         oldAccessKeyId: currentAccessKeyId,
         error: message,

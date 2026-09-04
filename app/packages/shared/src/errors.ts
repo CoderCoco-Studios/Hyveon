@@ -72,3 +72,13 @@ export class RunLockHeldError extends Error {
     Object.setPrototypeOf(this, RunLockHeldError.prototype);
   }
 }
+
+/**
+ * Normalizes a caught `unknown` value to a human-readable message.
+ *
+ * @param err - The value caught from a `try`/`catch` block.
+ * @returns `err.message` when `err` is an `Error`, otherwise `String(err)`.
+ */
+export function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}

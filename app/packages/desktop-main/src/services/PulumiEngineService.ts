@@ -10,7 +10,7 @@ import { Injectable } from '@nestjs/common';
 // bare directory specifier `@pulumi/pulumi/automation` fails with
 // `ERR_UNSUPPORTED_DIR_IMPORT` in the packaged app.
 import { PulumiCommand } from '@pulumi/pulumi/automation/index.js';
-import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
+import { PULUMI_ENGINE_VERSION, errMessage } from '@hyveon/shared';
 import { SemVer } from 'semver';
 import { logger } from '../logger.js';
 
@@ -19,7 +19,7 @@ import { logger } from '../logger.js';
  * provisioning error classes below.
  */
 function describeCause(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+  return errMessage(cause);
 }
 
 /**
@@ -204,7 +204,7 @@ function classifyProvisioningError(err: unknown, root: string): Error {
   if (errno && CACHE_WRITE_ERRNO_CODES.has(errno)) {
     return new PulumiEngineCacheWriteError(root, err);
   }
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errMessage(err);
   if (isNetworkFailureMessage(message)) {
     return new PulumiEngineNetworkError(root, err);
   }
@@ -230,7 +230,7 @@ function isProvablyBadCacheEntry(err: unknown): boolean {
   if (err instanceof PulumiEnginePinMismatchError) return true;
   const errno = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : undefined;
   if (errno === 'ENOENT') return true;
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errMessage(err);
   return /failed to parse pulumi cli version/i.test(message);
 }
 
@@ -480,7 +480,7 @@ export class PulumiEngineService {
     } catch (err) {
       logger.error('PulumiEngineService: failed to create the Pulumi engine versions directory', {
         versionsDir,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
       throw new PulumiEngineCacheWriteError(versionsDir, err);
     }
@@ -514,7 +514,7 @@ export class PulumiEngineService {
       logger.error('PulumiEngineService: failed to swap the verified Pulumi engine install into place', {
         root,
         stagingDir,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
       removeDirBestEffort(stagingDir, 'failed rename into place');
       // Best-effort restore: if the prior occupant was already moved aside

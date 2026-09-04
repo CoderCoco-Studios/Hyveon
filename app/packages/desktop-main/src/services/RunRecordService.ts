@@ -26,7 +26,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { Inject, Injectable } from '@nestjs/common';
-import { buildRunSk, deriveRunStatus, resolvePreApplyRunsTableName } from '@hyveon/shared';
+import { buildRunSk, deriveRunStatus, errMessage, resolvePreApplyRunsTableName } from '@hyveon/shared';
 import type {
   ChangeSummary,
   RemoteFileStore,
@@ -465,7 +465,7 @@ export class RunRecordService {
     try {
       await this.store.putRecord(record);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('RunRecordService.writePreflightMarker: failed to write pre-flight marker', {
         runId: params.runId,
         error: message,
@@ -491,7 +491,7 @@ export class RunRecordService {
     try {
       return await this.store.getLogUrl(logKey, expiresInSeconds);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('RunRecordService.getLogUrl: failed to resolve run log URL', {
         logKey,
         error: message,
@@ -530,7 +530,7 @@ export class RunRecordService {
     try {
       return await this.store.getRecordByRunId(runId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('RunRecordService.getByRunId: failed to look up run record', {
         runId,
         error: message,
@@ -567,7 +567,7 @@ export class RunRecordService {
         ...(opts.status !== undefined ? { status: opts.status } : {}),
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('RunRecordService.listRuns: failed to list run history', {
         error: message,
       });
@@ -612,7 +612,7 @@ export class RunRecordService {
     try {
       record = await this.store.getRecordByRunId(runId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('RunRecordService.approveRun: failed to look up run record', {
         runId,
         error: message,
@@ -640,7 +640,7 @@ export class RunRecordService {
     try {
       await this.store.putRecord(updated);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('RunRecordService.approveRun: failed to persist run approval', {
         runId,
         error: message,

@@ -5,6 +5,7 @@ import type { ExportDiagnosticsBundleResult, RendererLogEntry } from '@hyveon/sh
 import { DiagnosticsService } from '../services/DiagnosticsService.js';
 import { DiagnosticsBundleService } from '../services/DiagnosticsBundleService.js';
 import { logger } from '../logger.js';
+import { errMessage } from '@hyveon/shared';
 
 /** Payload accepted by `diagnostics.reportError`. */
 export interface ReportRendererErrorInput {
@@ -87,7 +88,7 @@ export class DiagnosticsController {
       const result = await this.bundle.writeBundle(destinationPath);
       return { status: 'written', path: result.path };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('DiagnosticsController: diagnostics.exportBundle failed to write bundle', { message });
       return { status: 'error', message };
     }
@@ -125,7 +126,7 @@ export class DiagnosticsController {
     try {
       this.revealInFolder(body.path);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('DiagnosticsController: diagnostics.showInFolder failed', { message });
     }
   }

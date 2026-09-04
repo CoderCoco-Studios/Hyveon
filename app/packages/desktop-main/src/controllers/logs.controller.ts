@@ -6,6 +6,7 @@ import type { LambdaFunctionKey } from '@hyveon/shared';
 import { LogsService } from '../services/LogsService.js';
 import type { RecentLogsPage, OlderLogsPage, NewerLogsPage } from '../services/LogsService.js';
 import { logger } from '../logger.js';
+import { errMessage } from '@hyveon/shared';
 
 /** IPC-only logs controller. Handles Electron main-process messages via
  * `@MessagePattern`.
@@ -88,7 +89,7 @@ export class LogsController implements OnModuleInit {
       const page = await this.logs.getOlderLogs(game, beforeTimestamp, limit);
       return { game, ...page };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('LogsController: logs.getOlder failed', { game, error: message });
       throw new Error(message);
     }
@@ -112,7 +113,7 @@ export class LogsController implements OnModuleInit {
       const page = await this.logs.getNewerLogs(game, afterTimestamp, limit, excludeEventIds);
       return { game, ...page };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('LogsController: logs.getNewer failed', { game, error: message });
       throw new Error(message);
     }
@@ -171,7 +172,7 @@ export class LogsController implements OnModuleInit {
         if ((err as Error).name === 'AbortError') {
           if (!sender.isDestroyed()) sender.send(endChannel, {});
         } else {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errMessage(err);
           logger.error('Log stream error', { message, game, streamId });
           if (!sender.isDestroyed()) {
             sender.send(endChannel, { error: String(err) });
@@ -221,7 +222,7 @@ export class LogsController implements OnModuleInit {
       const page = await this.logs.getOlderLambdaLogs(functionKey, beforeTimestamp, limit);
       return { functionKey, ...page };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('LogsController: logs.lambda.getOlder failed', { functionKey, error: message });
       throw new Error(message);
     }
@@ -245,7 +246,7 @@ export class LogsController implements OnModuleInit {
       const page = await this.logs.getNewerLambdaLogs(functionKey, afterTimestamp, limit, excludeEventIds);
       return { functionKey, ...page };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('LogsController: logs.lambda.getNewer failed', { functionKey, error: message });
       throw new Error(message);
     }
@@ -287,7 +288,7 @@ export class LogsController implements OnModuleInit {
         if ((err as Error).name === 'AbortError') {
           if (!sender.isDestroyed()) sender.send(endChannel, {});
         } else {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errMessage(err);
           logger.error('Lambda log stream error', { message, functionKey, streamId });
           if (!sender.isDestroyed()) sender.send(endChannel, { error: String(err) });
         }

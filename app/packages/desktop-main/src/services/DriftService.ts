@@ -3,6 +3,7 @@ import type { DriftChangedField, DriftEntry, DriftReport, GameServer, StackOutpu
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Config fields compared for a `'config_drift'` finding, paired with the
@@ -203,7 +204,7 @@ export class DriftService {
       const stackOutputs = await this.config.getStackOutputs();
       return computeDriftFromOutputs(declared, stackOutputs);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('DriftService.getDrift: failed to compute drift', { error: message });
       throw new Error(message);
     }
