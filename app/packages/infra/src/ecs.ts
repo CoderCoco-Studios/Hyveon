@@ -29,6 +29,7 @@ import * as pulumi from '@pulumi/pulumi';
 import type { GameServerConfig } from '@hyveon/shared';
 import type { EfsResources } from './efs.js';
 import { stripTrailingDots } from './hostedZoneName.js';
+import { LOG_RETENTION_DAYS } from './logGroups.js';
 
 /** Every resource {@link defineEcs} declares, keyed by role. */
 export interface EcsResources {
@@ -127,7 +128,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
       `${game}-server-logs`,
       {
         name: `/ecs/${game}-server`,
-        retentionInDays: 7,
+        retentionInDays: LOG_RETENTION_DAYS,
         tags: { Name: `${game}-logs`, Game: game },
       },
       opts,
