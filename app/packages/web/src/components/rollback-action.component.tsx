@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react';
 import type { DeploymentConfigDiff } from '@hyveon/shared';
 import { Button } from './ui/button.component.js';
 import { ConfirmDialog } from './confirm-dialog.component.js';
-import { formatTimestamp } from '@/lib/utils.utils';
+import { formatTimestamp } from '@/lib/format.utils';
 import { formatDiffSummary } from '@/lib/rollback-diff.utils';
 
 /** Result of a confirmed rollback, handed to {@link RollbackActionProps.onRolledBack}. */

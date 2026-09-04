@@ -13,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table.component';
 import { cn } from '@/lib/utils.utils';
+import { formatUsd } from '@/lib/format.utils';
 import { PageHeader } from '../components/page-header.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { SectionCard } from '../components/section-card.component.js';
@@ -44,12 +45,6 @@ type SortDir = 'asc' | 'desc';
 
 interface EstimateRow extends GameEstimate {
   game: string;
-}
-
-/** Format a dollar amount with sensible precision for the value's magnitude. */
-function formatUsd(value: number, opts: { precise?: boolean } = {}): string {
-  const digits = opts.precise ? (value < 1 ? 4 : 2) : 2;
-  return `$${value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
 /**

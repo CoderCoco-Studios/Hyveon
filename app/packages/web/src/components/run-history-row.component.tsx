@@ -6,7 +6,7 @@ import { RunStatusBadge } from './run-status-badge.component.js';
 import { PartialApplyBadge } from './partial-apply-badge.component.js';
 import { RollbackAction, type RollbackResult } from './rollback-action.component.js';
 import { ChangeSummaryStatus } from './change-summary-status.component.js';
-import { formatTimestamp } from '@/lib/utils.utils';
+import { formatTimestamp } from '@/lib/format.utils';
 
 interface RunHistoryRowProps {
   /** The run-history record this row renders. */
