@@ -185,6 +185,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
 
     const containerDefs: Record<string, unknown>[] = [gameContainer];
 
+    // Invariant: TLS terminates in-task via this Caddy sidecar — no ALB/target group/ACM cert anywhere (openspec/specs/in-task-tls-termination).
     if (isHttps) {
       containerDefs.push({
         name: 'caddy',

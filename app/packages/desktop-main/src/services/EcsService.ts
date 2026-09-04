@@ -164,6 +164,10 @@ export interface StartResult {
  * Service here — the core cost-saving design is "run a one-off task only
  * when the user clicks Start, stop it when the watchdog or user decides".
  *
+ * Invariant: no persistent ECS Service, ever. Every start/stop is an on-demand `RunTask`/
+ * `StopTask` against the `{game}-server` task-definition family — a long-running Service
+ * here destroys the cost model.
+ *
  * `getStatus` / `start` / `stop` delegate to the {@link CloudProvider}
  * injected via the `CLOUD_PROVIDER` token (bound by `CloudProviderModule` to
  * {@link AwsCloudProvider} today) rather than issuing `RunTaskCommand` /

@@ -17,6 +17,7 @@
 import { verifyAsync } from '@noble/ed25519';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+// `canRun` is the single shared copy; never inline or fork it.
 import { canRun, getEffectiveDiscordConfig, getPublicKey } from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig } from '@hyveon/shared';
 

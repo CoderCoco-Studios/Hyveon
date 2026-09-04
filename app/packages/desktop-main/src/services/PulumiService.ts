@@ -2531,6 +2531,7 @@ export class PulumiService {
         ownsOperationInFlight = false;
       }
 
+      // Same `sk` as the pre-flight marker (both derive from `startedAt`) — overwrites it in place.
       await this.persistRunRecord(
         runId,
         'apply',

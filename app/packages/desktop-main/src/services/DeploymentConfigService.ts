@@ -14,9 +14,10 @@
  * method.
  *
  * The raw text is `JSON.parse()`d directly into a `DeploymentConfig`
- * (`@hyveon/shared/deploymentConfig.js`) — no HCL parsing is involved — and
- * its `gameServers` record is flattened into a `GameServer[]` with the map
- * key attached as `name`.
+ * (`@hyveon/shared/deploymentConfig.js`) — its `gameServers` record is the
+ * single source of truth for every per-game resource `app/packages/infra`
+ * declares — and flattened into a `GameServer[]` with the map key attached
+ * as `name`.
  *
  * Parsed results are cached in-memory for `ConfigService.readEnvConfigCacheTtlMs()`
  * milliseconds so frequent callers (e.g. polling endpoints) don't re-fetch
@@ -34,13 +35,11 @@
  * the shared Winston `logger` and resolve to `[]`, mirroring `ConfigService`'s
  * graceful degradation for polling callers.
  *
- * `addGameServer()`, `updateGameServer()`, and `removeGameServer()` are the write-side counterpart:
- * they read the current `DeploymentConfig` JSON, mutate the `gameServers`
- * record, and `JSON.stringify` the result back — a plain, lossless
- * serialize/deserialize round trip, unlike the byte-preserving HCL splice
- * this service used before the migration. The write is a conditional
- * `RemoteFileStore.put()` guarded by an `ifMatch` etag; a stale etag is
- * translated from the store's `RemoteFileConflictError` into an
+ * `addGameServer()`, `updateGameServer()`, and `removeGameServer()` are the
+ * write-side counterpart: read the current `DeploymentConfig` JSON, mutate the
+ * `gameServers` record, `JSON.stringify` the result back. The write is a
+ * conditional `RemoteFileStore.put()` guarded by an `ifMatch` etag; a stale
+ * etag is translated from the store's `RemoteFileConflictError` into an
  * `OptimisticLockError` so callers only ever need to handle one conflict type
  * regardless of cloud provider.
  */

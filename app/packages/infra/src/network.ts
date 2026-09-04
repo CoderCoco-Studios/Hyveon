@@ -39,6 +39,9 @@ export interface DefineNetworkArgs {
  * Number of public subnets to declare — a hardcoded constant, not driven by
  * any configuration variable, so it stays a hardcoded constant here too
  * rather than becoming a spurious `DeploymentConfig` field.
+ *
+ * Not a safe knob to raise: changing this replaces every public subnet and its
+ * EFS mount targets (one per subnet, declared in `efs.ts`).
  */
 const PUBLIC_SUBNET_COUNT = 2;
 

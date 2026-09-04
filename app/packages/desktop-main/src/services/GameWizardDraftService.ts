@@ -303,6 +303,14 @@ function backfillPortVisibility(stored: StoredGameWizardDraft): StoredGameWizard
   };
 }
 
+/**
+ * Enforcement point for the "secrets never reach the renderer" invariant: every draft read
+ * passes through here, blanking `file_seeds[].content`/`content_base64`, `environment[].value`,
+ * and `healthCheck` credentials before the draft leaves this process.
+ *
+ * Any new secret-bearing field added to the draft shape MUST be redacted here too, or it leaks
+ * to the renderer on the next read.
+ */
 function redactSecretFields(stored: StoredGameWizardDraft): StoredGameWizardDraft {
   return {
     ...stored,

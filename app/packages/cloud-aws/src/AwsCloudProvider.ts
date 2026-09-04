@@ -355,6 +355,11 @@ export class AwsCloudProvider implements CloudProvider {
    * task-definition family the infra program provisions. `ListTasks` is filtered to
    * `desiredStatus: RUNNING` and STOPPED/DEPROVISIONING tasks are filtered
    * out of the describe result — leaving the single active task, if any.
+   *
+   * One page is provably enough: `startWorkload`'s guard keeps at most one task per
+   * `{game}-server` family, so a page can never need a second fetch. `ListTasks` is only
+   * eventually consistent, though — it's the in-process `withGameLock`, not this read, that
+   * actually prevents duplicate starts.
    */
   private async findRunningTask(
     region: string,

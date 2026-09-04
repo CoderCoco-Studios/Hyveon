@@ -49,4 +49,8 @@ class MockStore {
   }
 }
 
+/**
+ * Process-wide singleton — one queue set shared by every test in the process. `ServerMocks`/
+ * `IpcHarness` MUST call `reset()` between tests, or queued responses leak across specs.
+ */
 export const mockStore = new MockStore();
