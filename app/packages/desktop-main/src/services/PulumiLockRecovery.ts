@@ -2,6 +2,7 @@ import { hostname as osHostname, userInfo } from 'node:os';
 import { ConcurrentUpdateError } from '@pulumi/pulumi/automation/index.js';
 import type { ElectronStoreService, PulumiLockOwnershipRecord } from './ElectronStoreService.js';
 import { logger } from '../logger.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Stale-backend-lock-recovery primitives, satisfying the
@@ -109,7 +110,7 @@ const DIY_BACKEND_CONFLICT_PATTERN = /the stack is currently locked by/i;
  */
 export function isStackLockConflict(err: unknown): boolean {
   if (err instanceof ConcurrentUpdateError) return true;
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errMessage(err);
   return DIY_BACKEND_CONFLICT_PATTERN.test(message) || SERVICE_BACKEND_CONFLICT_PATTERN.test(message);
 }
 
@@ -125,7 +126,7 @@ export function isStackLockConflict(err: unknown): boolean {
  * when `err` is not a lock conflict at all.
  */
 export function parseStackLocks(err: unknown): PulumiStackLockInfo[] {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errMessage(err);
   const locks: PulumiStackLockInfo[] = [];
   for (const match of message.matchAll(LOCK_ENTRY_PATTERN)) {
     const [, lockUrl, username, hostname, pid, timestamp] = match;

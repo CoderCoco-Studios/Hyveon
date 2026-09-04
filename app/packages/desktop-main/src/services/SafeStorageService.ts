@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { createRequire } from 'module';
 import { logger } from '../logger.js';
+import { errMessage } from '@hyveon/shared';
 
 const _require = createRequire(import.meta.url);
 
@@ -55,7 +56,7 @@ export class SafeStorageService {
       const buf = this.encryptString(plaintext);
       return buf.toString('base64');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('SafeStorageService.encrypt: safeStorage.encryptString failed', { error: message });
       throw new Error(`Failed to encrypt value via the OS keychain: ${message}`);
     }
@@ -94,7 +95,7 @@ export class SafeStorageService {
     try {
       return this.decryptString(buf);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('SafeStorageService.decrypt: safeStorage.decryptString failed', { error: message });
       throw new Error(`Failed to decrypt value via the OS keychain: ${message}`);
     }

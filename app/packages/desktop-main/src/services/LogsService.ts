@@ -6,7 +6,7 @@ import {
   GetLogEventsCommand,
 } from '@aws-sdk/client-cloudwatch-logs';
 import type { CloudProvider, LambdaFunctionKey, LogChunk } from '@hyveon/shared';
-import { DEPLOYMENT_CONFIG_DEFAULTS } from '@hyveon/shared';
+import { DEPLOYMENT_CONFIG_DEFAULTS, errMessage } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
@@ -229,7 +229,7 @@ export class LogsService {
       if (err instanceof Error && err.message === `No log streams found for ${game}.`) {
         return { lines: [syntheticLine(err.message)] };
       }
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('LogsService.getRecentLogs: failed to fetch logs', { game, logGroup, error: message });
       return { lines: [syntheticLine(`Error fetching logs for ${game}: ${String(err)}`)] };
     }
@@ -303,7 +303,7 @@ export class LogsService {
     try {
       return await this.fetchAcrossStreams(logGroup, 'older', beforeTimestamp, limit);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('LogsService.getOlderLogs: failed to fetch older logs', { game, beforeTimestamp, logGroup, error: message });
       throw new Error(message);
     }
@@ -341,7 +341,7 @@ export class LogsService {
     try {
       return await this.fetchAcrossStreams(logGroup, 'newer', afterTimestamp, limit, excludeEventIds);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('LogsService.getNewerLogs: failed to fetch newer logs', { game, afterTimestamp, logGroup, error: message });
       throw new Error(message);
     }
@@ -545,7 +545,7 @@ export class LogsService {
       const { settings } = await this.deploymentConfig.getTopLevelSettings();
       projectName = settings.projectName ?? DEPLOYMENT_CONFIG_DEFAULTS.projectName;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('LogsService.resolveLambdaLogGroup: falling back to the default project name', { functionKey, error: message });
     }
     return `/aws/lambda/${projectName}-${functionKey}`;
@@ -582,7 +582,7 @@ export class LogsService {
       if (err instanceof Error && err.message === `No log streams found for ${functionKey}.`) {
         return { lines: [syntheticLine(err.message)] };
       }
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('LogsService.getRecentLambdaLogs: failed to fetch logs', { functionKey, logGroup, error: message });
       return { lines: [syntheticLine(`Error fetching logs for ${functionKey}: ${String(err)}`)] };
     }
@@ -610,7 +610,7 @@ export class LogsService {
         logger.warn('LogsService.getOlderLambdaLogs: log group does not exist yet', { functionKey, logGroup });
         throw new Error(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`);
       }
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('LogsService.getOlderLambdaLogs: failed to fetch older logs', { functionKey, beforeTimestamp, logGroup, error: message });
       throw new Error(message);
     }
@@ -646,7 +646,7 @@ export class LogsService {
         logger.warn('LogsService.getNewerLambdaLogs: log group does not exist yet', { functionKey, logGroup });
         throw new Error(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`);
       }
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('LogsService.getNewerLambdaLogs: failed to fetch newer logs', { functionKey, afterTimestamp, logGroup, error: message });
       throw new Error(message);
     }
@@ -709,7 +709,7 @@ export class LogsService {
           yield `No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`;
           return;
         }
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errMessage(err);
         yield `[stream error] ${message}`;
       }
       if (signal.aborted) return;

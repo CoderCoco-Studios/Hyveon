@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import { Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
-import { RunLockHeldError } from '@hyveon/shared';
+import { RunLockHeldError, errMessage } from '@hyveon/shared';
 import type { DeploymentConfigDiff, RunLock, StackOutputs } from '@hyveon/shared';
 import {
   PulumiService,
@@ -686,7 +686,7 @@ export class IacController implements OnModuleInit {
         if (!sender.isDestroyed()) {
           const message: StackInitializeEndMessage = {
             streamId,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMessage(err),
           };
           sender.send(STACK_INIT_END_CHANNEL, message);
         }
@@ -859,7 +859,7 @@ export class IacController implements OnModuleInit {
         });
         return { started: false, error: err.message, staleLock: serializeStaleLock(err) };
       }
-      const error = err instanceof Error ? err.message : String(err);
+      const error = errMessage(err);
       logger.error('apply rejected', { planRunId: payload.planRunId, error });
       return { started: false, error };
     }
@@ -1009,7 +1009,7 @@ export class IacController implements OnModuleInit {
         });
         return { started: false, error: err.message, staleLock: serializeStaleLock(err) };
       }
-      const error = err instanceof Error ? err.message : String(err);
+      const error = errMessage(err);
       logger.error('destroy rejected', { runId, error });
       return { started: false, error };
     }
@@ -1132,7 +1132,7 @@ export class IacController implements OnModuleInit {
       return { approved: true, approvedBy: record.approvedBy, approvedAt: record.approvedAt };
     } catch (err) {
       logger.error('approve error', { err, planRunId: payload.planRunId });
-      const error = err instanceof Error ? err.message : String(err);
+      const error = errMessage(err);
       return { approved: false, error };
     }
   }
@@ -1188,7 +1188,7 @@ export class IacController implements OnModuleInit {
       };
     } catch (err) {
       logger.error('rollback resolve error', { err, applyRunId: payload.applyRunId });
-      const error = err instanceof Error ? err.message : String(err);
+      const error = errMessage(err);
       return { resolved: false, error };
     }
   }
@@ -1297,7 +1297,7 @@ export class IacController implements OnModuleInit {
         // next step, per this ack field's own TSDoc.
         return { confirmed: false, versionId: err.restoredVersionId, error: err.message };
       }
-      const error = err instanceof Error ? err.message : String(err);
+      const error = errMessage(err);
       return { confirmed: false, error };
     } finally {
       sender.removeListener('destroyed', onDestroyed);
@@ -1339,7 +1339,7 @@ export class IacController implements OnModuleInit {
       return { cleared: true };
     } catch (err) {
       logger.error('iac lock clear error', { err });
-      const error = err instanceof Error ? err.message : String(err);
+      const error = errMessage(err);
       return { cleared: false, error };
     }
   }

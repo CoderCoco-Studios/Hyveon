@@ -1,6 +1,7 @@
 import type { ManualUpdateCheckResult } from '@hyveon/shared';
 import { logger } from './logger.js';
 import type { ElectronStoreService } from './services/ElectronStoreService.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Initializes the `electron-updater` integration for the main process.
@@ -38,7 +39,7 @@ export async function initUpdater(store: ElectronStoreService): Promise<void> {
 
   autoUpdater.on('error', (err: unknown) => {
     logger.error('[updater] update check failed', {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
   });
   autoUpdater.on('update-available', (info: { version: string }) => {
@@ -106,7 +107,7 @@ export async function checkForUpdatesNow(): Promise<ManualUpdateCheckResult> {
     };
     const onError = (err: unknown) => {
       cleanup();
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('[updater] manual check failed', { error: message });
       resolve({ ok: false, message });
     };

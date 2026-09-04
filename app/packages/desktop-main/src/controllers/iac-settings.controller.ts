@@ -10,7 +10,7 @@ import type {
   PulumiEngineVersionResult,
   UpdateDeploymentSettingsPayload,
 } from '@hyveon/shared';
-import { OptimisticLockError, validateDeploymentSettingsPatch } from '@hyveon/shared';
+import { OptimisticLockError, errMessage, validateDeploymentSettingsPatch } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { checkForUpdatesNow } from '../updater.js';
 import { ConfigurationNotConfiguredError, RunsTableRenameError, DeploymentConfigService } from '../services/DeploymentConfigService.js';
@@ -178,7 +178,7 @@ export class IacSettingsController {
     try {
       return { ok: true, enableAutoUpdate: this.store?.get('enableAutoUpdate') ?? false };
     } catch (err) {
-      logger.error('Failed to read enableAutoUpdate setting', { err: err instanceof Error ? err.message : String(err) });
+      logger.error('Failed to read enableAutoUpdate setting', { err: errMessage(err) });
       return { ok: false, code: 'error', message: 'An unexpected error occurred while reading the auto-update setting.' };
     }
   }
@@ -203,7 +203,7 @@ export class IacSettingsController {
       this.store.set('enableAutoUpdate', payload.enableAutoUpdate);
       return { ok: true, enableAutoUpdate: payload.enableAutoUpdate };
     } catch (err) {
-      logger.error('Failed to write enableAutoUpdate setting', { err: err instanceof Error ? err.message : String(err) });
+      logger.error('Failed to write enableAutoUpdate setting', { err: errMessage(err) });
       return { ok: false, code: 'error', message: 'An unexpected error occurred while writing the auto-update setting.' };
     }
   }

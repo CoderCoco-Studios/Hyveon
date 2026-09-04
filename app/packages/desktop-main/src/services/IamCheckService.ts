@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { IAMClient, SimulatePrincipalPolicyCommand } from '@aws-sdk/client-iam';
 import { fromIni } from '@aws-sdk/credential-providers';
-import { HYVEON_DEPLOY_ALL_ACTIONS } from '@hyveon/shared';
+import { HYVEON_DEPLOY_ALL_ACTIONS, errMessage } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource, type AwsCredentialSource } from './awsCredentialSource.js';
@@ -130,7 +130,7 @@ export class IamCheckService {
     } catch (err) {
       // e.g. AwsPastedCredentialDecryptError for a corrupt stored ciphertext
       // — no source could be classified at all.
-      return { status: 'warning', message: this.describeError(err), origin: 'none', blocking: false };
+      return { status: 'warning', message: errMessage(err), origin: 'none', blocking: false };
     }
     const origin = this.classifyOrigin(source);
 
@@ -148,7 +148,7 @@ export class IamCheckService {
     try {
       callerArn = await this.getCallerArn(region, source);
     } catch (err) {
-      const message = this.describeError(err);
+      const message = errMessage(err);
       logger.warn('IamCheckService.checkPermissions: sts:GetCallerIdentity failed — degrading to a warning', {
         origin,
         error: message,
@@ -175,7 +175,7 @@ export class IamCheckService {
         );
       }
     } catch (err) {
-      const message = this.describeError(err);
+      const message = errMessage(err);
       logger.warn('IamCheckService.checkPermissions: iam:SimulatePrincipalPolicy failed — degrading to a warning', {
         origin,
         error: message,
@@ -318,10 +318,6 @@ export class IamCheckService {
     for (let i = 0; i < items.length; i += size) {
       yield items.slice(i, i + size);
     }
-  }
-
-  private describeError(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
   }
 
   /**

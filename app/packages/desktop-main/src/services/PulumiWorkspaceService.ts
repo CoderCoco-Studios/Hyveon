@@ -22,6 +22,7 @@ import { PulumiEngineService, type PulumiPhaseCallback } from './PulumiEngineSer
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveCredentialEnvVars } from './PulumiCredentialResolver.js';
 import { resolveAwsClientCredentials, type AwsClientCredentials } from './awsCredentialSource.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Bare Pulumi project name — see {@link PULUMI_STACK_NAME}'s doc comment for
@@ -204,7 +205,7 @@ const BUCKET_MISSING_PATTERN = /nosuchbucket|no such bucket|bucket does not exis
  * not a verified classification.
  */
 function looksLikeMissingBucket(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errMessage(err);
   return BUCKET_MISSING_PATTERN.test(message);
 }
 
@@ -376,7 +377,7 @@ export class PulumiWorkspaceService {
    * failure there is a distinct failure surface from "backend not
    * bootstrapped" and is never reclassified as
    * {@link PulumiBackendNotBootstrappedError}; it is only normalized
-   * (`err instanceof Error ? err.message : String(err)`, logged via
+   * (`errMessage(err)`, logged via
    * `logger.warn`) and rethrown as a plain `Error` with just that message,
    * per `.claude/rules/logging.md`.
    *
@@ -425,7 +426,7 @@ export class PulumiWorkspaceService {
     try {
       accountId = await resolveAwsAccountId(this.store, input.stateBucketRegion);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('PulumiWorkspaceService.getOrCreateStack: sts:GetCallerIdentity failed while deriving the secrets passphrase', {
         error: message,
       });
@@ -611,7 +612,7 @@ export class PulumiWorkspaceService {
     try {
       await this.runChangeSecretsProviderCli(ctx.pulumiCommand.command, args, ctx.workDir, env, newPassphrase);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('PulumiWorkspaceService: failed to re-encrypt the legacy Pulumi passphrase', { error: message });
       throw new Error(`Failed to migrate the legacy Pulumi secrets passphrase: ${message}`);
     }

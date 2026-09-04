@@ -25,6 +25,7 @@ import {
   type DiscordConfigStore,
   type RedactedDiscordConfig,
   type SecretsStore,
+  errMessage,
 } from '@hyveon/shared';
 
 /** Slash-command action that can be gated via permissions. */
@@ -126,7 +127,7 @@ export class DiscordConfigService {
         this.cache = cfg;
         return cfg;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errMessage(err);
         logger.error('Failed to load Discord config from DynamoDB', { error: message });
         const empty = emptyConfig();
         this.cache = empty;
@@ -156,7 +157,7 @@ export class DiscordConfigService {
         this.baseCache = base;
         return base;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errMessage(err);
         logger.error('Failed to load base Discord config from DynamoDB', { error: message });
         return { allowedGuilds: [], admins: { userIds: [], roleIds: [] } };
       } finally {
@@ -180,7 +181,7 @@ export class DiscordConfigService {
       if (!(await this.tableName())) throw new Error('discordTableName not in the deployed stack outputs — deploy first.');
       await this.discordStore.putConfig(cfg);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('Failed to save Discord config to DynamoDB', { error: message });
       throw new Error(message);
     }
@@ -232,7 +233,7 @@ export class DiscordConfigService {
       arn = await arnResolver();
     } catch (err) {
       logger.warn(`${label} secret ARN unavailable — stack not deployed yet`, {
-        err: err instanceof Error ? err.message : String(err),
+        err: errMessage(err),
       });
       return undefined;
     }
@@ -240,7 +241,7 @@ export class DiscordConfigService {
       return await this.secrets.get(arn);
     } catch (err) {
       logger.error(`Failed to read ${label} from Secrets Manager`, {
-        err: err instanceof Error ? err.message : String(err),
+        err: errMessage(err),
       });
       return undefined;
     }
@@ -303,7 +304,7 @@ export class DiscordConfigService {
       try {
         await Promise.all(writes);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errMessage(err);
         logger.error('Failed to write Discord bot credentials to Secrets Manager', { error: message });
         throw new Error(message);
       }

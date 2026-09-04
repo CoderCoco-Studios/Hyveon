@@ -22,7 +22,7 @@ import {
   waitUntilTableExists,
 } from '@aws-sdk/client-dynamodb';
 import { fromIni } from '@aws-sdk/credential-providers';
-import { CONFIGURATION_OBJECT_KEY, withDeploymentConfigDefaults } from '@hyveon/shared';
+import { CONFIGURATION_OBJECT_KEY, errMessage, withDeploymentConfigDefaults } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
@@ -129,9 +129,9 @@ export class BootstrapService {
     } catch (err) {
       logger.error('BootstrapService.ensureStateBucket: createBucket failed', {
         bucketName,
-        error: this.describeError(err),
+        error: errMessage(err),
       });
-      return { status: 'failed', message: this.describeError(err) };
+      return { status: 'failed', message: errMessage(err) };
     }
 
     try {
@@ -159,9 +159,9 @@ export class BootstrapService {
     } catch (err) {
       logger.error('BootstrapService.ensureStateBucket: post-create configuration failed', {
         bucketName,
-        error: this.describeError(err),
+        error: errMessage(err),
       });
-      return { status: 'failed', message: this.describeError(err) };
+      return { status: 'failed', message: errMessage(err) };
     }
 
     logger.debug('BootstrapService.ensureStateBucket: done', { bucketName, status: created ? 'created' : 'exists' });
@@ -191,9 +191,9 @@ export class BootstrapService {
     } catch (err) {
       logger.error('BootstrapService.ensureConfigurationBucket: createBucket failed', {
         bucketName,
-        error: this.describeError(err),
+        error: errMessage(err),
       });
-      return { status: 'failed', message: this.describeError(err) };
+      return { status: 'failed', message: errMessage(err) };
     }
 
     try {
@@ -243,9 +243,9 @@ export class BootstrapService {
     } catch (err) {
       logger.error('BootstrapService.ensureConfigurationBucket: post-create configuration failed', {
         bucketName,
-        error: this.describeError(err),
+        error: errMessage(err),
       });
-      return { status: 'failed', message: this.describeError(err) };
+      return { status: 'failed', message: errMessage(err) };
     }
 
     logger.debug('BootstrapService.ensureConfigurationBucket: done', {
@@ -333,9 +333,9 @@ export class BootstrapService {
     } catch (err) {
       logger.error('BootstrapService.ensureDeploymentConfig: failed', {
         bucketName,
-        error: this.describeError(err),
+        error: errMessage(err),
       });
-      return { status: 'failed', message: this.describeError(err) };
+      return { status: 'failed', message: errMessage(err) };
     }
   }
 
@@ -414,9 +414,9 @@ export class BootstrapService {
     } catch (err) {
       logger.error('BootstrapService.ensureRunsTable: createRunsTable failed', {
         tableName,
-        error: this.describeError(err),
+        error: errMessage(err),
       });
-      return { status: 'failed', message: this.describeError(err) };
+      return { status: 'failed', message: errMessage(err) };
     }
 
     try {
@@ -430,9 +430,9 @@ export class BootstrapService {
     } catch (err) {
       logger.error('BootstrapService.ensureRunsTable: table did not reach ACTIVE status', {
         tableName,
-        error: this.describeError(err),
+        error: errMessage(err),
       });
-      return { status: 'failed', message: this.describeError(err) };
+      return { status: 'failed', message: errMessage(err) };
     }
 
     try {
@@ -442,9 +442,9 @@ export class BootstrapService {
     } catch (err) {
       logger.error('BootstrapService.ensureRunsTable: failed to enable point-in-time recovery', {
         tableName,
-        error: this.describeError(err),
+        error: errMessage(err),
       });
-      return { status: 'failed', message: this.describeError(err) };
+      return { status: 'failed', message: errMessage(err) };
     }
 
     logger.debug('BootstrapService.ensureRunsTable: done', { tableName, status: created ? 'created' : 'exists' });
@@ -688,10 +688,6 @@ export class BootstrapService {
 
   private isAwsErrorCode(err: unknown, code: string): boolean {
     return err instanceof Error && err.name === code;
-  }
-
-  private describeError(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
   }
 
   /**

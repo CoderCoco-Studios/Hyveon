@@ -3,6 +3,7 @@ import type { StackOutputs } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { PulumiService } from './PulumiService.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Default in-memory cache TTL (milliseconds) `DeploymentConfigService` uses for the
@@ -157,7 +158,7 @@ export class ConfigService {
           if (this.stackOutputsCache === pending) {
             this.stackOutputsCache = undefined;
           }
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errMessage(err);
           logger.error('ConfigService.getStackOutputs: PulumiService.getStackOutputs rejected unexpectedly', {
             error: message,
           });

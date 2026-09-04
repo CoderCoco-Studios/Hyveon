@@ -44,6 +44,7 @@ import { SemVer } from 'semver';
 // resolves, and Node's cjs-module-lexer does pick up the star re-exports in
 // `automation/index.js`, so named imports still work.
 import { LocalWorkspace, PulumiCommand } from '@pulumi/pulumi/automation/index.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Engine version to provision — must match the `@pulumi/pulumi` SDK pin in
@@ -75,7 +76,7 @@ function resolveForEvidence(id: string): string {
   try {
     return requireFromHere.resolve(id);
   } catch (err) {
-    return `<unresolved: ${err instanceof Error ? err.message : String(err)}>`;
+    return `<unresolved: ${errMessage(err)}>`;
   }
 }
 
@@ -246,7 +247,7 @@ export async function runPulumiSpike(): Promise<void> {
       outputs['sentinel']?.value === SENTINEL;
   } catch (err) {
     result.error = {
-      message: err instanceof Error ? err.message : String(err),
+      message: errMessage(err),
       stack: err instanceof Error ? err.stack : undefined,
     };
   } finally {
