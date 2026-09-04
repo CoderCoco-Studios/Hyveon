@@ -544,63 +544,35 @@ export class PulumiWorkspaceService {
    * migration is retried after a failed re-encryption" scenario.
    *
    * @remarks
-   * ## Step 3.0 spike finding — the exact CLI contract (verified, not assumed)
-   *
-   * Determined by reading `pulumi/pulumi`'s own source at the exact pinned
-   * tag (`pkg/cmd/pulumi/stack/stack_change_secrets_provider.go`,
-   * `pkg/cmd/pulumi/stack/secrets.go`, `pkg/secrets/passphrase/manager.go` at
-   * `v3.255.0`) AND empirically confirmed end-to-end by running the exact
-   * binary this repo's own `PulumiEngineService` resolves (found already
-   * cached at `PULUMI_ENGINE_VERSION` from prior work in this repo, so no
-   * fresh download was needed) against a scratch `file://` backend — a stack
-   * was created under an "old" passphrase with a secret config value set,
-   * rotated via the sequence below, and then verified: the OLD passphrase
-   * afterward fails with `error: incorrect passphrase`, and the NEW
-   * passphrase successfully decrypts the (re-encrypted) config value. High
-   * confidence — this is not a `--help`-output guess.
-   *
    * The command is `pulumi stack change-secrets-provider passphrase --stack <name> --non-interactive`,
-   * run with `cwd` set to `workDir` (equivalent
-   * to `--cwd`, just via the spawned process's own working directory rather
-   * than an extra flag). Two passphrases are involved, and — critically —
-   * they are supplied through two DIFFERENT channels, not both via
-   * `PULUMI_CONFIG_PASSPHRASE`:
-   *   - The OLD (legacy) passphrase decrypts the CURRENT secrets provider,
-   *     and is read from the `PULUMI_CONFIG_PASSPHRASE` env var (the normal
-   *     passphrase-provider env-var lookup, `readPassphrase(useEnv: true)`
-   *     in `manager.go`).
-   *   - The NEW passphrase is for the secrets provider being rotated TO.
-   *     Because the new and current provider are both `passphrase`,
-   *     `stack_change_secrets_provider.go` sets `rotateSecretsProvider` to
-   *     `true`, which routes `promptForNewPassphrase(rotate: true)` down a
-   *     branch that — whenever the process is non-interactive (no TTY on
-   *     stdin/stdout, which a spawned child process's piped stdio always is,
-   *     reinforced here by the explicit `--non-interactive` flag) — reads
-   *     EXACTLY ONE LINE from stdin as the new passphrase, with NO
-   *     confirmation re-prompt (the interactive "enter twice" flow is
-   *     skipped entirely in this branch). `PULUMI_CONFIG_PASSPHRASE` cannot
-   *     carry both values at once, so the new value has to go through stdin.
+   * run with `cwd: workDir` (equivalent to `--cwd`). The two passphrases go
+   * through two DIFFERENT channels, not both via `PULUMI_CONFIG_PASSPHRASE`:
+   * the OLD (legacy) passphrase, which decrypts the current secrets provider,
+   * is read from the `PULUMI_CONFIG_PASSPHRASE` env var; the NEW passphrase is
+   * written as `${newPassphrase}\n` to the child's stdin and the stream
+   * closed — exactly one line, no confirmation re-prompt (the CLI's
+   * interactive "enter twice" flow only applies to a TTY, and a spawned
+   * child's piped stdio never is one). `PULUMI_HOME` is set explicitly on the
+   * child env, matching the Automation API's own `pulumiHome` option.
    *
-   * So: write `${newPassphrase}\n` to the child's stdin and close it: no
-   * second line, no confirmation. `PULUMI_HOME` is also set explicitly on
-   * the child env (the Automation API's own `pulumiHome` option is exactly
-   * this env var for spawned commands).
-   *
-   * @remarks
    * This CLI invocation runs with `cwd: workDir` BEFORE `LocalWorkspace.create`
    * has had any chance to (re)write `Pulumi.yaml`/`Pulumi.<stack>.yaml` in
-   * that directory — `getOrCreateStack` calls this method first and only
-   * constructs the workspace afterward. The `pulumi` CLI therefore implicitly
+   * that directory — `getOrCreateStack` calls this method first. It therefore
    * depends on a project file already existing in `workDir` from a prior run
-   * under the old (pre-derivation) code, which always created it via
-   * `LocalWorkspace.createOrSelectStack` before this migration path existed.
-   * Edge case: an install whose `workDir` was wiped (e.g. a reinstall, or a
-   * manual cache clear) while the store's legacy `pulumi.passphrase` survived
-   * would fail this migration with a "no Pulumi project found"-style CLI
-   * error, since there is nothing here to fall back to creating a default
-   * project file first — that install needs a full manual reset (clear the
-   * legacy store entry and let `getOrCreateStack` proceed as a genuinely new
-   * stack) rather than an automatic retry fixing it.
+   * under the old (pre-derivation) code. Edge case: an install whose `workDir`
+   * was wiped (reinstall, cache clear) while the store's legacy
+   * `pulumi.passphrase` survived fails this migration with a "no Pulumi
+   * project found"-style CLI error — that install needs a full manual reset
+   * rather than an automatic retry. Clearing the legacy `pulumi.passphrase`
+   * store entry alone is NOT a safe reset here: this migration fails before
+   * re-encryption ever runs, so the remote stack's secrets provider is still
+   * protected by the legacy passphrase — clearing the entry would make the
+   * next `getOrCreateStack` call use the new derived passphrase against
+   * state still encrypted with the old one. A real reset must either restore
+   * the missing `workDir` project files (so the migration can run and
+   * actually re-encrypt) or explicitly account for the remote stack, e.g. by
+   * re-running `change-secrets-provider` by hand with the legacy passphrase
+   * before clearing the store entry.
    *
    * @param legacyPassphrase - Decrypted legacy passphrase, read by the caller
    *   via {@link ElectronStoreService.getPulumiPassphrase} before this is

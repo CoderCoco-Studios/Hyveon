@@ -6,12 +6,10 @@ import { logger } from '../logger.js';
  * ("cancellation MUST escalate to a forceful termination after a bounded
  * timeout rather than waiting indefinitely").
  *
- * ## What the SDK does on abort
- *
- * `node_modules/@pulumi/pulumi/automation/cmd.js`'s internal `exec()`
- * function (the thing every `stack.preview()`/`.up()`/`.destroy()` call
- * eventually reaches via `PulumiCommand.run()`) wires cancellation like this,
- * verbatim:
+ * @remarks
+ * `node_modules/@pulumi/pulumi/automation/cmd.js`'s internal `exec()` function
+ * (reached by every `stack.preview()`/`.up()`/`.destroy()` call via
+ * `PulumiCommand.run()`) wires cancellation like this, verbatim:
  *
  * ```js
  * if (signal) {
@@ -23,80 +21,28 @@ import { logger } from '../logger.js';
  *
  * Exactly one `SIGINT` is sent, `forceKillAfterTimeout` is hard-coded
  * `false`, and there is no second, stronger signal the SDK will ever send on
- * its own. A wedged engine that ignores `SIGINT` (or is stuck in a
- * cloud-provider API call between signal checks) stays alive forever as far
+ * its own — a wedged engine that ignores `SIGINT` stays alive forever as far
  * as the SDK's own cancellation mechanism is concerned.
  *
- * ## No PID exposed via the public API
- *
- * No `Stack`/`Workspace` method anywhere in the public Automation API surface
- * exposes the spawned process, its PID, or any other handle to it — the
- * `execa` child process `cmd.js` spawns internally never escapes that module.
- * Given that, what {@link runWithEscalatingCancellation} implements is a
- * **logical** escalation, not a literal `SIGKILL`: once the bounded
- * escalation window elapses without `operation` settling, this function
- * stops waiting on it and settles its own returned promise as forcefully
- * terminated (rejecting with {@link PulumiOperationEscalatedError}) —
- * satisfying "the app does not wait on it indefinitely" and "the run still
- * settles as aborted either way" without a real process kill. The abandoned
- * `operation` promise, if it ever settles in the background, is still
- * consumed internally (so it can never produce an unhandled rejection) but
- * its result is discarded. The optional
- * {@link EscalatingCancellationOptions.onEscalate} hook is the extension
- * point for any additional process-level cleanup a caller wants to run at
- * that point; this module does not supply one itself.
- *
- * ## A pre-aborted signal must never reach the SDK
+ * No `Stack`/`Workspace` method exposes the spawned process, its PID, or any
+ * other handle to it, so what this function implements on escalation is a
+ * **logical** termination, not a literal `SIGKILL`: once the bounded
+ * escalation window elapses without `operation` settling, this function stops
+ * waiting on it and rejects with {@link PulumiOperationEscalatedError}. The
+ * abandoned `operation` promise is still consumed internally (so it can never
+ * produce an unhandled rejection) but its result is discarded.
+ * {@link EscalatingCancellationOptions.onEscalate} is the extension point for
+ * any process-level cleanup a caller wants at that point.
  *
  * `AbortSignal`'s `addEventListener('abort', ...)` does **not** fire for a
- * listener attached to a signal that is *already* aborted:
- *
- * ```js
- * const c = new AbortController();
- * c.abort();
- * c.signal.addEventListener('abort', () => console.log('fired'));
- * // never logs
- * ```
- *
- * Combined with the `cmd.js` snippet above, this means: if a caller passes an
- * *already-aborted* signal straight into `PreviewOptions.signal`/
- * `UpOptions.signal`/`DestroyOptions.signal`, the SDK's own
- * `addEventListener` call is a permanent no-op — the spawned CLI process
- * would never receive `SIGINT` at all and would run to completion entirely
- * ungoverned by the cancellation the caller thought they had already
- * requested. This is why {@link runWithEscalatingCancellation} checks
- * `userSignal?.aborted` first and refuses to invoke `operation` at all in
- * that case (rejecting with {@link PulumiOperationNotStartedError}) —
- * skipping the invocation entirely is the only way to guarantee a genuinely
- * undesired operation never runs uninterrupted.
- *
- * ## Three distinct settlement shapes, so callers never have to read `signal.aborted` post-hoc
- *
- * This function latches a local `aborted` flag inside its own abort handler,
- * rather than reading `signal.aborted` after the fact, specifically so a
- * signal that fires late can't misclassify an already-successful run — and
- * produces one of three distinct outcomes rather than leaving the *common*
- * case (cancellation worked, the CLI exited via `SIGINT`) indistinguishable
- * from a genuine unrelated failure:
- *
- * 1. {@link PulumiOperationNotStartedError} — `userSignal` was already
- *    aborted before this call; `operation` never ran at all.
- * 2. {@link PulumiOperationAbortedError} — `userSignal` aborted *while*
- *    `operation` was running, and `operation` subsequently rejected (the
- *    expected shape once the SDK's `SIGINT` takes effect: `stack.up()`
- *    rejects with a plain `CommandError`, indistinguishable by type alone
- *    from a genuine failure). This wraps the original rejection as `.cause`
- *    so a caller can record the run as aborted while still retaining the
- *    underlying detail for logs.
- * 3. {@link PulumiOperationEscalatedError} — the bounded escalation window
- *    elapsed with `operation` still pending; see the "logical escalation"
- *    section above.
- *
- * If `operation` instead *resolves* after `userSignal` aborted (a real race:
- * the CLI happened to finish successfully right as `SIGINT` was sent), this
- * function resolves normally rather than fabricating an aborted outcome for
- * a genuinely successful run — the same "don't report success as failure"
- * principle `PulumiLeakedPromise.ts` applies to a different SDK quirk.
+ * listener attached to a signal that is already aborted. Combined with the
+ * `cmd.js` snippet above, a caller passing an *already-aborted* signal into
+ * `PreviewOptions.signal`/`UpOptions.signal`/`DestroyOptions.signal` would
+ * mean the SDK's `addEventListener` call is a permanent no-op — the CLI
+ * process would never receive `SIGINT` and would run ungoverned. This is why
+ * this function checks `userSignal?.aborted` first and refuses to invoke
+ * `operation` at all in that case, rejecting with
+ * {@link PulumiOperationNotStartedError}.
  */
 
 /**
