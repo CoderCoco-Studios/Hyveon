@@ -5,7 +5,7 @@ import type { ChangeSummary, RunLock } from '@hyveon/shared';
 import type { IacStaleLockInfo } from '@hyveon/desktop-preload';
 
 /**
- * `/iac` route specs (issue #110), driven via `_electron.launch()` and
+ * `/iac` route specs, driven via `_electron.launch()` and
  * the `window.hyveon.__test.mock()` IPC seam — mirrors `dashboard.spec.ts`'s
  * shared-app pattern rather than the older per-test `_electron.launch()` in
  * `logs.spec.ts`.

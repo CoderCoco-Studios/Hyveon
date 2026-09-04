@@ -78,9 +78,9 @@ export class WorkloadGuardError extends Error {
  * failure, as opposed to a precondition refusal ({@link WorkloadGuardError}).
  * Kept as a distinct, separately-`instanceof`-checkable type instead of
  * reusing `WorkloadGuardError` so callers (e.g. `EcsService`) can still
- * surface `err.message` unprefixed — matching the exact string the previous,
- * pre-`AwsCloudProvider` `EcsService.start` returned in its `StartResult.message`
- * field — while continuing to log this at `error` level (not `warn`), since
+ * surface `err.message` unprefixed — message strings are part of the contract `EcsService`
+ * surfaces to the operator, so this class must keep returning the same `StartResult.message`
+ * text — while continuing to log this at `error` level (not `warn`), since
  * this is not an expected/normal operator situation the way a guard refusal
  * is.
  */
@@ -199,22 +199,14 @@ export class AwsCloudProvider implements CloudProvider {
   private readonly gameLocks = new Map<string, Promise<unknown>>();
 
   /**
-   * @param getConfig - Resolves the current stack-derived configuration on
-   *   every call. Returns `null`/`undefined` before anything has been
-   *   deployed — mirrors `ConfigService.getStackOutputs()` returning `null`.
-   *   Optional so the class remains constructible with no arguments while
-   *   the cost/logs methods are still stubs.
+   * Resolves stack-derived configuration on every call — see {@link AwsAuditLogStore}'s
+   * constructor doc for why (rename-safety pattern; a `Promise` return costs nothing since every
+   * real call site is already async).
    *
-   *   May return a `Promise`: the real app's `EcsService.buildProviderConfig`
-   *   reads `ConfigService.getStackOutputs()`, which is async. Every real
-   *   invocation of this callback happens from inside this class's own
-   *   already-`async` methods (or, for `streamWorkloadLogs`, an async
-   *   generator), so awaiting it costs nothing — see `AwsAuditLogStore`'s
-   *   identical constructor doc comment for the full "no async-factory
-   *   gymnastics needed, existing sync closures are unaffected" reasoning.
-   * @param logger - Optional sink for errors swallowed by `findRunningTask`
-   *   and `getPublicIp` so operators can diagnose ECS/EC2 SDK failures
-   *   instead of them silently masquerading as "stopped" / "no IP".
+   * @param getConfig - Resolves the current configuration; returns `null`/`undefined` before
+   *   anything has been deployed. Optional so the class remains constructible with no arguments.
+   * @param logger - Optional sink for errors swallowed by `findRunningTask`/`getPublicIp` so
+   *   operators can diagnose ECS/EC2 SDK failures instead of them masquerading as "stopped"/"no IP".
    */
   constructor(
     private readonly getConfig?: () => (
@@ -423,10 +415,9 @@ export class AwsCloudProvider implements CloudProvider {
    * Launches a game workload on AWS.
    *
    * Refuses to start a second task when one is already running (ECS would
-   * happily run duplicates otherwise) and throws with the same message
-   * strings `EcsService.start` used to return in its `StartResult.message`
-   * field. The DNS record is created asynchronously by the update-dns
-   * Lambda when the task reaches RUNNING.
+   * happily run duplicates otherwise). Message strings are part of the contract `EcsService`
+   * surfaces to the operator — changing them changes the UI text. The DNS record is created
+   * asynchronously by the update-dns Lambda when the task reaches RUNNING.
    *
    * @param game - The game identifier to start.
    * @param _opts - Provider-specific launch options (currently unused).
@@ -476,10 +467,9 @@ export class AwsCloudProvider implements CloudProvider {
   /**
    * Stops a running game workload on AWS.
    *
-   * Throws with the same message strings `EcsService.stop` used to return in
-   * its `StartResult.message` field. The STOPPED state-change event fires
-   * the update-dns Lambda which deletes the Route 53 record — no DNS
-   * cleanup needed here.
+   * Message strings are part of the contract `EcsService` surfaces to the operator — changing
+   * them changes the UI text. The STOPPED state-change event fires the update-dns Lambda which
+   * deletes the Route 53 record — no DNS cleanup needed here.
    *
    * @param game - The game identifier to stop.
    */

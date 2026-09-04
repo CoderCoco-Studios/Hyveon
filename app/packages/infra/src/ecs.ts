@@ -3,9 +3,9 @@
  *
  * | Resource | This file |
  * | --- | --- |
- * | `aws_cloudwatch_log_group.game` (one per game) | {@link EcsResources.logGroups} |
- * | `aws_ecs_cluster.main` | {@link EcsResources.cluster} |
- * | `aws_ecs_task_definition.game` (one per game) | {@link EcsResources.taskDefinitions} |
+ * | CloudWatch log group (one per game) | {@link EcsResources.logGroups} |
+ * | ECS cluster | {@link EcsResources.cluster} |
+ * | Task definition (one per game) | {@link EcsResources.taskDefinitions} |
  *
  * ## Log-group ownership
  *
@@ -32,21 +32,21 @@ import { stripTrailingDots } from './hostedZoneName.js';
 
 /** Every resource {@link defineEcs} declares, keyed by role. */
 export interface EcsResources {
-  /** The ECS cluster every task definition below runs against (`aws_ecs_cluster.main`). */
+  /** The ECS cluster every task definition below runs against. */
   cluster: aws.ecs.Cluster;
-  /** One CloudWatch log group per game, keyed by game name (`aws_cloudwatch_log_group.game`). */
+  /** One CloudWatch log group per game, keyed by game name. */
   logGroups: Record<string, aws.cloudwatch.LogGroup>;
-  /** One task definition per game, keyed by game name (`aws_ecs_task_definition.game`). */
+  /** One task definition per game, keyed by game name, with family `${game}-server`. */
   taskDefinitions: Record<string, aws.ecs.TaskDefinition>;
 }
 
 /** Arguments {@link defineEcs} needs to declare the cluster, log groups, and task definitions. */
 export interface DefineEcsArgs {
-  /** Mirrors `var.project_name` — the cluster's name below is `${projectName}-cluster`, matching the HCL exactly. */
+  /** The cluster's name below is `${projectName}-cluster`. */
   projectName: string;
-  /** Mirrors `var.aws_region` — embedded in every container's `logConfiguration.options."awslogs-region"`. */
+  /** Embedded in every container's `logConfiguration.options."awslogs-region"`. */
   awsRegion: string;
-  /** Mirrors `var.hosted_zone_name` — the Caddy sidecar's `--from` domain for each `https: true` game (`"${game}.${hostedZoneName}"`). */
+  /** The Caddy sidecar's `--from` domain for each `https: true` game (`"${game}.${hostedZoneName}"`). */
   hostedZoneName: string;
   /** The configured game-server map (`DeploymentConfig.gameServers`) the log groups and task definitions are derived from by iteration. */
   gameServers: Record<string, GameServerConfig>;
@@ -186,8 +186,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
 
     const containerDefs: Record<string, unknown>[] = [gameContainer];
 
-    // Invariant: TLS terminates in-task via this Caddy sidecar — there is no ALB, target
-    // group, or ACM certificate anywhere in the stack. See openspec/specs/in-task-tls-termination.
+    // Invariant: TLS terminates in-task via this Caddy sidecar — no ALB/target group/ACM cert anywhere (openspec/specs/in-task-tls-termination).
     if (isHttps) {
       containerDefs.push({
         name: 'caddy',

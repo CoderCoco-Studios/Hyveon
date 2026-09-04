@@ -4,7 +4,8 @@
  * Runs in a sandboxed Node context before the renderer loads. Exposes a
  * typed `window.hyveon` bridge via `contextBridge` so the renderer can call
  * into the main process over IPC without any direct access to Node or
- * Electron internals.
+ * Electron internals — this is the app's only surface, and it never opens an
+ * HTTP transport (see `openspec/specs/desktop-only-operator-surface`).
  *
  * Channel naming convention: `<namespace>.<action>`
  *
@@ -39,58 +40,9 @@
  *   handle. `cancel()` aborts the wrapper's internal controller, driving the
  *   same cancellation path the internal generator already had.
  *
- * Log streaming: `openLogsStream(game)` invokes main to open a stream
- * (returning an opaque `streamId`), then wraps the per-stream
- * `logs.stream.<id>.chunk` / `.end` IPC events in an async generator.
- * Calling the returned handle's `cancel()` — or breaking out of the
- * `for await` loop — sends `logs.stream.<id>.cancel` to stop the main loop.
- *
- * `openStackInitializeStream()` streams similarly, replacing the deleted
- * `iac.init` channel, but `IacController.initializeStack`
- * pushes phase-event/end messages on fixed `iac.stack.initialize.chunk` /
- * `iac.stack.initialize.end` side channels shared by every call rather than
- * per-call channel names. `invoke('iac.stack.initialize')` resolves with a
- * `streamId` minted by the controller for this call, and every event on
- * those shared channels is tagged with the `streamId` of the call that
- * produced it — the generator ignores any message whose `streamId` doesn't
- * match its own, so a rejected concurrent call or a late message from an
- * abandoned stream can never resolve/terminate a different call's generator.
- * There is no dedicated cancel channel — `cancel()` simply stops the
- * generator from consuming further events, since the main process has
- * nothing to tear down early (`PulumiService.initializeStack` keeps running
- * to completion regardless).
- *
- * `iac.plan(opts)` is a plain `invoke` — unlike `iac.stack.initialize`, it
- * does not itself stream progress. It resolves the immediate `IacPlanAck`
- * `IacController.plan` returns: `{ started: true, runId }` once the run
- * has been kicked off in the background, or `{ started: false, error, conflict?, staleLock? }`
- * when the submission was rejected outright (e.g. the shared workspace was
- * already busy running another operation, or an unrecognized Pulumi backend
- * lock conflict was hit).
- *
- * `iac.runs.get(runId)` is a plain `invoke('iac.runs.get', { runId })`
- * call — it resolves a single `IacRunsGetResult` snapshot with no
- * streaming involved. `openIacRunLogsStream(runId)` mirrors
- * `openStackInitializeStream`'s fixed-side-channel streaming shape: `IacRunsController.logs`
- * pushes chunk/end messages on fixed `iac.runs.logs.chunk` /
- * `iac.runs.logs.end` side channels shared by every call, each tagged
- * with the `streamId` minted for that call, so overlapping subscriptions to
- * different runs' log output can never cross-terminate one another.
- *
- * `iac.runs.list(opts)` and `iac.runs.logUrl(logKey, expiresInSeconds)`
- * are further plain-invoke examples, backing the apply-history view: `list`
- * resolves a `RunHistoryPageResult` page of persisted run records, and
- * `logUrl` resolves a presigned URL for a run's offloaded log, unwrapped from
- * the IPC channel's `{ url }` result to a bare string.
- *
- * Note there is no streaming plumbing in this file for `iac.plan`/`iac.apply`/
- * `iac.destroy`'s `.chunk`/`.end` side channels — those channels exist on the
- * main-process side (carrying the structured `PulumiPreviewResult`/
- * `PulumiUpResult`/`PulumiDestroyResult`) but nothing here subscribes to
- * them; `iac.runs.get`/`iac.runs.list`'s `changeSummary`/`engineVersion`/
- * `partialApply` fields are the intended path to that same structured data
- * once a run has settled (see `IacRunRecord`/`RunHistoryRecord` in
- * `hyveon-api.ts`).
+ * See each `streamX`/`openXStream` function's own doc for its channel names and
+ * streamId-filtering details; `iac.plan`/`iac.runs.get`/`iac.runs.list`/`iac.runs.logUrl` are
+ * plain `invoke` calls with no streaming involved.
  */
 
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
@@ -214,26 +166,18 @@ function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
 }
 
 /**
- * Preload-internal — never exposed to the renderer directly (see
- * {@link openLogsStream}, its bridge-facing wrapper). Bridges the per-stream
- * chunk/end/cancel IPC channels into an {@link AsyncIterable} of log chunks.
+ * Preload-internal — never exposed to the renderer directly (see {@link openLogsStream}).
+ * Bridges the per-stream chunk/end/cancel IPC channels into an {@link AsyncIterable} of log
+ * chunks.
  *
- * When a mock is registered for the `'logs.stream'` channel (test mode only),
- * the mock handler is called with `(game, signal)` and its return value is
- * treated as an `AsyncIterable<LogChunk>` — the real IPC listener path is
- * never touched. The `signal` is forwarded to the mock so test code can honour
- * cancellation if needed.
+ * When a mock is registered for the `'logs.stream'` channel (test mode only), the mock handler is
+ * called with `(game, signal)` and its return value is treated as an `AsyncIterable<LogChunk>` —
+ * the real IPC listener path is never touched.
  *
- * In production (no mock registered), opens the stream via
- * `ipcRenderer.invoke('logs.stream', game)`, buffers incoming chunks, and
- * yields them in order. Completes when the `.end` event fires (throwing if it
- * carried an `error`). If the consumer aborts the `signal` or breaks out of
- * the `for await` loop early, the `finally` block detaches all listeners and
- * sends `.cancel` so the main process tears the stream down.
- *
- * The listener-attach happens after the `invoke` resolves with the `streamId`,
- * which is the only point the chunk/end channel names are known — identical to
- * the prior callback implementation, so there is no new dropped-chunk window.
+ * In production, opens the stream via `ipcRenderer.invoke('logs.stream', game)`, buffers incoming
+ * chunks, and yields them in order. Completes when `.end` fires (throwing if it carried an
+ * `error`). If the consumer aborts `signal` or breaks out of the loop early, `finally` detaches
+ * all listeners and sends `.cancel` so the main process tears the stream down.
  */
 async function* streamLogs(game: string, signal?: AbortSignal): AsyncGenerator<LogChunk> {
   const streamMock = mockRegistry.get('logs.stream');
@@ -354,53 +298,23 @@ async function* streamLambdaLogs(functionKey: LambdaFunctionKey, signal?: AbortS
 }
 
 /**
- * Preload-internal — never exposed to the renderer directly (see
- * {@link openStackInitializeStream}, its bridge-facing wrapper). Bridges
- * `IacController.initializeStack`'s fixed `iac.stack.initialize.chunk` /
+ * Preload-internal — never exposed to the renderer directly (see {@link openStackInitializeStream}).
+ * Bridges `IacController.initializeStack`'s fixed `iac.stack.initialize.chunk` /
  * `iac.stack.initialize.end` side channels into an {@link AsyncIterable} of
- * {@link StackInitPhaseEvent}.
+ * {@link StackInitPhaseEvent}, replacing the deleted `iac.init` streaming helper.
  *
- * `IacController.initializeStack` pushes phase-event/end messages on these
- * two fixed channel names for *every* call (rather than minting per-call
- * channel names the way `streamLogs` does), but tags each payload with the
- * `streamId` it minted for this call and returned in the invoke ack
- * (`{ started, streamId, error? }`). Events whose `streamId` doesn't match
- * this call's own `streamId` are ignored — this is what stops a second,
- * rejected concurrent `iac.stack.initialize` call from broadcasting an end
- * event that would otherwise prematurely terminate this caller's stream.
- * (Replaces the deleted `iac.init` streaming helper, which used this
- * exact same fixed-side-channel-plus-streamId shape.)
+ * These channels are shared by every call, so each payload is tagged with the `streamId` minted
+ * for this call and returned in the invoke ack — events tagged with a different `streamId` are
+ * ignored, which is what stops a rejected concurrent call's end event from prematurely
+ * terminating this caller's stream. Events observed before the ack resolves (and this call's own
+ * `streamId` becomes known) are buffered raw and replayed through the filter once it arrives.
  *
- * When a mock is registered for the `'iac.stack.initialize'` channel (test
- * mode only), the mock handler is called with `(signal)` and its return
- * value is treated as an `AsyncIterable<StackInitPhaseEvent>` — the real IPC
- * listener path is never touched.
+ * When a mock is registered for the `'iac.stack.initialize'` channel (test mode only), the mock
+ * handler is called with `(signal)` and its return value is treated as an
+ * `AsyncIterable<StackInitPhaseEvent>` — the real IPC listener path is never touched.
  *
- * In production (no mock registered), the `iac.stack.initialize.chunk` /
- * `iac.stack.initialize.end` listeners are attached **before**
- * `ipcRenderer.invoke('iac.stack.initialize')` is called, so no event sent
- * immediately after the main process acknowledges the call can ever be
- * dropped. Since this call's own `streamId` isn't known until the invoke
- * resolves, events observed before then are held in a raw buffer and
- * replayed (filtered by the now-known `streamId`) once the ack arrives. The
- * invoke call resolves with `{ started, streamId?, error?, conflict? }`: a
- * `false` `started` value means the shared workspace was already busy (see
- * `StackInitializeAck.conflict` in `iac.controller.ts`) and no run was ever
- * attempted — no chunk/end messages will ever arrive, so the generator
- * throws right away using `error` (and cleans up the now-unused listeners in
- * `finally`). When `started` is `true`, events tagged with this call's
- * `streamId` are buffered as they arrive on `iac.stack.initialize.chunk` and
- * yielded in order; the generator completes when an
- * `iac.stack.initialize.end` event tagged with this call's `streamId` fires
- * with no `error`, or throws using its `error` field otherwise.
- *
- * Following the `logs.stream` pattern, an optional `signal` may be supplied to
- * cancel consumption early: aborting (or breaking out of the `for await`
- * loop) stops the wait loop and the `finally` block detaches the listeners.
- * There is no per-run cancel side channel to notify the main process — the
- * run itself (`PulumiService.initializeStack`) keeps running to completion in
- * the background, but the generator stops yielding further events to the
- * caller.
+ * A `false` `started` ack means the shared workspace was already busy and no run was ever
+ * attempted — the generator throws immediately using `error`, since no chunk/end will ever arrive.
  */
 async function* streamStackInitialize(signal?: AbortSignal): AsyncGenerator<StackInitPhaseEvent> {
   const initMock = mockRegistry.get('iac.stack.initialize');
@@ -524,41 +438,13 @@ async function* streamStackInitialize(signal?: AbortSignal): AsyncGenerator<Stac
 }
 
 /**
- * Preload-internal — never exposed to the renderer directly (see
- * {@link openIacRunLogsStream}, its bridge-facing wrapper). Bridges
- * `IacRunsController.logs`'s fixed `iac.runs.logs.chunk` /
- * `iac.runs.logs.end` side channels into an {@link AsyncIterable} of
- * {@link IacRunChunk} for a single run identified by `runId`.
+ * Preload-internal — never exposed to the renderer directly (see {@link openIacRunLogsStream}).
+ * Bridges `IacRunsController.logs`'s fixed `iac.runs.logs.chunk` / `iac.runs.logs.end` side
+ * channels into an {@link AsyncIterable} of {@link IacRunChunk} for a single run identified by
+ * `runId`.
  *
- * Mirrors {@link streamStackInitialize}'s streaming shape: `IacRunsController.logs`
- * tags every chunk/end payload with the `streamId` it minted for this call and
- * returned in the invoke ack (`{ streamId }`), so events from an overlapping
- * subscription to a *different* run's log stream (which share the same fixed
- * channel names) are filtered out and can never cross-terminate this stream.
- *
- * When a mock is registered for the `'iac.runs.logs'` channel (test mode
- * only), the mock handler is called with `(runId, signal)` and its return
- * value is treated as an `AsyncIterable<IacRunChunk>` — the real IPC
- * listener path is never touched.
- *
- * In production (no mock registered), the `iac.runs.logs.chunk` /
- * `iac.runs.logs.end` listeners are attached **before**
- * `ipcRenderer.invoke('iac.runs.logs', { runId })` is called, so no
- * chunk sent immediately after the main process acknowledges the call can
- * ever be dropped. Since this call's own `streamId` isn't known until the
- * invoke resolves, events observed before then are held in a raw buffer and
- * replayed (filtered by the now-known `streamId`) once the ack arrives.
- * Chunks tagged with this call's `streamId` are buffered as they arrive and
- * yielded in order; the generator completes when an `iac.runs.logs.end`
- * event tagged with this call's `streamId` fires with no `error`, or throws
- * using its `error` field otherwise.
- *
- * Following the `logs.stream`/`iac.stack.initialize` pattern, an optional
- * `signal` may be supplied to stop consumption early: aborting (or breaking out of the
- * `for await` loop) stops the wait loop and the `finally` block detaches the
- * listeners. There is no per-run cancel side channel — the run itself (and
- * its log tailing in the main process) keeps going in the background; only
- * this caller's consumption stops.
+ * Mirrors {@link streamStackInitialize}; differs only in channel names and that `runId` scopes
+ * the stream.
  */
 async function* streamIacRunLogs(runId: string, signal?: AbortSignal): AsyncGenerator<IacRunChunk> {
   const logsMock = mockRegistry.get('iac.runs.logs');

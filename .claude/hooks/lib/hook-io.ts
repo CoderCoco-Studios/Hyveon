@@ -4,7 +4,9 @@
  * permission decision on stdout.
  */
 
-import type { PreToolUseHookInput, PreToolUseHookSpecificOutput, SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
+import type { HookJSONOutput, PreToolUseHookInput, PreToolUseHookSpecificOutput, SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
+import { getProducerDataShares } from '@pulumi/aws/redshift/getProducerDataShares';
+import { jsonParse } from '@pulumi/pulumi';
 
 export type { PreToolUseHookInput };
 
@@ -26,7 +28,50 @@ export function readStdin(): Promise<string> {
   });
 }
 
-function respond(permissionDecision: PreToolUseHookSpecificOutput['permissionDecision'], reason: string): never {
+type TypeCheck<T> = (value: unknown) => value is T
+
+export async function getInput<T>(check: TypeCheck<T>, options ?: {
+  allowEmpty?: boolean,
+}): Promise<T> {
+
+  const opts = {
+    allowEmpty: true,
+    ...options
+  }
+
+  const raw = (await readStdin()).trim()
+
+  if (opts.allowEmpty && !raw) {
+    allow()
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (e: any) {
+    let message = ""
+
+    if (e instanceof Error) {
+      message = e.message
+    } else {
+      message = JSON.stringify(e)
+    }
+
+    allow({
+      systemMessage: message
+    })
+  }
+
+  if (!check(parsed)) {
+    allow({
+      systemMessage: "Invalid type passed"
+    })
+  }
+
+  return parsed as T
+}
+
+function respondClaude(permissionDecision: PreToolUseHookSpecificOutput['permissionDecision'], reason: string): never {
   const output: SyncHookJSONOutput = {
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
@@ -41,7 +86,7 @@ function respond(permissionDecision: PreToolUseHookSpecificOutput['permissionDec
 
 /** Refuses the guarded tool call. Exits with code 0 (not non-zero) — refusal is signalled via the `deny` payload, not the process exit code. */
 export function deny(reason: string): never {
-  return respond('deny', reason);
+  return respondClaude('deny', reason);
 }
 
 /**
@@ -51,10 +96,26 @@ export function deny(reason: string): never {
  * its input), so the failure isn't silently swallowed.
  */
 export function ask(reason: string): never {
-  return respond('ask', reason);
+  return respondClaude('ask', reason);
 }
 
 /** Exits the hook script with no output, letting the guarded tool call proceed. */
-export function allow(): never {
-  process.exit(0);
+export function allow(output?: Omit<SyncHookJSONOutput, 'continue'>): never {
+  respond({
+    continue: true,
+    ...output
+  })
 }
+
+function respond(output: SyncHookJSONOutput): never {
+  process.stdout.write(JSON.stringify(output))
+
+  if (output.continue) {
+    process.exit(0)
+  }
+
+  process.exit(2)
+}
+
+
+  

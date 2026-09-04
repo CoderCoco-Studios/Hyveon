@@ -3,9 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LogsController } from './logs.controller.js';
 import type { LogsService, LogEventLine } from '../services/LogsService.js';
 
-// ---------------------------------------------------------------------------
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
-// ---------------------------------------------------------------------------
 
 /**
  * Captures every listener registered via `ipcMain.handle` or `ipcMain.once`
@@ -42,9 +40,7 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-// ---------------------------------------------------------------------------
 // Test helpers
-// ---------------------------------------------------------------------------
 
 /** Build a {@link LogEventLine} test fixture with a given message and timestamp. */
 function line(message: string, timestamp: number): LogEventLine {
@@ -93,18 +89,14 @@ function flushPromises(): Promise<void> {
  */
 const PATTERN_METADATA_KEY = 'microservices:pattern';
 
-// ---------------------------------------------------------------------------
 // Suite
-// ---------------------------------------------------------------------------
 
 describe('LogsController', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  // -------------------------------------------------------------------------
   // @MessagePattern channel name registration
-  // -------------------------------------------------------------------------
 
   describe('@MessagePattern channel names', () => {
     it('should register getRecentLogs on the "logs.get" IPC channel', () => {
@@ -148,9 +140,7 @@ describe('LogsController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // onModuleInit — ipcMain.handle bridge for logs.stream
-  // -------------------------------------------------------------------------
 
   describe('onModuleInit', () => {
     // onModuleInit only wires the bridge when running inside a real Electron
@@ -209,9 +199,7 @@ describe('LogsController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // getRecentLogs
-  // -------------------------------------------------------------------------
 
   describe('getRecentLogs', () => {
     it('should return the game name and log lines from LogsService', async () => {
@@ -232,9 +220,7 @@ describe('LogsController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // getOlderLogs
-  // -------------------------------------------------------------------------
 
   describe('getOlderLogs', () => {
     it('should log an entry line naming the game before invoking', async () => {
@@ -269,9 +255,7 @@ describe('LogsController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // getNewerLogs
-  // -------------------------------------------------------------------------
 
   describe('getNewerLogs', () => {
     it('should log an entry line naming the game before invoking', async () => {
@@ -306,9 +290,7 @@ describe('LogsController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // streamLogs
-  // -------------------------------------------------------------------------
 
   describe('streamLogs', () => {
     it('should return a non-empty streamId string immediately', async () => {
@@ -463,9 +445,7 @@ describe('LogsController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // getRecentLambdaLogs
-  // -------------------------------------------------------------------------
 
   describe('getRecentLambdaLogs', () => {
     it('should return the functionKey and log lines from LogsService.getRecentLambdaLogs', async () => {
@@ -480,9 +460,7 @@ describe('LogsController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // getOlderLambdaLogs
-  // -------------------------------------------------------------------------
 
   describe('getOlderLambdaLogs', () => {
     it('should log an entry line naming the functionKey before invoking', async () => {
@@ -511,9 +489,7 @@ describe('LogsController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // getNewerLambdaLogs
-  // -------------------------------------------------------------------------
 
   describe('getNewerLambdaLogs', () => {
     it('should log an entry line naming the functionKey before invoking', async () => {
@@ -542,9 +518,7 @@ describe('LogsController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // streamLambdaLogs
-  // -------------------------------------------------------------------------
 
   describe('streamLambdaLogs', () => {
     it('should return a non-empty streamId string immediately', async () => {

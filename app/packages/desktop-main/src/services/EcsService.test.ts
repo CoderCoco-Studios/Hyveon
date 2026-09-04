@@ -573,13 +573,10 @@ describe('EcsService', () => {
     });
 
     /**
-     * Regression test for the stale-client-cache defect flagged in review of
-     * #452: `getClient()` used to cache the `ECSClient` forever after first
-     * construction (`if (!this.client)`), so a credentials rotation mid-session
-     * (e.g. the operator replacing a pasted key via Settings) kept every
-     * subsequent call signed with the original credentials until the app
-     * restarted. `getClient()` now keys its cache on region + a credentials
-     * signature so a rotation is picked up on the very next call.
+     * `getClient()` keys its `ECSClient` cache on region + a credentials
+     * signature, so a credentials rotation mid-session (e.g. the operator
+     * replacing a pasted key via Settings) is picked up on the very next call
+     * rather than staying signed with stale credentials until restart.
      */
     it('should rebuild the raw ECS client when the stored credentials rotate between calls', async () => {
       const store: Partial<ElectronStoreService> = {

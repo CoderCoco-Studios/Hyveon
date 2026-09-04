@@ -163,11 +163,11 @@ function findByName(resources: RecordedResource[], name: string): RecordedResour
  * Finds the single recorded resource with the given Pulumi logical name AND
  * type, failing loudly if there isn't exactly one. Needed wherever an
  * EFS-seeder Lambda function's logical name collides with its own IAM
- * role's logical name — both are `${projectName}-efs-seeder-${game}`,
- * matching the HCL exactly (`aws_iam_role.efs_seeder`'s and
- * `aws_lambda_function.efs_seeder`'s `name` are the identical string; no
- * problem on the AWS side, since IAM role names and Lambda function names
- * live in different namespaces, but ambiguous for a name-only lookup here).
+ * role's logical name — both are `${projectName}-efs-seeder-${game}`, since
+ * the IAM role's and the Lambda function's `name` are the identical string
+ * (no problem on the AWS side, since IAM role names and Lambda function
+ * names live in different namespaces, but ambiguous for a name-only lookup
+ * here).
  */
 function findByNameAndType(resources: RecordedResource[], name: string, type: string): RecordedResource {
   const matches = resources.filter((resource) => resource.name === name && resource.type === type);

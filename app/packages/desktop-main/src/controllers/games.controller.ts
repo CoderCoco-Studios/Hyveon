@@ -13,7 +13,7 @@ import { logger } from '../logger.js';
 
 /**
  * IPC-only game-server controller. Handles Electron main-process messages via
- * `@MessagePattern` / `@Payload` — no HTTP routes are registered here. It
+ * `@MessagePattern` / `@Payload`. It
  * delegates to the {@link ConfigService}, {@link EcsService},
  * {@link DeploymentConfigService}, {@link GamesWriteService}, and
  * {@link GameWizardDraftService} providers.
@@ -60,7 +60,6 @@ export class GamesController {
    * `GamesWriteService.successResult()` applies a games.create/update/delete
    * change — not on every read here.
    *
-   * Reachable via the Electron IPC transport (`games.list`).
    */
   @MessagePattern('games.list')
   async listGames(): Promise<{ games: GameListEntry[] }> {
@@ -81,7 +80,6 @@ export class GamesController {
    * dashboard into a steady stream of engine-resolution + S3 calls. See
    * {@link listGames}'s doc comment for the full rationale — identical here.
    *
-   * Reachable via the Electron IPC transport (`games.status`).
    */
   @MessagePattern('games.status')
   async listStatus() {
@@ -96,7 +94,6 @@ export class GamesController {
    * Returns status for a single game. Does not invalidate the
    * DeploymentConfigService cache (kept cheap for frequent polling).
    *
-   * Reachable via the Electron IPC transport (`games.getStatus`).
    */
   @MessagePattern('games.getStatus')
   getStatus(@Payload() game: string) {
@@ -108,7 +105,6 @@ export class GamesController {
    * Launches the `{game}-server` task via `ecs.run_task()`. There is no
    * long-running ECS Service by design — this is the only way a game starts.
    *
-   * Reachable via the Electron IPC transport (`games.start`).
    */
   @MessagePattern('games.start')
   start(@Payload() game: string) {
@@ -120,7 +116,6 @@ export class GamesController {
    * Stops the running task for `game`. Triggers the EventBridge → update-dns
    * Lambda path that deletes the Route 53 record.
    *
-   * Reachable via the Electron IPC transport (`games.stop`).
    */
   @MessagePattern('games.stop')
   stop(@Payload() game: string) {
@@ -136,7 +131,6 @@ export class GamesController {
    * discriminated union (including `code` and `issues`/etags) to react
    * correctly.
    *
-   * Reachable via the Electron IPC transport (`games.create`).
    */
   @MessagePattern('games.create')
   createGame(@Payload() payload: CreateGamePayload): Promise<GameWriteResult> {
@@ -150,7 +144,6 @@ export class GamesController {
    * `GameWriteResult` verbatim — never throws, for the same
    * serialization-safety reason as {@link createGame}.
    *
-   * Reachable via the Electron IPC transport (`games.update`).
    */
   @MessagePattern('games.update')
   updateGame(@Payload() payload: UpdateGamePayload): Promise<GameWriteResult> {
@@ -164,7 +157,6 @@ export class GamesController {
    * verbatim — never throws, for the same serialization-safety reason as
    * {@link createGame}.
    *
-   * Reachable via the Electron IPC transport (`games.delete`).
    */
   @MessagePattern('games.delete')
   deleteGame(@Payload() payload: DeleteGamePayload): Promise<GameWriteResult> {
@@ -175,7 +167,6 @@ export class GamesController {
   /**
    * Returns the saved add-game wizard draft, if any.
    *
-   * Reachable via the Electron IPC transport (`games.draft.get`).
    */
   @MessagePattern('games.draft.get')
   getDraft(): StoredGameWizardDraft | null {
@@ -186,7 +177,6 @@ export class GamesController {
   /**
    * Saves the current add-game wizard draft and step index.
    *
-   * Reachable via the Electron IPC transport (`games.draft.save`).
    */
   @MessagePattern('games.draft.save')
   saveDraft(@Payload() payload: { draft: GameWizardDraft; stepIndex: number }): void {
@@ -198,7 +188,6 @@ export class GamesController {
    * Updates only the `stepIndex` of an already-saved add-game wizard draft,
    * leaving its stored fields (including secret-shaped ones) untouched.
    *
-   * Reachable via the Electron IPC transport (`games.draft.updateStepIndex`).
    */
   @MessagePattern('games.draft.updateStepIndex')
   updateDraftStepIndex(@Payload() payload: { stepIndex: number }): void {
@@ -209,7 +198,6 @@ export class GamesController {
   /**
    * Clears the saved add-game wizard draft.
    *
-   * Reachable via the Electron IPC transport (`games.draft.clear`).
    */
   @MessagePattern('games.draft.clear')
   clearDraft(): void {

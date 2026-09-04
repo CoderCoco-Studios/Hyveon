@@ -34,9 +34,7 @@ import type {
 } from './index.js';
 import type { ElectronApplication } from 'playwright-core';
 
-// ---------------------------------------------------------------------------
 // launchElectron
-// ---------------------------------------------------------------------------
 
 /** Return value of {@link launchElectron}. */
 export interface ElectronHandle {
@@ -59,9 +57,7 @@ export async function launchElectron(): Promise<ElectronHandle> {
   return { app, win };
 }
 
-// ---------------------------------------------------------------------------
 // applyHyveonMocks
-// ---------------------------------------------------------------------------
 
 /**
  * Seeds `window.hyveon.__test.mock()` for every IPC channel the dashboard and

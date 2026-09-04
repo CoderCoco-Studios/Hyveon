@@ -22,9 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { HyveonStreamHandle } from './hyveon-api.js';
 
-// ---------------------------------------------------------------------------
 // Electron mock — must be declared before any dynamic import of preload.ts
-// ---------------------------------------------------------------------------
 
 /**
  * Captured arguments from `contextBridge.exposeInMainWorld` calls, keyed by
@@ -65,9 +63,7 @@ vi.mock('electron', () => ({
   IpcRendererEvent: {},
 }));
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Resets module caches and re-imports `preload.ts` with the given
@@ -92,9 +88,7 @@ async function loadPreloadBridge(testMode: '0' | '1' | undefined): Promise<Recor
   return exposed['hyveon'] as Record<string, unknown>;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('preload dispatcher', () => {
   afterEach(() => {
@@ -102,9 +96,7 @@ describe('preload dispatcher', () => {
     delete process.env['HYVEON_TEST_MODE'];
   });
 
-  // -------------------------------------------------------------------------
   // Real-IPC fallthrough
-  // -------------------------------------------------------------------------
 
   describe('real-IPC fallthrough', () => {
     let bridge: Record<string, unknown>;
@@ -289,9 +281,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // Mock-override
-  // -------------------------------------------------------------------------
 
   describe('mock-override', () => {
     let bridge: Record<string, unknown>;
@@ -417,9 +407,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // Test-mode gating
-  // -------------------------------------------------------------------------
 
   describe('test-mode gating', () => {
     it('should expose __test on the bridge when HYVEON_TEST_MODE is "1"', async () => {
@@ -501,9 +489,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // streamLogs
-  // -------------------------------------------------------------------------
 
   describe('streamLogs', () => {
     /**
@@ -520,9 +506,7 @@ describe('preload dispatcher', () => {
       return chunks;
     }
 
-    // -----------------------------------------------------------------------
     // Mocked-delegation branch
-    // -----------------------------------------------------------------------
 
     describe('mocked-delegation branch', () => {
       let bridge: Record<string, unknown>;
@@ -605,9 +589,7 @@ describe('preload dispatcher', () => {
       });
     });
 
-    // -----------------------------------------------------------------------
     // Unmocked passthrough branch
-    // -----------------------------------------------------------------------
 
     describe('unmocked passthrough branch', () => {
       let bridge: Record<string, unknown>;
@@ -746,9 +728,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.stack.initialize
-  // -------------------------------------------------------------------------
 
   describe('iac.stack.initialize', () => {
     /**
@@ -765,9 +745,7 @@ describe('preload dispatcher', () => {
       return events;
     }
 
-    // -----------------------------------------------------------------------
     // Mocked-delegation branch
-    // -----------------------------------------------------------------------
 
     describe('mocked-delegation branch', () => {
       let bridge: Record<string, unknown>;
@@ -838,9 +816,7 @@ describe('preload dispatcher', () => {
       });
     });
 
-    // -----------------------------------------------------------------------
     // Unmocked passthrough branch
-    // -----------------------------------------------------------------------
 
     describe('unmocked passthrough branch', () => {
       let bridge: Record<string, unknown>;
@@ -1053,9 +1029,7 @@ describe('preload dispatcher', () => {
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
       });
 
-      // -----------------------------------------------------------------------
       // cancel()
-      // -----------------------------------------------------------------------
 
       it('should stop yielding and clean up listeners without calling invoke when cancelled before the first next()', async () => {
         const iac = bridge['iac'] as {
@@ -1120,9 +1094,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.plan
-  // -------------------------------------------------------------------------
 
   describe('iac.plan', () => {
     describe('real-IPC fallthrough', () => {
@@ -1200,9 +1172,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.approve
-  // -------------------------------------------------------------------------
 
   describe('iac.approve', () => {
     describe('real-IPC fallthrough', () => {
@@ -1249,9 +1219,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.apply
-  // -------------------------------------------------------------------------
 
   describe('iac.apply', () => {
     describe('real-IPC fallthrough', () => {
@@ -1318,9 +1286,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.rollback
-  // -------------------------------------------------------------------------
 
   describe('iac.rollback', () => {
     describe('real-IPC fallthrough', () => {
@@ -1385,9 +1351,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.settings
-  // -------------------------------------------------------------------------
 
   describe('iac.settings', () => {
     describe('real-IPC fallthrough', () => {
@@ -1485,13 +1449,9 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.output
-  // -------------------------------------------------------------------------
 
-  // -------------------------------------------------------------------------
   // iac.destroy.mintToken / iac.destroy
-  // -------------------------------------------------------------------------
 
   describe('iac.destroy.mintToken', () => {
     describe('real-IPC fallthrough', () => {
@@ -1690,9 +1650,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.runs.get
-  // -------------------------------------------------------------------------
 
   describe('iac.runs.get', () => {
     describe('real-IPC fallthrough', () => {
@@ -1746,9 +1704,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.runs.list
-  // -------------------------------------------------------------------------
 
   describe('iac.runs.list', () => {
     describe('real-IPC fallthrough', () => {
@@ -1802,9 +1758,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.runs.logUrl
-  // -------------------------------------------------------------------------
 
   describe('iac.runs.logUrl', () => {
     describe('real-IPC fallthrough', () => {
@@ -1854,9 +1808,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.runs.lock.mintToken / iac.runs.lock.clear
-  // -------------------------------------------------------------------------
 
   describe('iac.runs.lock.mintToken', () => {
     describe('real-IPC fallthrough', () => {
@@ -1954,9 +1906,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // iac.runs.streamLogs
-  // -------------------------------------------------------------------------
 
   describe('iac.runs.streamLogs', () => {
     /** Helper to collect all chunks from an `iac.runs.streamLogs` {@link HyveonStreamHandle} into an array. */
@@ -1970,9 +1920,7 @@ describe('preload dispatcher', () => {
       return chunks;
     }
 
-    // -----------------------------------------------------------------------
     // Mocked-delegation branch
-    // -----------------------------------------------------------------------
 
     describe('mocked-delegation branch', () => {
       let bridge: Record<string, unknown>;
@@ -2055,9 +2003,7 @@ describe('preload dispatcher', () => {
       });
     });
 
-    // -----------------------------------------------------------------------
     // Unmocked passthrough branch
-    // -----------------------------------------------------------------------
 
     describe('unmocked passthrough branch', () => {
       /**
@@ -2247,9 +2193,7 @@ describe('preload dispatcher', () => {
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.runs.logs.end', expect.any(Function));
       });
 
-      // -----------------------------------------------------------------------
       // cancel()
-      // -----------------------------------------------------------------------
 
       it('should stop yielding and clean up listeners without calling invoke when cancelled before the first next()', async () => {
         const iacRuns = (
@@ -2310,9 +2254,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // diagnostics.reportError
-  // -------------------------------------------------------------------------
 
   describe('diagnostics.reportError', () => {
     describe('real-IPC fallthrough', () => {
@@ -2388,9 +2330,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // diagnostics.reportLog
-  // -------------------------------------------------------------------------
 
   describe('diagnostics.reportLog', () => {
     describe('real-IPC fallthrough', () => {
@@ -2449,9 +2389,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // diagnostics.exportBundle
-  // ---------------------------------------------------------------------------
 
   describe('diagnostics.exportBundle', () => {
     describe('real-IPC fallthrough', () => {
@@ -2494,9 +2432,7 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // diagnostics.showInFolder
-  // ---------------------------------------------------------------------------
 
   describe('diagnostics.showInFolder', () => {
     describe('real-IPC fallthrough', () => {

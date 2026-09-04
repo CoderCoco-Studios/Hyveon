@@ -2,7 +2,7 @@ import { test, expect, stubApis } from '../fixtures/index.js';
 import type { GameListEntry } from '../fixtures/index.js';
 
 /**
- * Specs for the read-only Games routes added in issue #93: the
+ * Specs for the read-only Games routes: the
  * declared/deployed drift table at `/games` and the per-game detail view at
  * `/games/:name`. These are plain browser-stub specs (chromium project) —
  * `/api/games` is stubbed over HTTP via `stubApis`, same pattern as

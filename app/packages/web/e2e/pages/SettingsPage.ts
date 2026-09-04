@@ -15,7 +15,7 @@ export class SettingsPage {
 
   /**
    * The Watchdog Configuration panel's pointer to the General section's
-   * "Watchdog tuning" fields — the panel itself is read-only (#348).
+   * "Watchdog tuning" fields — the panel itself is read-only.
    */
   watchdogGeneralPointer(): Locator {
     return this.page.getByText(/configured in the/i);

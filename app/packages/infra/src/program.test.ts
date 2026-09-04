@@ -24,11 +24,11 @@ const TEST_INFRA_PROGRAM_OPTIONS: InfraProgramOptions = { lambdaBundlesDir: '/fi
  * itself, which every one of those resources depends on via `{ provider }`
  * — before assertions run. See `pulumiMocks.ts`'s `promiseOf` doc: this is
  * the same precise-handle pattern `network.test.ts`/`securityGroups.test.ts`
- * use, deliberately NOT the fixed-flush pattern this file used to use (a
- * `setImmediate` guess that only happened to work for a resource graph this
- * small, and risked leaving registrations in flight past the end of a test
- * — see `installPulumiMocks`'s doc on why every test must fully settle
- * before it ends).
+ * use — await real resource handles, never a fixed flush, since a
+ * `setImmediate` guess only happens to work for a resource graph this small
+ * and risks leaving registrations in flight past the end of a test (see
+ * `installPulumiMocks`'s doc on why every test must fully settle before it
+ * ends).
  */
 async function runDefineAll(config: Parameters<typeof defineAll>[0]): Promise<ReturnType<typeof defineAll>> {
   const result = defineAll(config, TEST_INFRA_PROGRAM_OPTIONS);

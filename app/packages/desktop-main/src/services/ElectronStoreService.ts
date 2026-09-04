@@ -337,7 +337,6 @@ export class ElectronStoreService {
    * Write a top-level key to the store.
    *
    * @param key - One of the top-level keys defined in {@link AppStoreSchema}.
-   * @param value - The value to persist.
    */
   set<K extends keyof AppStoreSchema>(key: K, value: AppStoreSchema[K]): void {
     if (this._store !== null) {
@@ -424,7 +423,6 @@ export class ElectronStoreService {
    * `WizardController.saveCredentials`) must not echo this method's return
    * value back to the caller.
    *
-   * @param profileName - The pasted-profile name to read.
    * @returns The decrypted credentials, or `undefined` if the profile isn't stored.
    */
   getPastedCredentials(profileName: string): { accessKeyId: string; secretAccessKey: string; region?: string } | undefined {
@@ -467,8 +465,6 @@ export class ElectronStoreService {
    * Remove a pasted-credentials profile from `creds.aws.<profileName>`.
    * Merges with any existing `creds.aws` map so other profiles are
    * preserved. A no-op (still logs) if the profile was never stored.
-   *
-   * @param profileName - The pasted-profile name to remove.
    */
   deletePastedCredentials(profileName: string): void {
     const currentCreds = this.get('creds') ?? { aws: {} };

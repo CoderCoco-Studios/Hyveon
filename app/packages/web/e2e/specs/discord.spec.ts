@@ -69,7 +69,7 @@ async function seedBaseMocks(
       Promise.resolve({ region: 'us-east-1', domain: 'example.com', environment: 'dev' }),
     );
     hyveon.__test.mock('games.status', () => Promise.resolve(s));
-    // `games.list` resolves `GameListEntry[]`, not bare strings — see issue #92.
+    // `games.list` resolves `GameListEntry[]`, not bare strings.
     hyveon.__test.mock('games.list', () =>
       Promise.resolve({
         games: (s as Array<{ game: string }>).map((x) => ({

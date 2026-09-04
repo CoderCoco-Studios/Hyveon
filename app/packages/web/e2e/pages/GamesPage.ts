@@ -1,11 +1,11 @@
 import type { Page, Locator } from '@playwright/test';
 import { gotoHashRoute } from './hashRoute.js';
 
-/** Drift-status chip labels rendered by `GameStatusBadges` (issue #93). */
+/** Drift-status chip labels rendered by `GameStatusBadges`. */
 export type DriftLabel = 'In sync' | 'Pending deploy' | 'Undeclared';
 
 /**
- * Page object for the read-only Games routes added in issue #93: the
+ * Page object for the read-only Games routes: the
  * declared/deployed drift table at `/games` and the per-game detail view at
  * `/games/:name`. Wraps both routes' locators so spec files read as test
  * logic rather than locator soup.

@@ -1,13 +1,11 @@
 /**
- * End-to-end proof of the fresh-install-bricking fix (final-review round 2,
- * finding 1): before `BootstrapService.ensureDeploymentConfig` existed,
- * NOTHING anywhere ever created the initial `deployment-config.json` object
- * — every `DeploymentConfigService` write path (`writeConfig`, shared by
- * `addGameServer`/`updateGameServer`/`removeGameServer`, and
- * `updateTopLevelSettings`) reads the document before writing
- * (`fetchRawConfig`), and that read threw a plain `Error` when the object
- * didn't exist. A fresh install that completed the first-run wizard landed
- * on the dashboard with no way to save Settings or add a game.
+ * End-to-end proof that `BootstrapService.ensureDeploymentConfig` creates
+ * the initial `deployment-config.json` object: every `DeploymentConfigService`
+ * write path (`writeConfig`, shared by `addGameServer`/`updateGameServer`/
+ * `removeGameServer`, and `updateTopLevelSettings`) reads the document
+ * before writing (`fetchRawConfig`), and that read throws a plain `Error`
+ * when the object doesn't exist — so a fresh install must seed it before the
+ * dashboard's Settings save or add-a-game flows can work.
  *
  * Unlike `DeploymentConfigService.write.test.ts`/`DeploymentConfigService.s3.test.ts` (which
  * either stub `RemoteFileStore` directly or seed a document up front), this

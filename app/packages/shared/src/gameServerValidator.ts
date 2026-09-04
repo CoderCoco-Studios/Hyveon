@@ -1,23 +1,16 @@
 /**
- * Zod-backed structural schema + business-rule validator for a single
- * `game_servers` map entry (historically the app's original
- * `game_servers` config input;
- * see the {@link GameServer} mirror in `./gameServerConfig.js`).
+ * Zod-backed structural schema + business-rule validator for a single `game_servers` map entry
+ * (see the {@link GameServer} mirror in `./gameServerConfig.js`).
  *
  * This module is deliberately split in two:
- *  - {@link gameServerSchema} mirrors the app's original `game_servers`
- *    object type field-for-field (it does NOT include `name` — like that
- *    original object, `name` is the map key, not an attribute of the entry).
- *  - {@link validateGameServer} layers the custom business rules that can't
- *    be expressed as a pure per-field zod refinement because they either
- *    need the sibling `game_servers` entries (port collisions) or are
- *    cross-cutting checks over the already-typed entry (Fargate CPU/memory
- *    pairing, absolute paths, connect-message placeholders, HTTPS port
- *    constraints).
+ *  - {@link gameServerSchema} defines the entry's structure — it does NOT include `name`, since
+ *    `name` is the map key, not an attribute of the entry.
+ *  - {@link validateGameServer} layers cross-entry business rules that can't be expressed as a
+ *    pure per-field zod refinement (port collisions against sibling entries, Fargate CPU/memory
+ *    pairing, absolute paths, connect-message placeholders, HTTPS port constraints).
  *
- * Intended for both the desktop-main API (validating a proposed
- * `DeploymentConfig.gameServers` edit before writing it back) and the web
- * client (surfacing the same messages in a form).
+ * Intended for both the desktop-main API (validating a proposed `DeploymentConfig.gameServers`
+ * edit before writing it back) and the web client (surfacing the same messages in a form).
  */
 
 import { z } from 'zod';
@@ -72,11 +65,7 @@ export const gameServerEnvironmentVariableSchema = z.object({
   value: z.string(),
 });
 
-/**
- * Zod schema mirroring `GameServerVolume`. `name` and `container_path` must
- * be non-empty, matching the requirement the app's original validation
- * block on `game_servers` used to enforce.
- */
+/** Zod schema mirroring `GameServerVolume`. `name` and `container_path` must be non-empty. */
 export const gameServerVolumeSchema = z.object({
   name: z.string().min(1, 'volumes[].name must not be empty.'),
   container_path: z.string().min(1, 'volumes[].container_path must not be empty.'),
@@ -605,13 +594,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Mirrors the `game_servers` variable validation block that used to live in
- * the app's now-retired original config input and gated on `cfg.https`: a
- * game with `https = true` must declare at least one port, its first port
- * must use protocol `tcp` (exact, lowercase), every port protocol must be
- * `tcp` or `udp`, and no port may use container port 80 or 443 (reserved for
- * the in-task Caddy sidecar). This function is now the sole source of truth
- * for these rules — there is no other declared config input left to stay in sync with.
+ * Structural HTTPS port rules for a single `https: true` game server: it must declare at least
+ * one port, the first port must use protocol `tcp` (exact, lowercase), every port protocol must
+ * be `tcp` or `udp`, and no port may use container port 80 or 443 (reserved for the in-task Caddy
+ * sidecar).
  *
  * Only needs `ports` to be structurally valid — like {@link checkPortCollisions},
  * it's called independently of whether the rest of the entry parses, so a
@@ -662,37 +648,18 @@ function isCaddyReservedPort(port: GameServerPort): boolean {
 }
 
 /**
- * Rejects container port 443 or 80 on protocol `tcp` for ANY game — https or
- * not — when at least one game in the whole deployment has `https: true`.
- * This is the cross-deployment counterpart to {@link checkHttpsPortRules}:
- * that function only reserves 80/443 within the `ports` array of the game
- * that itself declares `https: true`, so a *different*, non-HTTPS game was
- * previously free to declare
- * `{ container: 443, protocol: 'tcp', visibility: 'internal' }` in its own
- * entry. Since security-group ingress rules union, that internal-only
- * rule then sat alongside the Caddy sidecar's unconditional `0.0.0.0/0`
- * ingress on the same port (`defineSecurityGroups`,
- * `@hyveon/infra`'s `securityGroups.ts`) and the port was reachable from the
- * internet regardless of its declared `visibility` — this function closes
- * that gap by reserving 443/80/tcp deployment-wide whenever any HTTPS game
- * exists, matching the spec's "internal port unreachable from the internet"
- * guarantee.
+ * Rejects container port 443 or 80 on protocol `tcp` for ANY game — https or not — when at least
+ * one game in the whole deployment has `https: true`. Security-load-bearing: without this, a
+ * non-HTTPS game could declare `{ container: 443, protocol: 'tcp', visibility: 'internal' }`, and
+ * since security-group ingress rules union, that internal-only rule would sit alongside the Caddy
+ * sidecar's unconditional `0.0.0.0/0` ingress on the same port (`defineSecurityGroups`,
+ * `@hyveon/infra`'s `securityGroups.ts`) — making the port reachable from the internet regardless
+ * of its declared `visibility`.
  *
- * Two directions are both covered, so the write that introduces the
- * deployment-wide reservation can't be bypassed by declaring the port first
- * and enabling HTTPS on a different game second:
- *  - `!isHttps` — the proposed entry declares 80/443/tcp while some *other*,
- *    already-declared game has `https: true`: rejected against the proposed
- *    entry's own `ports`, anchored on `ports[i]`.
- *  - `isHttps` — the proposed entry is the one turning `https: true` on.
- *    {@link checkHttpsPortRules} already rejects 80/443 within its own
- *    `ports` (so checking the proposed entry's own ports again here would
- *    just duplicate that issue under different wording); instead this scans
- *    every *other* already-declared game's `ports` and rejects the write if
- *    any of them already holds 443/80/tcp — the direction the original,
- *    single-pass version of this function missed. The offending port
- *    belongs to a different game than the one being written, so the issue
- *    is anchored on `path: 'ports'` rather than a specific index.
+ * Both directions must be checked, so declaring the reserved port first and enabling HTTPS on a
+ * different game second can't bypass the reservation: the proposed entry's own ports are checked
+ * against every other already-`https` game, and — when the proposed entry is the one turning
+ * `https` on — every other game's already-declared ports are checked against the reservation.
  *
  * @param name - The `game_servers` map key the proposed entry would be saved
  *   under; excluded from the sibling scan so editing an already-`https` game

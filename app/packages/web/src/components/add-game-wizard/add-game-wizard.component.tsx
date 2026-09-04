@@ -1,5 +1,5 @@
 /**
- * Wizard shell for declaring a new `game_servers` entry (#99): a self-contained
+ * Wizard shell for declaring a new `game_servers` entry: a self-contained
  * `<Dialog>` — trigger, six-step navigation, and the submit handler — built
  * from the step components and validation utilities already assembled for
  * this issue (`identity-step`, `resources-step`, `networking-step`,

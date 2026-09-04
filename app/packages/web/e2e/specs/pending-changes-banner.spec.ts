@@ -1,7 +1,7 @@
 import { test, expect, stubApis, STOPPED_GAME } from '../fixtures/index.js';
 
 /**
- * `PendingChangesBanner` spec (issue #101) — plain browser-stub spec
+ * `PendingChangesBanner` spec — plain browser-stub spec
  * (`chromium` project), same pattern as `settings.spec.ts` and
  * `games.spec.ts`. `/api/drift` (the `drift.get` IPC channel) is stubbed over
  * HTTP via `stubApis`'s `drift` option; the banner fetches it once on mount,

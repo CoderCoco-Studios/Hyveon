@@ -30,7 +30,7 @@ export function useDiscordConfig() {
 
   useEffect(() => {
     // `api.games()` now resolves `GameListEntry[]` (declared + deployed view,
-    // see issue #92) — the permissions UI only needs the game keys.
+    // the permissions UI only needs the game keys.
     api.games().then((g) => setGames(g.games.map((entry) => entry.name))).catch(() => undefined);
   }, []);
 

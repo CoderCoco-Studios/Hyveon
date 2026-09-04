@@ -21,8 +21,8 @@
  *
  * It is intentionally self-contained — it closes over no module-scope bindings —
  * because Playwright serialises it to source and re-evaluates it in the page.
- * The Nest API no longer requires a bearer token, so calls go out with only the
- * headers each request supplies.
+ * These calls resolve against Playwright `page.route()` stubs, not a real
+ * API server, so they go out with only the headers each request supplies.
  */
 export function installHyveonHttpBridge(): void {
   const call = async (path: string, init?: RequestInit): Promise<unknown> => {

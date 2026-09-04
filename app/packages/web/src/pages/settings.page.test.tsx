@@ -398,9 +398,8 @@ describe('SettingsPage', () => {
       await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalledTimes(1));
       expect(hyveonMock.wizard.saveState).not.toHaveBeenCalled();
       // `PulumiService.initializeStack` resolves the state bucket/region it
-      // needs internally from already-persisted wizard state — unlike the
-      // deleted pre-migration `init` call this replaces, the renderer passes
-      // it no config at all.
+      // needs internally from already-persisted wizard state — the renderer
+      // passes it no config at all.
       expect(hyveonMock.iac.stack.initialize).toHaveBeenCalledWith();
     });
 
