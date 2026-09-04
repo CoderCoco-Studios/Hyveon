@@ -5,6 +5,7 @@ import { Button } from './ui/button.component.js';
 import { ConfirmDialog } from './confirm-dialog.component.js';
 import { formatTimestamp } from '@/lib/utils.utils';
 import { formatDiffSummary } from '@/lib/rollback-diff.utils';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /** Result of a confirmed rollback, handed to {@link RollbackActionProps.onRolledBack}. */
 export interface RollbackResult {
@@ -67,7 +68,7 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
 
   function handleClick() {
     if (!window.hyveon) {
-      setError('IPC bridge (window.hyveon) is not available in this context.');
+      setError(BRIDGE_UNAVAILABLE);
       return;
     }
     setError(null);

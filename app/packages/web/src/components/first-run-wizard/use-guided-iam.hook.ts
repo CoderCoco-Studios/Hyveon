@@ -7,9 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { WizardProgress } from '@hyveon/desktop-preload';
-
-/** Reported whenever an action in this step is attempted outside Electron, where there is no IPC bridge to drive the guided flow through. */
-const BRIDGE_UNAVAILABLE = 'IPC bridge (window.hyveon) is not available in this context.';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /**
  * Screen this step renders. Unlike `stack-init-step.component.tsx`'s

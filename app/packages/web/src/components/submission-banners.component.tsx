@@ -6,6 +6,7 @@ import { Button } from './ui/button.component.js';
 import { ConfirmDialog } from './confirm-dialog.component.js';
 import { ErrorBanner } from './error-banner.component.js';
 import type { Conflict } from '../hooks/use-iac-run.hook.js';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /**
  * Operator-facing label for each {@link Conflict} value — maps the raw
@@ -56,7 +57,7 @@ function useLockClearConfirmation(options: {
 
   const handleConfirmClear = useCallback(() => {
     if (!window.hyveon) {
-      setClearError('IPC bridge (window.hyveon) is not available in this context.');
+      setClearError(BRIDGE_UNAVAILABLE);
       return;
     }
     setClearing(true);

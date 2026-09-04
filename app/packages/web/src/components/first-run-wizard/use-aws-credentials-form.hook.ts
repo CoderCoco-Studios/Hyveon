@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import type { AwsProfileSummary } from '@hyveon/desktop-preload';
 import type { CredentialMode, PasteField } from './credentials-step.component.js';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /** Return value of {@link useAwsCredentialsForm}. */
 export interface UseAwsCredentialsFormResult {
@@ -83,7 +84,7 @@ export function useAwsCredentialsForm(): UseAwsCredentialsFormResult {
   useEffect(() => {
     async function fetchProfiles() {
       if (!window.hyveon) {
-        setProfilesError('IPC bridge (window.hyveon) is not available in this context.');
+        setProfilesError(BRIDGE_UNAVAILABLE);
         return;
       }
       setProfilesLoading(true);
@@ -117,7 +118,7 @@ export function useAwsCredentialsForm(): UseAwsCredentialsFormResult {
   /** Runs the safeStorage paste-flow immediately (not deferred to Next), per the credentials-step spec. */
   async function submitPaste() {
     if (!window.hyveon) {
-      setPasteError('IPC bridge (window.hyveon) is not available in this context.');
+      setPasteError(BRIDGE_UNAVAILABLE);
       return;
     }
     setPasteSaving(true);
