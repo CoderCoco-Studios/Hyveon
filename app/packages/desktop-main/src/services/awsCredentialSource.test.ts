@@ -147,13 +147,11 @@ describe('resolveAwsCredentialSource', () => {
 });
 
 /**
- * Regression coverage for the stale-AWS-client-cache defect flagged in
- * review of #452: `EcsService`/`Ec2Service`/`LogsService`/`SchedulerService`
- * and every `@hyveon/cloud-aws` store cache their SDK client keyed on a
- * signature derived from this function's output. A signature that doesn't
- * actually change when the underlying credentials do would silently
- * reintroduce that bug, so these tests assert the signature both stays
- * stable for an unchanged source and changes for every kind of rotation.
+ * `EcsService`/`Ec2Service`/`LogsService`/`SchedulerService` and every
+ * `@hyveon/cloud-aws` store cache their SDK client keyed on a signature
+ * derived from this function's output, so these tests assert the signature
+ * both stays stable for an unchanged source and changes for every kind of
+ * credentials rotation.
  */
 describe('resolveAwsClientCredentialsWithSignature', () => {
   it('should resolve credentials undefined and signature "none" when no profile is stored', () => {

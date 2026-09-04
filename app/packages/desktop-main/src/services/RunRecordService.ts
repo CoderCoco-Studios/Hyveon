@@ -17,7 +17,7 @@
  * option it can rather than throwing — mirrors `AuditService.record`'s
  * swallow-on-error contract.
  *
- * `persist()` also owns releasing the apply lock (issue #106) that
+ * `persist()` also owns releasing the apply lock that
  * `RunService.createRun` acquired for `params.runId`: the release is wrapped
  * in a `finally` so it happens unconditionally — whether the table-not-
  * deployed guard short-circuits the method, the write succeeds, or any of
@@ -70,7 +70,7 @@ export class RunRecordNotFoundError extends Error {
 /**
  * Thrown by {@link RunRecordService.approveRun} when the run record found for
  * `runId` is not a `plan` run — only a `plan` run's `.tfplan` artifact is
- * ever compared against an apply request's `planHash` (see #109), so
+ * ever compared against an apply request's `planHash`, so
  * approving an `apply`/`destroy` record makes no sense.
  */
 export class RunRecordNotPlanError extends Error {
@@ -97,13 +97,8 @@ export class RunRecordNotSuccessfulError extends Error {
  * {@link RunRecordService.persist} will embed directly on the persisted
  * `RunRecord.logInline` attribute instead of offloading to the store's
  * remote file backend (S3 for AWS, via {@link RunRecordStore.putLog}). Set to 350KB
- * (`350 * 1024`) — well under DynamoDB's 400KB item size limit once the
- * record's other attributes are accounted for. This intentionally deviates
- * from the 5MB figure floated in issue #179: 5MB is roughly an order of
- * magnitude past DynamoDB's hard per-item ceiling, so a log anywhere near
- * that size could never be embedded inline regardless — 350KB is the
- * largest threshold that still leaves comfortable headroom for the rest of
- * the item.
+ * (`350 * 1024`) — well under DynamoDB's 400KB item size limit, leaving
+ * comfortable headroom for the record's other attributes.
  */
 export const INLINE_LOG_LIMIT_BYTES = 350 * 1024;
 
@@ -157,13 +152,13 @@ export interface PersistRunRecordParams {
   configVersionId?: string;
   /**
    * SHA-256 hex digest of the `.tfplan` artifact this run produced (a
-   * successful `plan` run only — see `PulumiService.computePlanHash` and
-   * issue #109), if the caller supplied one.
+   * successful `plan` run only — see `PulumiService.computePlanHash`),
+   * if the caller supplied one.
    */
   planHash?: string;
   /**
    * The `runId` of the `apply` run this plan rolled back, if the caller
-   * started this run via the rollback flow (#112).
+   * started this run via the rollback flow.
    */
   rolledBackFrom?: string;
   /**
@@ -196,7 +191,7 @@ export interface PersistRunRecordParams {
  * Input to {@link RunRecordService.writePreflightMarker} — the minimal
  * identifying/gate-carried fields needed to write a durable, in-doubt
  * placeholder {@link RunRecord} for an `apply` attempt BEFORE the underlying
- * engine call (`stack.up()`) begins (issue #399).
+ * engine call (`stack.up()`) begins.
  */
 export interface PreflightMarkerParams {
   /**
@@ -397,7 +392,7 @@ export class RunRecordService {
   /**
    * Writes a durable, in-doubt placeholder {@link RunRecord} for an `apply`
    * attempt via a direct `store.putRecord` call — BEFORE `PulumiService.apply`
-   * calls `stack.up()` — closing the retry-safety gap issue #399 describes:
+   * calls `stack.up()` — closing a retry-safety gap:
    * if the SETTLEMENT write ({@link persist}, called once `stack.up()` has
    * resolved one way or another) itself fails to persist, the apply-kind
    * record `persist` would have written is simply never there, leaving the
@@ -509,7 +504,7 @@ export class RunRecordService {
    * Looks up a previously persisted run record by its `runId`, delegating
    * directly to `store.getRecordByRunId` — exposed on the service (rather
    * than requiring callers to reach for the injected store themselves) so
-   * consumers such as the apply IPC handler (#109) depend only on
+   * consumers such as the apply IPC handler depend only on
    * `RunRecordService`.
    *
    * Guarded by the same {@link resolveRunsTableName}-can't-resolve-yet check

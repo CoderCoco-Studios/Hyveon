@@ -67,7 +67,7 @@ function rangeCommitHandlers(index: number, isUnset: boolean, commit: (rawIndex:
 }
 
 /**
- * "Resources" step of the add-game wizard (#99) and edit-game form: vCPU and
+ * "Resources" step of the add-game wizard and edit-game form: vCPU and
  * memory are picked via two range sliders, each holding an *index* into
  * {@link getFargateCpuOptions}/{@link getFargateMemoryOptions} rather than a
  * raw cpu-unit/MiB value — Fargate's tiers aren't evenly spaced (vCPU:

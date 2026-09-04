@@ -1,7 +1,7 @@
 import { test, expect, stubApis, STOPPED_GAME } from '../fixtures/index.js';
 
 /**
- * Specs for the polling indicator + top-bar Refresh introduced in #65. The
+ * Specs for the polling indicator + top-bar Refresh. The
  * shared {@link PollingProvider} runs the status poll above the router, so
  * every primary route should display "Updated …" and the top-bar Refresh
  * button should trigger a fresh `/api/status` call on demand.

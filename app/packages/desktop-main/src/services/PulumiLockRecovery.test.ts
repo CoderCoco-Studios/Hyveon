@@ -441,19 +441,9 @@ describe('classifyStackLockConflict — absence of in-flight activity is not evi
   });
 });
 
-describe('classifyStackLockConflict — "in-app busy" is not this module\'s concern (argued in prose, not directly testable)', () => {
-  // This is a documentation placeholder, not a real assertion: an
-  // in-app-concurrent request never reaches a `ConcurrentUpdateError` at all,
-  // since `iac.controller.ts`'s pre-flight guard (using
-  // `PulumiService.getOperationInFlight()` as its state accessor) refuses
-  // the second call before any SDK invocation happens. There is no error
-  // shape this test file could construct that would exercise that path
-  // through this module, because this module only ever runs once the SDK
-  // has already thrown — so this scenario is covered by the file's TSDoc and
-  // this note, not by a test that could actually fail.
-  it('should never reach classifyStackLockConflict for an in-app-busy request, because the workspace guard refuses it first', () => {
-    expect(true).toBe(true);
-  });
+describe('classifyStackLockConflict — "in-app busy" is not this module\'s concern', () => {
+  // The controller's pre-flight guard refuses in-app-concurrent requests before any SDK invocation, so they never reach this module.
+  it.todo('should never reach classifyStackLockConflict for in-app-busy requests refused by the workspace guard');
 });
 
 describe('formatLockAge', () => {

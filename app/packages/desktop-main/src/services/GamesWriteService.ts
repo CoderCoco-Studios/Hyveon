@@ -218,8 +218,6 @@ export class GamesWriteService {
       return { ok: false, code: 'validation', issues: structuralValidation.issues };
     }
 
-    // resolveHealthCheckAuthSecret now owns the "omitted auth means unchanged"
-    // splice that used to live inline here — see its own doc comment.
     const incomingConfig = await this.resolveHealthCheckAuthSecret(payload.name, payload.config, before);
 
     const validation = validateGameServer(payload.name, incomingConfig, siblings);

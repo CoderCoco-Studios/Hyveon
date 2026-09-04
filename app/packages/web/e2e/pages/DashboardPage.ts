@@ -1,6 +1,6 @@
 import type { Page, Locator } from '@playwright/test';
 
-/** Status-badge labels rendered by the redesigned `GameCard` (issue #60). */
+/** Status-badge labels rendered by `GameCard`. */
 export type ServerStateLabel =
   | 'RUNNING'
   | 'STARTING'
@@ -72,8 +72,8 @@ export class DashboardPage {
   }
 
   /**
-   * Error-reason text rendered on a game card in the `error` state
-   * (issue #78), keyed off the `data-testid="game-card-error-{name}"` hook
+   * Error-reason text rendered on a game card in the `error` state, keyed
+   * off the `data-testid="game-card-error-{name}"` hook
    * `GameCard` renders alongside the message so it can be located without
    * depending on the message's actual wording.
    *
@@ -138,7 +138,7 @@ export class DashboardPage {
     await this.searchInput().fill(query);
   }
 
-  // ── Pending changes banner (issue #101) ──────────────────────────────
+  // ── Pending changes banner ──────────────────────────────
 
   /** The `PendingChangesBanner` container (`role="status"`), when it's visible. */
   pendingChangesBanner(): Locator {

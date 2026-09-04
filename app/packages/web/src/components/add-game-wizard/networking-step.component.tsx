@@ -1,5 +1,5 @@
 /**
- * "Networking" step of the add-game wizard (#99) — a row editor for
+ * "Networking" step of the add-game wizard — a row editor for
  * {@link WizardDraftPort} entries (`container` port + `protocol`). Each row
  * exposes a container-port number input, a protocol select, and a
  * Public/VPC-only visibility select, plus a "Remove" button; a trailing

@@ -1,5 +1,5 @@
 /**
- * Tests for the update-dns Lambda — TypeScript port of update_dns.py.
+ * Tests for the update-dns Lambda.
  *
  * Covers DNS upsert/delete (including HTTPS-flagged games, which now follow
  * the same plain A-record path since TLS terminates in-task via a Caddy

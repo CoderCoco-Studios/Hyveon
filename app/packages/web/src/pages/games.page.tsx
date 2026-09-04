@@ -21,7 +21,7 @@ function formatPorts(entry: GameListEntry): string {
 /**
  * Games route (`/games`) — read-only table of every game the app knows
  * about, merging the declared deployment config with the deployed
- * tfstate view (see issue #92's `games.list` IPC channel).
+ * tfstate view (the `games.list` IPC channel).
  *
  * Rows fall into three shapes:
  *   - declared + deployed → full config, "In sync" chip.
@@ -29,15 +29,16 @@ function formatPorts(entry: GameListEntry): string {
  *   - deployed only ("ghost" row) → no `config`, "Undeclared" chip; config
  *     columns render as em dashes since there's no declared entry to read.
  *
- * Each row links to `/games/:name` for the deeper read-only detail view.
+ * Each row links to `/games/:name` for the deeper read-only detail view
+ * ({@link GameDetailPage}).
  *
- * The self-contained {@link AddGameWizard} (#99) is mounted twice: as a
+ * The self-contained {@link AddGameWizard} is mounted twice: as a
  * persistent header action next to the heading, and as an empty-state CTA
  * shown only while `games` is empty. Both mounts are independent — each owns
  * its own dialog open/close state — so either entry point opens its own copy
  * of the same wizard flow.
  *
- * {@link PendingChangesBanner} (#101) is mounted above the games table and
+ * {@link PendingChangesBanner} is mounted above the games table and
  * self-manages its own visibility — it renders nothing until
  * the `drift.get` IPC channel reports at least one pending change.
  *
@@ -91,7 +92,7 @@ export function GamesPage() {
   }, []);
 
   // Mount-only effect — checks for a saved add-game wizard draft (autosaved
-  // by a previous `AddGameWizard` session per issue #99's follow-up) so the
+  // by a previous `AddGameWizard` session) so the
   // resume/discard banner below can offer to pick it back up.
   useEffect(() => {
     let cancelled = false;

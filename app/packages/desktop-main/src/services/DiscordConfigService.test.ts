@@ -61,16 +61,12 @@ const putConfigMock = vi.fn<DiscordConfigStore['putConfig']>();
 
 /**
  * Builds a `DiscordConfigStore`-shaped stub backed by the mocks above.
- * Regression coverage note: `DiscordConfigService` used to call
- * `@hyveon/shared`'s `getDocClient()` (no credentials) directly, which falls
- * back to the AWS SDK's default provider chain in the Electron main process
- * and throws a spurious `CredentialsProviderError` ("Your session has
- * expired") once any ambient host `aws login` session expires — even though
- * the wizard's own stored credentials were still valid. It must now go
- * through the injected `DiscordConfigStore` (bound to `AwsDiscordConfigStore`,
- * which resolves the wizard's credentials itself) instead of touching
- * `@hyveon/shared`'s configStore functions or `getDocClient()` directly —
- * this test file no longer mocks either.
+ * `DiscordConfigService` must go through the injected `DiscordConfigStore`
+ * (bound to `AwsDiscordConfigStore`, which resolves the wizard's credentials
+ * itself) rather than `@hyveon/shared`'s `getDocClient()` directly, which
+ * falls back to the AWS SDK's default provider chain and throws a spurious
+ * `CredentialsProviderError` once any ambient host `aws login` session
+ * expires, even with valid wizard-stored credentials.
  */
 function makeDiscordStore(): DiscordConfigStore {
   return { getConfig: getConfigMock, getBaseConfig: getBaseConfigMock, putConfig: putConfigMock };

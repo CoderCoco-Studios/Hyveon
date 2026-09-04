@@ -190,7 +190,7 @@ export type GameServerWriteConfig = Omit<GameServer, 'name' | 'healthCheck'> & {
  * Response entry for the merged games list (the `games.list` IPC channel).
  * Combines the declared view (`DeploymentConfig.gameServers`, via
  * {@link GameServer}) with the deployed view (tfstate) so callers can tell
- * "declared but not yet applied" apart from "live" games — see issue #92.
+ * "declared but not yet applied" apart from "live" games.
  *
  * Mirrors `GameListEntry` in `@hyveon/shared/src/gameServerConfig.ts` — that file is
  * the source of truth; keep this copy in sync with it.

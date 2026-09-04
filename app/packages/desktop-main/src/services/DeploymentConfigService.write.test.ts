@@ -1,8 +1,6 @@
 /**
- * Write-path tests for `DeploymentConfigService` (see issue #96, updated for the
- * `migrate-iac-to-pulumi` JSON migration) — `addGameServer`,
- * `updateGameServer`, and `removeGameServer`. Directly covers the JSON
- * equivalents of issue #96's original acceptance checkboxes:
+ * Write-path tests for `DeploymentConfigService` — `addGameServer`,
+ * `updateGameServer`, and `removeGameServer`:
  *
  *  1. Sibling preservation — adding/editing/removing one game leaves every
  *     other `gameServers` entry and every top-level field untouched.
@@ -11,16 +9,13 @@
  *  3. `OptimisticLockError` is structured (`expectedEtag` / `currentEtag`)
  *     so the UI can display "remote moved — refresh".
  *
- * Unlike the retired HCL write path (which spliced byte spans to preserve
- * comments/formatting outside the touched entry), the JSON write path reads
- * the whole document, mutates the in-memory object, and re-serializes it —
- * so "preservation" here means "unrelated fields/entries round-trip with the
- * same values," not "identical bytes."
+ * The write path reads the whole document, mutates the in-memory object, and
+ * re-serializes it, so "preservation" here means "unrelated fields/entries
+ * round-trip with the same values," not "identical bytes."
  *
  * There is no local-file fallback — every write goes through the
  * `RemoteFileStore` stub. `fs` stays mocked purely so the
- * `ConfigurationNotConfiguredError` tests can assert it is never touched;
- * this module no longer imports `fs` in production code at all.
+ * `ConfigurationNotConfiguredError` tests can assert it is never touched.
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';

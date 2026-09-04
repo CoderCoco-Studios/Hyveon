@@ -1,8 +1,8 @@
 /**
- * Flat edit form for an already-declared `game_servers` entry (#100).
+ * Flat edit form for an already-declared `game_servers` entry.
  *
  * Reuses the same draft shape and step components built for the add wizard
- * (#99, see `../add-game-wizard/`) — {@link IdentityStep}, `ResourcesStep`,
+ * (see `../add-game-wizard/`) — {@link IdentityStep}, `ResourcesStep`,
  * `NetworkingStep`, `StorageStep`, `EnvironmentStep` — but renders every section stacked in one
  * flat view instead of walking the operator through them one at a time,
  * since the issue is scoped as "reuses most of the wizard from the prior

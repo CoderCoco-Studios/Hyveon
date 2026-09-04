@@ -2,8 +2,7 @@ import type { Page, Locator } from '@playwright/test';
 import { gotoHashRoute } from './hashRoute.js';
 
 /**
- * Page object for the `/logs` route added in CoderCoco/Hyveon#63.
- * Wraps the LIVE/PAUSED pill, the searchable game combobox, the in-stream
+ * Page object for the `/logs` route. Wraps the LIVE/PAUSED pill, the searchable game combobox, the in-stream
  * search input, the autoscroll toggle, the Pause/Resume button, the log
  * box, and the footer line-count summary so spec files read as test logic
  * rather than locator soup.

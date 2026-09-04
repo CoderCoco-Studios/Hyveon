@@ -17,7 +17,7 @@ type KindFilter = IacRunKind | 'all';
 /**
  * Iac run-history route (`/iac/history`) — a newest-first table
  * of persisted plan/apply/destroy runs backed by
- * `hyveon.iac.runs.list` (issue #111). Supports `kind`/`status` filters
+ * `hyveon.iac.runs.list`. Supports `kind`/`status` filters
  * and cursor-based "Load more" pagination; clicking a row's kind opens the
  * read-only run-detail view at `/iac/history/:runId`. The "Changes"
  * column reuses `ChangeSummaryStatus` from the live Plan/Apply page (task

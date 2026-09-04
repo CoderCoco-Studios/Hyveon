@@ -1,5 +1,5 @@
 /**
- * Reconfigure-mode (#211) bookkeeping for the first-run wizard, extracted
+ * Reconfigure-mode bookkeeping for the first-run wizard, extracted
  * from `FirstRunWizard` (finding D8): which pre-completed steps are
  * collapsed vs. being edited, the prefill effect that rehydrates collapsed
  * summaries from `wizard.state.get()`, and the buffered commit that sends
