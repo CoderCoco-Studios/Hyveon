@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { Badge } from './ui/badge.component.js';
 import { cn } from '../lib/utils.utils.js';
-import { parseSnowflakes, uniq } from '../lib/snowflake.utils.js';
+import { parseSnowflakes } from '../lib/snowflake.utils.js';
 
 /**
  * Editable chip-input for Discord snowflake IDs, shared by the Discord page
@@ -41,7 +41,7 @@ export function SnowflakeChipsInput({
     const combined = (draft + (extra ? ' ' + extra : '')).trim();
     if (!combined) return;
     const { valid, invalid } = parseSnowflakes(combined);
-    if (valid.length) onChange(uniq([...value, ...valid]));
+    if (valid.length) onChange([...new Set([...value, ...valid])]);
     setDraft(invalid.join(', '));
     setParseError(invalid.length ? `Not a snowflake: ${invalid.join(', ')}` : null);
   }

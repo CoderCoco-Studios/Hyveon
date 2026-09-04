@@ -78,8 +78,13 @@ export function validateDeploymentSettingsPatch(
   return issues;
 }
 
-/** Matches a 17-20 digit Discord snowflake ID — mirrors `discord.page.tsx`'s `SNOWFLAKE_RE`. */
-const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
+/** Matches a 17-20 digit Discord snowflake ID. Single shared copy — also used by `@hyveon/web`'s `isSnowflake`. */
+export const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
+
+/** Validates a Discord snowflake ID (17-20 digit numeric string). */
+export function isSnowflake(value: string): boolean {
+  return SNOWFLAKE_PATTERN.test(value.trim());
+}
 
 /**
  * Matches an IPv4 CIDR block: four dot-separated 0-255 octets, a `/`, and a
@@ -151,7 +156,7 @@ function checkSnowflakeArray<K extends keyof TopLevelDeploymentSettings>(
     return;
   }
   value.forEach((entry, index) => {
-    if (typeof entry !== 'string' || !SNOWFLAKE_PATTERN.test(entry.trim())) {
+    if (typeof entry !== 'string' || !isSnowflake(entry)) {
       issues.push({ path: `${field}[${index}]`, message: 'Must be a 17-20 digit Discord snowflake ID.' });
     }
   });
