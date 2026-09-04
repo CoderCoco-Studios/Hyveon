@@ -31,3 +31,4 @@ export * from './ddb/pendingStore.js';
 export * from './secrets/secretsStore.js';
 export type { DiscordEventReceiver } from './cloud.js';
 export * from './discord/awsLambdaDiscordReceiver.js';
+export * from './discord/patchOriginal.js';

@@ -31,7 +31,9 @@ import {
   gameNamesFromEnv,
   getEffectiveDiscordConfig,
   parseGameMapEnv,
+  patchInteractionOriginal,
   putPending,
+  renderConnectMessage,
   requireEnv,
 } from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig, GameStatus } from '@hyveon/shared';
@@ -172,26 +174,6 @@ async function runStop(game: string): Promise<string> {
   }
 }
 
-const DISCORD_API = 'https://discord.com/api/v10';
-
-/** PATCH the original deferred-ack message. */
-async function patchOriginal(
-  applicationId: string,
-  interactionToken: string,
-  content: string,
-): Promise<void> {
-  const url = `${DISCORD_API}/webhooks/${applicationId}/${interactionToken}/messages/@original`;
-  const resp = await fetch(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    console.error('Discord PATCH failed', { status: resp.status, body });
-  }
-}
-
 async function handleList(event: FollowupEvent, cfg: DiscordConfig): Promise<string> {
   const games = gameNamesFromEnv();
   if (!games.length) return 'No games configured.';
@@ -234,11 +216,8 @@ async function handleStart(event: FollowupEvent): Promise<string> {
       const port = GAME_PORTS[event.game];
       const domain = process.env['DOMAIN_NAME'] ?? '';
       const host = domain ? `${event.game}.${domain}` : '';
-      const rendered = connectMsg
-        .replace(/\{host\}/g, host)
-        .replace(/\{ip\}/g, '')
-        .replace(/\{port\}/g, port !== undefined ? String(port) : '')
-        .replace(/\{game\}/g, event.game);
+      // {ip} is deliberately blank here — the task hasn't reached RUNNING yet, so no public IP exists.
+      const rendered = renderConnectMessage(connectMsg, { host, ip: '', port, game: event.game });
       return `${message}\n${rendered}`;
     }
   }
@@ -303,5 +282,5 @@ export const handler = async (event: FollowupEvent): Promise<void> => {
     content = '❌ Command failed. Check server logs.';
   }
 
-  await patchOriginal(event.applicationId, event.interactionToken, content);
+  await patchInteractionOriginal(event.applicationId, event.interactionToken, content);
 };

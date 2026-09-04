@@ -34,6 +34,7 @@ import {
   gameNamesFromEnv,
   getPending,
   parseGameMapEnv,
+  patchInteractionOriginal,
   requireEnv,
 } from '@hyveon/shared';
 
@@ -184,25 +185,6 @@ async function deleteDns(dnsName: string): Promise<void> {
   }
 }
 
-const DISCORD_API = 'https://discord.com/api/v10';
-
-async function patchOriginal(
-  applicationId: string,
-  interactionToken: string,
-  content: string,
-): Promise<void> {
-  const url = `${DISCORD_API}/webhooks/${applicationId}/${interactionToken}/messages/@original`;
-  const resp = await fetch(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    console.error('Discord PATCH failed', { status: resp.status, body });
-  }
-}
-
 /**
  * If a Discord interaction is pending for this task, PATCH it with the
  * resolved hostname/IP and delete the pending row.
@@ -222,7 +204,7 @@ async function notifyDiscordIfPending(
       CONNECT_MESSAGES[game],
       GAME_PORTS[game],
     );
-    await patchOriginal(pending.applicationId, pending.interactionToken, message);
+    await patchInteractionOriginal(pending.applicationId, pending.interactionToken, message);
     await deletePending(TABLE_NAME, taskArn);
   } catch (err) {
     console.error('Discord followup notification failed', { err, taskArn });
