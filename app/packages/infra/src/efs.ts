@@ -6,10 +6,10 @@
  *
  * | Resource | This file |
  * | --- | --- |
- * | `aws_efs_file_system.saves` | {@link EfsResources.fileSystem} |
- * | `aws_efs_mount_target.saves` (one per public subnet) | {@link EfsResources.mountTargets} |
- * | `aws_efs_access_point.game` (one per `(game, volume)` pair) | {@link EfsResources.gameAccessPoints} |
- * | `aws_efs_access_point.caddy_data` (one per `https: true` game) | {@link EfsResources.caddyDataAccessPoints} |
+ * | Shared filesystem | {@link EfsResources.fileSystem} |
+ * | Mount targets (one per public subnet) | {@link EfsResources.mountTargets} |
+ * | Access points (one per `(game, volume)` pair) | {@link EfsResources.gameAccessPoints} |
+ * | Cert-storage access points (one per `https: true` game) | {@link EfsResources.caddyDataAccessPoints} |
  *
  * The `efs` security group is declared in `securityGroups.ts` and threaded in
  * here by ID only, as {@link DefineEfsArgs.efsSecurityGroupId}. The
@@ -23,23 +23,23 @@ import type { GameServerConfig } from '@hyveon/shared';
 
 /** Every resource {@link defineEfs} declares, keyed by role. */
 export interface EfsResources {
-  /** The shared EFS filesystem (`aws_efs_file_system.saves`). */
+  /** The shared EFS filesystem. */
   fileSystem: aws.efs.FileSystem;
   /**
    * One mount target per public subnet, same order as the subnets passed in
-   * (`aws_efs_mount_target.saves`'s `count = 2`, `subnet_id = aws_subnet.public[count.index].id`).
+   * (one per public subnet — always two, since `defineNetwork` always
+   * returns exactly two).
    */
   mountTargets: aws.efs.MountTarget[];
   /**
    * One access point per `(game, volume)` pair, keyed `"${game}-${volume.name}"`
-   * — the same key `local.game_volumes` derives and `aws_ecs_task_definition.game`
-   * later re-derives to look up the matching access point per volume
-   * (`aws_efs_access_point.game`).
+   * — the same key `ecs.ts`'s task definitions re-derive to look up the
+   * matching access point per volume.
    */
   gameAccessPoints: Record<string, aws.efs.AccessPoint>;
   /**
    * One certificate-storage access point per `https: true` game, keyed by
-   * game name (`aws_efs_access_point.caddy_data`). Absent for a game with
+   * game name. Absent for a game with
    * `https` omitted or `false` — same `undefined ≡ false` contract as
    * `securityGroups.ts`'s `hasHttpsGame`.
    */
@@ -48,16 +48,16 @@ export interface EfsResources {
 
 /** Arguments {@link defineEfs} needs to declare every EFS resource. */
 export interface DefineEfsArgs {
-  /** Mirrors `var.project_name` — the filesystem's name/creation-token below is `${projectName}-saves`, matching the HCL exactly. */
+  /** The filesystem's name/creation-token below is `${projectName}-saves`. */
   projectName: string;
   /** The configured game-server map (`DeploymentConfig.gameServers`) the access points are derived from by iteration. */
   gameServers: Record<string, GameServerConfig>;
   /**
    * The public subnet IDs to mount into, same set `network.ts`'s
    * {@link NetworkResources.publicSubnets} yields (mapped to `.id`) —
-   * iterating this array (rather than a hardcoded count) reproduces the
-   * HCL's `count = 2` by construction, since `defineNetwork` always returns
-   * exactly two.
+   * iterating this array (rather than a hardcoded count) always yields
+   * exactly two mount targets, since `defineNetwork` always returns
+   * exactly two subnets.
    */
   publicSubnets: pulumi.Input<string>[];
   /** The `efs` security group's ID (`securityGroups.ts`'s `SecurityGroupResources.efs.id`) — every mount target's `security_groups`. */
@@ -68,8 +68,7 @@ export interface DefineEfsArgs {
 
 /**
  * Filters a game-server map down to `[game, config]` entries with
- * `https: true`, mirroring the legacy tool's `local.https_games`
- * local (`if cfg.https`). Follows the same `undefined ≡ false` contract as
+ * `https: true`. Follows the same `undefined ≡ false` contract as
  * `securityGroups.ts`'s `hasHttpsGame` (`config.https === true` excludes
  * both `false` and `undefined`).
  *
@@ -80,7 +79,7 @@ function httpsGameEntries(gameServers: Record<string, GameServerConfig>): Array<
   return Object.entries(gameServers).filter(([, config]) => config.https === true);
 }
 
-/** POSIX uid/gid every access point's `posix_user` and `root_directory.creation_info` use in the HCL — a literal `1000` repeated four times per access point, factored out once here. */
+/** POSIX uid/gid every access point's `posixUser` and `rootDirectory.creationInfo` use — a literal `1000` repeated four times per access point, factored out once here. */
 const ACCESS_POINT_POSIX_ID = 1000;
 
 /**
@@ -118,8 +117,7 @@ export function defineEfs(args: DefineEfsArgs): EfsResources {
       ),
   );
 
-  // One access point per (game, volume) pair — mirrors `local.game_volumes`'s
-  // flatten-then-index-by-key derivation.
+  // One access point per (game, volume) pair, keyed "${game}-${volume.name}".
   const gameAccessPoints: Record<string, aws.efs.AccessPoint> = {};
   for (const [game, config] of Object.entries(gameServers)) {
     for (const volume of config.volumes) {

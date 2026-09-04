@@ -1,5 +1,5 @@
 /**
- * Tests for the watchdog Lambda — TypeScript port of watchdog.py.
+ * Tests for the watchdog Lambda.
  *
  * Covers: idle counter increment via ECS task tags, threshold-based shutdown
  * (uniform for every game, including HTTPS-flagged ones now that TLS

@@ -2,7 +2,7 @@ import type { Page, Locator } from '@playwright/test';
 import { gotoHashRoute } from './hashRoute.js';
 
 /**
- * Page object for the `/iac/history` route added in issue #111 —
+ * Page object for the `/iac/history` route —
  * the run-listing table (kind/status filters, cursor-based "Load more") and
  * the read-only run-detail view at `/iac/history/:runId`.
  */

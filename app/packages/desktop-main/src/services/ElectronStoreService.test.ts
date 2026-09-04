@@ -29,9 +29,7 @@ vi.mock('electron-store', () => {
 import { ElectronStoreService, type AppStoreSchema, type StoredGameWizardDraft } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Creates a `SafeStorageService` whose `encrypt` / `decrypt` methods are
@@ -53,9 +51,7 @@ function makeMockStore(): Store<AppStoreSchema> {
   } as unknown as Store<AppStoreSchema>;
 }
 
-// ---------------------------------------------------------------------------
 // Non-Electron path (Map fallback)
-// ---------------------------------------------------------------------------
 
 describe('ElectronStoreService — non-Electron path (Map fallback)', () => {
   let service: ElectronStoreService;
@@ -101,9 +97,7 @@ describe('ElectronStoreService — non-Electron path (Map fallback)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Electron path (mocked Store)
-// ---------------------------------------------------------------------------
 
 describe('ElectronStoreService — Electron path (mocked Store)', () => {
   let service: ElectronStoreService;
@@ -150,9 +144,7 @@ describe('ElectronStoreService — Electron path (mocked Store)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Secret field — setSecretAccessKeyId / getSecretAccessKeyId
-// ---------------------------------------------------------------------------
 
 describe('ElectronStoreService — setSecretAccessKeyId / getSecretAccessKeyId', () => {
   let service: ElectronStoreService;
@@ -189,9 +181,7 @@ describe('ElectronStoreService — setSecretAccessKeyId / getSecretAccessKeyId',
   });
 });
 
-// ---------------------------------------------------------------------------
 // Secret field — setSecretAccessKey / getSecretAccessKey
-// ---------------------------------------------------------------------------
 
 describe('ElectronStoreService — setSecretAccessKey / getSecretAccessKey', () => {
   let service: ElectronStoreService;
@@ -228,9 +218,7 @@ describe('ElectronStoreService — setSecretAccessKey / getSecretAccessKey', () 
   });
 });
 
-// ---------------------------------------------------------------------------
 // Passphrase field — setPulumiPassphrase / getPulumiPassphrase
-// ---------------------------------------------------------------------------
 
 describe('ElectronStoreService — setPulumiPassphrase / getPulumiPassphrase', () => {
   let service: ElectronStoreService;
@@ -294,10 +282,8 @@ describe('ElectronStoreService — setPulumiPassphrase / getPulumiPassphrase', (
   });
 });
 
-// ---------------------------------------------------------------------------
 // Lock-ownership records (recordPulumiLockAttempt / clearPulumiLockAttempt /
 // listPulumiLockAttempts)
-// ---------------------------------------------------------------------------
 
 describe('ElectronStoreService — recordPulumiLockAttempt / clearPulumiLockAttempt / listPulumiLockAttempts', () => {
   let service: ElectronStoreService;
@@ -369,9 +355,7 @@ describe('ElectronStoreService — recordPulumiLockAttempt / clearPulumiLockAtte
   });
 });
 
-// ---------------------------------------------------------------------------
 // Round-trip
-// ---------------------------------------------------------------------------
 
 describe('ElectronStoreService — round-trip', () => {
   let service: ElectronStoreService;
@@ -396,9 +380,7 @@ describe('ElectronStoreService — round-trip', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // activeCloud — relaunch semantics
-// ---------------------------------------------------------------------------
 
 /**
  * Stateful stand-in for the mocked `electron-store` `Store`, backed by a
@@ -445,9 +427,7 @@ describe('ElectronStoreService — activeCloud persists across a simulated relau
   });
 });
 
-// ---------------------------------------------------------------------------
 // enableAutoUpdate — absent-key default and round-trip
-// ---------------------------------------------------------------------------
 
 describe('ElectronStoreService — enableAutoUpdate', () => {
   it('should read undefined (disabled) for enableAutoUpdate in the Map fallback when never set', () => {
@@ -500,9 +480,7 @@ describe('ElectronStoreService — enableAutoUpdate', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Pasted credentials — getPastedCredentials / setPastedCredentials
-// ---------------------------------------------------------------------------
 
 describe('ElectronStoreService — getPastedCredentials / setPastedCredentials', () => {
   let service: ElectronStoreService;
@@ -557,13 +535,11 @@ describe('ElectronStoreService — getPastedCredentials / setPastedCredentials',
   });
 });
 
-// ---------------------------------------------------------------------------
 // Integration-style: the persisted store file never contains plaintext key
 // material. A minimal file-backed `Store` double is used instead of the real
 // `electron-store` package (which requires an Electron process to resolve its
 // default `userData` path) so this spec can write and re-read an actual file
 // on disk while still running under plain Node/vitest.
-// ---------------------------------------------------------------------------
 
 /**
  * Minimal disk-backed stand-in for `electron-store`'s `get`/`set` surface,
@@ -692,9 +668,7 @@ describe('ElectronStoreService — recordOrphanedRollback / getOrphanedRollback 
   });
 });
 
-// ---------------------------------------------------------------------------
 // addGameWizardDraft
-// ---------------------------------------------------------------------------
 
 describe('addGameWizardDraft', () => {
   const sampleDraft: StoredGameWizardDraft = {

@@ -2,137 +2,17 @@
  * The Pulumi inline-program factory — the `@hyveon/infra` package's public
  * entry point (re-exported from `index.ts`). Establishes the pattern every
  * resource-area module (EFS, ECS, IAM, Lambdas, ...) follows: one
- * `defineX(...)` module per HCL-file-shaped resource area, all wired
- * together inside the closure {@link createInfraProgram} returns.
+ * `defineX(...)` module per resource area, all wired together inside the
+ * closure {@link createInfraProgram} returns.
  *
- * ## Resource-inventory audit
- *
- * This package's `defineAll` (below) is the FULL Pulumi resource graph for
- * the retired legacy infrastructure-as-code tree's 69 `resource` blocks (21
- * HCL files, 2837 lines, independently verified below). Every block maps to
- * exactly one entry in the table below: a Pulumi counterpart (file + field on
- * {@link InfraResources}), or an explicit omission with its reason. Zero
- * blocks are unaccounted for.
- *
- * Verified by grep-counting every top-level `resource "..." "..." {` block
- * across the legacy tree's 21 HCL files → `69`, run before that tree was
- * deleted; the tree no longer exists on disk, so this count is historical
- * and can't be re-derived from the repository today.
- *
- * | # | HCL address | Pulumi counterpart | Notes |
- * | --- | --- | --- | --- |
- * | 1 | `aws_vpc.main` | `network.vpc` | |
- * | 2 | `aws_internet_gateway.main` | `network.internetGateway` | |
- * | 3 | `aws_subnet.public` (`count=2`) | `network.publicSubnets` | one HCL block, one Pulumi array of 2 |
- * | 4 | `aws_route_table.public` | `network.routeTable` | |
- * | 5 | `aws_route_table_association.public` (`count=2`) | `network.routeTableAssociations` | one HCL block, one Pulumi array of 2 |
- * | 6 | `aws_security_group.game_servers` | `securityGroups.gameServers` | |
- * | 7 | `aws_security_group.file_manager` | `securityGroups.fileManager` | |
- * | 8 | `aws_security_group.efs` | `securityGroups.efs` | |
- * | 9 | `aws_efs_file_system.saves` | `efs.fileSystem` | |
- * | 10 | `aws_efs_mount_target.saves` (`count=2`) | `efs.mountTargets` | one HCL block, one Pulumi array of 2 |
- * | 11 | `aws_efs_access_point.game` (`for_each`) | `efs.gameAccessPoints` | |
- * | 12 | `aws_efs_access_point.caddy_data` (`for_each`) | `efs.caddyDataAccessPoints` | |
- * | 13 | `aws_cloudwatch_log_group.game` (`for_each`) | `ecs.logGroups` | |
- * | 14 | `aws_iam_role.ecs_task_execution` | `iamRoles.ecsTaskExecutionRole` | |
- * | 15 | `aws_iam_role_policy_attachment.ecs_task_execution` | `iamRoles.ecsTaskExecutionPolicyAttachment` | |
- * | 16 | `aws_ecs_cluster.main` | `ecs.cluster` | |
- * | 17 | `aws_ecs_task_definition.game` (`for_each`) | `ecs.taskDefinitions` | |
- * | 18 | `aws_security_group.efs_seeder` (`count`) | `securityGroups.efsSeeder` | `undefined` when no game has `file_seeds`, matching the HCL's `count` gate |
- * | 19 | `aws_iam_role.efs_seeder` (`for_each`) | `iamRoles.efsSeederRoles` | |
- * | 20 | `aws_iam_role_policy.efs_seeder` (`for_each`) | `iamPolicies.efsSeederPolicies` | |
- * | 21 | `aws_cloudwatch_log_group.efs_seeder` (`for_each`) | `lambdas.efsSeederLogGroups` | |
- * | 22 | `aws_lambda_function.efs_seeder` (`for_each`) | `lambdas.efsSeederFunctions` | |
- * | 23 | `aws_lambda_invocation.efs_seeder` (`for_each`) | `efsSeederInvocations` | |
- * | 24 | `aws_iam_role.followup_lambda` | `iamRoles.followupLambdaRole` | |
- * | 25 | `aws_iam_role_policy.followup_lambda` | `iamPolicies.followupLambdaPolicy` | |
- * | 26 | `aws_lambda_function.followup` | `lambdas.followupFunction` | |
- * | 27 | `aws_cloudwatch_log_group.followup` | `lambdas.followupLogGroup` | |
- * | 28 | `aws_iam_role.interactions_lambda` | `iamRoles.interactionsLambdaRole` | |
- * | 29 | `aws_iam_role_policy.interactions_lambda` | `iamPolicies.interactionsLambdaPolicy` | |
- * | 30 | `aws_lambda_function.interactions` | `lambdas.interactionsFunction` | |
- * | 31 | `aws_cloudwatch_log_group.interactions` | `lambdas.interactionsLogGroup` | |
- * | 32 | `aws_lambda_function_url.interactions` | `lambdas.interactionsFunctionUrl` | |
- * | 33 | `aws_lambda_permission.interactions_url_invoke_url` | `lambdas.interactionsUrlInvokeUrlPermission` | |
- * | 34 | `aws_lambda_permission.interactions_url_invoke` | `lambdas.interactionsUrlInvokePermission` | |
- * | 35 | `aws_iam_role.watchdog_lambda` | `iamRoles.watchdogLambdaRole` | |
- * | 36 | `aws_iam_role_policy.watchdog_lambda` | `iamPolicies.watchdogLambdaPolicy` | |
- * | 37 | `aws_lambda_function.watchdog` | `lambdas.watchdogFunction` | |
- * | 38 | `aws_cloudwatch_log_group.watchdog` | `lambdas.watchdogLogGroup` | |
- * | 39 | `aws_cloudwatch_event_rule.watchdog_schedule` | `lambdas.watchdogScheduleRule` | |
- * | 40 | `aws_cloudwatch_event_target.watchdog` | `lambdas.watchdogScheduleTarget` | |
- * | 41 | `aws_lambda_permission.watchdog_eventbridge` | `lambdas.watchdogEventBridgePermission` | |
- * | 42 | `aws_iam_role.dns_updater_lambda` | `iamRoles.dnsUpdaterLambdaRole` | |
- * | 43 | `aws_iam_role_policy.dns_updater_lambda` | `iamPolicies.dnsUpdaterLambdaPolicy` | |
- * | 44 | `aws_lambda_function.dns_updater` | `lambdas.dnsUpdaterFunction` | |
- * | 45 | `aws_cloudwatch_log_group.dns_updater` | `lambdas.dnsUpdaterLogGroup` | |
- * | 46 | `aws_cloudwatch_event_rule.ecs_task_change` | `lambdas.ecsTaskChangeRule` | |
- * | 47 | `aws_cloudwatch_event_target.dns_updater` | `lambdas.dnsUpdaterEventTarget` | |
- * | 48 | `aws_lambda_permission.dns_updater_eventbridge` | `lambdas.dnsUpdaterEventBridgePermission` | (`data.aws_route53_zone.main` is a data source, not a `resource` block — not part of the 69; ported as `route53.zone`/`route53.zoneId`) |
- * | 49 | `aws_dynamodb_table.discord` | `dynamoDb.discordTable` | |
- * | 50 | `aws_secretsmanager_secret.discord_bot_token` | `secrets.discordBotTokenSecret` | |
- * | 51 | `aws_secretsmanager_secret_version.discord_bot_token` | `secrets.discordBotTokenSecretVersion` | |
- * | 52 | `aws_secretsmanager_secret.discord_public_key` | `secrets.discordPublicKeySecret` | |
- * | 53 | `aws_secretsmanager_secret_version.discord_public_key` | `secrets.discordPublicKeySecretVersion` | |
- * | 54 | legacy no-op trigger resource for Discord command registration | **omitted** | Requires the live Discord bot token as an input, which this program's "no secret material enters the stack" invariant forbids; `DeploymentConfig` has no such field. Permanent, not deferred — the app's existing per-guild "Register commands" UI (`DiscordCommandRegistrar.ts`) is the surviving manual path. See `escapes.ts`'s file doc, the section on why this trigger resource has no Pulumi analogue. |
- * | 55 | `aws_dynamodb_table_item.discord_base_config` | `discordTableItems.discordBaseConfigItem` | |
- * | 56 | `aws_dynamodb_table_item.discord_config_seed` | `discordTableItems.discordConfigSeedItem` | |
- * | 57 | `aws_acm_certificate.discord` | `discordDomain.certificate` | |
- * | 58 | `aws_route53_record.discord_acm_validation` (`for_each`, 1 entry) | `discordDomain.certificateValidationRecord` | |
- * | 59 | `aws_acm_certificate_validation.discord` | `discordDomain.certificateValidation` | |
- * | 60 | `aws_cloudfront_distribution.discord` | `discordDomain.distribution` | |
- * | 61 | `aws_route53_record.discord` | `discordDomain.aliasRecord` | |
- * | 62 | `aws_route53_record.discord_aaaa` | `discordDomain.aliasRecordAaaa` | |
- * | 63 | `aws_dynamodb_table.audit` | `dynamoDb.auditTable` | |
- * | 64 | `aws_dynamodb_table.runs` | **omitted from this program** | Not Pulumi-managed: `RunRecordService`'s approve/apply gates need this table to exist before the very FIRST Pulumi apply of a fresh install ever succeeds, which a Pulumi-managed resource structurally cannot guarantee. Ported to `BootstrapService.ensureRunsTable` (AWS SDK, wizard-bootstrap-time) instead — see `dynamodb.ts`'s file doc for the full rationale, which is the same "bootstrap-managed, never infra-program-managed" pattern CLAUDE.md documents for DNS records (there it's Lambda-managed; here it's SDK-managed by `BootstrapService`, but the "never infra-program-managed" invariant is identical). |
- * | 65 | legacy bootstrap module: config bucket | **omitted from this program** | Ported to `BootstrapService.ensureConfigurationBucket` over the AWS SDK instead, not into this Pulumi stack. This bucket is the operator's configuration bucket and holds `DeploymentConfig`, this program's own input, so it must exist and be populated before `defineAll`/`createInfraProgram` can be invoked with a real config. It is NOT the Pulumi state bucket — see the note below the table for that distinct resource. |
- * | 66 | legacy bootstrap module: config bucket versioning | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
- * | 67 | legacy bootstrap module: config bucket encryption | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
- * | 68 | legacy bootstrap module: config bucket public-access block | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
- * | 69 | legacy bootstrap module: config bucket lifecycle rule | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
- *
- * **Not the Pulumi state bucket.** `BootstrapService` also provisions a
- * SEPARATE bucket, `ensureStateBucket`, that backs the Pulumi `s3://`
- * state backend this program's own stack persists to. That bucket has no
- * counterpart in the legacy resource inventory at all — confirmed by
- * `BootstrapService.ts`'s own TSDoc on `ensureStateBucket`: there is no
- * Pulumi resource for this bucket either, since the infrastructure program
- * can't provision the backend it also reads state from. It is therefore
- * out of scope for this 69-resource audit entirely — not one of the 69
- * rows, not an omission from this program, a pre-existing SDK-only
- * resource with no legacy-tool history to diff against.
- *
- * ## Other intentional omissions (not tied to a single numbered HCL block)
- *
- * - **`Environment`/`ManagedBy` default tags.** The legacy tool's root-only
- *   `tags` variable default carried an `Environment` entry and a
- *   `ManagedBy` entry naming the legacy tool itself, alongside
- *   `Project = "hyveon"`. Neither is replicated in {@link DEFAULT_TAGS}
- *   below: a `ManagedBy` value naming a retired tool would be actively wrong
- *   post-migration, and nothing in the app reads
- *   `Environment` (no Lambda, service, or cost-tooling filters on it) — only
- *   the tag CLAUDE.md documents as load-bearing (AWS Cost-allocation tag
- *   activation) is preserved. `tags` itself was never operator-configurable
- *   and is deliberately excluded from `DeploymentConfig` — see
- *   {@link DEFAULT_TAGS}'s own doc for the full rationale.
- * - **`applied_game_servers` was marked `sensitive = true` in the legacy
- *   tool's HCL outputs**, a marking this program's
- *   {@link StackOutputValues.appliedGameServers} does NOT replicate — Pulumi
- *   stack outputs have no per-field sensitivity marking in the
- *   `Record<string, any>` a `PulumiFn` returns (sensitivity is an
- *   `Output`-level property, `pulumi.secret(...)`, not applicable to a plain
- *   config echo like this field). This matters because `GameServerConfig`
- *   (the value's element type) carries `environment` — operator-set
- *   container environment variables, which may hold values the operator
- *   considers sensitive even though they are not routed through Secrets
- *   Manager. Pulumi prints stack outputs by default where the legacy tool
- *   redacted this one, so whatever surfaces `appliedGameServers` downstream
- *   (`PulumiService`, CLI-equivalent logging, `pulumi up` output) must apply
- *   its own redaction — this program cannot provide it at the
- *   `PulumiFn`-return-value layer.
- *
- * Confirmed zero unclaimed resources: every one of the 69 blocks above has
- * either a named Pulumi counterpart or an explicit, reasoned omission.
+ * Two omissions from `defineAll` below are load-bearing and easy to miss
+ * when reading the module list: the runs table is bootstrap-managed (see
+ * `dynamodb.ts`'s file doc) rather than provisioned here, and
+ * {@link StackOutputValues.appliedGameServers} is a plain config echo, not
+ * `pulumi.secret(...)`, so anything that surfaces it downstream
+ * (`PulumiService`, CLI-equivalent logging, `pulumi up` output) must apply
+ * its own redaction — this program cannot provide it at the
+ * `PulumiFn`-return-value layer.
  */
 
 import * as aws from '@pulumi/aws';
@@ -307,10 +187,9 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
   });
 
   // CloudFront's ACM certificate must live in us-east-1 regardless of
-  // `config.awsRegion` — mirrors the legacy tool's aliased
-  // `provider "aws" { alias = "us_east_1" }` block. Threaded ONLY into
-  // `discordDomain`'s certificate + certificate-validation resources below;
-  // every other resource in this program uses the regional `provider` above.
+  // `config.awsRegion`. Threaded ONLY into `discordDomain`'s certificate +
+  // certificate-validation resources below; every other resource in this
+  // program uses the regional `provider` above.
   const usEast1Provider = new aws.Provider('aws-us-east-1', {
     region: 'us-east-1',
     defaultTags: { tags: DEFAULT_TAGS },
@@ -357,8 +236,8 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     provider,
   });
 
-  // NOTE: `aws_security_group.efs_seeder` and the seeder-sourced ingress
-  // rule on the `efs` security group are ALREADY wired in above, as part of
+  // NOTE: the seeder security group and the seeder-sourced ingress rule on
+  // the `efs` security group are ALREADY wired in above, as part of
   // `defineSecurityGroups` — `securityGroups.efsSeeder` is real whenever at
   // least one game declares `file_seeds` (see `securityGroups.ts`'s file
   // doc).

@@ -7,9 +7,7 @@ import type { PulumiService, PulumiRunChunk, PulumiRunRecord } from '../services
 import { RunLockChangedError, RunLockClearNotConfirmedError, type RunService } from '../services/RunService.js';
 import type { RunRecordService, ListRunsOpts } from '../services/RunRecordService.js';
 
-// ---------------------------------------------------------------------------
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
-// ---------------------------------------------------------------------------
 
 /**
  * Captures every `ipcMain.handle`/`ipcMain.removeHandler` call so

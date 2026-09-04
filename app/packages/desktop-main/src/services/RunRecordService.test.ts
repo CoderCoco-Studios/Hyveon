@@ -740,34 +740,12 @@ describe('RunRecordService', () => {
   });
 
   /**
-   * Proves the specific bootstrap-deadlock sequence the final-review
-   * Critical finding described is now fixed: a fresh install has no Pulumi
-   * stack outputs yet (no apply has EVER succeeded — `getStackOutputs()`
-   * resolves `null`, exactly like `PulumiService.getStackOutputs()`'s own
-   * "empty outputs degrades to null" contract), so every one of these tests
-   * uses `makeService(null, ...)`. What used to be an unconditional dead end
-   * (`RunRecordTableNotConfiguredError`/skipped persistence/`undefined`,
-   * regardless of anything else) now succeeds once a `DeploymentConfig` has
-   * been persisted — which happens BEFORE the runs table is even reachable
-   * via a completed apply, since `BootstrapService.ensureRunsTable` creates
-   * it via the AWS SDK at wizard-bootstrap time, well before any Pulumi
-   * apply ever runs.
-   *
-   * Honest scope note: this is a focused unit test on `RunRecordService`
-   * directly (per the fix brief's option B — a DI-seam stub can't
-   * realistically model "a real Pulumi apply never ran, but the AWS SDK
-   * already created a real DynamoDB table," since the Pulumi engine itself
-   * is unavailable in this test tier). It proves the SERVICE-LAYER gates
-   * (`persist`/`getByRunId`/`listRuns`/`approveRun`) resolve a real table
-   * name and proceed instead of dead-ending — it does NOT exercise a real
-   * DynamoDB table, a real `BootstrapService.ensureRunsTable` AWS SDK call,
-   * or the real Pulumi Automation API. `BootstrapService.test.ts` covers
-   * `ensureRunsTable` itself (mocked AWS SDK) and
-   * `cloud-provider.module.test.ts` covers `resolveRunRecordStoreConfig`'s
-   * identical fallback for the `AwsRunRecordStore` construction path — this
-   * describe block is the third leg proving the gates that were the
-   * ORIGINAL deadlock (`RunRecordTableNotConfiguredError`,
-   * `PulumiPlanRunNotFoundError`'s precondition) no longer trip.
+   * Proves the service-layer gates (`persist`/`getByRunId`/`listRuns`/
+   * `approveRun`) resolve a runs table name from a persisted
+   * `DeploymentConfig` and proceed, even on a fresh install where no Pulumi
+   * apply has ever succeeded (`getStackOutputs()` resolves `null`).
+   * `BootstrapService.test.ts` and `cloud-provider.module.test.ts` cover the
+   * AWS SDK / store-construction fallbacks this depends on.
    */
   describe('pre-apply runsTableName fallback (bootstrap-deadlock fix)', () => {
     it('should skip persistence when neither a stack output nor a persisted DeploymentConfig has a runs table name yet (the true pre-bootstrap state)', async () => {

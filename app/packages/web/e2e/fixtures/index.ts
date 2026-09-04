@@ -71,14 +71,12 @@ export interface StubOptions {
    * Each element may be either a bare game name (shorthand for the default
    * `declared`/`deployed` wrapping above) or a full `GameListEntry` object,
    * so a spec can mix declared-only, deployed-only, and fully-declared
-   * entries — including a `config` payload — in a single stub. See issue
-   * #92 for the `{ games: GameListEntry[] }` response shape and issue #93
-   * for the Games settings section that reads `config`.
+   * entries — including a `config` payload — in a single stub.
    */
   games?: (string | GameListEntry)[];
   /**
    * Drift report returned by `GET /api/drift` (the `drift.get` IPC channel),
-   * consumed by `PendingChangesBanner` (issue #101). Defaults to an empty
+   * consumed by `PendingChangesBanner`. Defaults to an empty
    * report (`{ entries: [] }`) so the banner stays hidden unless a spec
    * opts in with at least one `DriftEntry`.
    */
@@ -103,7 +101,7 @@ export interface StubOptions {
   lambdaLogLines?: Record<string, string[]>;
   /**
    * Response(s) returned by `GET /api/audit` (the `audit.list` IPC channel),
-   * consumed by the `/audit` page (issue #102). Either a fixed
+   * consumed by the `/audit` page. Either a fixed
    * `AuditPageResult` returned for every call, or a builder receiving the
    * parsed `limit`/`before` query params so a spec can return a different
    * page per cursor (e.g. the first page's `nextBefore` becomes the second

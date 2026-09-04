@@ -1,5 +1,5 @@
 /**
- * "Storage" step of the add-game wizard (#99): editable `volumes` rows
+ * "Storage" step of the add-game wizard: editable `volumes` rows
  * (`name` + `container_path`) plus fully-optional `file_seeds` rows (`path`
  * + `content` + `content_base64` + `mode`).
  *

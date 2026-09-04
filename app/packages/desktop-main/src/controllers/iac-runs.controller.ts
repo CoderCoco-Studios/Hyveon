@@ -204,7 +204,6 @@ export class IacRunsController implements OnModuleInit {
    * @throws `BadRequestException` when `payload.runId` isn't a non-empty
    *   string.
    *
-   * Reachable via the Electron IPC transport (`iac.runs.get`).
    */
   @MessagePattern('iac.runs.get')
   async get(@Payload() payload: IacRunsGetPayload): Promise<IacRunsGetResult> {
@@ -254,7 +253,6 @@ export class IacRunsController implements OnModuleInit {
    * @throws `BadRequestException` when `payload.runId` isn't a non-empty
    *   string.
    *
-   * Reachable via the Electron IPC transport (`iac.runs.logs`).
    */
   @MessagePattern('iac.runs.logs')
   async logs(
@@ -314,7 +312,6 @@ export class IacRunsController implements OnModuleInit {
    * @throws `BadRequestException` when `opts.status` is present but not one
    *   of {@link RUN_STATUSES}.
    *
-   * Reachable via the Electron IPC transport (`iac.runs.list`).
    */
   @MessagePattern('iac.runs.list')
   async list(@Payload() opts: ListRunsOpts = {}): Promise<RunPageResult> {
@@ -336,7 +333,6 @@ export class IacRunsController implements OnModuleInit {
    * @throws `BadRequestException` when `payload.logKey` isn't a non-empty
    *   string.
    *
-   * Reachable via the Electron IPC transport (`iac.runs.logUrl`).
    */
   @MessagePattern('iac.runs.logUrl')
   async logUrl(@Payload() payload: IacRunsLogUrlPayload): Promise<IacRunsLogUrlResult> {
@@ -373,7 +369,6 @@ export class IacRunsController implements OnModuleInit {
    *   non-empty string, when no run lock is currently held, or when the
    *   currently held lock's `runId` doesn't match `payload.expectedRunId`.
    *
-   * Reachable via the Electron IPC transport (`iac.runs.lock.clear.mintToken`).
    */
   @MessagePattern('iac.runs.lock.clear.mintToken')
   async mintLockClearToken(@Payload() payload: IacRunsLockMintPayload): Promise<IacRunsLockMintAck> {
@@ -407,7 +402,6 @@ export class IacRunsController implements OnModuleInit {
    * @throws `BadRequestException` when `payload.confirmationToken` isn't a
    *   non-empty string.
    *
-   * Reachable via the Electron IPC transport (`iac.runs.lock.clear`).
    */
   @MessagePattern('iac.runs.lock.clear')
   async clearLock(@Payload() payload: IacRunsLockClearPayload): Promise<IacRunsLockClearAck> {

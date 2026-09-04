@@ -472,21 +472,12 @@ describe('PulumiService.destroy confirmation gate', () => {
   });
 
   it('should NOT consume the token when the config-presence checks fail — those checks run before the token gate, not after', async () => {
-    // Corrected ordering (per review): the config-existence checks are pure,
-    // synchronous, idempotent reads with no ordering constraint relative to
-    // the token gate (only createRun() must follow the token — see the
-    // source's "Gate structure" doc section for the forced-vs-chosen
-    // breakdown) — placed BEFORE the token so a call that was always going
-    // to fail an ordinary "is anything deployed yet" check doesn't also
-    // burn the operator's single-use confirmation.
-    //
-    // Uses the "stack never created" (no stackInitialized record) check
-    // rather than the state-bucket check specifically because
-    // `stackInitialized` is NOT part of target binding — minting with the
-    // bucket/region already configured (so the token's recorded target
-    // matches on retry) but `stackInitialized` still unset isolates "was the
-    // token consumed" from "does the target still match", which changing the
-    // bucket between mint and retry would conflate.
+    // The config-existence checks run before the token gate — see the
+    // source's "Gate structure" doc section — so a call that fails an
+    // ordinary "is anything deployed yet" check doesn't burn the operator's
+    // single-use confirmation. Uses the "stack never created" check (rather
+    // than the state-bucket check) so target binding isn't conflated with
+    // whether the token was consumed.
     const workspace = makeWorkspace(makeHappyPathDestroy());
     const store = makeStore({ stateBucket: 'my-state-bucket', awsRegion: 'us-east-1' });
     const service = makeService({ workspace, store });

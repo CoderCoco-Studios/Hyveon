@@ -71,9 +71,7 @@ export class PulumiServiceStub {
   private applyRun: ScriptedPulumiRun<PulumiUpResult> = EMPTY_RUN;
   private destroyRun: ScriptedPulumiRun<PulumiDestroyResult> = EMPTY_RUN;
 
-  // ---------------------------------------------------------------------
   // Scripting API (spec-facing)
-  // ---------------------------------------------------------------------
 
   /** Scripts `getStackOutputs()`'s next resolution — `null` models a never-deployed stack. */
   scriptStackOutputs(outputs: StackOutputs | null): void {
@@ -115,9 +113,7 @@ export class PulumiServiceStub {
     this.destroyRun = EMPTY_RUN;
   }
 
-  // ---------------------------------------------------------------------
   // `PulumiService`-shaped surface (consumer-facing)
-  // ---------------------------------------------------------------------
 
   /** @see PulumiService.getStackOutputs */
   async getStackOutputs(): Promise<StackOutputs | null> {

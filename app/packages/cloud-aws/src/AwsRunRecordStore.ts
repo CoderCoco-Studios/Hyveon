@@ -88,36 +88,13 @@ export class AwsRunRecordStore implements RunRecordStore {
   private s3ClientCacheKey: string | null = null;
 
   /**
-   * @param getConfig - Resolves the DynamoDB table and S3 bucket (and
-   *   optional region) this store reads/writes, on every call — so a
-   *   rename picked up between calls (e.g. after a Pulumi apply run through
-   *   `PulumiService`) isn't stuck targeting a stale table/bucket. Optional so the class
-   *   remains constructible with no arguments, mirroring
-   *   `AwsAuditLogStore`/`AwsRemoteFileStore`'s zero-arg-constructible
-   *   pattern. When omitted (or when it returns no `tableName`/`bucket`),
-   *   the relevant methods throw a clear "not configured" error rather
-   *   than sending a malformed request. When `region` is omitted, it falls
-   *   back to {@link resolveDefaultAwsRegion} — never read from
-   *   `process.env` directly here, per CLAUDE.md's "no raw `process.env`
-   *   in business logic" guideline.
+   * Resolves table/bucket/region/credentials for this store on every call — see {@link
+   * AwsAuditLogStore}'s constructor doc for why (rename-safety, zero-arg constructibility, Promise
+   * support, and the `credentialsSignature` cache-key rotation reason all apply identically here,
+   * across both the DynamoDB and S3 clients).
    *
-   *   May return a `Promise` — see `AwsAuditLogStore`'s identical constructor
-   *   doc comment for why this is safe (every real invocation happens inside
-   *   this class's own already-`async` methods) and why existing sync
-   *   closures are unaffected.
-   *
-   *   `credentials`, when supplied, is passed straight through to both
-   *   `DynamoDBClient` and `S3Client` — omitting it leaves the SDK's own
-   *   default provider chain in effect, which resolves nothing in a
-   *   GUI-launched Electron process (see `desktop-main`'s
-   *   `resolveAwsClientCredentials`, the real caller's source for this
-   *   field). `credentialsSignature`, when supplied, is a cheap, comparable
-   *   fingerprint of `credentials` — see `desktop-main`'s
-   *   `resolveAwsClientCredentialsWithSignature` for why `credentials` itself
-   *   can't be compared to detect a rotation. {@link getDynamoClient}/
-   *   {@link getS3Client} key their cache on this alongside region so a
-   *   same-region credentials rotation still rebuilds the client instead of
-   *   staying pinned to a stale key indefinitely.
+   * @param getConfig - Resolves the DynamoDB table, S3 bucket, region, and credentials. Optional;
+   *   omitted (or missing `tableName`/`bucket`) makes the relevant methods throw "not configured".
    */
   constructor(
     private readonly getConfig?: () => (

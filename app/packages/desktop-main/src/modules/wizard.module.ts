@@ -21,8 +21,7 @@ import { DeploymentConfigModule } from './deployment-config.module.js';
  * for the pasted-credentials, credential-resolution, wizard-completion,
  * guided-IAM-bootstrap, and cloud-health-check flows. Also imports
  * `ConfigModule` — `CloudHealthService` additionally injects `ConfigService`
- * (for `getRegion()`, building its `IAMClient`), which no other provider in
- * this module previously required. Also imports `DeploymentConfigModule` so
+ * (for `getRegion()`, building its `IAMClient`). Also imports `DeploymentConfigModule` so
  * `CloudHealthService` can resolve the operator's configured project name
  * for its `HyveonDeployAll` remediation policy — `DeploymentConfigModule`
  * only depends on `ConfigModule`/`CloudProviderModule`, so this doesn't

@@ -150,10 +150,9 @@ interface IacPlanChunkMessage {
 /**
  * Message payload sent once on {@link PLAN_END_CHANNEL} when a
  * `iac.plan` run finishes. `exitCode` is `0` on success, or `null` on
- * failure — the Pulumi Automation API has no real process exit code to
- * report (unlike the spawned CLI process this channel originally
- * bridged), so `null` uniformly represents "this run did not succeed" here,
- * rather than trying to recover a synthetic non-zero number. `result` is
+ * failure — the Automation API has no process exit code, so `null`
+ * uniformly means "did not succeed" here, rather than trying to recover a
+ * synthetic non-zero number. `result` is
  * present only on a successful run — the structured `changeSummary` and
  * artifact/hash/engine-version fields `PulumiService.preview` resolved.
  */
@@ -711,7 +710,6 @@ export class IacController implements OnModuleInit {
    * the terminal `PulumiPreviewResult` (the generator's return value once `done`) can be
    * attached to the end message's `result` field — a `for await` loop discards that value.
    *
-   * Reachable via the Electron IPC transport (`iac.plan`).
    */
   @MessagePattern('iac.plan')
   async plan(
@@ -812,7 +810,6 @@ export class IacController implements OnModuleInit {
    * There is no `RunService.createRun`/`releaseRun` call anywhere in this controller —
    * `PulumiService.apply`'s own gate and persistence path own the durable lock's full lifecycle.
    *
-   * Reachable via the Electron IPC transport (`iac.apply`).
    */
   @MessagePattern('iac.apply')
   async apply(
@@ -939,7 +936,6 @@ export class IacController implements OnModuleInit {
    * `../ipc-main-bridge.ts` wires it automatically (it isn't listed in
    * `SELF_BRIDGED_PATTERNS`).
    *
-   * Reachable via the Electron IPC transport (`iac.destroy.mintToken`).
    */
   @MessagePattern('iac.destroy.mintToken')
   mintDestroyToken(): IacDestroyMintAck {
@@ -952,7 +948,6 @@ export class IacController implements OnModuleInit {
    * back on {@link clearStaleLock}'s payload before it expires — mirrors
    * {@link mintDestroyToken} exactly, for the lock-clear confirmation gate.
    *
-   * Reachable via the Electron IPC transport (`iac.lock.clear.mintToken`).
    */
   @MessagePattern('iac.lock.clear.mintToken')
   mintLockClearToken(): IacLockClearMintAck {
@@ -971,7 +966,6 @@ export class IacController implements OnModuleInit {
    * unrelated rejection (e.g. `RunLockHeldError`) never burns a token that an invalid request
    * would otherwise waste.
    *
-   * Reachable via the Electron IPC transport (`iac.destroy`).
    */
   @MessagePattern('iac.destroy')
   async destroy(
@@ -1086,7 +1080,6 @@ export class IacController implements OnModuleInit {
    * `PulumiService.getStackOutputs()` directly; falls back to the latter only in the
    * test-construction path where `config` isn't supplied.
    *
-   * Reachable via the Electron IPC transport (`iac.output`).
    */
   @MessagePattern('iac.output')
   async output(@Payload() payload: IacOutputPayload = {}): Promise<StackOutputs | null> {

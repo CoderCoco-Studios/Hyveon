@@ -2,7 +2,7 @@ import { test, expect, stubApis } from '../fixtures/index.js';
 import type { AuditPageResult } from '../fixtures/index.js';
 
 /**
- * Specs for the `/audit` route added in issue #102: the mutation-history
+ * Specs for the `/audit` route: the mutation-history
  * table listing every `game_servers` change (timestamp, actor, action, game,
  * version), the expandable before/after JSON diff per row, and "Load more"
  * pagination via the `nextBefore` cursor. Plain browser-stub specs (chromium

@@ -13,9 +13,7 @@
 
 import type { HyveonApi } from './hyveon-api.js';
 
-// ---------------------------------------------------------------------------
 // Namespace key union — derived from HyveonApi so it stays in sync automatically.
-// ---------------------------------------------------------------------------
 
 /**
  * Union of the namespace keys present on {@link HyveonApi} (excluding `__test`).
@@ -23,9 +21,7 @@ import type { HyveonApi } from './hyveon-api.js';
  */
 export type HyveonNamespace = Exclude<keyof HyveonApi, '__test'>;
 
-// ---------------------------------------------------------------------------
 // Overloaded namespace → sub-interface mapping
-// ---------------------------------------------------------------------------
 
 /**
  * Maps each {@link HyveonNamespace} key to the sub-interface it holds on
@@ -42,16 +38,12 @@ export type HyveonNamespaceMap = { [K in HyveonNamespace]: HyveonApi[K] };
  */
 export type HyveonPartialNamespaceMap = { [K in HyveonNamespace]: Partial<HyveonApi[K]> };
 
-// ---------------------------------------------------------------------------
 // Internal registry store
-// ---------------------------------------------------------------------------
 
 /** Mutable store keyed by namespace, each value being a partial stub of that namespace. */
 const _registry: Partial<HyveonPartialNamespaceMap> = {};
 
-// ---------------------------------------------------------------------------
 // Public API
-// ---------------------------------------------------------------------------
 
 /**
  * Registers a mock implementation for a single `window.hyveon` namespace.

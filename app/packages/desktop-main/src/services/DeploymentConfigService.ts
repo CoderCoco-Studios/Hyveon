@@ -34,8 +34,7 @@
  * the shared Winston `logger` and resolve to `[]`, mirroring `ConfigService`'s
  * graceful degradation for polling callers.
  *
- * `addGameServer()`, `updateGameServer()`, and `removeGameServer()` (see
- * issue #96, updated for the JSON migration) are the write-side counterpart:
+ * `addGameServer()`, `updateGameServer()`, and `removeGameServer()` are the write-side counterpart:
  * they read the current `DeploymentConfig` JSON, mutate the `gameServers`
  * record, and `JSON.stringify` the result back — a plain, lossless
  * serialize/deserialize round trip, unlike the byte-preserving HCL splice
@@ -355,7 +354,7 @@ export class DeploymentConfigService {
 
   /**
    * Restores `rawConfig` as the config source's new head version verbatim —
-   * used by the rollback flow (#112) to write a prior version's exact bytes
+   * used by the rollback flow to write a prior version's exact bytes
    * back as a fresh S3 version (history is append-only; this never deletes
    * or reverts an existing version) rather than applying a
    * `gameServers`-specific mutation like {@link addGameServer}/
@@ -462,7 +461,7 @@ export class DeploymentConfigService {
   }
 
   /**
-   * Adds a brand-new entry to the `gameServers` map (see issue #96). Reads
+   * Adds a brand-new entry to the `gameServers` map. Reads
    * the current raw config JSON, splices `name` in as a new `gameServers`
    * key, and writes the result back via {@link writeConfig} — see that
    * method's doc for the conditional-put / `OptimisticLockError`
@@ -493,8 +492,8 @@ export class DeploymentConfigService {
   }
 
   /**
-   * Replaces an existing `gameServers` entry's value in place (see issue
-   * #96). Reads the current raw config JSON, replaces `name`'s value, and
+   * Replaces an existing `gameServers` entry's value in place. Reads
+   * the current raw config JSON, replaces `name`'s value, and
    * writes the result back via {@link writeConfig} — see that method's doc
    * for the conditional-put / `OptimisticLockError` contract. Throws
    * {@link GameServerEntryError} (`reason: 'not-found'`) if `name` doesn't
@@ -523,7 +522,7 @@ export class DeploymentConfigService {
   }
 
   /**
-   * Removes an entry from the `gameServers` map (see issue #96). Reads the
+   * Removes an entry from the `gameServers` map. Reads the
    * current raw config JSON, deletes `name`'s key, and writes the result
    * back via {@link writeConfig} — see that method's doc for the
    * conditional-put / `OptimisticLockError` contract. Throws

@@ -39,26 +39,16 @@ export class AwsSecretsStore implements SecretsStore {
   private readonly cache = new Map<string, SecretCacheEntry>();
 
   /**
-   * @param getRegion - Resolves the AWS region the Secrets Manager client
-   *   should target, on every call. Falls back to `AWS_REGION_` (Lambda's
-   *   reserved-name workaround, see CLAUDE.md), then `AWS_REGION`, then
-   *   `AWS_DEFAULT_REGION`, then `us-east-1` when omitted. Mirrors
-   *   `AwsCloudProvider`'s `getConfig` callback pattern so a region change
-   *   picked up between calls rebuilds the client instead of being stuck
-   *   with whatever region was resolved first.
-   * @param getCredentials - Resolves the AWS credentials the Secrets Manager
-   *   client should authenticate with, on every call. Omitting it (or
-   *   returning `undefined`) leaves the SDK's own default provider chain in
-   *   effect, which resolves nothing in a GUI-launched Electron process —
-   *   see `desktop-main`'s `resolveAwsClientCredentials`, the real caller's
-   *   source for this field.
-   * @param getCredentialsSignature - Resolves a cheap, comparable fingerprint
-   *   of `getCredentials()`'s current value, on every call — see
-   *   `desktop-main`'s `resolveAwsClientCredentialsWithSignature` for why
-   *   `getCredentials()`'s own return value can't be compared directly to
-   *   detect a rotation. {@link getClient} keys its cache on this alongside
-   *   region so a same-region credentials rotation still rebuilds the client
-   *   instead of staying pinned to a stale key indefinitely.
+   * Resolves region/credentials for the Secrets Manager client on every call — see {@link
+   * AwsAuditLogStore}'s constructor doc for why (the rename-safety pattern and the
+   * `credentialsSignature` cache-key rotation reason apply identically here).
+   *
+   * @param getRegion - Resolves the AWS region on every call. Falls back to `AWS_REGION_`, then
+   *   `AWS_REGION`, then `AWS_DEFAULT_REGION`, then `us-east-1` when omitted.
+   * @param getCredentials - Resolves the credentials to authenticate with; omitting it (or
+   *   returning `undefined`) leaves the SDK's own default provider chain in effect.
+   * @param getCredentialsSignature - Resolves a cheap fingerprint of `getCredentials()`'s current
+   *   value; {@link getClient} keys its cache on it so a rotation rebuilds the client.
    */
   constructor(
     private readonly getRegion?: () => string,

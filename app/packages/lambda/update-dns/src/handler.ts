@@ -1,5 +1,5 @@
 /**
- * DNS updater Lambda — TypeScript port of the original `update_dns.py`.
+ * DNS updater Lambda.
  *
  * Triggered by EventBridge on `ECS Task State Change`.
  *
@@ -8,8 +8,7 @@
  *   - RUNNING → resolve ENI public IP → UPSERT Route 53 A record
  *   - STOPPED → DELETE Route 53 A record
  *
- * New behaviour added in the serverless-Discord migration: on RUNNING, after
- * the DNS update, look up a pending Discord interaction by task ARN and
+ * On RUNNING, after the DNS update, look up a pending Discord interaction by task ARN and
  * PATCH the original message with the resolved hostname/IP, then delete the
  * pending row. The Discord interaction token in the pending row is valid for
  * up to 15 minutes — same window as the ECS provisioning timeline.
