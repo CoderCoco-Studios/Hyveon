@@ -120,32 +120,40 @@ export class LogsController implements OnModuleInit {
   }
 
   /**
-   * Opens a live log stream for `game` and returns an opaque `streamId`
-   * immediately. Chunks are pushed to the renderer via `sender.send` on the
-   * `logs.stream.<streamId>.chunk` channel as they arrive from FilterLogEvents.
-   * The stream terminates with a `logs.stream.<streamId>.end` message
+   * Opens a live log stream and returns an opaque `streamId` immediately.
+   * Chunks are pushed to the renderer via `sender.send` on the
+   * `<channelPrefix><streamId>.chunk` channel as they arrive from `source`.
+   * The stream terminates with a `<channelPrefix><streamId>.end` message
    * carrying `{ error?: string }`.
    *
    * The renderer cancels the stream by sending
-   * `logs.stream.${streamId}.cancel` via `ipcRenderer.send`.
+   * `<channelPrefix><streamId>.cancel` via `ipcRenderer.send`.
    *
    * The controller creates its own `AbortController` per invocation because
    * `ElectronIPCTransport` passes `{ evt }` as the execution context — there
-   * is no `signal` property injected by the transport.
+   * is no `signal` property injected by the transport. `source` receives that
+   * signal so the underlying `LogsService` generator can be constructed here,
+   * after the `AbortController` exists.
    *
+   * @param source - Builds the log generator from this invocation's abort signal.
+   * @param channelPrefix - Channel namespace, e.g. `logs.stream.` or `logs.lambda.stream.`.
+   * @param ctx - Transport context carrying the originating `IpcMainInvokeEvent`.
+   * @param errorLogLabel - Message logged via `logger.error` when `source` throws.
+   * @param errorLogFields - Non-secret identifiers merged into that error log line.
    */
-  @MessagePattern('logs.stream')
-  async streamLogs(
-    @Payload() game: string,
+  private async openStream(
+    source: (signal: AbortSignal) => AsyncGenerator<string>,
+    channelPrefix: string,
     ctx: { evt: IpcMainInvokeEvent },
+    errorLogLabel: string,
+    errorLogFields: Record<string, unknown>,
   ): Promise<{ streamId: string }> {
-    logger.debug('LogsController: logs.stream invoked', { game });
     const streamId = randomUUID();
     const ac = new AbortController();
     const sender: WebContents = ctx.evt.sender;
-    const chunkChannel = `logs.stream.${streamId}.chunk`;
-    const endChannel = `logs.stream.${streamId}.end`;
-    const cancelChannel = `logs.stream.${streamId}.cancel`;
+    const chunkChannel = `${channelPrefix}${streamId}.chunk`;
+    const endChannel = `${channelPrefix}${streamId}.end`;
+    const cancelChannel = `${channelPrefix}${streamId}.cancel`;
 
     // Lazily import ipcMain so the module stays importable in plain-Node test
     // environments where the Electron runtime is absent.
@@ -161,7 +169,7 @@ export class LogsController implements OnModuleInit {
     // invoke reply mechanism, which only supports a single return value.
     void (async () => {
       try {
-        for await (const line of this.logs.streamLogs(game, ac.signal)) {
+        for await (const line of source(ac.signal)) {
           if (sender.isDestroyed()) { ac.abort(); break; }
           sender.send(chunkChannel, line);
         }
@@ -173,7 +181,7 @@ export class LogsController implements OnModuleInit {
           if (!sender.isDestroyed()) sender.send(endChannel, {});
         } else {
           const message = errMessage(err);
-          logger.error('Log stream error', { message, game, streamId });
+          logger.error(errorLogLabel, { message, ...errorLogFields, streamId });
           if (!sender.isDestroyed()) {
             sender.send(endChannel, { error: String(err) });
           }
@@ -186,6 +194,25 @@ export class LogsController implements OnModuleInit {
     })();
 
     return { streamId };
+  }
+
+  /**
+   * Opens a live log stream for `game`, delegating to {@link LogsService.streamLogs}.
+   * See {@link openStream} for the shared channel/cancel/error-normalization contract.
+   */
+  @MessagePattern('logs.stream')
+  async streamLogs(
+    @Payload() game: string,
+    ctx: { evt: IpcMainInvokeEvent },
+  ): Promise<{ streamId: string }> {
+    logger.debug('LogsController: logs.stream invoked', { game });
+    return this.openStream(
+      (signal) => this.logs.streamLogs(game, signal),
+      'logs.stream.',
+      ctx,
+      'Log stream error',
+      { game },
+    );
   }
 
   /**
@@ -253,13 +280,11 @@ export class LogsController implements OnModuleInit {
   }
 
   /**
-   * Opens a live log stream for `functionKey` and returns an opaque
-   * `streamId` immediately, following {@link streamLogs}'s exact shape
-   * (its own `AbortController`, per-stream chunk/end/cancel side channels)
-   * but delegating to {@link LogsService.streamLambdaLogs} instead. Uses a
-   * distinct `logs.lambda.stream.<id>.*` channel namespace so it can never
-   * collide with `logs.stream.<id>.*`.
-   *
+   * Opens a live log stream for `functionKey`, using a distinct
+   * `logs.lambda.stream.<id>.*` channel namespace so it can never collide
+   * with `logs.stream.<id>.*`, and delegating to
+   * {@link LogsService.streamLambdaLogs}. See {@link openStream} for the
+   * shared channel/cancel/error-normalization contract.
    */
   @MessagePattern('logs.lambda.stream')
   async streamLambdaLogs(
@@ -267,36 +292,12 @@ export class LogsController implements OnModuleInit {
     ctx: { evt: IpcMainInvokeEvent },
   ): Promise<{ streamId: string }> {
     logger.debug('LogsController: logs.lambda.stream invoked', { functionKey });
-    const streamId = randomUUID();
-    const ac = new AbortController();
-    const sender: WebContents = ctx.evt.sender;
-    const chunkChannel = `logs.lambda.stream.${streamId}.chunk`;
-    const endChannel = `logs.lambda.stream.${streamId}.end`;
-    const cancelChannel = `logs.lambda.stream.${streamId}.cancel`;
-
-    const { ipcMain } = await import('electron') as unknown as { ipcMain: IpcMain };
-    ipcMain.once(cancelChannel, () => { ac.abort(); });
-
-    void (async () => {
-      try {
-        for await (const line of this.logs.streamLambdaLogs(functionKey, ac.signal)) {
-          if (sender.isDestroyed()) { ac.abort(); break; }
-          sender.send(chunkChannel, line);
-        }
-        if (!sender.isDestroyed()) sender.send(endChannel, {});
-      } catch (err) {
-        if ((err as Error).name === 'AbortError') {
-          if (!sender.isDestroyed()) sender.send(endChannel, {});
-        } else {
-          const message = errMessage(err);
-          logger.error('Lambda log stream error', { message, functionKey, streamId });
-          if (!sender.isDestroyed()) sender.send(endChannel, { error: String(err) });
-        }
-      } finally {
-        ipcMain.removeAllListeners(cancelChannel);
-      }
-    })();
-
-    return { streamId };
+    return this.openStream(
+      (signal) => this.logs.streamLambdaLogs(functionKey, signal),
+      'logs.lambda.stream.',
+      ctx,
+      'Lambda log stream error',
+      { functionKey },
+    );
   }
 }
