@@ -51,6 +51,7 @@ function requireEnv(name: string): string {
 
 function region(): string {
   return (
+    // AWS_REGION_ (trailing underscore) — AWS_REGION is reserved by the Lambda runtime and cannot be set as a function env var.
     process.env['AWS_REGION_'] ??
     process.env['AWS_REGION'] ??
     process.env['AWS_DEFAULT_REGION'] ??

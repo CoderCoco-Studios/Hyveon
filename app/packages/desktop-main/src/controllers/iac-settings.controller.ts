@@ -90,37 +90,16 @@ export class IacSettingsController {
 
   /**
    * Validates `payload.patch` via {@link validateDeploymentSettingsPatch}
-   * (the same validator the renderer's form runs client-side — see that
-   * function's doc comment) and, if it passes, delegates to
-   * `DeploymentConfigService.updateTopLevelSettings()`. Re-reads the settings
-   * post-write so a successful result's `settings` reflects exactly what's
-   * now persisted, including any field `payload.patch` omitted.
+   * and, if it passes, delegates to
+   * `DeploymentConfigService.updateTopLevelSettings()`, re-reading afterward
+   * so a successful result reflects exactly what's now persisted.
    *
-   * Failure mapping:
-   *  - {@link validateDeploymentSettingsPatch} reports issues → `{ code: 'validation' }`
-   *    with the full issue list — never reaches `DeploymentConfigService` at all.
-   *  - `RunsTableRenameError` (the patch would rename the already-bootstrapped
-   *    run-history table — see that class's own doc comment) → also
-   *    `{ code: 'validation' }`, with one issue per field the error reports
-   *    changed (`projectName`/`runsTableName`), so the Settings form's
-   *    existing per-field issue rendering displays it with no changes needed.
-   *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
-   *    with both etags.
-   *  - `ConfigurationNotConfiguredError` (no configuration bucket configured)
-   *    → `{ code: 'setup_incomplete' }`, distinct from the generic
-   *    `{ code: 'error' }` so the renderer can route the operator toward the
-   *    setup wizard instead of a generic failure message.
-   *  - Anything else (e.g. malformed config JSON, an unexpected S3 error, or
-   *    a malformed `payload`/`payload.patch` envelope itself) → the
-   *    catch-all `{ code: 'error' }`.
-   *
-   * The {@link validateDeploymentSettingsPatch} call lives INSIDE the `try`
-   * block rather than before it — a malformed envelope
-   * (`payload` or `payload.patch` absent/wrong-shaped, which nothing upstream
-   * of this handler guarantees against on the IPC boundary) would otherwise
-   * throw a raw, unstructured error out of this handler instead of returning
-   * the same `{ code: 'error' }` shape every other unexpected failure here
-   * resolves to.
+   * The validation call lives INSIDE the `try` block rather than before it:
+   * `payload`/`payload.patch` may be absent or wrong-shaped (nothing
+   * upstream of this handler guarantees the IPC boundary), and a malformed
+   * envelope there must resolve to the same `{ code: 'error' }` shape as
+   * every other unexpected failure here — not throw a raw, unstructured
+   * error out of the handler.
    *
    */
   @MessagePattern('iac.settings.update')

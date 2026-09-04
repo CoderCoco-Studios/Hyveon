@@ -11,9 +11,10 @@ import type { DiscordAction, DiscordConfig } from './types.js';
  * 4. Otherwise → deny.
  *
  * Pure function — no I/O, no `this`. Same logic that lived in
- * DiscordConfigService.canRun() before the serverless migration; moved to
- * shared so the Nest server, InteractionsLambda, and FollowupLambda all use
- * one copy.
+ * DiscordConfigService.canRun() before the serverless migration.
+ *
+ * Exactly one copy — imported verbatim by `@hyveon/desktop-main` and every Lambda. Never fork
+ * or re-implement this logic (CLAUDE.md invariant).
  */
 export function canRun(
   cfg: DiscordConfig,

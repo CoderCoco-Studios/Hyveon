@@ -15,6 +15,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+/** Reads the guarded tool call's JSON payload off stdin to completion, as a raw string. */
 export function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -83,6 +84,7 @@ function respondClaude(permissionDecision: PreToolUseHookSpecificOutput['permiss
   process.exit(0);
 }
 
+/** Refuses the guarded tool call. Exits with code 0 (not non-zero) — refusal is signalled via the `deny` payload, not the process exit code. */
 export function deny(reason: string): never {
   return respondClaude('deny', reason);
 }

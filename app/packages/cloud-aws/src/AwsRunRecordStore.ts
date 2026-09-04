@@ -287,6 +287,10 @@ export class AwsRunRecordStore implements RunRecordStore {
    * more rows beyond this page — set to the oldest (last) record's `sk` in
    * the page.
    *
+   * `status-index` is a GSI, so it is only eventually consistent: a run record written just
+   * before this call can be briefly absent from a status-filtered page even though the
+   * unfiltered `pk = RUN` path would already show it.
+   *
    * @param opts - Listing options:
    * - `limit` - The maximum number of records to return.
    * - `before` - When provided, only records older than this cursor (a

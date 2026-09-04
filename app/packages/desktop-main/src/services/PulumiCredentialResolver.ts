@@ -56,66 +56,26 @@ function clearedEnvVars(keys: readonly string[]): Record<string, string> {
  * engine" requirement.
  *
  * @remarks
- * ## Exclusivity / clearing (spec-mandated, not optional)
- *
  * The selected source's variables are set, and the *other* source's
  * variables are explicitly set to `''` in the same returned object — never
  * merely omitted. This matters because the seam's `envVars` become an
- * `execa` `env` option with `extendEnv: true` (the SDK's default — see
- * `node_modules/execa/index.js`'s `getEnv` function, which spreads
- * `process.env` first and the `env` option second when `extendEnv` is
- * true), several layers down (`LocalWorkspace.runPulumiCmd` →
- * `PulumiCommand.run` → `exec` → `execa(command, args, opts)`, all in
- * `@pulumi/pulumi/automation/localWorkspace.js` and `.../cmd.js`). The
- * final child environment is therefore `process.env` spread first, then
- * our `envVars` spread on top — a plain
- * shallow spread, keyed by name, with no special-casing of `''`. A key this
- * function omits is not present in `ourEnvVars` at all, so the spread leaves
- * whatever ambient value `process.env` had for that key completely
- * untouched — an operator's shell `AWS_PROFILE`, a launcher's stray
- * `AWS_ACCESS_KEY_ID`, etc. would silently outrank the wizard's selection.
- * Supplying the key with value `''` instead means the key IS present in
- * `ourEnvVars`, so the spread's later `...ourEnvVars` always wins for that
- * key regardless of what `process.env` held — this is what "cleared, not
- * merely omitted" means at the mechanism level, and is exactly what
- * `PulumiWorkspaceService.test.ts`'s "should support clearing an inherited
- * variable via an explicit empty string" test already exercises for the
- * seam side of this contract.
+ * `execa` `env` option with `extendEnv: true`, which spreads `process.env`
+ * first and `env` second: a key this function omits is simply absent from
+ * the overlay, so the spread leaves whatever ambient value `process.env` had
+ * (an operator's shell `AWS_PROFILE`, a launcher's stray
+ * `AWS_ACCESS_KEY_ID`) completely untouched and silently outranking the
+ * wizard's selection. Supplying the key with value `''` instead means the
+ * later spread always wins for that key regardless of what `process.env`
+ * held — this is what "cleared, not merely omitted" means at the mechanism
+ * level.
  *
  * `''` is "present but empty", not "absent from the process' environment
- * table" — this function cannot make the child process's `getenv()` return
- * `NULL` for a cleared key (that would require actually deleting the key
- * from `process.env` before every spawn, which is outside what this
- * store-reading resolver does, and outside what `execa`'s public API
- * supports either). It relies instead on well-documented downstream
- * behaviour: both the AWS SDK for Go (used by the `pulumi` CLI binary and
- * its provider plugins) and the AWS SDK for JavaScript resolve
+ * table" — this relies on well-documented downstream behaviour: both the AWS
+ * SDK for Go (used by the `pulumi` CLI binary and its provider plugins) and
+ * the AWS SDK for JavaScript resolve
  * `AWS_PROFILE`/`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` by checking for a
  * *non-empty* string, not merely a *set* one, so `''` is treated the same as
- * "not set" by every consumer these variables are meant for. This function's
- * own tests prove the mechanism up to "the final merged environment object
- * has `''` for the cleared key, not the ambient value" (see
- * `PulumiCredentialResolver.test.ts`'s spawn-based proof) — proving the
- * `pulumi` binary's own AWS SDK-for-Go credential chain treats that `''` as
- * absent would require running the real binary during a `preview`/`up`
- * operation, which is `PulumiService`'s territory, not this resolver's.
- *
- * ## What is logged, and what never is
- *
- * This function logs only the resolved credential SOURCE kind (`'profile'` /
- * `'pasted'`, or a warning when none is configured) via
- * `logger.debug`/`logger.warn` — never a profile name, access key id, secret
- * access key, or any other value read from `store`.
- * `PulumiCredentialResolver.test.ts`'s "credential source is logged without
- * secret values" describe block asserts this directly. The meaningful proof
- * that the *values themselves* never reach the log is
- * `PulumiWorkspaceService.test.ts`'s "should never pass the resolved
- * pasted-key values to any logger call" test, which exercises this
- * function's real output flowing through `getOrCreateStack` and inspects
- * every logger call the service makes while doing so. Neither test covers
- * `PulumiService.preview`/`.up`, which stream real CLI stdout/stderr —
- * scrubbing that streamed output is `PulumiService`'s own responsibility, not
- * something this function's code path touches.
+ * "not set" by every consumer these variables are meant for.
  *
  * @throws {@link PulumiCredentialsNotConfiguredError} when no credential
  *   source is selected at all (`resolveAwsCredentialSource` returns `'none'`).

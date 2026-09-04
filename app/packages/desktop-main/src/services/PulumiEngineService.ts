@@ -269,99 +269,42 @@ function removeDirBestEffort(path: string, context: string): void {
  * engine and no network, per the "Container builds without an engine"
  * scenario.
  *
- * ## Version-namespaced cache, not detect-and-clear
+ * `PulumiCommand.get()`/`.install()` validate an existing installation with a
+ * **minimum**-version check, not an exact-match check: `install()` accepts
+ * whatever's already at `root` as long as it satisfies `>= opts.version`
+ * (same major) — a *newer* cached version would silently be reused instead of
+ * the exact pin. Each pinned version therefore gets its own install
+ * directory (`<cacheRoot>/versions/<pin>`), so there's never a stale version
+ * to detect-and-clear at a shared path; {@link assertExactPin} additionally
+ * guards against the minimum-check behaviour in case a directory is ever
+ * manually tampered with.
  *
- * `PulumiCommand.get()`/`PulumiCommand.install()` (see
- * `node_modules/@pulumi/pulumi/automation/cmd.js`) validate an existing
- * installation with a **minimum**-version check, not an exact-match check:
- * `install()` first tries `get({ root })`, and if the binary there already
- * satisfies `>= opts.version` (same major), it's accepted as-is — a *newer*
- * cached version at the same `root` would silently be reused instead of the
- * exact pin. Rather than detecting a stale version at a single fixed `root`
- * and clearing it before installing (which would also mean trusting the
- * install script downloaded from `get.pulumi.com` to overwrite cleanly, an
- * undocumented behaviour of a script this codebase doesn't control), each
- * pinned version gets its own install directory: `<cacheRoot>/versions/<pin>`.
- * A "stale version in the cache" can then never be *the same directory* as
- * the pin's directory, so there's nothing to detect or clear — the pinned
- * version's directory either holds exactly that version (verified below) or
- * doesn't exist yet. This mirrors the SDK's own default root layout
- * (`$HOME/.pulumi/versions/$VERSION`), just relocated under `userData`.
- * {@link assertExactPin} additionally guards against the minimum-check
- * behaviour above at both the cache-hit and fresh-install paths, in case a
- * directory is ever manually tampered with. {@link pruneOldVersions} keeps
- * this from growing unbounded across pin bumps.
- *
- * ## No partial-install reuse
- *
- * {@link installFresh} never installs directly into the pin's final
- * directory. It installs into a sibling staging directory
- * (`<cacheRoot>/versions/.staging-<uuid>`), and only `renameSync`s it into
- * the final `<cacheRoot>/versions/<pin>` path once `PulumiCommand.install()`
- * has resolved *and* {@link assertExactPin} has verified the installed
- * binary reports exactly the pinned version. An interrupted or corrupted
- * install (network drop mid-download, a script that exits non-zero, a
- * binary that fails to execute) therefore never touches the final directory
- * at all — it only ever leaves debris in the staging directory, which is
- * removed via {@link removeDirBestEffort}. The re-verification `get()` call
- * *after* the rename is itself wrapped too: if it fails, the just-renamed
- * directory is removed rather than left at the final path for a later call
- * to treat as valid — and, if this was a swap-aside (see below) rather than
- * an install into a previously-empty `root`, the prior occupant is restored
- * from the trash directory instead of leaving `root` empty — and the
- * failure is classified the same way every other provisioning failure is. A
- * later call (or this one's caller, if a restore succeeded) sees either no
- * directory at the pinned path or the restored prior install, and
- * reprovisions from scratch only in the former case, satisfying the
- * "Interrupted download leaves no usable partial" scenario structurally
- * rather than via an `existsSync` staleness check that a partial write
- * could fool.
- *
- * ## Swap-aside, not delete-then-install
- *
- * {@link tryReuseCached} only deletes a cache entry outright when it has
- * positive evidence the entry is bad (see {@link isProvablyBadCacheEntry}).
- * On an *ambiguous* verification failure (the binary couldn't be exec'd for
- * a reason that says nothing about whether it's actually corrupt — a
- * transient spawn failure, antivirus interference, a locked file) it leaves
- * the entry in place and returns `null`, so {@link installFresh} still
- * attempts a fresh install. That means `installFresh` can encounter a
- * `root` that's already occupied by an entry nobody has condemned yet. It
- * handles this by swapping, not deleting: once a fresh install to staging is
- * verified, any existing occupant of `root` is `renameSync`'d aside to a
- * sibling `.trash-<uuid>` directory *first*, then the verified staging
- * install is `renameSync`'d into `root`. A same-parent `renameSync` is
- * atomic, so `root` is never observed empty between the two renames. This
- * means a possibly-still-good install is never destroyed before its
- * replacement is known to succeed — if the fresh install to staging itself
- * fails, `root` (and whatever ambiguous-but-possibly-fine entry occupies it)
- * is never touched at all, since the swap only runs after that install is
- * verified.
- *
- * The trash directory itself is *not* removed the moment the swap completes
- * — it's kept until the post-rename re-verification `get()` (see "No
- * partial-install reuse" above) confirms the newly-swapped-in install
- * actually works. If that verification fails instead, the trashed entry is
- * `renameSync`'d back into `root` rather than discarded, so a transient
- * failure at this last step can't leave the app with neither the old nor
- * the new install — only once verification succeeds is the trash directory
- * finally removed.
- *
- * ## Memoization that survives a failed attempt
+ * The engine binary is installed staging → rename → verify → trash, never
+ * in place: {@link installFresh} installs into a sibling staging directory
+ * and only `renameSync`s it into the pin's final directory once
+ * `PulumiCommand.install()` resolves and {@link assertExactPin} confirms the
+ * installed binary reports exactly the pinned version. An interrupted or
+ * corrupted install therefore never touches the final directory — only
+ * staging debris, cleaned up via {@link removeDirBestEffort}. If `root`
+ * already holds an entry nobody has condemned (see {@link tryReuseCached} /
+ * {@link isProvablyBadCacheEntry}), the verified staging install is swapped
+ * in rather than overwriting: the existing occupant is `renameSync`'d aside
+ * to a `.trash-<uuid>` directory first, then the new install renamed into
+ * `root` in a second, separate `renameSync` — each rename is individually
+ * atomic, but the two-step sequence means `root` can be observed absent
+ * between them. The trash directory is kept until a post-rename
+ * re-verification `get()` confirms the swapped-in install actually works;
+ * if that fails, the trashed entry is renamed back into `root` on a
+ * best-effort basis — that restore rename can itself fail, in which case
+ * neither the old nor the new install is left usable at `root`.
  *
  * {@link resolve} memoizes the in-flight *promise*, so concurrent callers
- * share exactly one provisioning attempt whether it ultimately succeeds or
- * fails (verified in `PulumiEngineService.test.ts` by asserting
- * `PulumiCommand.install` is called exactly once across concurrent
- * `resolve()` calls, in both the success and failure case). A **rejected**
- * attempt is deliberately not left memoized: the field is reset to `null`
- * the moment the shared promise rejects, so the *next* `resolve()` call
- * (after this one has settled) starts a fresh provisioning attempt instead
- * of replaying the same stale rejection forever — engine provisioning
- * failures (no network, a momentarily locked cache directory) are often
- * transient, and the "Provisioning fails with no network" scenario
- * explicitly requires "a retry is offered" — a retry that only re-attempts
- * anything if the failure wasn't memoized.
+ * share exactly one provisioning attempt. A **rejected** attempt is
+ * deliberately not left memoized: the field resets to `null` the moment the
+ * shared promise rejects, so the next `resolve()` call starts a fresh
+ * attempt instead of replaying the same stale rejection forever — required
+ * by the "Provisioning fails with no network" scenario's "a retry is
+ * offered".
  */
 @Injectable()
 export class PulumiEngineService {
@@ -561,7 +504,8 @@ export class PulumiEngineService {
     // rather than deleting on inconclusive evidence — move it aside first
     // rather than deleting it before the new install is confirmed to
     // succeed. Both renames are same-parent (`versionsDir`), so each is
-    // atomic: `root` is never observed empty or partially written.
+    // individually atomic — but they're two separate renames, not one
+    // transaction, so `root` can be briefly absent between them.
     const trashDir = existsSync(root) ? join(versionsDir, `.trash-${randomUUID()}`) : null;
     try {
       if (trashDir) renameSync(root, trashDir);

@@ -196,20 +196,9 @@ export class AwsProfileService {
    * Rotates the access key pair behind whatever credential source is
    * currently active — a general-purpose "rotate whatever is currently
    * active" capability (e.g. a future Settings "rotate key" affordance; out
-   * of scope here, just the service method). This is distinct from, and
-   * shares no code with, {@link GuidedIamService.rotate}: that method
-   * performs a one-time mint-then-revoke rotation of a freshly pasted
-   * CloudFormation *bootstrap* key during first-run guided provisioning,
-   * establishing a brand-new active credential source where none existed
-   * before. This method instead replaces the key material behind a source
-   * that is *already* the active one, in place, under the same profile name
-   * — no separate "activate" write is needed. The two are independent
-   * siblings that happen to share the same mint-verify-swap-revoke shape;
-   * this method mirrors {@link GuidedIamService.rotate}'s pattern closely
-   * (same discriminated-union approach, same explicit-credentials AWS client
-   * construction seam style, and — critically — the same
-   * orphan-cleanup-on-verification-failure behavior), but never calls it and
-   * is never called by it.
+   * of scope here, just the service method). Replaces the key material
+   * behind a source that is *already* the active one, in place, under the
+   * same profile name — no separate "activate" write is needed.
    *
    * Only a `kind: 'pasted'` active source (see
    * {@link resolveAwsCredentialSource}) is rotatable — see
@@ -219,20 +208,13 @@ export class AwsProfileService {
    * Sequence (load-bearing — do not reorder):
    * 0. **Keychain gate.** If {@link SafeStorageService.isAvailable} is
    *    `false`, throws {@link SafeStorageUnavailableError} before making any
-   *    AWS call or resolving anything else — mirrors
-   *    {@link GuidedIamService.rotate}'s own step 0 and
-   *    {@link savePastedCredentials}'s gate, both guarding the exact same
-   *    hazard: `ElectronStoreService.setPastedCredentials` calls
-   *    `SafeStorageService.encrypt` unconditionally, and `encrypt` silently
-   *    degrades to returning plaintext (with only a logged warning, never a
-   *    throw) when the keychain is unavailable. Without this gate, a
-   *    keychain that locks mid-rotation — after step 0's resolve/decrypt of
-   *    the *current* credentials succeeded, but before step 4's
-   *    `setPastedCredentials` call — would silently write the brand-new
-   *    secret access key to the electron-store JSON file in plaintext, and
-   *    step 5 would then delete the old key, leaving the operator's only
-   *    valid credential both leaked to disk and (once the keychain becomes
-   *    available again) undecryptable.
+   *    AWS call — `ElectronStoreService.setPastedCredentials` calls
+   *    `SafeStorageService.encrypt` unconditionally, which silently degrades
+   *    to plaintext (only a logged warning, never a throw) when the keychain
+   *    is unavailable. Without this gate, a keychain that locks mid-rotation
+   *    would write the new secret access key to disk in plaintext and then
+   *    delete the old key, leaving the operator's only valid credential both
+   *    leaked and undecryptable.
    * 1. Resolve the active source via {@link resolveAwsCredentialSource}. If
    *    not `kind: 'pasted'`, throws {@link UnsupportedCredentialSourceError}
    *    before any AWS call is made.
@@ -240,21 +222,14 @@ export class AwsProfileService {
    *    (about-to-be-superseded) key pair.
    * 3. Verifies the new key pair with `sts:GetCallerIdentity`, using an STS
    *    client built from the *new* key, retrying with backoff (see
-   *    {@link VERIFY_ACCESS_KEY_RETRY_DELAYS_MS}) to absorb the propagation
-   *    delay newly minted IAM access keys can have. Once all attempts are
-   *    exhausted, best-effort deletes the
-   *    orphaned new key (`iam:DeleteAccessKey`, using an IAM client built
-   *    from the still-valid *current* key — nothing has touched it yet),
+   *    {@link VERIFY_ACCESS_KEY_RETRY_DELAYS_MS}) to absorb IAM key
+   *    propagation delay. Once all attempts are exhausted, best-effort
+   *    deletes the orphaned new key (using the still-valid *current* key),
    *    then returns `{ status: 'verification-failed', error }` without
-   *    overwriting the stored credentials — the previously stored key
-   *    remains active and in the keychain. This cleanup is what makes a
-   *    caller-driven retry safe: without it, the orphaned new key would stay
-   *    live, and a retry's step 2 would hit IAM's 2-access-key-per-user
-   *    limit (`LimitExceededException`). If the cleanup delete itself fails,
-   *    that is logged (no secrets) and swallowed — `verification-failed` is
-   *    still returned with the *original* verification error, not a
-   *    new/different status; a manual console cleanup may be needed in that
-   *    case.
+   *    overwriting the stored credentials. This cleanup is what makes a
+   *    caller-driven retry safe — without it, a retry's step 2 would hit
+   *    IAM's 2-access-key-per-user limit. A failed cleanup delete is logged
+   *    and swallowed; `verification-failed` is still returned.
    * 4. Only once verification succeeds:
    *    {@link ElectronStoreService.setPastedCredentials} overwrites the
    *    stored entry under the *same* profile name (in-place rotation;

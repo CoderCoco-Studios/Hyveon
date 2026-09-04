@@ -1,167 +1,41 @@
 /**
- * The five Lambda functions, their log groups, permissions, the interactions
- * Function URL, and the two EventBridge (CloudWatch Events) rule/target pairs
- * that trigger the watchdog and DNS-updater Lambdas. Functionally equivalent
- * to the legacy infrastructure-as-code tool's interactions, followup,
- * watchdog, and DNS-updater resource areas (the latter's Lambda + EventBridge
- * blocks only — the hosted-zone data-source lookup lives in `route53.ts`),
- * and its EFS-seeder resource area (its Lambda block only — the shared
- * security group is constructed in
- * `securityGroups.ts`, see that file's doc for why, and the per-game IAM
- * role/policy pair lives in `iam.ts`'s `IamRoleResources.efsSeederRoles` /
- * `IamPolicyResources.efsSeederPolicies`).
+ * The five shared Lambda functions (interactions, followup, watchdog,
+ * dns-updater, health-check) plus one EFS-seeder function per configured
+ * game, their log groups, permissions, the interactions Function URL, and
+ * the watchdog/dns-updater EventBridge rule/target pairs. See
+ * `docs/docs/components/infra.md` for the full resource inventory.
  *
- * | HCL address | This file |
- * | --- | --- |
- * | `aws_lambda_function.interactions` | {@link LambdaResources.interactionsFunction} |
- * | `aws_cloudwatch_log_group.interactions` | {@link LambdaResources.interactionsLogGroup} |
- * | `aws_lambda_function_url.interactions` | {@link LambdaResources.interactionsFunctionUrl} |
- * | `aws_lambda_permission.interactions_url_invoke_url` | {@link LambdaResources.interactionsUrlInvokeUrlPermission} |
- * | `aws_lambda_permission.interactions_url_invoke` | {@link LambdaResources.interactionsUrlInvokePermission} |
- * | `aws_lambda_function.followup` | {@link LambdaResources.followupFunction} |
- * | `aws_cloudwatch_log_group.followup` | {@link LambdaResources.followupLogGroup} |
- * | `aws_lambda_function.watchdog` | {@link LambdaResources.watchdogFunction} |
- * | `aws_cloudwatch_log_group.watchdog` | {@link LambdaResources.watchdogLogGroup} |
- * | `aws_cloudwatch_event_rule.watchdog_schedule` | {@link LambdaResources.watchdogScheduleRule} |
- * | `aws_cloudwatch_event_target.watchdog` | {@link LambdaResources.watchdogScheduleTarget} |
- * | `aws_lambda_permission.watchdog_eventbridge` | {@link LambdaResources.watchdogEventBridgePermission} |
- * | `aws_lambda_function.dns_updater` | {@link LambdaResources.dnsUpdaterFunction} |
- * | `aws_cloudwatch_log_group.dns_updater` | {@link LambdaResources.dnsUpdaterLogGroup} |
- * | `aws_cloudwatch_event_rule.ecs_task_change` | {@link LambdaResources.ecsTaskChangeRule} |
- * | `aws_cloudwatch_event_target.dns_updater` | {@link LambdaResources.dnsUpdaterEventTarget} |
- * | `aws_lambda_permission.dns_updater_eventbridge` | {@link LambdaResources.dnsUpdaterEventBridgePermission} |
- * | `aws_security_group.efs_seeder` | `securityGroups.ts`'s `SecurityGroupResources.efsSeeder` (NOT this file) |
- * | `aws_cloudwatch_log_group.efs_seeder` (`for_each`) | {@link LambdaResources.efsSeederLogGroups} |
- * | `aws_lambda_function.efs_seeder` (`for_each`) | {@link LambdaResources.efsSeederFunctions} |
- *
- * `data.archive_file.*` (all five) has no Pulumi resource counterpart — see
- * {@link lambdaCode}'s doc for how its zip-a-single-file behaviour is
- * reproduced. `aws_lambda_invocation.efs_seeder` (the file-seed write
- * trigger) is NOT ported in this file — `escapes.ts`'s
- * `defineEfsSeederInvocations` owns it, alongside the rest of the HCL's
- * other "imperative escape" resources
- * (`aws_dynamodb_table_item`/the legacy no-op trigger resource for Discord
- * command registration/`aws_secretsmanager_secret_version`;
- * see that file's doc for the full inventory and rationale). Unlike this
- * file's four other functions (see "Lambda role/policy creation order"
- * below), the seeder invocation carries an explicit `dependsOn` on
- * `efsSeederPolicies[game]` — the HCL invokes `aws_lambda_invocation.efs_seeder`
- * within the same `apply` as `aws_iam_role_policy.efs_seeder`, relying on
- * the legacy tool's `depends_on` for ordering, and this program's policies attach
- * strictly AFTER the functions exist (see below), so the invocation has no
- * automatic Pulumi dependency edge onto the policy it actually needs at
- * invoke time. `program.ts`'s `defineAll` calls `defineEfsSeederInvocations`
- * after both this file's `defineLambdas` and `iam.ts`'s `defineIamPolicies`
- * — the only order that satisfies that `dependsOn`.
+ * `aws_lambda_invocation.efs_seeder`-equivalent work (the file-seed write
+ * trigger) is NOT in this file — `escapes.ts`'s `defineEfsSeederInvocations`
+ * owns it and carries an explicit `dependsOn` on `efsSeederPolicies[game]`,
+ * since this file's own policies attach after functions exist (see below).
+ * `program.ts`'s `defineAll` calls `defineEfsSeederInvocations` after both
+ * this file's `defineLambdas` and `iam.ts`'s `defineIamPolicies`.
  *
  * ## The lambda-bundle path contract
  *
- * Every `aws_lambda_function` in the HCL sources its code from a
- * `data.archive_file` that zips a single prebuilt `dist/handler.cjs` file
- * (produced by each `@hyveon/lambda-*` package's own `npm run build`, NOT by
- * this program). {@link DefineLambdasArgs.lambdaBundlesDir} is the directory
- * this file resolves each function's bundle against
- * (`<lambdaBundlesDir>/<lambda-dir-name>/dist/handler.cjs` — see
- * {@link bundlePath}) — a REQUIRED parameter with no default computed
- * anywhere in this package, for a specific reason:
+ * {@link DefineLambdasArgs.lambdaBundlesDir} is a REQUIRED parameter with no
+ * default computed anywhere in this package. A repo-relative default derived
+ * from `import.meta.url` would resolve correctly in a repo checkout, but
+ * `electron-vite` bundles this package into a single `out/main` artifact for
+ * the packaged app, so such a default would silently resolve to a
+ * nonexistent path there — passing every unit test (which import this
+ * module unbundled) while only breaking inside the packaged app, which the
+ * unit tests don't exercise. So every caller supplies `lambdaBundlesDir`
+ * explicitly: unit tests pass a placeholder (Pulumi's mocked resource
+ * registration never touches the filesystem); `PulumiService` resolves a
+ * real directory (env var override, then `app.isPackaged`, then a
+ * repo-relative dev fallback) before calling `defineAll`; `program.ts`
+ * threads it through via `InfraProgramOptions`.
  *
- * `@hyveon/infra`'s own compiled location (`app/packages/infra/dist/`) is
- * not a reliable anchor for a relative-path default. In a repo checkout it
- * would resolve correctly (`dist/../../lambda` lands on
- * `app/packages/lambda`), but the desktop app's main process does not run
- * `@hyveon/infra`'s own `dist/*.js` files directly — `electron-vite` bundles
- * every internal workspace package (this one included) into a single
- * `out/main` artifact, and `electron-builder.yml`'s `files:` list ships only
- * that `out/**` artifact plus `node_modules/@pulumi/**` (kept external
- * specifically to avoid bundling `@grpc/grpc-js`'s native sockets — see that
- * file's own comment). A repo-relative default derived from
- * `import.meta.url` inside this package would silently resolve to a
- * nonexistent path once bundled, which is worse than requiring the caller to
- * be explicit: it would look correct in every unit test (which import this
- * module directly from `src/`, unbundled) and only break inside the
- * packaged app, an environment this package's unit tests do not exercise.
+ * ## Lambda role/policy creation order
  *
- * So the contract is: **every caller supplies `lambdaBundlesDir` explicitly**
- * — this package computes no fallback. Concretely:
- *  - **Unit tests** (this file's own `.test.ts`) pass a literal placeholder
- *    string. Pulumi's `pulumi.asset.FileAsset`/`AssetArchive` constructors
- *    never touch the filesystem — they wrap the given path in a
- *    `Promise.resolve(...)` (confirmed by reading
- *    `@pulumi/pulumi`'s `asset/*.js`) — and `pulumi.runtime.setMocks`
- *    (`testing/pulumiMocks.ts`) intercepts every resource registration
- *    before any real engine or upload is involved, so no test needs a real
- *    bundle file to exist on disk.
- *  - **`PulumiService`** (`desktop-main`) must resolve a real
- *    directory before calling `defineAll`/`createInfraProgram`, following the
- *    same three-tier pattern the app's pre-Pulumi configuration service
- *    historically used to locate its local state file on disk (the
- *    configuration bucket's
- *    `getConfigurationBucket()` resolves a bucket *name* from
- *    `ElectronStoreService`, not a filesystem path, so it isn't an
- *    applicable precedent here): an env var override, then `app.isPackaged`
- *    → `path.join(process.resourcesPath, 'lambda')`, then a repo-relative
- *    dev fallback. The packaged branch is not yet satisfiable:
- *    `app/packages/lambda/*\/dist/**` is not currently in
- *    `electron-builder.yml`'s `files:`/`extraResources:` list (only `out/**`
- *    and the pinned `node_modules/**` closures are), so `PulumiService` must
- *    add an `extraResources` entry copying each package's `dist/handler.cjs`
- *    to `resourcesPath/lambda/<name>/dist/handler.cjs` before this contract
- *    can resolve correctly in a packaged build.
- *  - **`defineAll`/`createInfraProgram`** (`program.ts`) thread a second
- *    `options: InfraProgramOptions` parameter carrying `lambdaBundlesDir`
- *    straight through to the `defineLambdas` call inside `defineAll` — see
- *    `program.ts`'s `InfraProgramOptions` doc.
- *
- * ## Required environment-variable inputs
- *
- * `TABLE_NAME`/`DISCORD_PUBLIC_KEY_SECRET_ARN` (DynamoDB + Secrets Manager,
- * `dynamodb.ts`/`secrets.ts`) and `HOSTED_ZONE_ID` (Route 53, `route53.ts`)
- * are threaded through {@link DefineLambdasArgs} as required
- * `pulumi.Input<string>` parameters (`dynamodbDiscordTableName`,
- * `discordPublicKeySecretArn`, `hostedZoneId`) rather than optional ones,
- * for the same reason `iam.ts`'s `DefineIamPoliciesArgs` does: an optional
- * parameter defaulting to `undefined` would silently deploy a broken
- * environment variable instead of failing to compile. `program.ts`'s
- * `defineAll` supplies `dynamoDb.discordTable.name`,
- * `secrets.discordPublicKeySecret.arn`, and `route53.zoneId` for these three
- * — see that file's doc for the full call sequence. The EFS-seeder security
- * group has no such requirement — it depends only on
- * `gameServers`/`vpcId`/`projectName` (`securityGroups.ts`'s
- * `defineSecurityGroups`).
- *
- * ## Lambda role/policy creation order — a deliberate deviation from the HCL
- *
- * Every `aws_lambda_function` in the HCL carries
- * `depends_on = [aws_iam_role_policy.<x>]`, forcing the legacy tool to attach each
- * function's inline policy before creating the function itself. This
- * program's call order is the opposite: `defineIamRoles` runs first,
- * `defineLambdas` runs next referencing only each role's ARN (never its
- * policy), and `defineIamPolicies` runs last — necessarily, since one of its
- * inputs (`followupLambdaArn`) does not exist until `defineLambdas` has
- * created the followup function. `iam.ts`'s file doc lays out why no call
- * order satisfies both directions at once (`defineIamPolicies` needs a live
- * Lambda ARN; the HCL's `depends_on` wants the policy to exist before any
- * Lambda function does). Lambda function creation only requires its
- * execution role to exist and be
- * assumable (AWS does not require every eventual permission to be attached
- * before a function can be created, only before it is successfully
- * invoked) — the deviation is a construction-order difference within a
- * single `pulumi up`, not a functional gap in the deployed permission set.
- *
- * The one exception, preserved exactly, is the EFS-seeder Lambda's
- * `depends_on = [..., aws_efs_mount_target.saves, aws_cloudwatch_log_group.efs_seeder]`
- * (deliberately omitting `aws_iam_role_policy.efs_seeder` from what this
- * port replicates, for the same reason as the other four functions): unlike
- * the IAM-policy ordering, both of these are genuine AWS-level
- * preconditions with no automatic Pulumi dependency edge otherwise. A
- * `file_system_config` pointing at an EFS access point does not work until
- * that filesystem has a mount target in the Lambda's VPC/subnet, and Lambda
- * auto-creates a never-expiring log group on first invocation if this
- * program's own 7-day-retention log group doesn't already exist — see each
- * seeder function's `dependsOn` below. See this file's doc, the note above
- * about `aws_lambda_invocation.efs_seeder`, for the corresponding
- * `dependsOn` `escapes.ts`'s `defineEfsSeederInvocations` carries for the
- * seeder invocation itself.
+ * `defineIamRoles` runs first, `defineLambdas` (this file) next referencing
+ * only each role's ARN, and `defineIamPolicies` last — necessarily, since one
+ * of its inputs (`followupLambdaArn`) doesn't exist until `defineLambdas` has
+ * created the followup function. So the seeder invocation in `escapes.ts`
+ * needs the explicit `dependsOn` described above: policies attach strictly
+ * after functions, not before.
  */
 
 import path from 'node:path';
@@ -350,28 +224,19 @@ export function bundlePath(lambdaBundlesDir: string, lambdaDirName: string): str
 }
 
 /**
- * Builds the `code` archive every `aws_lambda_function` in the HCL sources
- * from `data.archive_file`'s zip output. The legacy tool's `archive_file` with a
- * `source_file` (no `source_dir`) zips that single file at the archive root
- * under its own basename — since every bundle here is already named
- * `handler.cjs` on disk (matching {@link LAMBDA_HANDLER}'s `handler.<fn>`
- * module-name half), an `AssetArchive` with one named `FileAsset` entry
- * reproduces that exactly, regardless of what {@link bundleFilePath}'s
- * directory portion happens to be.
+ * Builds the `code` archive for a Lambda function from its bundle file — a
+ * single named `FileAsset` under `handler.cjs`, matching {@link LAMBDA_HANDLER}.
  *
  * @param bundleFilePath - The resolved path to a package's `dist/handler.cjs` — see {@link bundlePath}.
- * @returns A single-entry `AssetArchive` matching the HCL's zip output.
+ * @returns A single-entry `AssetArchive` containing the bundle.
  */
 function lambdaCode(bundleFilePath: string): pulumi.asset.AssetArchive {
   return new pulumi.asset.AssetArchive({ 'handler.cjs': new pulumi.asset.FileAsset(bundleFilePath) });
 }
 
 /**
- * Comma-joined game names in the legacy tool's `keys(map)` order — always
- * lexicographically sorted, regardless of the map's definition/iteration
- * order — reproducing every `GAME_NAMES = join(",", keys(var.game_servers))`
- * environment variable across the HCL exactly (`Object.keys` alone would
- * instead yield JS's insertion order, which does not match).
+ * Comma-joined game names, sorted so the value is deterministic across
+ * config-object iteration order.
  *
  * @param gameServers - The configured game-server map.
  * @returns The comma-joined, sorted game names.

@@ -552,6 +552,7 @@ function dedupeIssues(issues: GameServerValidationIssue[]): GameServerValidation
   const seen = new Set<string>();
   const deduped: GameServerValidationIssue[] = [];
   for (const issue of issues) {
+    // NUL separator (invisible above) - cannot occur in a validator path/message, so keys cannot collide; do not replace it with a plain literal.
     const key = `${issue.path} ${issue.message}`;
     if (!seen.has(key)) {
       seen.add(key);

@@ -1,16 +1,9 @@
 /**
  * Route 53 hosted-zone lookup — the pre-existing hosted zone's ID, looked up
- * by name and exposed for other resources to reference.
- *
- * The DNS-updater Lambda, its IAM role/policy, its CloudWatch log group, the
- * ECS-task-state-change EventBridge rule/target, and its EventBridge
- * permission are declared elsewhere: `iam.ts`'s
- * `IamRoleResources.dnsUpdaterLambdaRole`/`IamPolicyResources.dnsUpdaterLambdaPolicy`,
- * and `lambdas.ts`'s `LambdaResources.dnsUpdaterFunction`/`dnsUpdaterLogGroup`/
- * `ecsTaskChangeRule`/`dnsUpdaterEventTarget`/`dnsUpdaterEventBridgePermission`.
- * This file's only job is the hosted-zone data source those resources
- * reference by ID, threaded as the `hostedZoneId` parameter both of those
- * files' docs describe.
+ * by name and exposed for other resources to reference. The DNS-updater
+ * Lambda and its wiring are declared elsewhere (`iam.ts`/`lambdas.ts`); this
+ * file's only job is the hosted-zone data source those resources reference
+ * by ID, threaded as the `hostedZoneId` parameter.
  *
  * ## INVARIANT: no DNS record resources
  *
@@ -23,17 +16,9 @@
  * assertion (`aws:route53/record:Record` never appears in the resources this
  * module's `defineRoute53` constructs).
  *
- * ## The Discord custom domain is declared in `discordDomain.ts`
- *
- * `discordDomain.ts`'s `defineDiscordDomain` declares a CloudFront-fronted
- * custom domain (`discord.<hosted_zone_name>`) for the interactions Function
- * URL, including its own three Route 53 records — wired into `program.ts`'s
- * `defineAll` as a separate `discordDomain` resource area, not through this
- * file. This file's `defineRoute53` still declares no `aws.route53.Record` of
- * any kind (see the INVARIANT section above); those three records are
- * declared by a different function entirely. See `discordDomain.ts`'s file
- * doc for why they do NOT violate this file's "no DNS records" invariant
- * despite living in the same `defineAll` resource graph.
+ * `discordDomain.ts` declares three static Route 53 records for the fixed
+ * Discord custom domain — see that file's doc for why those do NOT violate
+ * this invariant.
  */
 
 import * as aws from '@pulumi/aws';

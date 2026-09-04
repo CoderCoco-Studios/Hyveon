@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../api.service.js';
 
-/** Delay before re-polling `/api/status/:game` after a Start/Stop call, to give the backend time to pick up the ECS state change. */
+/** Delay before re-polling `games.getStatus` after a Start/Stop call, to give the backend time to pick up the ECS state change. */
 const REFRESH_DELAY_MS = 3000;
 
 /** Live state and actions returned by {@link useGameActions}. */

@@ -1,65 +1,30 @@
 /**
  * Imperative-escape resources: infrastructure whose declaration reaches
  * beyond pure declarative management — seeding a mutable DynamoDB row, or
- * invoking a deployed Lambda as a one-shot build step. This file declares
- * three such resources directly; one more (the Discord secret versions)
- * lives in `secrets.ts`, and one has no Pulumi equivalent at all — see the
- * table and the two sections below.
+ * invoking a deployed Lambda as a one-shot build step. Declares the two
+ * conditional Discord table rows and the per-game EFS-seeder invocation; the
+ * three create-only secret versions (two Discord, one FileBrowser) are
+ * further instances, implemented in `secrets.ts` alongside the secrets they
+ * version.
  *
- * | Resource | Declared by |
- * | --- | --- |
- * | Discord `BASE#discord` table row | {@link DiscordTableItemResources.discordBaseConfigItem} |
- * | Discord `CONFIG#discord` table row | {@link DiscordTableItemResources.discordConfigSeedItem} |
- * | Per-game EFS-seeder invocation | {@link defineEfsSeederInvocations}'s return value |
- * | Discord bot-token / public-key secret versions | `secrets.ts`'s `SecretsResources` — see that file's doc, "Create-only secret versions" |
- * | Discord slash-command auto-registration | not ported — see "Why command auto-registration has no Pulumi analogue" below |
+ * `discordConfigSeedItem` carries `ignoreChanges: ['item']` so the
+ * management app's own writes to the `CONFIG#discord` row are never reverted
+ * by a later `pulumi up`. `discordBaseConfigItem` carries no such option —
+ * it is recomputed from `baseAllowedGuilds`/`baseAdminUserIds`/
+ * `baseAdminRoleIds` on every deploy, by design (an immutable floor the
+ * management UI can never remove — see `deploymentConfig.ts`).
  *
- * ## Why each of these is not a plain declarative resource
+ * Each EFS-seeder invocation's `triggers.seedsHash` is a content hash of
+ * that game's `file_seeds`, so it re-runs iff the seed content changes. Each
+ * invocation also carries an explicit `dependsOn` on `efsSeederPolicies[game]`
+ * — `lambdas.ts`'s IAM policies attach after the Lambda functions they
+ * target, so this dependency has no automatic edge otherwise.
  *
- * - **The two Discord table rows** are DynamoDB *rows*, not infrastructure;
- *   `aws.dynamodb.TableItem` exists specifically because there is no other
- *   declarative way to seed a table's initial content. Both are conditional
- *   — `undefined` when their guard condition doesn't hold, the same
- *   optional-resource contract `securityGroups.ts`'s `efsSeeder` uses.
- *   {@link DiscordTableItemResources.discordConfigSeedItem} carries
- *   `ignoreChanges: ['item']` so the management app's own `PutItem` writes to
- *   the `CONFIG#discord` row (the Discord Settings save path) are never
- *   reverted by a later `pulumi up`. {@link DiscordTableItemResources.discordBaseConfigItem}
- *   carries no such option: the `BASE#discord` row is recomputed from
- *   `baseAllowedGuilds`/`baseAdminUserIds`/`baseAdminRoleIds` on every
- *   deploy, by design — `deploymentConfig.ts`'s doc on those three fields
- *   describes this as "an immutable floor the management UI can never
- *   remove."
- *
- * - **The EFS-seeder invocation** runs an already-deployed Lambda as a
- *   one-shot *build step* (writing a file to EFS through the seeder Lambda),
- *   not a resource with its own AWS-side lifecycle; `aws.lambda.Invocation`
- *   (`lifecycleScope: 'CREATE_ONLY'`, the default) only re-invokes when its
- *   `triggers` map changes. Each game's `triggers.seedsHash` is a content
- *   hash of that game's `file_seeds`, so the invocation re-runs iff the seed
- *   content changes. Each invocation also carries an explicit `dependsOn` on
- *   `efsSeederPolicies[game]`: see `lambdas.ts`'s file doc, "Lambda
- *   role/policy creation order" — this program's IAM policies attach after
- *   the Lambda functions they target, so the invocation, which needs the
- *   policy's `elasticfilesystem:ClientWrite` grant live at invoke time, has
- *   no automatic dependency edge onto it otherwise.
- *
- * ## Why command auto-registration has no Pulumi analogue
- *
- * Not ported, deliberately — no resource is declared for it anywhere in this
- * package. Auto-registering Discord slash commands in every
- * `base_allowed_guilds` entry requires the live bot token as an input, and
- * the bot token is precisely the value this program's "no secret material
- * enters the stack" requirement forbids it from accepting (`DeploymentConfig`
- * — `@hyveon/shared` — has no such field; see `secrets.ts`'s file doc).
- *
- * This is safe because the app already has a manual fallback for the same
- * action: an operator who has configured `baseAllowedGuilds` clicks
- * "Register commands" in the Guilds tab of the Discord settings page once
- * per base guild after the first deploy
- * (`desktop-main/src/services/DiscordCommandRegistrar.ts`). No functionality
- * is lost — only the one-time convenience of not clicking a button per base
- * guild.
+ * Discord slash-command auto-registration has no Pulumi analogue: it would
+ * need the live bot token as an input, which this program's "no secret
+ * material enters the stack" requirement forbids. An operator instead clicks
+ * "Register commands" in the Discord settings page once per base guild
+ * (`desktop-main/src/services/DiscordCommandRegistrar.ts`).
  */
 
 import * as crypto from 'node:crypto';
@@ -103,9 +68,8 @@ export interface DefineDiscordTableItemsArgs {
  * Builds the `pulumi.CustomResourceOptions` for this file's two resources
  * that need more than the bare `{ provider }` option: the
  * `discord_config_seed` item's create-only `ignoreChanges: ['item']`, and
- * each EFS-seeder invocation's required `dependsOn: [policy]` edge (see this
- * file's doc, "Why each of these is not a plain declarative resource," for
- * both rationales).
+ * each EFS-seeder invocation's required `dependsOn: [policy]` edge — see this
+ * file's doc for both rationales.
  *
  * Exposed as methods on an exported object, not bare functions, so a spec
  * can `vi.spyOn(escapeResourceOptions, 'forDiscordConfigSeedItem')` /
@@ -278,7 +242,7 @@ export function defineEfsSeederInvocations(args: DefineEfsSeederInvocationsArgs)
     if (!policy) {
       throw new Error(
         `defineEfsSeederInvocations: no efsSeederPolicies entry for "${game}" — the seeder invocation's required dependsOn ` +
-          'target is missing (see this file\'s doc, "Why each ported resource is not a plain declarative resource").',
+          "target is missing (see this file's doc).",
       );
     }
 

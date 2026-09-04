@@ -25,11 +25,7 @@ import type { GameServerConfig } from '@hyveon/shared';
 export interface EfsResources {
   /** The shared EFS filesystem. */
   fileSystem: aws.efs.FileSystem;
-  /**
-   * One mount target per public subnet, same order as the subnets passed in
-   * (one per public subnet — always two, since `defineNetwork` always
-   * returns exactly two).
-   */
+  /** One mount target per public subnet, same order as the subnets passed in. */
   mountTargets: aws.efs.MountTarget[];
   /**
    * One access point per `(game, volume)` pair, keyed `"${game}-${volume.name}"`

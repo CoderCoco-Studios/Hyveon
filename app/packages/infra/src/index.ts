@@ -1,8 +1,10 @@
 /**
- * Public entry point for the `@hyveon/infra` Pulumi program (replaces the
- * Task-2.1 `export {}` placeholder). Re-exports the program factory and the
- * per-resource-area module APIs so `desktop-main` (wired in a later phase —
- * see `program.ts`'s file doc) has a single import surface.
+ * `@hyveon/infra` — the Pulumi Automation API program that provisions
+ * Hyveon's AWS infrastructure, driven entirely from inside the packaged
+ * desktop app. See `docs/docs/components/infra.md` for the full resource
+ * inventory and architecture.
+ *
+ * @packageDocumentation
  */
 
 export { createInfraProgram, buildStackOutputs } from './program.js';

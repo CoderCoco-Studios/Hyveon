@@ -17,6 +17,7 @@
 import { verifyAsync } from '@noble/ed25519';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+// `canRun` is the single shared copy; never inline or fork it.
 import { canRun, getEffectiveDiscordConfig, getPublicKey } from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig } from '@hyveon/shared';
 
@@ -52,6 +53,7 @@ interface Interaction {
 let lambdaClient: LambdaClient | null = null;
 function getLambdaClient(): LambdaClient {
   if (!lambdaClient) {
+    // AWS_REGION_ (trailing underscore) — AWS_REGION is reserved by the Lambda runtime and cannot be set as a function env var.
     const region =
       process.env['AWS_REGION_'] ?? process.env['AWS_REGION'] ?? process.env['AWS_DEFAULT_REGION'] ?? 'us-east-1';
     lambdaClient = new LambdaClient({ region });

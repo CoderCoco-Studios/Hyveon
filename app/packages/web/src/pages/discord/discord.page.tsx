@@ -17,7 +17,7 @@ import { useDiscordConfig } from './use-discord-config.hook.js';
  * dashboard. Renders a setup wizard for first-time operators, and otherwise
  * a tabbed view: Credentials, Guilds, Admins, and per-game permissions.
  *
- * All persistence still goes through the existing `/api/discord/*` routes —
+ * All persistence still goes through the existing `discord.*` IPC channels —
  * neither the bot token nor the public key is ever echoed back to the client.
  */
 export function DiscordPage() {

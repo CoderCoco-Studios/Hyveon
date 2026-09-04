@@ -63,9 +63,8 @@ export interface DefineEcsArgs {
 }
 
 /**
- * Builds the `logConfiguration` block every container definition in the HCL
- * uses, differing only in `awslogs-stream-prefix` between a game's own
- * container (`"ecs"`) and its Caddy sidecar (`"caddy"`).
+ * Builds the `logConfiguration` block shared by a game's container and its
+ * Caddy sidecar, differing only in `awslogs-stream-prefix` between them.
  *
  * @param logGroupName - The container's log group name (`aws_cloudwatch_log_group.game[each.key].name`).
  * @param awsRegion - The region embedded in `awslogs-region`.
@@ -186,6 +185,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
 
     const containerDefs: Record<string, unknown>[] = [gameContainer];
 
+    // Invariant: TLS terminates in-task via this Caddy sidecar — no ALB/target group/ACM cert anywhere (openspec/specs/in-task-tls-termination).
     if (isHttps) {
       containerDefs.push({
         name: 'caddy',

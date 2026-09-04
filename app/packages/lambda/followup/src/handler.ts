@@ -24,6 +24,7 @@ import {
   EC2Client,
   DescribeNetworkInterfacesCommand,
 } from '@aws-sdk/client-ec2';
+// `canRun` is the single shared copy; never inline or fork it.
 import { canRun, formatGameStatus, getEffectiveDiscordConfig, parseJsonEnv, putPending } from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig, GameStatus } from '@hyveon/shared';
 
@@ -42,6 +43,7 @@ let ec2Client: EC2Client | null = null;
 
 function region(): string {
   return (
+    // AWS_REGION_ (trailing underscore) — AWS_REGION is reserved by the Lambda runtime and cannot be set as a function env var.
     process.env['AWS_REGION_'] ??
     process.env['AWS_REGION'] ??
     process.env['AWS_DEFAULT_REGION'] ??

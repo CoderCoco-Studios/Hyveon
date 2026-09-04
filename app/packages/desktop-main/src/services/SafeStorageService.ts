@@ -8,10 +8,11 @@ const _require = createRequire(import.meta.url);
  * Wraps Electron's `safeStorage` API for OS-keychain-backed encryption of
  * sensitive strings (e.g. API tokens, secrets).
  *
- * When running outside an Electron process (unit tests, plain Node CI) the
- * service degrades gracefully: `encrypt()` returns the plaintext unchanged and
- * `decrypt()` returns the input unchanged, so callers need no environment
- * branching of their own.
+ * Whenever `isAvailable()` is `false` — outside an Electron process (unit
+ * tests, plain Node CI), or inside Electron with a locked or otherwise
+ * unavailable OS keychain — the service degrades gracefully: `encrypt()`
+ * returns the plaintext unchanged and `decrypt()` returns the input
+ * unchanged, so callers need no environment branching of their own.
  *
  * All four Electron-touching operations are extracted into `protected` methods
  * (`readIsElectron`, `readIsAvailable`, `encryptString`, `decryptString`) so
@@ -34,9 +35,10 @@ export class SafeStorageService {
    * Encrypt `plaintext` using Electron's `safeStorage.encryptString()` and
    * return the result as a base64-encoded string suitable for storage.
    *
-   * Outside an Electron process the plaintext is returned unchanged and a
-   * warning is emitted — this allows the service to be consumed transparently
-   * in test/CI environments.
+   * Whenever `isAvailable()` is `false` — outside an Electron process, or
+   * inside Electron with the OS keychain locked/unavailable — the plaintext
+   * is returned unchanged and a warning is emitted, so callers get plaintext
+   * fallback rather than a thrown error.
    *
    * @param plaintext - The string to encrypt.
    * @returns Base64-encoded ciphertext, or the original `plaintext` when
@@ -66,11 +68,6 @@ export class SafeStorageService {
    * Outside an Electron process the input is returned unchanged (on the
    * assumption it was stored as plaintext by the degraded `encrypt()` path).
    *
-   * @param ciphertext - Base64-encoded encrypted string, or raw plaintext when
-   *   produced outside Electron.
-   * @returns Decrypted plaintext, or the original `ciphertext` when decryption
-   *   is unavailable.
-   *
    * @remarks
    * The caller must ensure that `isAvailable()` returns the same value at
    * both write time (`encrypt`) and read time (`decrypt`). A ciphertext blob
@@ -79,6 +76,13 @@ export class SafeStorageService {
    * writes and reads within the same Electron process, or data shared across
    * Electron and non-Electron contexts). In that scenario `decrypt()` returns
    * the raw base64 blob unchanged — treat the output as untrusted.
+   *
+   * @param ciphertext - Base64-encoded encrypted string, or raw plaintext when
+   *   {@link encrypt} produced it while `isAvailable()` was `false` — not
+   *   only outside Electron, but also inside Electron with a locked or
+   *   otherwise unavailable OS keychain.
+   * @returns Decrypted plaintext, or the original `ciphertext` when decryption
+   *   is unavailable.
    */
   decrypt(ciphertext: string): string {
     const available = this.isAvailable();

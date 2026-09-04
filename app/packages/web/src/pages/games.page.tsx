@@ -40,7 +40,7 @@ function formatPorts(entry: GameListEntry): string {
  *
  * {@link PendingChangesBanner} is mounted above the games table and
  * self-manages its own visibility — it renders nothing until
- * `GET /api/drift` reports at least one pending change.
+ * the `drift.get` IPC channel reports at least one pending change.
  *
  * On mount, `api.getGameDraft()` checks for an autosaved, unfinished
  * `AddGameWizard` draft (see that component's own doc comment). If one

@@ -15,10 +15,6 @@ import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
  * `directories.app: "."` in `electron-builder.yml`. The `files` whitelist there
  * can narrow that set but never add to it.
  *
- * (`@cdktf/hcl2json` was externalized here too, for the same reason, before
- * the `migrate-iac-to-pulumi` change removed it from the dependency tree
- * entirely — see `DeploymentConfigService.ts`'s JSON-only configuration model.)
- *
  * So the same packages are pinned in multiple manifests, for different reasons:
  *
  *  - `app/packages/desktop-main/package.json` — what the main-process workspace

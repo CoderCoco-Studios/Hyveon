@@ -33,23 +33,9 @@ import { defineDiscordDomain, type DiscordDomainResources } from './discordDomai
 
 /**
  * Fixed AWS tag set applied to every resource via the provider's
- * `defaultTags`, replicating the `Project = "hyveon"` entry of the legacy
- * infrastructure-as-code tool's root `tags` variable default (the one
- * CLAUDE.md documents as an invariant: "All AWS resources are tagged
- * Project=hyveon").
- *
- * Deliberately NOT derived from `config.projectName`: `deploymentConfig.ts`'s
- * file doc excludes `tags` from `DeploymentConfig` specifically because tag
- * value is "a resource-tagging concern for the Pulumi program to own
- * directly (e.g. a fixed Project=hyveon tag set)" — a fixed value,
- * independent of the (renameable, used for resource *naming* only)
- * `projectName`. The legacy tool's default tag set also carried an
- * `Environment` entry and a `ManagedBy` entry naming the legacy tool itself;
- * neither is replicated here: a `ManagedBy` value naming a retired tool
- * would be actively wrong post-migration, and `Environment` has no reader in
- * the app (no Lambda, service, or cost-tooling filters on it) — only the tag
- * CLAUDE.md documents as load-bearing (AWS Cost-allocation tag activation)
- * is preserved.
+ * `defaultTags` — the `Project: hyveon` invariant CLAUDE.md documents.
+ * Deliberately NOT derived from `config.projectName`: it is a fixed
+ * resource-tagging value, independent of the renameable `projectName`.
  */
 const DEFAULT_TAGS: Record<string, string> = { Project: 'hyveon' };
 
@@ -402,7 +388,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
  * declares beyond what `StackOutputs` has.
  */
 export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
-  /** Mirrors {@link StackOutputs.awsRegion} — the legacy tool's outputs file's `aws_region` output was a bare `var.aws_region` echo, so this is `config.awsRegion` directly, no resource involved. */
+  /** Mirrors {@link StackOutputs.awsRegion} — `config.awsRegion` directly, no resource involved. */
   awsRegion: string;
   /** Mirrors {@link StackOutputs.ecsClusterName} — `ecs.cluster.name`. */
   ecsClusterName: pulumi.Output<string>;
@@ -418,45 +404,25 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   efsFileSystemId: pulumi.Output<string>;
   /**
    * Mirrors {@link StackOutputs.efsAccessPoints} — game name → that game's
-   * FIRST volume's access point id (`efs.gameAccessPoints["${game}-${firstVolumeName}"].id`),
-   * matching the legacy tool's outputs file's `efs_access_points` output exactly
-   * (`aws_efs_access_point.game["${game}-${cfg.volumes[0].name}"].id`) — NOT
-   * every `(game, volume)` access point `efs.gameAccessPoints` holds.
+   * FIRST volume's access point id (`efs.gameAccessPoints["${game}-${firstVolumeName}"].id`)
+   * — NOT every `(game, volume)` access point `efs.gameAccessPoints` holds.
    */
   efsAccessPoints: pulumi.Output<Record<string, string>>;
-  /** Mirrors {@link StackOutputs.domainName} — the legacy tool's outputs file's `domain_name` output was a bare `var.hosted_zone_name` echo, so this is `config.hostedZoneName` directly. */
+  /** Mirrors {@link StackOutputs.domainName} — `config.hostedZoneName` directly. */
   domainName: string;
-  /** Mirrors {@link StackOutputs.gameNames} — `Object.keys(config.gameServers)`, SORTED to match the legacy tool's `keys(map)` (always lexicographic, regardless of definition order). */
+  /** Mirrors {@link StackOutputs.gameNames} — `Object.keys(config.gameServers)`, SORTED so the value is deterministic regardless of definition order. */
   gameNames: string[];
   /** Mirrors {@link StackOutputs.discordTableName} — `dynamoDb.discordTable.name`. */
   discordTableName: pulumi.Output<string>;
   /** Mirrors {@link StackOutputs.auditTableName} — `dynamoDb.auditTable.name` (the RESOLVED name, `dynamodb.ts`'s `resolveTableName` already applied — not `config.auditTableName`, which may be `""`). */
   auditTableName: pulumi.Output<string>;
   /**
-   * Mirrors {@link StackOutputs.runsTableName} — UNLIKE every other
-   * resource-shaped field on this interface, this is a plain `string`, not a
-   * `pulumi.Output`: the runs table is not a Pulumi-managed resource at all
-   * (see `dynamodb.ts`'s file doc for why), so this is computed directly
-   * from `config` via `@hyveon/shared`'s
-   * `resolveRunsTableName(config.projectName, config.runsTableName)` — the
-   * same resolution `BootstrapService.ensureRunsTable` (`@hyveon/desktop-main`)
-   * applies at wizard-bootstrap time, so the two can never disagree.
-   *
-   * Note this alone does NOT close the bootstrap deadlock by itself:
-   * `PulumiService.getStackOutputs()` (the thing `RunRecordService` actually
-   * reads) only reports a stack's LAST-APPLIED outputs — it degrades to
-   * `null` for a stack that has only ever had `preview()` run against it,
-   * this plain-value field included (see that method's own doc, "empty
-   * outputs also degrades to null"). The deadlock's real fix is
-   * `RunRecordService`/`resolveRunRecordStoreConfig`'s separate
-   * `resolvePreApplyRunsTableName` fallback (`@hyveon/desktop-main`), which
-   * reads `DeploymentConfig` directly instead of going through Pulumi at
-   * all. What being a plain (not resource-derived) value DOES buy here: this
-   * field is correct in a stack's outputs as of its FIRST successful
-   * `apply()` (no dependency on the runs table itself ever having been
-   * created, since there's no such resource any more) — unlike
-   * {@link auditTableName}, which requires the audit table to have actually
-   * been applied.
+   * Mirrors {@link StackOutputs.runsTableName} — a plain `string`, not a
+   * `pulumi.Output`: the runs table isn't Pulumi-managed (see `dynamodb.ts`'s
+   * file doc). Computed via `@hyveon/shared`'s `resolveRunsTableName`, the
+   * same resolution `BootstrapService.ensureRunsTable` uses at bootstrap — so
+   * this field is correct as of a stack's first successful `apply()`, unlike
+   * {@link auditTableName}.
    */
   runsTableName: string;
   /** Mirrors {@link StackOutputs.discordBotTokenSecretArn} — `secrets.discordBotTokenSecret.arn`. */
@@ -468,22 +434,18 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   /** Mirrors {@link StackOutputs.fileBrowserSchedulerRoleArn} — `iamRoles.fileBrowserSchedulerRole.arn`. */
   fileBrowserSchedulerRoleArn: pulumi.Output<string>;
   /**
-   * Mirrors {@link StackOutputs.interactionsInvokeUrl}. Per `discordDomain.ts`'s
-   * file doc: the legacy tool's outputs file's `interactions_invoke_url` output
-   * resolves to the CUSTOM DOMAIN (`"https://discord.${var.hosted_zone_name}/"`),
-   * NEVER the raw Lambda Function URL — so this reads
-   * `discordDomain.aliasRecord.name` (the literal `discord.{hostedZoneName}`
-   * input we passed that record, not its AWS-echoed `fqdn`, which would
-   * carry a trailing dot), not `lambdas.interactionsFunctionUrl.functionUrl`.
+   * Mirrors {@link StackOutputs.interactionsInvokeUrl} — resolves to the
+   * CUSTOM DOMAIN (`"https://discord.${hostedZoneName}/"`), NEVER the raw
+   * Lambda Function URL: reads `discordDomain.aliasRecord.name` (the literal
+   * `discord.{hostedZoneName}` input, not its AWS-echoed `fqdn`, which
+   * carries a trailing dot), not `lambdas.interactionsFunctionUrl.functionUrl`.
    */
   interactionsInvokeUrl: pulumi.Output<string>;
   /**
-   * Mirrors {@link StackOutputs.discordInteractionsUrl}. Per the same HCL
-   * source (the legacy tool's outputs file's `discord_interactions_url` output,
-   * `"https://${local.discord_domain}/"`), this resolves to the IDENTICAL
-   * value as {@link interactionsInvokeUrl} — both legacy-tool outputs already
-   * overlap in the retired module; carried forward as-is for consumer parity
-   * per `StackOutputs.discordInteractionsUrl`'s own doc, not resolved here.
+   * Mirrors {@link StackOutputs.discordInteractionsUrl} — resolves to the
+   * IDENTICAL value as {@link interactionsInvokeUrl}; carried forward as a
+   * separate field for consumer parity per
+   * `StackOutputs.discordInteractionsUrl`'s own doc, not resolved here.
    */
   discordInteractionsUrl: pulumi.Output<string>;
   /** Mirrors {@link StackOutputs.appliedGameServers} — `config.gameServers` directly (always populated once this program runs; the `| null` case is a `PulumiService`-side "never deployed yet" concern, not something this program itself ever produces). */
@@ -557,45 +519,18 @@ export function buildStackOutputs(resources: InfraResources, config: DeploymentC
  * in-process (no `pulumi` CLI subprocess for the program body itself) to
  * preview or apply the stack.
  *
- * `config` is captured by the returned closure at creation time; it flows in
- * as a plain typed object (`@hyveon/shared`'s {@link DeploymentConfig}), not
- * via `pulumi.Config` — the desktop app reads it from the JSON configuration
- * store and passes it straight in.
+ * `config` is captured by the returned closure at creation time, as a plain
+ * typed object (`@hyveon/shared`'s {@link DeploymentConfig}), not via
+ * `pulumi.Config`. Every resource declaration happens inside the returned
+ * closure, never at module scope — an inline program's resource lifecycle is
+ * scoped to a single closure invocation. The closure's entire body is a call
+ * to {@link defineAll} followed by {@link buildStackOutputs}.
  *
- * Every resource declaration happens inside the returned closure, never at
- * module scope: an inline program's resource lifecycle is scoped to a
- * single closure invocation. The closure's entire body is a call to
- * {@link defineAll} followed by {@link buildStackOutputs} — see either
- * function's doc for how resource areas are wired together and how every
- * stack-output field is derived.
- *
- * ## Outputs mechanism
- *
- * The Automation API's inline `PulumiFn` type is
- * `() => Promise<Record<string, any> | void>` (`@pulumi/pulumi/automation`'s
- * `workspace.d.ts`) — a RETURN VALUE, not an `export`-style call. In
- * `@pulumi/pulumi`'s own runtime, `runtime/stack.js`'s `runInPulumiStack(init)`
- * constructs a root `Stack` resource and calls `stack.initialize({ init })`,
- * whose body awaits `args.init()`'s return value, `massage()`s it, then calls
- * `super.registerOutputs(outputs)` on the result — i.e. whatever object this
- * closure returns (the SAME closure the Automation API installs as its gRPC
- * language-runtime callback for both file-based and inline programs) is
- * exactly what becomes the stack's registered outputs, one top-level key per
- * output name. `massage()` recursively resolves `pulumi.Output`, `Promise`,
- * array, and plain-value entries anywhere in that returned tree, so
- * returning `Output`-wrapped fields (as {@link buildStackOutputs} does) is
- * not only valid but preferred — pre-resolving with `await`/`promiseOf`
- * before returning would only strip the dependency edges the engine tracks
- * for preview/diff purposes. There is no `pulumi.export(...)` function in
- * the Node.js SDK: `export const` at a Pulumi program's module top level is
- * the Node idiom for a FILE-BASED program (`cmd/run/run.js` captures a
- * CommonJS/ESM module's own exports as the stack's outputs), and
- * `pulumi.export(name, value)` is the Python/Go SDKs' idiom, not Node's —
- * neither applies here regardless, since an inline `PulumiFn` closure has no
- * module-scope top level for either mechanism to attach to. The return-value
- * path above is the one, and only, mechanism `LocalWorkspace`'s
- * inline-program `PulumiFn` contract exercises in this SDK — the mechanism
- * `PulumiService`'s `stack.outputs()` read-back relies on.
+ * The closure's return value becomes the stack's registered outputs — the
+ * Automation API's `massage()` step resolves `pulumi.Output`/`Promise`/plain
+ * values recursively when registering them, so {@link buildStackOutputs}
+ * returns `Output`-wrapped fields rather than pre-resolving them: doing so
+ * would only strip the dependency edges the engine tracks for preview/diff.
  *
  * @param config - The full deployment configuration to derive infrastructure
  *   from.
