@@ -327,8 +327,98 @@ export interface GameServerFileSeed {
 }
 
 /**
+ * Credential reference for an authenticated health check.
+ *
+ * Mirrors `GameServerHealthCheckAuth` in `@hyveon/shared/src/gameServerConfig.ts`
+ * — that file is the source of truth; keep this copy in sync with it.
+ */
+export interface GameServerHealthCheckAuth {
+  secretArn: string;
+}
+
+/**
+ * Operator-submitted shape of a health-check credential — only ever appears
+ * in a create/update payload, never in a persisted `GameServerHealthCheck`.
+ *
+ * Mirrors `GameServerHealthCheckAuthWriteInput` in
+ * `@hyveon/shared/src/gameServerValidator.ts` — that file is the source of
+ * truth; keep this copy in sync with it.
+ */
+export interface GameServerHealthCheckAuthWriteInput {
+  type?: 'raw' | 'basic' | 'bearer';
+  secretArn?: string;
+  username?: string;
+  password?: string;
+  token?: string;
+}
+
+/**
+ * Single comparison evaluated against a health check's response body.
+ *
+ * Mirrors `GameServerHealthCheckCondition` in
+ * `@hyveon/shared/src/gameServerConfig.ts` — that file is the source of
+ * truth; keep this copy in sync with it.
+ */
+export interface GameServerHealthCheckCondition {
+  jsonPath: string;
+  operator: 'equals' | 'notEquals' | 'greaterThan' | 'lessThan' | 'contains' | 'exists';
+  value?: string | number | boolean | null;
+}
+
+/**
+ * Declarative HTTP health check, as persisted (`auth`, when set, carries a
+ * resolved `secretArn` — never plaintext).
+ *
+ * Mirrors `GameServerHealthCheck` in `@hyveon/shared/src/gameServerConfig.ts`
+ * — that file is the source of truth; keep this copy in sync with it.
+ */
+export interface GameServerHealthCheck {
+  kind: 'http';
+  scheme: 'http' | 'https';
+  port: number;
+  path: string;
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'HEAD';
+  headers?: Record<string, string>;
+  auth?: GameServerHealthCheckAuth;
+  timeoutMs: number;
+  activeWhen: GameServerHealthCheckCondition;
+}
+
+/**
+ * {@link GameServerHealthCheck} with the credential reference redacted —
+ * `auth` replaced by a `secretSet` boolean. This is what the renderer
+ * actually receives; it never sees the persisted `auth` shape back.
+ *
+ * Mirrors `RedactedGameServerHealthCheck` in
+ * `@hyveon/shared/src/gameServerConfig.ts` — that file is the source of
+ * truth; keep this copy in sync with it.
+ */
+export interface RedactedGameServerHealthCheck extends Omit<GameServerHealthCheck, 'auth'> {
+  secretSet: boolean;
+  authType?: 'raw' | 'basic' | 'bearer';
+}
+
+/**
+ * Write-side shape of `GameServerHealthCheck.auth`: the operator-submitted
+ * {@link GameServerHealthCheckAuthWriteInput}, `null` to explicitly clear an
+ * existing credential, or `undefined` to leave whatever credential is
+ * already on record unchanged. Only ever appears in a create/update
+ * payload.
+ *
+ * Mirrors `GameServerHealthCheckWriteInput` in
+ * `@hyveon/shared/src/gamesWrite.ts` — that file is the source of truth;
+ * keep this copy in sync with it.
+ */
+export type GameServerHealthCheckWriteInput = Omit<GameServerHealthCheck, 'auth'> & {
+  auth?: GameServerHealthCheckAuthWriteInput | null;
+};
+
+/**
  * Per-game container configuration, keyed by game name in
  * `DeploymentConfig.gameServers` (`@hyveon/shared/src/deploymentConfig.ts`).
+ * `healthCheck` here is the full, persisted shape (with `auth`) — read-side
+ * consumers should use {@link RedactedGameServer} instead, which is what
+ * actually crosses the IPC boundary.
  *
  * Mirrors `GameServer` in `@hyveon/shared/src/gameServerConfig.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -344,12 +434,40 @@ export interface GameServer {
   https?: boolean;
   connect_message?: string;
   file_seeds?: GameServerFileSeed[];
+  healthCheck?: GameServerHealthCheck;
 }
+
+/**
+ * {@link GameServer} with {@link GameServer.healthCheck} redacted via
+ * {@link RedactedGameServerHealthCheck} — the shape the renderer actually
+ * receives wherever a declared game crosses the IPC boundary
+ * (`GameListEntry.config`, `GameWriteSuccess.game`, `AuditEntry.before`/`after`).
+ *
+ * Mirrors `RedactedGameServer` in `@hyveon/shared/src/gameServerConfig.ts`
+ * — that file is the source of truth; keep this copy in sync with it.
+ */
+export interface RedactedGameServer extends Omit<GameServer, 'healthCheck'> {
+  healthCheck?: RedactedGameServerHealthCheck;
+}
+
+/**
+ * Write-side shape of a `game_servers` entry submitted to `games.create` /
+ * `games.update`: identical to `Omit<GameServer, 'name'>` except
+ * `healthCheck`, which uses {@link GameServerHealthCheckWriteInput} so a
+ * `basic`/`bearer` credential can be submitted as plaintext rather than a
+ * pre-resolved `secretArn`.
+ *
+ * Mirrors `GameServerWriteConfig` in `@hyveon/shared/src/gamesWrite.ts` —
+ * that file is the source of truth; keep this copy in sync with it.
+ */
+export type GameServerWriteConfig = Omit<GameServer, 'name' | 'healthCheck'> & {
+  healthCheck?: GameServerHealthCheckWriteInput;
+};
 
 /**
  * Response entry for the merged games list (the `games.list` IPC channel).
  * Combines the declared view (`DeploymentConfig.gameServers`, via
- * {@link GameServer}) with the deployed view (tfstate) so callers can tell
+ * {@link RedactedGameServer}) with the deployed view (tfstate) so callers can tell
  * "declared but not yet applied" apart from "live" games.
  *
  * Mirrors `GameListEntry` in `@hyveon/shared/src/gameServerConfig.ts` — that file is
@@ -366,10 +484,10 @@ export interface GameListEntry {
   /** True when this game has a deployed ECS task definition in tfstate. */
   deployed: boolean;
   /**
-   * Full declared configuration for this game. Only present when `declared`
-   * is true.
+   * Full declared configuration for this game, with any health-check
+   * credential redacted. Only present when `declared` is true.
    */
-  config?: GameServer;
+  config?: RedactedGameServer;
   /**
    * Drift finding for this game, when one exists — see {@link DriftKind}.
    * Only a `'config_drift'` kind carries `changedFields`.
@@ -401,7 +519,7 @@ export interface GameServerValidationIssue {
  */
 export interface GameWriteSuccess {
   ok: true;
-  game?: GameServer;
+  game?: RedactedGameServer;
   games: GameListEntry[];
 }
 
@@ -500,7 +618,7 @@ export type GameWriteResult =
  */
 export interface CreateGamePayload {
   name: string;
-  config: Omit<GameServer, 'name'>;
+  config: GameServerWriteConfig;
   expectedVersionId?: string;
 }
 
@@ -513,7 +631,7 @@ export interface CreateGamePayload {
  */
 export interface UpdateGamePayload {
   name: string;
-  config: Omit<GameServer, 'name'>;
+  config: GameServerWriteConfig;
   expectedVersionId?: string;
 }
 
@@ -660,9 +778,9 @@ export interface AuditEntry {
   /** The `game_servers` map key the mutation applied to. */
   game: string;
   /** The game's configuration before the mutation, or `null` for `add`. */
-  before: GameServer | null;
+  before: RedactedGameServer | null;
   /** The game's configuration after the mutation, or `null` for `remove`. */
-  after: GameServer | null;
+  after: RedactedGameServer | null;
   /** S3 object version id of the deployment config produced by the write, if known. */
   versionId?: string;
 }
