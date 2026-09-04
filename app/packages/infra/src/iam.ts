@@ -26,23 +26,23 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import type { GameServerConfig } from '@hyveon/shared';
 
-/** Every IAM role and the managed-policy attachment {@link defineIamRoles} declares — see this file's doc for the full HCL→Pulumi address table. */
+/** Every IAM role and the managed-policy attachment {@link defineIamRoles} declares — see this file's doc for the full resource table. */
 export interface IamRoleResources {
-  /** ECS task-execution role (`aws_iam_role.ecs_task_execution`) — assumed by `ecs-tasks.amazonaws.com` to pull images and write logs on every game-server task. */
+  /** ECS task-execution role — assumed by `ecs-tasks.amazonaws.com` to pull images and write logs on every game-server task. */
   ecsTaskExecutionRole: aws.iam.Role;
-  /** Attaches the AWS-managed `AmazonECSTaskExecutionRolePolicy` to {@link ecsTaskExecutionRole} (`aws_iam_role_policy_attachment.ecs_task_execution`). */
+  /** Attaches the AWS-managed `AmazonECSTaskExecutionRolePolicy` to {@link ecsTaskExecutionRole}. */
   ecsTaskExecutionPolicyAttachment: aws.iam.RolePolicyAttachment;
-  /** Watchdog Lambda's role (`aws_iam_role.watchdog_lambda`). */
+  /** Watchdog Lambda's role. */
   watchdogLambdaRole: aws.iam.Role;
-  /** Followup Lambda's role (`aws_iam_role.followup_lambda`). */
+  /** Followup Lambda's role. */
   followupLambdaRole: aws.iam.Role;
-  /** Interactions Lambda's role (`aws_iam_role.interactions_lambda`). */
+  /** Interactions Lambda's role. */
   interactionsLambdaRole: aws.iam.Role;
-  /** DNS-updater Lambda's role (`aws_iam_role.dns_updater_lambda`). */
+  /** DNS-updater Lambda's role. */
   dnsUpdaterLambdaRole: aws.iam.Role;
   /**
    * Per-game EFS-seeder role, keyed by game name — one entry per
-   * {@link gamesWithFileSeeds} key (`aws_iam_role.efs_seeder`'s `for_each`).
+   * {@link gamesWithFileSeeds} key.
    */
   efsSeederRoles: Record<string, aws.iam.Role>;
   /**
@@ -62,20 +62,19 @@ export interface IamRoleResources {
   healthCheckLambdaRole: aws.iam.Role | undefined;
 }
 
-/** Every inline policy {@link defineIamPolicies} declares — see this file's doc for the full HCL→Pulumi address table. */
+/** Every inline policy {@link defineIamPolicies} declares — see this file's doc for the full resource table. */
 export interface IamPolicyResources {
-  /** Watchdog Lambda's inline policy (`aws_iam_role_policy.watchdog_lambda`). */
+  /** Watchdog Lambda's inline policy. */
   watchdogLambdaPolicy: aws.iam.RolePolicy;
-  /** Followup Lambda's inline policy (`aws_iam_role_policy.followup_lambda`). */
+  /** Followup Lambda's inline policy. */
   followupLambdaPolicy: aws.iam.RolePolicy;
-  /** Interactions Lambda's inline policy (`aws_iam_role_policy.interactions_lambda`). */
+  /** Interactions Lambda's inline policy. */
   interactionsLambdaPolicy: aws.iam.RolePolicy;
-  /** DNS-updater Lambda's inline policy (`aws_iam_role_policy.dns_updater_lambda`). */
+  /** DNS-updater Lambda's inline policy. */
   dnsUpdaterLambdaPolicy: aws.iam.RolePolicy;
   /**
    * Per-game EFS-seeder inline policy, keyed the same way as
-   * {@link IamRoleResources.efsSeederRoles} (`aws_iam_role_policy.efs_seeder`'s
-   * `for_each`).
+   * {@link IamRoleResources.efsSeederRoles}.
    */
   efsSeederPolicies: Record<string, aws.iam.RolePolicy>;
   /**
@@ -104,7 +103,7 @@ export type IamResources = IamRoleResources & IamPolicyResources;
 
 /** Arguments {@link defineIamRoles} needs to declare every IAM role and the managed-policy attachment. */
 export interface DefineIamRolesArgs {
-  /** Mirrors `var.project_name` — every role name below is `${projectName}-...`, matching the HCL exactly. */
+  /** Every role name below is `${projectName}-...`. */
   projectName: string;
   /**
    * The configured game-server map (`DeploymentConfig.gameServers`) —
@@ -118,7 +117,7 @@ export interface DefineIamRolesArgs {
 
 /** Arguments {@link defineIamPolicies} needs to declare every inline policy. */
 export interface DefineIamPoliciesArgs {
-  /** Mirrors `var.project_name` — every policy name below is `${projectName}-...`, matching the HCL exactly. */
+  /** Every policy name below is `${projectName}-...`. */
   projectName: string;
   /** The regional AWS provider every resource is declared against (region + default tags). */
   provider: aws.Provider;

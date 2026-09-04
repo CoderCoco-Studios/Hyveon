@@ -74,7 +74,7 @@ function manualCheckLabel(state: ManualCheckState): string | null {
  * field except `gameServers`.
  *
  * While `reconfiguring` is true, this page renders only
- * {@link FirstRunWizard} in `mode: 'reconfigure'` (#211) — mirroring how
+ * {@link FirstRunWizard} in `mode: 'reconfigure'` — mirroring how
  * `app.component.tsx` swaps the whole routed shell out for the first-run
  * wizard while `wizardCompleted` is false. Both `onComplete` and `onCancel`
  * just flip `reconfiguring` back to `false`; nothing about the surrounding

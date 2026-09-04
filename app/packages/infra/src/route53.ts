@@ -26,7 +26,7 @@ import type * as pulumi from '@pulumi/pulumi';
 
 /** The resource {@link defineRoute53} declares. */
 export interface Route53Resources {
-  /** The full hosted-zone lookup result (`data.aws_route53_zone.main`). */
+  /** The full hosted-zone lookup result. */
   zone: pulumi.Output<aws.route53.GetZoneResult>;
   /**
    * Convenience accessor for `zone.zoneId` — the deferred `hostedZoneId`
@@ -40,7 +40,7 @@ export interface Route53Resources {
 
 /** Arguments {@link defineRoute53} needs to look up the hosted zone. */
 export interface DefineRoute53Args {
-  /** Mirrors `var.hosted_zone_name` — the domain name of the pre-existing hosted zone to look up (`DeploymentConfig.hostedZoneName`). */
+  /** The domain name of the pre-existing hosted zone to look up (`DeploymentConfig.hostedZoneName`). */
   hostedZoneName: string;
   /** The regional AWS provider the lookup is invoked against (region + default tags) — the us-east-1-pinned provider used by `discordDomain.ts` is not relevant here. */
   provider: aws.Provider;

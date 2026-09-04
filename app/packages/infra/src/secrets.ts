@@ -31,15 +31,15 @@
 import * as aws from '@pulumi/aws';
 import type * as pulumi from '@pulumi/pulumi';
 
-/** Every resource {@link defineSecrets} declares, keyed by role — see this file's doc for the full HCL→Pulumi address table. */
+/** Every resource {@link defineSecrets} declares, keyed by role — see this file's doc for the full resource table. */
 export interface SecretsResources {
-  /** The Discord bot token secret (`aws_secretsmanager_secret.discord_bot_token`) — read by the management app to register guild slash commands. */
+  /** The Discord bot token secret — read by the management app to register guild slash commands. */
   discordBotTokenSecret: aws.secretsmanager.Secret;
-  /** {@link discordBotTokenSecret}'s create-only placeholder version (`aws_secretsmanager_secret_version.discord_bot_token`). */
+  /** {@link discordBotTokenSecret}'s create-only placeholder version. */
   discordBotTokenSecretVersion: aws.secretsmanager.SecretVersion;
-  /** The Discord application Ed25519 public key secret (`aws_secretsmanager_secret.discord_public_key`) — read by the interactions Lambda to verify request signatures. */
+  /** The Discord application Ed25519 public key secret — read by the interactions Lambda to verify request signatures. */
   discordPublicKeySecret: aws.secretsmanager.Secret;
-  /** {@link discordPublicKeySecret}'s create-only placeholder version (`aws_secretsmanager_secret_version.discord_public_key`). */
+  /** {@link discordPublicKeySecret}'s create-only placeholder version. */
   discordPublicKeySecretVersion: aws.secretsmanager.SecretVersion;
   /** The FileBrowser helper's per-launch credential-hash secret — one shared secret across every game, not per-game. See this file's doc, "The FileBrowser credential secret". */
   fileBrowserCredentialSecret: aws.secretsmanager.Secret;
@@ -49,7 +49,7 @@ export interface SecretsResources {
 
 /** Arguments {@link defineSecrets} needs to declare every secret and its placeholder version. Deliberately carries NO secret-value field — see this file's doc. */
 export interface DefineSecretsArgs {
-  /** Mirrors `var.project_name` — every secret's name below is `${projectName}/discord/...`, matching the HCL exactly. */
+  /** Project name — every secret's name below is `${projectName}/discord/...`. */
   projectName: string;
   /** The regional AWS provider every resource is declared against (region + default tags). */
   provider: aws.Provider;

@@ -8,7 +8,7 @@ import type { RecentLogsPage, OlderLogsPage, NewerLogsPage } from '../services/L
 import { logger } from '../logger.js';
 
 /** IPC-only logs controller. Handles Electron main-process messages via
- * `@MessagePattern` — no HTTP routes are registered here.
+ * `@MessagePattern`.
  *
  * Tails CloudWatch logs from the `/ecs/{game}-server` log group.
  */
@@ -67,7 +67,6 @@ export class LogsController implements OnModuleInit {
    * boundary (`lines[0]?.timestamp`) instead of `Date.now()` — the latter
    * can re-fetch (and duplicate) lines already present in this snapshot.
    *
-   * Reachable via the Electron IPC transport (`logs.get`).
    */
   @MessagePattern('logs.get')
   async getRecentLogs(
@@ -89,7 +88,6 @@ export class LogsController implements OnModuleInit {
    * rejection here surfaces to the renderer's `catch` around the `invoke`
    * call).
    *
-   * Reachable via the Electron IPC transport (`logs.getOlder`).
    */
   @MessagePattern('logs.getOlder')
   async getOlderLogs(
@@ -114,7 +112,6 @@ export class LogsController implements OnModuleInit {
    * historical window. Delegates to {@link LogsService.getNewerLogs}, with
    * the same error-normalization contract as {@link getOlderLogs}.
    *
-   * Reachable via the Electron IPC transport (`logs.getNewer`).
    */
   @MessagePattern('logs.getNewer')
   async getNewerLogs(
@@ -146,7 +143,6 @@ export class LogsController implements OnModuleInit {
    * `ElectronIPCTransport` passes `{ evt }` as the execution context — there
    * is no `signal` property injected by the transport.
    *
-   * Reachable via the Electron IPC transport (`logs.stream`).
    */
   @MessagePattern('logs.stream')
   async streamLogs(
@@ -208,7 +204,6 @@ export class LogsController implements OnModuleInit {
    * mirrors {@link getRecentLogs} exactly, but delegating to
    * {@link LogsService.getRecentLambdaLogs}.
    *
-   * Reachable via the Electron IPC transport (`logs.lambda.get`).
    */
   @MessagePattern('logs.lambda.get')
   async getRecentLambdaLogs(
@@ -226,7 +221,6 @@ export class LogsController implements OnModuleInit {
    * {@link getOlderLogs} exactly, but delegating to
    * {@link LogsService.getOlderLambdaLogs}.
    *
-   * Reachable via the Electron IPC transport (`logs.lambda.getOlder`).
    */
   @MessagePattern('logs.lambda.getOlder')
   async getOlderLambdaLogs(
@@ -250,7 +244,6 @@ export class LogsController implements OnModuleInit {
    * {@link getNewerLogs} exactly, but delegating to
    * {@link LogsService.getNewerLambdaLogs}.
    *
-   * Reachable via the Electron IPC transport (`logs.lambda.getNewer`).
    */
   @MessagePattern('logs.lambda.getNewer')
   async getNewerLambdaLogs(
@@ -277,7 +270,6 @@ export class LogsController implements OnModuleInit {
    * distinct `logs.lambda.stream.<id>.*` channel namespace so it can never
    * collide with `logs.stream.<id>.*`.
    *
-   * Reachable via the Electron IPC transport (`logs.lambda.stream`).
    */
   @MessagePattern('logs.lambda.stream')
   async streamLambdaLogs(

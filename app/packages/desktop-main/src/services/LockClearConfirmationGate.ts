@@ -92,7 +92,6 @@ export class LockClearConfirmationGate<TBinding> {
    * replayed) and returns the binding it was minted for. On failure, leaves
    * the pending mint untouched.
    *
-   * @param token - The token to validate.
    * @param current - What is currently locked, or `null` if nothing is
    *   currently locked (never matches any minted binding).
    * @returns A {@link LockClearAssertResult} naming the specific rejection

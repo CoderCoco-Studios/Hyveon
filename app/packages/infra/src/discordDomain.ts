@@ -53,34 +53,33 @@ const ALL_VIEWER_EXCEPT_HOST_HEADER_POLICY_ID = 'b689b0a8-53d0-40ab-baf2-68738e2
 
 /** Every resource {@link defineDiscordDomain} declares. */
 export interface DiscordDomainResources {
-  /** The us-east-1 ACM certificate for `discord.{hostedZoneName}` (`aws_acm_certificate.discord`). */
+  /** The us-east-1 ACM certificate for `discord.{hostedZoneName}`. */
   certificate: aws.acm.Certificate;
-  /** The DNS validation record for {@link certificate} (`aws_route53_record.discord_acm_validation`) — see this file's doc, "Certificate has a single domain, so validation needs only one record." */
+  /** The DNS validation record for {@link certificate} — see this file's doc, "Certificate has a single domain, so validation needs only one record." */
   certificateValidationRecord: aws.route53.Record;
-  /** Blocks on {@link certificateValidationRecord} until ACM confirms the certificate issued (`aws_acm_certificate_validation.discord`). */
+  /** Blocks on {@link certificateValidationRecord} until ACM confirms the certificate issued. */
   certificateValidation: aws.acm.CertificateValidation;
-  /** The CloudFront distribution fronting the interactions Function URL (`aws_cloudfront_distribution.discord`). */
+  /** The CloudFront distribution fronting the interactions Function URL. */
   distribution: aws.cloudfront.Distribution;
-  /** The `A` ALIAS record pointing `discord.{hostedZoneName}` at {@link distribution} (`aws_route53_record.discord`). */
+  /** The `A` ALIAS record pointing `discord.{hostedZoneName}` at {@link distribution}. */
   aliasRecord: aws.route53.Record;
-  /** The `AAAA` ALIAS record, identical target to {@link aliasRecord} (`aws_route53_record.discord_aaaa`). */
+  /** The `AAAA` ALIAS record, identical target to {@link aliasRecord}. */
   aliasRecordAaaa: aws.route53.Record;
 }
 
 /** Arguments {@link defineDiscordDomain} needs to declare the Discord custom domain. */
 export interface DefineDiscordDomainArgs {
-  /** Mirrors `var.project_name` — every resource's Pulumi logical name and `Name` tag below is `${projectName}-...`. */
+  /** Every resource's Pulumi logical name and `Name` tag below is `${projectName}-...`. */
   projectName: string;
-  /** Mirrors `var.hosted_zone_name` — `discord.${hostedZoneName}` is the domain this whole file provisions. */
+  /** `discord.${hostedZoneName}` is the domain this whole file provisions. */
   hostedZoneName: string;
   /** The hosted zone's ID (`route53.ts`'s `Route53Resources.zoneId`) — every Route 53 record below is declared into it. */
   zoneId: pulumi.Input<string>;
   /**
    * The interactions Lambda's Function URL (`lambdas.ts`'s
    * `LambdaResources.interactionsFunctionUrl.functionUrl`) — CloudFront's
-   * origin. Mirrors the HCL's
-   * `local.interactions_lambda_domain = trimsuffix(replace(aws_lambda_function_url.interactions.function_url, "https://", ""), "/")`;
-   * this file strips the same `https://` prefix and trailing `/` internally.
+   * origin. This file strips the `https://` prefix and trailing `/` off it
+   * internally to get the bare hostname CloudFront needs as its origin domain.
    */
   interactionsFunctionUrl: pulumi.Input<string>;
   /** The regional AWS provider — every resource EXCEPT {@link certificate}/{@link certificateValidation} is declared against this (region + default tags). See this file's doc, "us-east-1 provider — ACM certificate + its validation ONLY." */
@@ -109,8 +108,7 @@ export function defineDiscordDomain(args: DefineDiscordDomainArgs): DiscordDomai
   const discordDomainName = `discord.${stripTrailingDots(hostedZoneName)}`;
 
   // Strips "https://" and a trailing "/" from the Lambda Function URL to get
-  // the bare hostname CloudFront needs as its origin domain — mirrors the
-  // HCL's `local.interactions_lambda_domain`.
+  // the bare hostname CloudFront needs as its origin domain.
   const interactionsLambdaDomain = pulumi
     .output(interactionsFunctionUrl)
     .apply((url) => url.replace(/^https:\/\//, '').replace(/\/$/, ''));
@@ -187,8 +185,7 @@ export function defineDiscordDomain(args: DefineDiscordDomainArgs): DiscordDomai
       },
       viewerCertificate: {
         // References `certificateValidation`, not `certificate` directly —
-        // matches the HCL's `aws_acm_certificate_validation.discord.certificate_arn`
-        // (the distribution must not be created against a not-yet-issued cert).
+        // the distribution must not be created against a not-yet-issued cert.
         acmCertificateArn: certificateValidation.certificateArn,
         sslSupportMethod: 'sni-only',
         minimumProtocolVersion: 'TLSv1.2_2021',

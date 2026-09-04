@@ -14,7 +14,7 @@ import { ChangeSummaryStatus } from '../components/change-summary-status.compone
 import { useIacRun } from '../hooks/use-iac-run.hook.js';
 
 /**
- * `location.state` shape the rollback flow (#112) navigates to `/iac`
+ * `location.state` shape the rollback flow navigates to `/iac`
  * with, from a confirmed rollback in `/iac/history` — see
  * `RollbackAction`. `configVersionId` is the freshly-restored head version to
  * plan against; `rolledBackFrom` is the apply run it was restored from, sent

@@ -1,5 +1,5 @@
 /**
- * Shell for the first-run wizard (#184, epic #139): mirrors the add-game
+ * Shell for the first-run wizard: mirrors the add-game
  * wizard's step-flow pattern (shell owns step index + fetched state, one
  * component per step, pure helpers in `wizard.utils.ts`) but renders
  * full-page rather than in a `<Dialog>` — this wizard gates the entire app
@@ -9,9 +9,7 @@
  * Five steps: pick-cloud, guided-iam (`add-one-click-aws-bootstrap`'s
  * one-click AWS access provisioning, inserted between pick-cloud and
  * credentials), credentials, bootstrap, and stack-init (the last of which
- * initializes the Pulumi stack and finishes the wizard — task 10.3's
- * replacement for the pre-migration `init` step, which ran the old IaC
- * CLI's `init` command and has been fully removed).
+ * initializes the Pulumi stack and finishes the wizard).
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { CheckCircle2 } from 'lucide-react';
@@ -39,7 +37,7 @@ export interface FirstRunWizardProps {
    * (including `guided-iam`, `add-one-click-aws-bootstrap`'s one-click AWS
    * access provisioning step), persisting `pick-cloud`/`credentials`/`bootstrap`
    * answers immediately via `wizard.state.save` as the operator advances.
-   * `'reconfigure'` (#211, launched from Settings) pre-marks
+   * `'reconfigure'` (launched from Settings) pre-marks
    * `pick-cloud`/`credentials`/`bootstrap` as completed with a per-step Edit
    * affordance, and buffers *edited* answers locally — a single
    * `wizard.state.save` call, containing only the steps actually opened via

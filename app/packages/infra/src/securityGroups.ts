@@ -45,24 +45,23 @@ import { gamesWithFileSeeds, gamesWithHealthChecks } from './iam.js';
 
 /** Every resource {@link defineSecurityGroups} declares, keyed by role. */
 export interface SecurityGroupResources {
-  /** Game server task security group (`aws_security_group.game_servers`). */
+  /** Game server task security group. */
   gameServers: aws.ec2.SecurityGroup;
-  /** FileBrowser file-manager task security group (`aws_security_group.file_manager`). */
+  /** FileBrowser file-manager task security group. */
   fileManager: aws.ec2.SecurityGroup;
   /**
-   * EFS security group (`aws_security_group.efs`) — allows NFS (port 2049)
-   * from {@link gameServers} and {@link fileManager}, plus a conditional
-   * third ingress source, {@link efsSeeder}, when at least one configured
-   * game declares `file_seeds`. See this file's doc for why that rule is a
-   * second in-line `ingress` array entry, not a separate resource.
+   * EFS security group — allows NFS (port 2049) from {@link gameServers} and
+   * {@link fileManager}, plus a conditional third ingress source,
+   * {@link efsSeeder}, when at least one configured game declares
+   * `file_seeds`. See this file's doc for why that rule is a second in-line
+   * `ingress` array entry, not a separate resource.
    */
   efs: aws.ec2.SecurityGroup;
   /**
-   * Shared security group for every EFS-seeder Lambda
-   * (`aws_security_group.efs_seeder`, `count = length(local.games_with_seeds) > 0 ? 1 : 0`).
-   * `undefined` when no configured game declares `file_seeds` — mirrors the
-   * HCL's `count` gate. `lambdas.ts`'s EFS-seeder functions take its `.id`
-   * as a plain input rather than constructing their own security group.
+   * Shared security group for every EFS-seeder Lambda. `undefined` when no
+   * configured game declares `file_seeds`. `lambdas.ts`'s EFS-seeder
+   * functions take its `.id` as a plain input rather than constructing their
+   * own security group.
    */
   efsSeeder: aws.ec2.SecurityGroup | undefined;
   /**
@@ -92,7 +91,7 @@ export interface SecurityGroupResources {
 
 /** Arguments {@link defineSecurityGroups} needs to declare the security groups. */
 export interface DefineSecurityGroupsArgs {
-  /** Mirrors `var.project_name` — every resource name/tag below is `${projectName}-...`, matching the HCL exactly. */
+  /** Project name — every resource name/tag below is `${projectName}-...`. */
   projectName: string;
   /** The configured game-server map (`DeploymentConfig.gameServers`) the per-game ingress rules are derived from by iteration. */
   gameServers: Record<string, GameServerConfig>;
@@ -253,9 +252,8 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
   }
 
   // HTTPS games — public 443/80 for the in-task Caddy sidecar, only declared
-  // when at least one HTTPS game exists. Order (443 then 80) mirrors
-  // the legacy tool's `for_each` over `{ "443" = 443, "80" = 80 }`, which
-  // iterates map keys in sorted order ("443" < "80" lexicographically).
+  // when at least one HTTPS game exists. Order (443 then 80) is deliberate,
+  // not incidental.
   if (hasHttpsGame(gameServers)) {
     for (const httpsPort of [443, 80]) {
       gamePortIngress.push({
@@ -367,12 +365,10 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
       )
     : undefined;
 
-  // Same rule the HCL declares as `aws_security_group.efs`'s NFS-from-
-  // game-servers ingress entry, plus a conditional second entry sourced
-  // from `efsSeederSg` — both IN-LINE in this one array, exactly like the
-  // HCL's two `ingress`/`dynamic "ingress"` blocks on the same resource.
-  // See this file's doc for why a standalone `SecurityGroupRule` for the
-  // second entry is NOT used.
+  // `efs`'s NFS-from-game-servers ingress entry, plus a conditional second
+  // entry sourced from `efsSeederSg` — both IN-LINE in this one array. See
+  // this file's doc for why a standalone `SecurityGroupRule` for the second
+  // entry is NOT used.
   const efsIngress: pulumi.Input<aws.types.input.ec2.SecurityGroupIngress>[] = [
     {
       description: 'NFS from game servers',

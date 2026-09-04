@@ -49,52 +49,52 @@ import type { IamRoleResources } from './iam.js';
 /** Node.js Lambda runtime every one of the five functions declares. */
 const LAMBDA_RUNTIME = 'nodejs24.x';
 
-/** Handler string every one of the five functions declares (`handler.handler` in the HCL — module `handler.cjs`, exported function `handler`). */
+/** Handler string every one of the five functions declares — module `handler.cjs`, exported function `handler`. */
 const LAMBDA_HANDLER = 'handler.handler';
 
 /** Every resource {@link defineLambdas} declares, keyed by role — see this file's doc for the full HCL→Pulumi address table. */
 export interface LambdaResources {
-  /** The Discord HTTP-interactions entry point (`aws_lambda_function.interactions`). */
+  /** The Discord HTTP-interactions entry point. */
   interactionsFunction: aws.lambda.Function;
-  /** {@link interactionsFunction}'s CloudWatch log group (`aws_cloudwatch_log_group.interactions`). */
+  /** {@link interactionsFunction}'s CloudWatch log group. */
   interactionsLogGroup: aws.cloudwatch.LogGroup;
-  /** The public Function URL Discord posts interactions to (`aws_lambda_function_url.interactions`). */
+  /** The public Function URL Discord posts interactions to. */
   interactionsFunctionUrl: aws.lambda.FunctionUrl;
-  /** Grants `lambda:InvokeFunctionUrl` to the public principal (`aws_lambda_permission.interactions_url_invoke_url`). */
+  /** Grants `lambda:InvokeFunctionUrl` to the public principal. */
   interactionsUrlInvokeUrlPermission: aws.lambda.Permission;
-  /** Grants `lambda:InvokeFunction` to the public principal — required alongside {@link interactionsUrlInvokeUrlPermission} since October 2025 (`aws_lambda_permission.interactions_url_invoke`). */
+  /** Grants `lambda:InvokeFunction` to the public principal — required alongside {@link interactionsUrlInvokeUrlPermission} since October 2025. */
   interactionsUrlInvokePermission: aws.lambda.Permission;
 
-  /** The async-invoked ECS RunTask/StopTask worker (`aws_lambda_function.followup`). */
+  /** The async-invoked ECS RunTask/StopTask worker. */
   followupFunction: aws.lambda.Function;
-  /** {@link followupFunction}'s CloudWatch log group (`aws_cloudwatch_log_group.followup`). */
+  /** {@link followupFunction}'s CloudWatch log group. */
   followupLogGroup: aws.cloudwatch.LogGroup;
 
-  /** The idle-server auto-shutdown Lambda (`aws_lambda_function.watchdog`). */
+  /** The idle-server auto-shutdown Lambda. */
   watchdogFunction: aws.lambda.Function;
-  /** {@link watchdogFunction}'s CloudWatch log group (`aws_cloudwatch_log_group.watchdog`). */
+  /** {@link watchdogFunction}'s CloudWatch log group. */
   watchdogLogGroup: aws.cloudwatch.LogGroup;
-  /** EventBridge schedule rule that triggers {@link watchdogFunction} (`aws_cloudwatch_event_rule.watchdog_schedule`). */
+  /** EventBridge schedule rule that triggers {@link watchdogFunction}. */
   watchdogScheduleRule: aws.cloudwatch.EventRule;
-  /** Wires {@link watchdogScheduleRule} to {@link watchdogFunction} (`aws_cloudwatch_event_target.watchdog`). */
+  /** Wires {@link watchdogScheduleRule} to {@link watchdogFunction}. */
   watchdogScheduleTarget: aws.cloudwatch.EventTarget;
-  /** Grants `events.amazonaws.com` permission to invoke {@link watchdogFunction}, scoped to {@link watchdogScheduleRule}'s ARN (`aws_lambda_permission.watchdog_eventbridge`). */
+  /** Grants `events.amazonaws.com` permission to invoke {@link watchdogFunction}, scoped to {@link watchdogScheduleRule}'s ARN. */
   watchdogEventBridgePermission: aws.lambda.Permission;
 
-  /** The Route 53 DNS-updater Lambda (`aws_lambda_function.dns_updater`). */
+  /** The Route 53 DNS-updater Lambda. */
   dnsUpdaterFunction: aws.lambda.Function;
-  /** {@link dnsUpdaterFunction}'s CloudWatch log group (`aws_cloudwatch_log_group.dns_updater`). */
+  /** {@link dnsUpdaterFunction}'s CloudWatch log group. */
   dnsUpdaterLogGroup: aws.cloudwatch.LogGroup;
-  /** EventBridge rule matching ECS task RUNNING/STOPPED state changes (`aws_cloudwatch_event_rule.ecs_task_change`). */
+  /** EventBridge rule matching ECS task RUNNING/STOPPED state changes. */
   ecsTaskChangeRule: aws.cloudwatch.EventRule;
-  /** Wires {@link ecsTaskChangeRule} to {@link dnsUpdaterFunction} (`aws_cloudwatch_event_target.dns_updater`). */
+  /** Wires {@link ecsTaskChangeRule} to {@link dnsUpdaterFunction}. */
   dnsUpdaterEventTarget: aws.cloudwatch.EventTarget;
-  /** Grants `events.amazonaws.com` permission to invoke {@link dnsUpdaterFunction}, scoped to {@link ecsTaskChangeRule}'s ARN (`aws_lambda_permission.dns_updater_eventbridge`). */
+  /** Grants `events.amazonaws.com` permission to invoke {@link dnsUpdaterFunction}, scoped to {@link ecsTaskChangeRule}'s ARN. */
   dnsUpdaterEventBridgePermission: aws.lambda.Permission;
 
-  /** One log group per game with `file_seeds`, keyed by game name (`aws_cloudwatch_log_group.efs_seeder`). Empty when no game declares seeds. */
+  /** One log group per game with `file_seeds`, keyed by game name. Empty when no game declares seeds. */
   efsSeederLogGroups: Record<string, aws.cloudwatch.LogGroup>;
-  /** One Lambda function per game with `file_seeds`, keyed the same way as {@link efsSeederLogGroups} and `iam.ts`'s `IamRoleResources.efsSeederRoles` (`aws_lambda_function.efs_seeder`). Empty when no game declares seeds. */
+  /** One Lambda function per game with `file_seeds`, keyed the same way as {@link efsSeederLogGroups} and `iam.ts`'s `IamRoleResources.efsSeederRoles`. Empty when no game declares seeds. */
   efsSeederFunctions: Record<string, aws.lambda.Function>;
 
   /**
@@ -118,19 +118,19 @@ export interface LambdaResources {
 
 /** Arguments {@link defineLambdas} needs to declare every Lambda function and its wiring. */
 export interface DefineLambdasArgs {
-  /** Mirrors `var.project_name` — every resource name below is `${projectName}-...`, matching the HCL exactly. */
+  /** Every resource name below is `${projectName}-...`. */
   projectName: string;
-  /** Mirrors `var.aws_region` — every function's `AWS_REGION_` environment variable (see the CLAUDE.md invariant: `AWS_REGION` itself is reserved by the Lambda runtime). */
+  /** Every function's `AWS_REGION_` environment variable (see the CLAUDE.md invariant: `AWS_REGION` itself is reserved by the Lambda runtime). */
   awsRegion: string;
-  /** Mirrors `var.hosted_zone_name` — the interactions/followup/dns-updater functions' `HOSTED_ZONE_NAME`/`DOMAIN_NAME` environment variables. */
+  /** The interactions/followup/dns-updater functions' `HOSTED_ZONE_NAME`/`DOMAIN_NAME` environment variables. */
   hostedZoneName: string;
-  /** Mirrors `var.dns_ttl` — the dns-updater function's `DNS_TTL` environment variable. */
+  /** The dns-updater function's `DNS_TTL` environment variable. */
   dnsTtl: number;
-  /** Mirrors `var.watchdog_interval_minutes` — the watchdog function's `CHECK_WINDOW_MINUTES` environment variable and its EventBridge schedule expression. */
+  /** The watchdog function's `CHECK_WINDOW_MINUTES` environment variable and its EventBridge schedule expression. */
   watchdogIntervalMinutes: number;
-  /** Mirrors `var.watchdog_idle_checks` — the watchdog function's `IDLE_CHECKS` environment variable. */
+  /** The watchdog function's `IDLE_CHECKS` environment variable. */
   watchdogIdleChecks: number;
-  /** Mirrors `var.watchdog_min_packets` — the watchdog function's `MIN_PACKETS` environment variable. */
+  /** The watchdog function's `MIN_PACKETS` environment variable. */
   watchdogMinPackets: number;
   /** The configured game-server map (`DeploymentConfig.gameServers`) every per-game derivation below (`GAME_NAMES`, `CONNECT_MESSAGES`, `GAME_PORTS`, the EFS-seeder functions) iterates. */
   gameServers: Record<string, GameServerConfig>;

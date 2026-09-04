@@ -1,55 +1,24 @@
 /**
- * Typed configuration model that is the app's configuration source of
- * truth (`DeploymentConfig.gameServers` — and by extension this whole
- * model — per `CLAUDE.md`'s invariants list). It replaced the app's
- * original, now fully retired Infrastructure-as-Code (IaC) tool's
- * per-deployment values file, back when the app still shelled out to that
- * tool, and is a NEW canonical model, not a mirror of that tool's old
- * HCL-shaped config:
+ * Typed configuration model that is the app's configuration source of truth
+ * (`DeploymentConfig.gameServers` — and by extension this whole model — per
+ * `CLAUDE.md`'s invariants list). Three constraints are load-bearing:
  *
- *  - Field names are idiomatic TS `camelCase` rather than that tool's
- *    `snake_case`, EXCEPT for {@link DeploymentConfig.gameServers}, whose value type reuses
- *    {@link GameServerConfig} — the existing shared game-server shape (see
- *    `./gameServerConfig.js`) already dictates `snake_case` field names
- *    (`container_path`, `connect_message`, `content_base64`) and is deeply
- *    embedded across `gameServerValidator.ts`, `DeploymentConfigService.ts`'s JSON
- *    read/write paths, and the Games UI, so this model reuses it as-is
+ *  - Field names are idiomatic TS `camelCase`, EXCEPT for
+ *    {@link DeploymentConfig.gameServers}, whose value type deliberately reuses
+ *    {@link GameServerConfig}'s `snake_case` fields (`container_path`,
+ *    `connect_message`, `content_base64`) — that shape is already deeply
+ *    embedded across `gameServerValidator.ts`, `DeploymentConfigService.ts`'s
+ *    JSON read/write paths, and the Games UI, so this model reuses it as-is
  *    rather than forking a parallel `camelCase` copy.
- *  - The model is plain data — every field is JSON-serializable (`string`,
- *    `number`, `boolean`, array, or plain object; no `Date`, `Map`, `Set`, or
- *    class instance) — because it is persisted verbatim as a JSON object in
- *    the operator's configuration S3 bucket, and the Pulumi program reads it
- *    directly to derive resources.
- *  - It intentionally excludes every secret input, to keep secrets out of the
- *    stack. `discord_bot_token` and `discord_public_key`
- *    (formerly declared inputs of the app's original IaC tool, before that
- *    tool's config tree was retired) were DROPPED, not ported: the app's
- *    `DiscordConfigService` already writes those two values to AWS Secrets
- *    Manager directly over the SDK, and the standing rule is that no secret
- *    is ever sent to the renderer or persisted outside Secrets Manager;
- *    giving them a home in this model would reopen that route.
- *
- * Field inventory: every field below (other than `gameServers`, whose
- * per-entry shape mirrors the original IaC tool's own `game_servers` object
- * type) mirrors a top-level input the app's old root IaC configuration used
- * to pass into its AWS module (that module's own variables declaration was
- * the app's source of truth for these values, before this model and the
- * Pulumi migration superseded it). Three root-only inputs from that old
- * setup were deliberately excluded because they never reached the AWS
- * module and described bootstrap/provider-selection concerns rather than
- * deployment data:
- *  - `active_cloud` — selected which cloud module to instantiate; hardcoded
- *    to `'aws'` everywhere in the app today (see `ConfigService.getActiveCloud()`)
- *    since only one cloud provider is supported. Revisit when multi-cloud
- *    support lands.
- *  - the old per-deployment-values bucket-name input — named the S3 bucket
- *    this very configuration object is expected to live in. Storing it
- *    *inside* the object it locates would be circular; the config store
- *    resolves the bucket name through its own mechanism instead.
- *  - `tags` — applied via the old setup's root-level default-tags block,
- *    never threaded down to the AWS module; a resource-tagging concern the
- *    Pulumi program owns directly (e.g. a fixed `Project=hyveon` tag set),
- *    not per-deployment operator input.
+ *  - The model is plain data — every field must stay JSON-serializable
+ *    (`string`, `number`, `boolean`, array, or plain object; no `Date`,
+ *    `Map`, `Set`, or class instance) — because it is persisted verbatim as a
+ *    JSON object in the operator's configuration S3 bucket, and the Pulumi
+ *    program reads it directly to derive resources.
+ *  - Secrets are deliberately excluded and must never be added back:
+ *    `DiscordConfigService` writes bot-token/public-key values to AWS
+ *    Secrets Manager directly, and no secret may ever be persisted outside
+ *    Secrets Manager or sent to the renderer.
  */
 
 import type { GameServerConfig } from './gameServerConfig.js';
@@ -237,42 +206,17 @@ export interface DeploymentConfig {
 export type TopLevelDeploymentSettings = Omit<DeploymentConfig, 'gameServers'>;
 
 /**
- * Every {@link DeploymentConfig} field that (a) has a static default
- * AND (b) is safe to expose as a single shared frozen constant value. Two
- * groups of fields are deliberately NOT members, for two different
- * reasons — this list is not simply "every field with a static default":
+ * Every {@link DeploymentConfig} field that (a) has a static default AND (b) is safe to expose as
+ * a single shared frozen constant value. {@link DeploymentConfig.hostedZoneName} and
+ * {@link DeploymentConfig.gameServers} are excluded (no static default; required in every real
+ * deployment). {@link DeploymentConfig.baseAllowedGuilds}/`baseAdminUserIds`/`baseAdminRoleIds`
+ * are also excluded despite having a `[]` default: a frozen array stored here would be a single
+ * shared reference every caller received unless defensively cloned, so
+ * {@link withDeploymentConfigDefaults} allocates a **fresh** empty array per call for those three
+ * instead of sourcing them from this constant.
  *
- *  - {@link DeploymentConfig.hostedZoneName} and
- *    {@link DeploymentConfig.gameServers} have no static default at all
- *    (both required in every real deployment), so there is no value to put
- *    here.
- *  - {@link DeploymentConfig.baseAllowedGuilds},
- *    {@link DeploymentConfig.baseAdminUserIds}, and
- *    {@link DeploymentConfig.baseAdminRoleIds} DO have a static
- *    default (`[]` each) but are excluded anyway: a frozen array value
- *    stored here would still be a single shared reference every caller of
- *    {@link withDeploymentConfigDefaults} would receive unless defensively
- *    cloned, so that function allocates a **fresh** empty array for each of
- *    the three per call instead of sourcing them from this constant — see
- *    its own doc for the full rationale and the test asserting the arrays
- *    are never shared across calls.
- *
- * {@link DeploymentConfig.auditTableName} and
- * {@link DeploymentConfig.runsTableName} ARE members below — their
- * default is the literal empty string (`""`), which is what's stored here.
- * That is NOT the same as their *effective* resolved value: the app's
- * original config setup used to compute `"${project_name}-audit"` /
- * `"${project_name}-runs"` from an empty string downstream — see those two
- * fields' own TSDoc on
- * {@link DeploymentConfig} for why that computed fallback is intentionally
- * NOT replicated here or in {@link withDeploymentConfigDefaults}.
- *
- * Values are taken verbatim from the app's original config inputs' own
- * default declarations.
- *
- * Consumed by {@link withDeploymentConfigDefaults}. Exported separately so
- * callers that only need to know a single default value (e.g. a form
- * placeholder) don't have to go through the helper.
+ * Consumed by {@link withDeploymentConfigDefaults}. Exported separately so callers that only need
+ * a single default value (e.g. a form placeholder) don't have to go through the helper.
  */
 export const DEPLOYMENT_CONFIG_DEFAULTS: Readonly<
   Pick<
@@ -302,25 +246,10 @@ export const DEPLOYMENT_CONFIG_DEFAULTS: Readonly<
 });
 
 /**
- * Resolves {@link DeploymentConfig.runsTableName}'s effective table name —
- * mirrors the app's original config input's own
- * `runs_table_name != "" ? runs_table_name : "${project_name}-runs"`
- * ternary (now ported to `@hyveon/infra`'s `dynamodb.ts` for documentation
- * purposes only — see {@link DeploymentConfig.runsTableName}'s doc for why
- * that table is no longer Pulumi-managed).
- *
- * Exported from `@hyveon/shared` (rather than left as a package-private
- * helper) because THREE independent call sites must compute the exact same
- * value without ever forking the ternary:
- *  - `BootstrapService.ensureRunsTable` (`@hyveon/desktop-main`), which
- *    physically creates the table via the AWS SDK at wizard-bootstrap time,
- *    before any Pulumi apply has ever run.
- *  - `@hyveon/infra`'s `program.ts`, which reports this same computed value
- *    as the `runsTableName` stack output once a real deploy config exists
- *    (a plain config echo now, not a resource-derived field).
- *  - `RunRecordService`/`resolveRunRecordStoreConfig` (`@hyveon/desktop-main`),
- *    via {@link resolvePreApplyRunsTableName}, as the pre-apply fallback when
- *    no Pulumi stack output is available yet.
+ * Resolves {@link DeploymentConfig.runsTableName}'s effective table name. Exported so
+ * `BootstrapService.ensureRunsTable`, `@hyveon/infra`, and `RunRecordService` never fork this
+ * ternary — all three must compute the exact same value: the former two directly, and
+ * `RunRecordService` via {@link resolvePreApplyRunsTableName}.
  *
  * @param projectName - {@link DeploymentConfig.projectName}.
  * @param runsTableNameOverride - {@link DeploymentConfig.runsTableName} (the

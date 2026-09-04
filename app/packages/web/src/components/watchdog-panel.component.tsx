@@ -1,16 +1,8 @@
 /**
- * Bottom-of-page Settings panel that used to read and write the three
- * watchdog tuning knobs (check interval, idle checks, min packets) via a
- * local `server_config.json`, through `api.config()` / `api.saveConfig()`.
- * That save flow was dead on arrival: the deployed watchdog Lambda never
- * reads `server_config.json` — its real tunables come from `DeploymentConfig`
- * (`app/packages/infra/src/lambdas.ts`), which is the same data
- * `DeploymentSettingsForm`'s "Watchdog tuning" section already edits
- * correctly (#348).
- *
- * Rather than duplicate that editor with a second, read-only fetch of the
- * same values, this panel is now a static pointer to it — no IPC call, no
- * inputs, no Save button.
+ * Static pointer to `DeploymentSettingsForm`'s "Watchdog tuning" section —
+ * no IPC call, no inputs, no Save button. The deployed watchdog Lambda reads
+ * its tunables from `DeploymentConfig`, not `server_config.json`, so this
+ * panel doesn't duplicate that editor with a second read-only fetch.
  */
 export function WatchdogPanel() {
   return (

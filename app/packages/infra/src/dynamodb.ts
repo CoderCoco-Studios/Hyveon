@@ -35,29 +35,29 @@
 import * as aws from '@pulumi/aws';
 import type * as pulumi from '@pulumi/pulumi';
 
-/** Every resource {@link defineDynamoDb} declares, keyed by role — see this file's doc for the full HCL→Pulumi address table. */
+/** Every resource {@link defineDynamoDb} declares, keyed by role — see this file's doc for the table map. */
 export interface DynamoDbResources {
   /**
-   * Discord serverless backing store (`aws_dynamodb_table.discord`) — holds
+   * Discord serverless backing store — holds
    * the `CONFIG#discord`/`BASE#discord` config rows and `PENDING#{taskArn}`
    * pending-interaction rows (TTL-expired via {@link DynamoDbResources.discordTable}'s
-   * own `ttl` block). Name is always `${projectName}-discord`, matching the
-   * HCL exactly — unlike {@link auditTable} (or the retired runs table), the
-   * HCL never gave this table a name-override variable.
+   * own `ttl` block). Name is always `${projectName}-discord` — unlike
+   * {@link auditTable} (or the retired runs table), this table never had a
+   * name-override option.
    */
   discordTable: aws.dynamodb.Table;
-  /** Audit-log table (`aws_dynamodb_table.audit`) — one row per config mutation made through the management app. */
+  /** Audit-log table — one row per config mutation made through the management app. */
   auditTable: aws.dynamodb.Table;
 }
 
 /** Arguments {@link defineDynamoDb} needs to declare every DynamoDB table. */
 export interface DefineDynamoDbArgs {
-  /** Mirrors `var.project_name` — every table's default name below is `${projectName}-...`, matching the HCL exactly. */
+  /** Every table's default name below is `${projectName}-...`. */
   projectName: string;
   /**
-   * Mirrors `DeploymentConfig.auditTableName` (`var.audit_table_name`) — an
-   * empty string resolves to `${projectName}-audit`, replicating the HCL's
-   * `var.audit_table_name != "" ? var.audit_table_name : "${var.project_name}-audit"`
+   * Mirrors `DeploymentConfig.auditTableName` — an
+   * empty string resolves to `${projectName}-audit`, via the
+   * `auditTableName !== '' ? auditTableName : "${projectName}-audit"`
    * ternary. This function is where that resolution happens.
    */
   auditTableName: string;
@@ -66,8 +66,8 @@ export interface DefineDynamoDbArgs {
 }
 
 /**
- * Resolves a possibly-overridden table name against the HCL's own
- * `var.x != "" ? var.x : "${var.project_name}-<suffix>"` ternary.
+ * Resolves a possibly-overridden table name against the legacy tool's own
+ * `x != "" ? x : "${projectName}-<suffix>"` ternary.
  *
  * Used for the audit table only — the runs table's identical-shaped
  * resolution now lives in `@hyveon/shared`'s `resolveRunsTableName`, since
@@ -87,13 +87,13 @@ function resolveTableName(overrideName: string, projectName: string, suffix: str
 /**
  * Declares the two DynamoDB tables this package manages (the runs table is
  * created outside Pulumi — see this file's doc) — see this file's doc for
- * the full HCL→Pulumi address table. Must be called from inside the Pulumi
+ * the table map. Must be called from inside the Pulumi
  * inline-program closure, never at module scope.
  *
  * Every table's Pulumi *logical* name is fixed to `${projectName}-<role>`,
  * deliberately NOT derived from the resolved (possibly operator-overridden)
- * `name:` input: the legacy tool addressed `aws_dynamodb_table.audit` by a fixed
- * resource address regardless of `var.audit_table_name`, and tying this
+ * `name:` input: the legacy tool addressed the audit table by a fixed
+ * resource address regardless of an operator-supplied name override, and tying this
  * program's logical name to the same operator-editable value would mean an
  * unrelated table-name edit also changes the resource's Pulumi identity (its
  * URN) — the resolved value is used only for the `name:` input property

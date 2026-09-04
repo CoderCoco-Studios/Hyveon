@@ -33,6 +33,8 @@ export class AwsLambdaDiscordReceiver implements DiscordEventReceiver {
   private readonly url: string | null;
 
   /**
+   * Constructs the receiver from a pre-resolved stack-outputs-shaped config object.
+   *
    * @param config - An object containing the `discord_interactions_url` field.
    *   Typically derived from the parsed Pulumi stack outputs for the current
    *   deployment (see {@link StackOutputs.discordInteractionsUrl}).

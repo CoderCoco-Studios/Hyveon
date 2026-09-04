@@ -40,27 +40,13 @@ export class AwsRemoteFileStore implements RemoteFileStore {
   private clientCacheKey: string | null = null;
 
   /**
-   * @param getConfig - Resolves the S3 bucket (and optional region) this
-   *   store reads/writes, on every call — so a bucket rename picked up
-   *   between calls (e.g. after a Pulumi apply run through `PulumiService`)
-   *   isn't stuck targeting a stale bucket. Optional so the class remains constructible with no
-   *   arguments, mirroring `AwsCloudProvider.getConfig`/`AwsSecretsStore`'s
-   *   zero-arg-constructible pattern. When omitted (or when it returns no
-   *   `bucket`), every method throws a clear "bucket not configured" error
-   *   rather than sending a malformed request. `region` falls back to
-   *   `AWS_REGION_` (Lambda's reserved-name workaround, see CLAUDE.md), then
-   *   `AWS_REGION`, then `AWS_DEFAULT_REGION`, then `us-east-1` when omitted.
-   *   `credentials`, when supplied, is passed straight through to
-   *   `S3Client` — omitting it leaves the SDK's own default provider chain
-   *   in effect, which resolves nothing in a GUI-launched Electron process
-   *   (see `desktop-main`'s `resolveAwsClientCredentials`, the real caller's
-   *   source for this field). `credentialsSignature`, when supplied, is a
-   *   cheap, comparable fingerprint of `credentials` — see `desktop-main`'s
-   *   `resolveAwsClientCredentialsWithSignature` for why `credentials` itself
-   *   can't be compared to detect a rotation. {@link getClient} keys its
-   *   cache on this alongside region so a same-region credentials rotation
-   *   still rebuilds the client instead of staying pinned to a stale key
-   *   indefinitely.
+   * Resolves bucket/region/credentials for this store on every call — see {@link
+   * AwsAuditLogStore}'s constructor doc for why (rename-safety, zero-arg constructibility, and the
+   * `credentialsSignature` cache-key rotation reason all apply identically here).
+   *
+   * @param getConfig - Resolves the S3 bucket and optional region/credentials. Optional; omitted
+   *   (or missing `bucket`) makes every method throw "bucket not configured". `region` falls back
+   *   to `AWS_REGION_`, then `AWS_REGION`, then `AWS_DEFAULT_REGION`, then `us-east-1` when omitted.
    */
   constructor(
     private readonly getConfig?: () => {

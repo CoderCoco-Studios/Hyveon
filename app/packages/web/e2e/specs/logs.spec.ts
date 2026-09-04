@@ -4,7 +4,7 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
 import { LogsPage } from '../pages/index.js';
 
 /**
- * `/logs` route specs migrated to the Electron project (issue #191).
+ * `/logs` route specs, run under the Electron project.
  *
  * Each test manages its own `ElectronApplication` lifecycle and seeds IPC
  * responses exclusively via `window.hyveon.__test.mock(channel, handler)` — the
@@ -43,7 +43,7 @@ async function setupLogsPage(
       hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
 
       // Seed the game list for the combobox selector. `games.list` resolves
-      // `GameListEntry[]`, not bare strings — see issue #92.
+      // `GameListEntry[]`, not bare strings.
       hyveon.__test.mock('games.list', () =>
         Promise.resolve({ games: g.map((name) => ({ name, declared: true, deployed: true })) }),
       );

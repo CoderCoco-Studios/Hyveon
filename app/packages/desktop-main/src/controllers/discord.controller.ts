@@ -15,8 +15,7 @@ import { logger } from '../logger.js';
  * command registration. All state lives in DynamoDB + Secrets Manager; this
  * controller never talks to a gateway connection (there isn't one).
  *
- * Every handler is bound to an IPC channel via `@MessagePattern` / `@Payload`
- * — no HTTP routes are registered here.
+ * Every handler is bound to an IPC channel via `@MessagePattern` / `@Payload`.
  */
 @Controller()
 export class DiscordController {

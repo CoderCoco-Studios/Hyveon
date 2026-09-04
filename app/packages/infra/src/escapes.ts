@@ -35,35 +35,32 @@ import type { GameServerConfig } from '@hyveon/shared';
 /** The two conditional Discord table rows {@link defineDiscordTableItems} declares — see this file's doc for the full HCL→Pulumi address table. */
 export interface DiscordTableItemResources {
   /**
-   * The `BASE#discord` row (`aws_dynamodb_table_item.discord_base_config`).
-   * `undefined` when `baseAllowedGuilds`, `baseAdminUserIds`, and
-   * `baseAdminRoleIds` are all empty — mirrors the HCL's
-   * `count = (length(...) + length(...) + length(...)) > 0 ? 1 : 0` guard.
+   * The `BASE#discord` row. `undefined` when `baseAllowedGuilds`,
+   * `baseAdminUserIds`, and `baseAdminRoleIds` are all empty.
    */
   discordBaseConfigItem: aws.dynamodb.TableItem | undefined;
   /**
-   * The `CONFIG#discord` row (`aws_dynamodb_table_item.discord_config_seed`).
-   * `undefined` when `discordApplicationId` is empty — mirrors the HCL's
-   * `count = var.discord_application_id != "" ? 1 : 0` guard.
+   * The `CONFIG#discord` row. `undefined` when `discordApplicationId` is
+   * empty.
    */
   discordConfigSeedItem: aws.dynamodb.TableItem | undefined;
 }
 
 /** Arguments {@link defineDiscordTableItems} needs to declare the two conditional Discord table rows. */
 export interface DefineDiscordTableItemsArgs {
-  /** Mirrors `var.project_name` — every item's Pulumi logical name below is `${projectName}-...`, matching this package's naming convention. */
+  /** Project name — every item's Pulumi logical name below is `${projectName}-...`, matching this package's naming convention. */
   projectName: string;
   /** The regional AWS provider every resource is declared against (region + default tags). */
   provider: aws.Provider;
   /** The Discord table (`dynamodb.ts`'s `DynamoDbResources.discordTable`) both rows are written into. */
   discordTable: aws.dynamodb.Table;
-  /** Mirrors `var.base_allowed_guilds` (`DeploymentConfig.baseAllowedGuilds`) — contributes to {@link DiscordTableItemResources.discordBaseConfigItem}'s presence guard and its `allowedGuilds` list. */
+  /** `DeploymentConfig.baseAllowedGuilds` — contributes to {@link DiscordTableItemResources.discordBaseConfigItem}'s presence guard and its `allowedGuilds` list. */
   baseAllowedGuilds: string[];
-  /** Mirrors `var.base_admin_user_ids` (`DeploymentConfig.baseAdminUserIds`). */
+  /** `DeploymentConfig.baseAdminUserIds`. */
   baseAdminUserIds: string[];
-  /** Mirrors `var.base_admin_role_ids` (`DeploymentConfig.baseAdminRoleIds`). */
+  /** `DeploymentConfig.baseAdminRoleIds`. */
   baseAdminRoleIds: string[];
-  /** Mirrors `var.discord_application_id` (`DeploymentConfig.discordApplicationId`) — controls {@link DiscordTableItemResources.discordConfigSeedItem}'s presence guard and its `clientId`. */
+  /** `DeploymentConfig.discordApplicationId` — controls {@link DiscordTableItemResources.discordConfigSeedItem}'s presence guard and its `clientId`. */
   discordApplicationId: string;
 }
 
@@ -179,7 +176,7 @@ export function defineDiscordTableItems(args: DefineDiscordTableItemsArgs): Disc
 
 /** Arguments {@link defineEfsSeederInvocations} needs to declare the per-game EFS-seeder invocations. */
 export interface DefineEfsSeederInvocationsArgs {
-  /** Mirrors `var.project_name` — every invocation's Pulumi logical name below is `${projectName}-efs-seeder-<game>-invocation`. */
+  /** Project name — every invocation's Pulumi logical name below is `${projectName}-efs-seeder-<game>-invocation`. */
   projectName: string;
   /** The regional AWS provider every resource is declared against (region + default tags). */
   provider: aws.Provider;
