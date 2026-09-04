@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { errMessage } from '@hyveon/shared';
 import type { HyveonStreamHandle, LogChunk, LogEventLine, NewerLogsPage, OlderLogsPage } from '@hyveon/desktop-preload';
 
 /**
@@ -291,7 +292,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
           }
         } catch (err: unknown) {
           if (streamRef.current !== handle) return;
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errMessage(err);
           setError(`Stream ended with error: ${message}`);
         }
       })();
@@ -418,7 +419,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
       }
     } catch (err) {
       if (windowGenerationRef.current !== generation) return;
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       setError(`Could not load older logs: ${message}`);
     } finally {
       if (windowGenerationRef.current === generation) {
@@ -490,7 +491,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
       }
     } catch (err) {
       if (windowGenerationRef.current !== generation) return;
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       setError(`Could not load newer logs: ${message}`);
     } finally {
       if (windowGenerationRef.current === generation) {
@@ -568,7 +569,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
         oldestTimestampRef.current = data.lines[0]?.timestamp ?? null;
       } catch (err) {
         if (windowGenerationRef.current !== generation) return;
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errMessage(err);
         setError(`Could not load latest logs: ${message}`);
       } finally {
         if (windowGenerationRef.current === generation) setJumpingToLatest(false);

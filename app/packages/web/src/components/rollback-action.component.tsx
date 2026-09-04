@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import type { DeploymentConfigDiff } from '@hyveon/shared';
+import { errMessage, type DeploymentConfigDiff } from '@hyveon/shared';
 import { Button } from './ui/button.component.js';
 import { ConfirmDialog } from './confirm-dialog.component.js';
 import { formatTimestamp } from '@/lib/utils.utils';
@@ -82,7 +82,7 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
           setError(ack.error ?? 'Could not resolve a rollback target.');
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(errMessage(err));
       } finally {
         setResolving(false);
       }
@@ -102,7 +102,7 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
           setError(ack.error ?? 'Could not restore the historic configuration version.');
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(errMessage(err));
       } finally {
         setConfirming(false);
       }
