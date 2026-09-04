@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useNowTick } from '../hooks/use-now-tick.hook.js';
 
 /**
  * Per-poller state exposed through {@link PollingStateContext}. Times are
@@ -211,11 +212,7 @@ export function PollingProvider({ children }: { children: ReactNode }) {
   // It carries the current wall-clock time rather than a bare counter so
   // consumers can read `now` from context instead of calling `Date.now()`
   // during their own render.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  const now = useNowTick(1000);
 
   // Clean up all timers on unmount (e.g. HMR or navigation away from the SPA root).
   useEffect(
