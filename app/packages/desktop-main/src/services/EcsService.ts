@@ -15,6 +15,7 @@ import {
   type AwsCloudProviderConfig,
   type AwsCloudProviderLogger,
 } from '@hyveon/cloud-aws';
+import { getTaskEniId } from '@hyveon/shared';
 import type { CloudProvider } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
@@ -216,15 +217,14 @@ export class EcsService {
    * public IP isn't on the task itself — it has to be looked up via EC2
    * using this ENI. Returns `null` if the task has no ENI attachment yet
    * (common while a task is still provisioning).
+   *
+   * @remarks
+   * Thin public-API wrapper over `@hyveon/shared`'s {@link getTaskEniId} — kept as an
+   * `EcsService` method (rather than inlined at call sites) because `FileManagerService`
+   * calls it through this service, not the shared package directly.
    */
   extractEniId(task: Task): string | null {
-    for (const att of task.attachments ?? []) {
-      if (att.type !== 'ElasticNetworkInterface') continue;
-      for (const detail of att.details ?? []) {
-        if (detail.name === 'networkInterfaceId') return detail.value ?? null;
-      }
-    }
-    return null;
+    return getTaskEniId(task);
   }
 
   /**

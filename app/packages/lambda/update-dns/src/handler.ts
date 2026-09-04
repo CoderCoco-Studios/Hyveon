@@ -13,15 +13,8 @@
  * pending row. The Discord interaction token in the pending row is valid for
  * up to 15 minutes — same window as the ECS provisioning timeline.
  */
-import {
-  ECSClient,
-  DescribeTasksCommand,
-  type Task,
-} from '@aws-sdk/client-ecs';
-import {
-  EC2Client,
-  DescribeNetworkInterfacesCommand,
-} from '@aws-sdk/client-ec2';
+import { ECSClient, DescribeTasksCommand } from '@aws-sdk/client-ecs';
+import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
 import {
   Route53Client,
   ChangeResourceRecordSetsCommand,
@@ -33,8 +26,10 @@ import {
   formatGameStatus,
   gameNamesFromEnv,
   getPending,
+  getTaskEniId,
   parseGameMapEnv,
   requireEnv,
+  resolveEniPublicIp,
 } from '@hyveon/shared';
 
 const HOSTED_ZONE_ID = requireEnv('HOSTED_ZONE_ID');
@@ -65,21 +60,6 @@ const ec2 = new EC2Client({ region: region() });
 const ecs = new ECSClient({ region: region() });
 const route53 = new Route53Client({});
 
-function extractEniId(task: Task): string | null {
-  for (const att of task.attachments ?? []) {
-    if (att.type !== 'ElasticNetworkInterface') continue;
-    for (const detail of att.details ?? []) {
-      if (detail.name === 'networkInterfaceId') return detail.value ?? null;
-    }
-  }
-  return null;
-}
-
-async function getEniPublicIp(eniId: string): Promise<string | null> {
-  const resp = await ec2.send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }));
-  return resp.NetworkInterfaces?.[0]?.Association?.PublicIp ?? null;
-}
-
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
@@ -95,12 +75,15 @@ async function resolvePublicIp(taskArn: string, clusterArn: string): Promise<str
         await sleep(3000);
         continue;
       }
-      const eniId = extractEniId(task);
+      const eniId = getTaskEniId(task);
       if (!eniId) {
         await sleep(3000);
         continue;
       }
-      const ip = await getEniPublicIp(eniId);
+      const ip = await resolveEniPublicIp(
+        (id) => ec2.send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [id] })),
+        eniId,
+      );
       if (ip) return ip;
     } catch (err) {
       console.error(`IP resolution attempt ${attempt} failed`, { err });

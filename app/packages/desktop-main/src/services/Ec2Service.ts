@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
+import { resolveEniPublicIp } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
@@ -45,10 +46,10 @@ export class Ec2Service {
    */
   async getPublicIp(eniId: string): Promise<string | null> {
     try {
-      const resp = await this.getClient().send(
-        new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }),
+      const ip = await resolveEniPublicIp(
+        (id) => this.getClient().send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [id] })),
+        eniId,
       );
-      const ip = resp.NetworkInterfaces?.[0]?.Association?.PublicIp ?? null;
       logger.debug('Resolved public IP', { eniId, ip });
       return ip;
     } catch (err) {
