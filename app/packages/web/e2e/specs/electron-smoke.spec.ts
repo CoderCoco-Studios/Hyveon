@@ -1,5 +1,4 @@
-import { test, expect, _electron } from '../fixtures/index.js';
-import { electronMain, electronEnv } from '../../playwright.config.js';
+import { test, expect, launchElectron } from '../fixtures/index.js';
 import { AppLayout } from '../pages/index.js';
 
 /**
@@ -15,10 +14,9 @@ import { AppLayout } from '../pages/index.js';
  */
 test.describe('electron smoke', () => {
   test('should open a BrowserWindow', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
       expect(win).toBeTruthy();
     } finally {
       await app.close();
@@ -26,10 +24,9 @@ test.describe('electron smoke', () => {
   });
 
   test('should expose window.hyveon from the preload script', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
       const hyveon = await win.evaluate(() => typeof window.hyveon);
       expect(hyveon).toBe('object');
     } finally {
@@ -53,10 +50,9 @@ test.describe('electron smoke', () => {
    * if ever run locally on macOS/Windows.
    */
   test('should mark the header as a drag region and, on Linux, render clickable window controls', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
       const layout = new AppLayout(win);
 
       const appRegion = await layout.header().evaluate((el) => getComputedStyle(el).getPropertyValue('-webkit-app-region'));
