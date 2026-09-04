@@ -30,25 +30,25 @@ import {
   GetMetricStatisticsCommand,
 } from '@aws-sdk/client-cloudwatch';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
-import { parseJsonEnv, type GameServerHealthCheck } from '@hyveon/shared';
+import {
+  familyToGameMap,
+  gameNamesFromEnv,
+  parseGameMapEnv,
+  requireEnv,
+  type GameServerHealthCheck,
+} from '@hyveon/shared';
 
 const ECS_CLUSTER = requireEnv('ECS_CLUSTER');
-const GAME_NAMES = (process.env['GAME_NAMES'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const GAME_NAMES = gameNamesFromEnv();
 const IDLE_CHECKS = parseInt(process.env['IDLE_CHECKS'] ?? '4', 10);
 const MIN_PACKETS = parseInt(process.env['MIN_PACKETS'] ?? '100', 10);
 const CHECK_WINDOW_MINUTES = parseInt(process.env['CHECK_WINDOW_MINUTES'] ?? '15', 10);
-/** Game name → declared health check, for the games opted into that verdict source instead of the CloudWatch heuristic. Populated by the infra program from `DeploymentConfig.gameServers`; empty when no game opts in. Parsed defensively — a malformed/empty value must not crash module init and take down the watchdog for every game. */
-const HEALTH_CHECKS: Record<string, GameServerHealthCheck> = parseJsonEnv('HEALTH_CHECKS', process.env['HEALTH_CHECKS'], {});
+/** Game name → declared health check, for the games opted into that verdict source instead of the CloudWatch heuristic. Populated by the infra program from `DeploymentConfig.gameServers`; empty when no game opts in. Parsed defensively — see {@link parseGameMapEnv}. */
+const HEALTH_CHECKS: Record<string, GameServerHealthCheck> = parseGameMapEnv('HEALTH_CHECKS');
 /** Name of the health-check Lambda to invoke for a game with a declared health check. Unset when no game opts in — {@link HEALTH_CHECKS} is then always empty, so it's never read. */
 const HEALTH_CHECK_FUNCTION_NAME = process.env['HEALTH_CHECK_FUNCTION_NAME'];
 
-const FAMILY_TO_GAME = new Map<string, string>(GAME_NAMES.map((g) => [`${g}-server`, g]));
-
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var ${name}`);
-  return v;
-}
+const FAMILY_TO_GAME = familyToGameMap(GAME_NAMES);
 
 function region(): string {
   return (
@@ -213,7 +213,7 @@ export const handler = async (): Promise<{ checked: number }> => {
   for (const task of desc.tasks ?? []) {
     if (task.lastStatus !== 'RUNNING' || !task.taskArn) continue;
     const family = (task.group ?? '').replace('family:', '');
-    const game = FAMILY_TO_GAME.get(family);
+    const game = FAMILY_TO_GAME[family];
     if (!game) continue;
 
     checked++;
