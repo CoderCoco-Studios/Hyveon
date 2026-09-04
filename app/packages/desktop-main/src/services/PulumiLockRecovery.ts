@@ -1,5 +1,6 @@
 import { hostname as osHostname, userInfo } from 'node:os';
 import { ConcurrentUpdateError } from '@pulumi/pulumi/automation/index.js';
+import { formatRelativeAge } from '@hyveon/shared';
 import type { ElectronStoreService, PulumiLockOwnershipRecord } from './ElectronStoreService.js';
 import { logger } from '../logger.js';
 
@@ -311,18 +312,16 @@ export function classifyStackLockConflict(
  * (plausibly still in progress — pause and check) vs. "3 days old"
  * (plausibly abandoned), not second-level precision.
  *
+ * @remarks
+ * Signature adapter over `@hyveon/shared`'s {@link formatRelativeAge} — this side works in
+ * `Date`s, the web side (`submission-banners.component.tsx`'s `formatLockAge`) works in ISO
+ * strings + an epoch ms, so each converts its own timestamp shape into a millisecond delta.
+ *
  * @param lockedAt - When the lock was created (see {@link PulumiStackLockInfo.lockedAt}).
  * @param now - Injectable for tests; defaults to the real current time.
  */
 export function formatLockAge(lockedAt: Date, now: Date = new Date()): string {
-  const ms = Math.max(0, now.getTime() - lockedAt.getTime());
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return 'less than a minute ago';
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? '' : 's'} ago`;
+  return formatRelativeAge(now.getTime() - lockedAt.getTime());
 }
 
 /**

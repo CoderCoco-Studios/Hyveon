@@ -20,19 +20,18 @@ import {
   StopTaskCommand,
   type Task,
 } from '@aws-sdk/client-ecs';
-import {
-  EC2Client,
-  DescribeNetworkInterfacesCommand,
-} from '@aws-sdk/client-ec2';
+import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
 // `canRun` is the single shared copy; never inline or fork it.
 import {
   canRun,
   formatGameStatus,
   gameNamesFromEnv,
   getEffectiveDiscordConfig,
+  getTaskEniId,
   parseGameMapEnv,
   putPending,
   requireEnv,
+  resolveEniPublicIp,
 } from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig, GameStatus } from '@hyveon/shared';
 
@@ -75,23 +74,6 @@ const CONNECT_MESSAGES: Record<string, string> = parseGameMapEnv('CONNECT_MESSAG
 /** First container port per game, used to resolve the `{port}` placeholder. Parsed defensively — see {@link parseGameMapEnv}. */
 const GAME_PORTS: Record<string, number> = parseGameMapEnv('GAME_PORTS');
 
-function extractEniId(task: Task): string | null {
-  for (const att of task.attachments ?? []) {
-    if (att.type !== 'ElasticNetworkInterface') continue;
-    for (const detail of att.details ?? []) {
-      if (detail.name === 'networkInterfaceId') return detail.value ?? null;
-    }
-  }
-  return null;
-}
-
-async function getPublicIp(eniId: string): Promise<string | null> {
-  const resp = await getEc2().send(
-    new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }),
-  );
-  return resp.NetworkInterfaces?.[0]?.Association?.PublicIp ?? null;
-}
-
 async function findRunningTask(cluster: string, game: string): Promise<Task | null> {
   const list = await getEcs().send(
     new ListTasksCommand({ cluster, family: `${game}-server`, desiredStatus: 'RUNNING' }),
@@ -108,8 +90,13 @@ async function getStatus(game: string): Promise<GameStatus> {
     const task = await findRunningTask(cluster, game);
     if (task) {
       if (task.lastStatus === 'RUNNING') {
-        const eniId = extractEniId(task);
-        const publicIp = eniId ? await getPublicIp(eniId) : null;
+        const eniId = getTaskEniId(task);
+        const publicIp = eniId
+          ? await resolveEniPublicIp(
+              (id) => getEc2().send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [id] })),
+              eniId,
+            )
+          : null;
         return {
           game,
           state: 'running',

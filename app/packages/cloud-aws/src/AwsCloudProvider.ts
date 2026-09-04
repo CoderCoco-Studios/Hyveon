@@ -18,7 +18,7 @@ import type {
   WorkloadHandle,
   WorkloadStatus,
 } from '@hyveon/shared';
-import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR } from '@hyveon/shared';
+import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR, getTaskEniId, resolveEniPublicIp } from '@hyveon/shared';
 
 /**
  * Fargate on-demand pricing constants (us-east-1). Re-exported here from
@@ -335,22 +335,6 @@ export class AwsCloudProvider implements CloudProvider {
   }
 
   /**
-   * Dig the ENI ID out of a task's `attachments` array. Needed because the
-   * public IP isn't on the task itself — it has to be looked up via EC2
-   * using this ENI. Returns `null` if the task has no ENI attachment yet
-   * (common while a task is still provisioning).
-   */
-  private extractEniId(task: Task): string | null {
-    for (const att of task.attachments ?? []) {
-      if (att.type !== 'ElasticNetworkInterface') continue;
-      for (const detail of att.details ?? []) {
-        if (detail.name === 'networkInterfaceId') return detail.value ?? null;
-      }
-    }
-    return null;
-  }
-
-  /**
    * Locate the current non-stopped task for a game, keyed by the `{game}-server`
    * task-definition family the infra program provisions. `ListTasks` is filtered to
    * `desiredStatus: RUNNING` and STOPPED/DEPROVISIONING tasks are filtered
@@ -401,10 +385,11 @@ export class AwsCloudProvider implements CloudProvider {
     eniId: string,
   ): Promise<string | null> {
     try {
-      const resp = await this.getEc2Client(region, credentials, credentialsSignature).send(
-        new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }),
+      const client = this.getEc2Client(region, credentials, credentialsSignature);
+      return await resolveEniPublicIp(
+        (id) => client.send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [id] })),
+        eniId,
       );
-      return resp.NetworkInterfaces?.[0]?.Association?.PublicIp ?? null;
     } catch (err) {
       this.logger?.error('Failed to resolve public IP', err);
       return null;
@@ -524,7 +509,7 @@ export class AwsCloudProvider implements CloudProvider {
       const task = await this.findRunningTask(region, credentials, credentialsSignature, cluster, game);
       if (task) {
         if (task.lastStatus === 'RUNNING') {
-          const eniId = this.extractEniId(task);
+          const eniId = getTaskEniId(task);
           const publicIp = eniId ? await this.getPublicIp(region, credentials, credentialsSignature, eniId) : null;
           return {
             state: 'running',

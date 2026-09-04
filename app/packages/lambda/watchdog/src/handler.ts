@@ -23,7 +23,6 @@ import {
   StopTaskCommand,
   TagResourceCommand,
   ListTagsForResourceCommand,
-  type Task,
 } from '@aws-sdk/client-ecs';
 import {
   CloudWatchClient,
@@ -33,6 +32,7 @@ import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import {
   familyToGameMap,
   gameNamesFromEnv,
+  getTaskEniId,
   parseGameMapEnv,
   requireEnv,
   type GameServerHealthCheck,
@@ -69,16 +69,6 @@ interface HealthCheckInvokeResult {
   active: boolean;
   reason: string;
   failureDerived?: boolean;
-}
-
-function getEniId(task: Task): string | null {
-  for (const att of task.attachments ?? []) {
-    if (att.type !== 'ElasticNetworkInterface') continue;
-    for (const detail of att.details ?? []) {
-      if (detail.name === 'networkInterfaceId') return detail.value ?? null;
-    }
-  }
-  return null;
 }
 
 /**
@@ -230,7 +220,7 @@ export const handler = async (): Promise<{ checked: number }> => {
         console.warn(`${game}: health check is failure-derived — treating as active (${verdict.reason})`);
       }
     } else {
-      const eniId = getEniId(task);
+      const eniId = getTaskEniId(task);
       if (!eniId) continue;
       const packets = await getNetworkPackets(eniId);
       idleThisCheck = packets < MIN_PACKETS;
