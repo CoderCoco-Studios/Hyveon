@@ -9,6 +9,7 @@ import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import { readIsPackaged as sharedReadIsPackaged } from './electronRuntime.js';
 import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.js';
 import type { OpenConsoleResult } from './GuidedIamService.js';
 
@@ -258,18 +259,12 @@ export class CloudHealthService {
 
   /**
    * Return `process.resourcesPath` when running inside an Electron packaged
-   * app, or `undefined` otherwise. Extracted as a protected method so tests
-   * can stub it. Mirrors `GuidedIamService.readIsPackaged`/`ConfigService.readIsPackaged` exactly.
+   * app, or `undefined` otherwise. One-line delegate to the shared
+   * {@link sharedReadIsPackaged} (`electronRuntime.ts`), which `GuidedIamService`
+   * also delegates to. Extracted as a protected method so tests can stub it.
    */
   protected readIsPackaged(): boolean {
-    if (!process.versions['electron']) return false;
-    try {
-      const _require = createRequire(import.meta.url);
-      const electron = _require('electron') as { app: { isPackaged: boolean } };
-      return electron.app.isPackaged;
-    } catch {
-      return false;
-    }
+    return sharedReadIsPackaged();
   }
 
   /**

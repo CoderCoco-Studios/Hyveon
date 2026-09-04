@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Injectable } from '@nestjs/common';
@@ -20,6 +19,7 @@ import type { LocalWorkspaceOptions, ProjectSettings, PulumiCommand, PulumiFn } 
 import { logger } from '../logger.js';
 import { PulumiEngineService, type PulumiPhaseCallback } from './PulumiEngineService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import { resolveUserDataPath as sharedResolveUserDataPath } from './electronRuntime.js';
 import { resolveCredentialEnvVars } from './PulumiCredentialResolver.js';
 import { resolveAwsClientCredentials, type AwsClientCredentials } from './awsCredentialSource.js';
 
@@ -794,23 +794,14 @@ export class PulumiWorkspaceService {
 
   /**
    * Returns the Electron `userData` directory when running inside an
-   * Electron process, or `null` otherwise. Duplicates
-   * `PulumiEngineService.resolveUserDataPath()`'s exact seam (itself a
-   * duplicate of `ConfigService.readUserDataPath()`) rather than injecting
-   * `ConfigService` — see that method's doc comment for why: the accessor is
-   * `protected` there, and this service already has three constructor
-   * dependencies of its own with no other reason to add a fourth. `protected`
-   * (not `private`) so a test subclass can override it, mirroring
-   * `PulumiEngineService.test.ts`'s `TestablePulumiEngineService`.
+   * Electron process, or `null` otherwise. One-line delegate to the shared
+   * {@link sharedResolveUserDataPath} (`electronRuntime.ts`) rather than injecting
+   * `ConfigService` — this service already has three constructor
+   * dependencies of its own with no other reason to add a fourth.
+   * `protected` (not `private`) so a test subclass can override it,
+   * mirroring `PulumiEngineService.test.ts`'s `TestablePulumiEngineService`.
    */
   protected resolveUserDataPath(): string | null {
-    if (!process.versions['electron']) return null;
-    try {
-      const _require = createRequire(import.meta.url);
-      const electron = _require('electron') as { app: { getPath(name: string): string } };
-      return electron.app.getPath('userData');
-    } catch {
-      return null;
-    }
+    return sharedResolveUserDataPath();
   }
 }
