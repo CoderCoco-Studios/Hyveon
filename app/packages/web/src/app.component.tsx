@@ -74,19 +74,7 @@ function useWizardCompleted(): boolean | null {
  * `BrowserRouter`'s absolute-path route matching breaks against that prefix
  * (`Routes` fails to match `/D:/costs` etc., so every sidebar link silently
  * renders nothing). `HashRouter` keeps the route entirely after a `#`,
- * unaffected by the underlying `file://` path:
- *   - `/` → Dashboard (game cards + panels)
- *   - `/costs` → Cost analysis placeholder
- *   - `/discord` → Discord settings placeholder
- *   - `/logs` → Logs placeholder
- *   - `/logs/infrastructure` → Infrastructure logs (Lambda function tail)
- *   - `/iac` → Infrastructure plan/apply
- *   - `/iac/history` → Infrastructure run history
- *   - `/iac/history/:runId` → Read-only run detail
- *   - `/settings` → Watchdog + general settings
- *   - `/games` → Games list (read-only settings)
- *   - `/games/:name` → Per-game settings detail (read-only)
- *   - `/audit` → Audit log
+ * unaffected by the underlying `file://` path.
  */
 export default function App() {
   const fetchedWizardCompleted = useWizardCompleted();

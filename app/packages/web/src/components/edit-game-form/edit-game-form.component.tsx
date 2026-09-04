@@ -18,7 +18,7 @@
  *   `WizardMode`'s doc in `wizard-form.utils.ts`), so an already-declared
  *   legacy name that predates the current DNS-safe name pattern never blocks
  *   saving an unrelated field.
- * - Submits via `api.updateGame` (`PATCH /api/games/:name` over IPC) instead
+ * - Submits via `api.updateGame` (the `games.update` IPC channel) instead
  *   of `api.createGame`, and the draft is validated against every *other*
  *   declared game (the entry being edited is excluded from the collision
  *   list by name, mirroring `checkPortCollisions`'s own self-exclusion in

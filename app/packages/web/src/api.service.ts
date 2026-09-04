@@ -7,7 +7,7 @@ import type { ExportDiagnosticsBundleResult } from '@hyveon/shared';
 
 export type { ExportDiagnosticsBundleResult };
 
-/** Live status for a single game, as returned by `GET /api/status` and `/api/status/:game`. */
+/** Live status for a single game, as returned by the `games.status` and `games.getStatus` IPC channels. */
 export interface GameStatus {
   game: string;
   state: 'running' | 'starting' | 'stopped' | 'not_deployed' | 'error';
@@ -33,7 +33,7 @@ export interface GameEstimate {
   costPerMonth4hpd: number;
 }
 
-/** Aggregate cost estimates returned by `GET /api/costs/estimate`. */
+/** Aggregate cost estimates returned by the `costs.estimate` IPC channel. */
 export interface CostEstimates {
   games: Record<string, GameEstimate>;
   totalPerHourIfAllOn: number;
@@ -414,7 +414,7 @@ export interface DeleteGamePayload {
   expectedVersionId?: string;
 }
 
-/** Status of the FileBrowser helper task per game, returned by `GET /api/files/:game`. */
+/** Status of the FileBrowser helper task per game, returned by the `files.list` IPC channel. */
 export interface FileMgrStatus {
   game: string;
   state: 'running' | 'starting' | 'stopped' | 'not_deployed';
@@ -451,7 +451,7 @@ export interface DiscordGamePermission {
 }
 
 /**
- * Discord config returned by `GET /api/discord/config`. Neither the bot token
+ * Discord config returned by the `discord.getConfig` IPC channel. Neither the bot token
  * nor the application public key is ever sent to the client — the `*Set`
  * booleans indicate whether each secret is configured in AWS Secrets Manager.
  *
@@ -478,7 +478,7 @@ export interface DiscordMutationResult {
   message: string;
 }
 
-/** Environment context returned by `GET /api/env`. */
+/** Environment context returned by the `env.get` IPC channel. */
 export interface EnvInfo {
   region: string;
   domain: string;
@@ -518,7 +518,7 @@ export interface DriftEntry {
 }
 
 /**
- * Aggregate drift report returned by `GET /api/drift` (the `drift.get` IPC
+ * Aggregate drift report returned by the `drift.get` IPC
  * channel). Lists every game that is out of sync between its declared and
  * deployed configuration; games that are in sync are omitted entirely.
  *

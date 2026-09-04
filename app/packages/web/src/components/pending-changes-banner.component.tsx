@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, X } from 'lucide-react';
 import { api, type DriftEntry, type DriftKind } from '../api.service.js';
 
-/** How often the banner re-polls `GET /api/drift` for the current pending-change report. */
+/** How often the banner re-polls the `drift.get` IPC channel for the current pending-change report. */
 const POLL_INTERVAL_MS = 30_000;
 
 /**
@@ -63,7 +63,7 @@ function signatureFor(entries: DriftEntry[]): string {
 /**
  * Persistent dashboard banner — "Configuration changed, n changes pending —
  * run plan and apply on the Infrastructure page to deploy". Polls
- * `GET /api/drift` (the `drift.get` IPC channel) every 30s and is visible
+ * the `drift.get` IPC channel every 30s and is visible
  * whenever the report has at least one entry.
  *
  * - Hidden entirely while no drift is detected, or while the poll fails

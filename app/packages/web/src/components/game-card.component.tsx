@@ -125,8 +125,8 @@ function Stat({ label, value, mono }: StatRowProps) {
  * 5. Actions — Start / Stop primary (gradient) + Files / Logs secondary.
  *
  * After Start/Stop the card schedules a 3-second `onRefresh` to give the
- * backend time to pick up the ECS state change before re-polling
- * `/api/status/:game`.
+ * backend time to pick up the ECS state change before re-polling via the
+ * `games.getStatus` IPC channel.
  *
  * @remarks
  * `error` counts as a startable state (`canStart`) so the operator can
