@@ -24,9 +24,7 @@ describe('SafeStorageService', () => {
     vi.clearAllMocks();
   });
 
-  // ---------------------------------------------------------------------------
   // isAvailable()
-  // ---------------------------------------------------------------------------
 
   describe('isAvailable()', () => {
     it('should return false when not running in Electron', () => {
@@ -50,9 +48,7 @@ describe('SafeStorageService', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // encrypt() — non-Electron path
-  // ---------------------------------------------------------------------------
 
   describe('encrypt() outside Electron', () => {
     /** Spy that makes the service believe it is not running inside Electron. */
@@ -75,9 +71,7 @@ describe('SafeStorageService', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // encrypt() — Electron path
-  // ---------------------------------------------------------------------------
 
   describe('encrypt() inside Electron', () => {
     /** Spy that makes the service believe it is running inside Electron with keychain available. */
@@ -139,9 +133,7 @@ describe('SafeStorageService', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // encrypt() — failure path
-  // ---------------------------------------------------------------------------
 
   describe('encrypt() failure path', () => {
     it('should log an error and throw a plain Error (not the raw Electron error) when encryptString throws', () => {
@@ -175,9 +167,7 @@ describe('SafeStorageService', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // decrypt() — non-Electron path
-  // ---------------------------------------------------------------------------
 
   describe('decrypt() outside Electron', () => {
     it('should return the input unchanged when not running in Electron', () => {
@@ -188,9 +178,7 @@ describe('SafeStorageService', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // decrypt() — Electron path
-  // ---------------------------------------------------------------------------
 
   describe('decrypt() inside Electron', () => {
     /** Spy that makes the service believe it is running inside Electron with keychain available. */
@@ -240,9 +228,7 @@ describe('SafeStorageService', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // decrypt() — failure path
-  // ---------------------------------------------------------------------------
 
   describe('decrypt() failure path', () => {
     it('should log an error and throw a plain Error (not the raw Electron error) when decryptString throws', () => {
@@ -281,9 +267,7 @@ describe('SafeStorageService', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Round-trip
-  // ---------------------------------------------------------------------------
 
   describe('round-trip', () => {
     it('should encrypt and decrypt back to the original value', () => {

@@ -219,12 +219,8 @@ export class DiscordConfigService {
    * `botTokenSecretArn`/`publicKeySecretArn`) — that's an expected,
    * recoverable state (`logger.warn`), distinct from a deployed stack whose
    * `secrets.get` call fails for some other reason (`logger.error`). Both
-   * degrade to `undefined` rather than escaping to the caller: previously the
-   * `arnResolver` throw happened *before* `.catch()` was attached to the
-   * `secrets.get(...)` chain, so it escaped `getRedacted()` uncaught,
-   * NestJS's RPC layer wrapped it in an Observable, and Electron's IPC bridge
-   * failed to clone it across to the renderer ("An object could not be
-   * cloned") instead of surfacing a usable error.
+   * degrade to `undefined` rather than escaping to the caller — an uncaught
+   * throw here fails to clone across Electron's IPC bridge to the renderer.
    */
   private async readSecretSafe(
     arnResolver: () => Promise<string>,

@@ -2,7 +2,7 @@ import type { Page, Locator } from '@playwright/test';
 import { gotoHashRoute } from './hashRoute.js';
 
 /**
- * Page object for the `/audit` route added in issue #102. Wraps the audit
+ * Page object for the `/audit` route. Wraps the audit
  * log table's summary rows (rendered by `AuditEntryRow`), the expand/collapse
  * toggle, the before/after diff detail row, and the "Load more" pagination
  * button so spec files read as test logic rather than locator soup.

@@ -32,67 +32,16 @@ export interface DeploymentSettingsValidationIssue {
 }
 
 /**
- * Validates a proposed {@link TopLevelDeploymentSettings} patch. Only checks
- * fields actually present on `patch` — this validates a PATCH, not a full
- * document, so an omitted field (meaning "leave the current value alone") is
- * never flagged. Used both by `@hyveon/web`'s settings form for live,
- * before-submit validation and by `IacSettingsController.update`
- * (`@hyveon/desktop-main`) as the final server-side gate before writing —
- * the single source of truth for both, so the two can never drift the way
- * a hand-duplicated client-side copy of a server rule once did (see
- * `GAME_NAME_PATTERN`'s own doc comment for that history).
+ * Validates a proposed {@link TopLevelDeploymentSettings} patch — the single source of truth for
+ * both `@hyveon/web`'s live, before-submit form validation and `IacSettingsController.update`
+ * (`@hyveon/desktop-main`)'s final server-side gate before writing.
  *
- * Rules (deliberately not exhaustive — this prevents obviously malformed
- * input from reaching the backend, not a full schema validator — but every
- * rule below REJECTS a wrong-typed value rather than silently passing it
- * through; see "Type safety" below):
- *  - `hostedZoneName`, `projectName`, `awsRegion`: must be a string when
- *    present, and non-empty. `hostedZoneName` has no default in
- *    `DEPLOYMENT_CONFIG_DEFAULTS` and is required in every real
- *    deployment (see its own TSDoc on
- *    {@link DeploymentConfig}); `projectName`/`awsRegion` do have defaults
- *    but an empty value is never a usable one (resource naming / region
- *    selection).
- *  - `vpcCidr`: must be a string when present, and look like an IPv4 CIDR
- *    block (four dot-separated 0-255 octets, then `/` and a 0-32 prefix
- *    length).
- *  - `dnsTtl`, `watchdogIntervalMinutes`, `watchdogIdleChecks`,
- *    `watchdogMinPackets`: when present, must be positive integers
- *    (`watchdogMinPackets` and `dnsTtl` could arguably be zero-or-more, but
- *    a `0` threshold/TTL describes no meaningful tuning value in practice,
- *    so this validator holds every numeric field to the same "\> 0, whole
- *    number" rule for a single easy-to-explain contract).
- *  - `baseAllowedGuilds`, `baseAdminUserIds`, `baseAdminRoleIds`: must be an
- *    array when present, and every entry must look like a Discord
- *    snowflake (17-20 digit numeric string) — mirrors `discord.page.tsx`'s
- *    own `SNOWFLAKE_RE`.
- *  - `auditTableName`, `runsTableName`, `discordApplicationId`: must be a
- *    string when present, but emptiness is never checked — empty string is
- *    a legitimate value for all three (see
- *    {@link DeploymentConfig.auditTableName}'s "empty-string-means-
- *    computed-default" doc comment; `discordApplicationId` is optional
- *    until configured via the Discord Credentials tab).
- *
- * ## Type safety
- *
- * This function is the server-side gate against a caller that bypasses the
- * renderer entirely (a modified client, a hand-crafted IPC payload) — that's
- * the whole reason it exists independent of the client-side copy running the
- * exact same code. A gate that only checks a field's *content* when it
- * happens to already be the right JS type — e.g. flagging a blank string but
- * silently accepting a number, an object, or `null` for the same field — is
- * not actually independent of the client in the type-safety sense: it would
- * let `{ hostedZoneName: 42 }` or `{ baseAdminUserIds: "everyone" }` reach
- * `DeploymentConfigService.updateTopLevelSettings()` and get written into
- * `deployment-config.json` verbatim, corrupting every downstream consumer
- * that assumes the declared `TopLevelDeploymentSettings` types (e.g.
- * `infra/src/escapes.ts`'s `baseAllowedGuilds.length` — a string also has a
- * `.length`, so a wrong-typed value there produces a garbage `BASE#discord`
- * row instead of failing loudly here). Every check below therefore validates
- * a present field's TYPE first and rejects immediately if it's wrong,
- * mirroring {@link checkPositiveInteger}'s `typeof value !== 'number'` guard
- * — never a "if it happens to be a string, check its content" pattern that
- * silently no-ops on anything else.
+ * This validates a PATCH, not a full document: only fields actually present on `patch` are
+ * checked, so an omitted field ("leave the current value alone") is never flagged. Every check
+ * validates a present field's TYPE first and rejects immediately if it's wrong — e.g.
+ * `{ hostedZoneName: 42 }` is rejected rather than silently written into `deployment-config.json`
+ * — so a caller that bypasses the renderer (a modified client, a hand-crafted IPC payload) can't
+ * corrupt downstream consumers that assume the declared `TopLevelDeploymentSettings` types.
  *
  * @param patch - The proposed partial update.
  * @returns Every issue found; empty when `patch` is structurally valid.

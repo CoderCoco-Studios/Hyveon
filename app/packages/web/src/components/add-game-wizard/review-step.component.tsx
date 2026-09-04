@@ -32,7 +32,7 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
 }
 
 /**
- * Final step of the add-game wizard (#99): renders a read-only summary of
+ * Final step of the add-game wizard: renders a read-only summary of
  * every field entered across the Identity, Resources, Networking, Storage,
  * and Environment steps. Optional fields that were left blank — `connect_message`,
  * `file_seeds`, and `environment` — are omitted entirely rather than shown with a

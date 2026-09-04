@@ -4,9 +4,9 @@ import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 let cached: DynamoDBDocumentClient | null = null;
 
 /**
- * Lazy-instantiated DynamoDB DocumentClient. Reads `AWS_REGION_` (trailing
- * underscore — Lambda reserves `AWS_REGION` itself) then `AWS_REGION`,
- * falling back to `us-east-1` if neither is set.
+ * Lazy-instantiated DynamoDB DocumentClient. Reads `AWS_REGION_` (trailing underscore — Lambda
+ * reserves `AWS_REGION` itself), then `AWS_REGION`, then `AWS_DEFAULT_REGION`, falling back to
+ * `us-east-1` if none are set.
  *
  * Cached for the lifetime of the Lambda/Node process — no teardown needed.
  */

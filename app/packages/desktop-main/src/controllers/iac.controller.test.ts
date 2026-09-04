@@ -25,9 +25,7 @@ import {
 import { RunLockHeldError, type DeploymentConfigDiff, type RunLock, type StackOutputs } from '@hyveon/shared';
 import { logger } from '../logger.js';
 
-// ---------------------------------------------------------------------------
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
-// ---------------------------------------------------------------------------
 
 /**
  * Captures every `ipcMain.handle`/`ipcMain.removeHandler` call so tests can
@@ -62,9 +60,7 @@ vi.mock('node:os', async () => {
   };
 });
 
-// ---------------------------------------------------------------------------
 // Test helpers
-// ---------------------------------------------------------------------------
 
 /** A `PulumiPreviewResult` fixture, overridable per-test. */
 function buildPreviewResult(overrides: Partial<PulumiPreviewResult> = {}): PulumiPreviewResult {
@@ -217,9 +213,7 @@ function flushPromises(): Promise<void> {
  */
 const PATTERN_METADATA_KEY = 'microservices:pattern';
 
-// ---------------------------------------------------------------------------
 // Suite
-// ---------------------------------------------------------------------------
 
 describe('IacController', () => {
   beforeEach(() => {
@@ -227,9 +221,7 @@ describe('IacController', () => {
     vi.mocked(os.userInfo).mockReturnValue({ username: 'test-operator' } as ReturnType<typeof os.userInfo>);
   });
 
-  // -------------------------------------------------------------------------
   // @MessagePattern channel name registration
-  // -------------------------------------------------------------------------
 
   describe('@MessagePattern channel names', () => {
     it('should register initializeStack on the "iac.stack.initialize" IPC channel', () => {
@@ -288,9 +280,7 @@ describe('IacController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // onModuleInit — ipcMain.handle bridge for iac.plan/apply/destroy/stack.initialize
-  // -------------------------------------------------------------------------
 
   describe('onModuleInit', () => {
     // onModuleInit only wires the bridge when running inside a real Electron
@@ -399,7 +389,6 @@ describe('IacController', () => {
       expect(mockIpcMainHandle).not.toHaveBeenCalledWith('iac.destroy.mintToken', expect.any(Function));
     });
 
-    // -------------------------------------------------------------------------
     // "iac.rollback.confirm" must stay in this manual-registration set: left
     // off, it would fall through to the GENERIC ipcMain.handle bridge, which
     // invokes the underlying NestJS handler as `handler(payload, { evt })` via
@@ -414,7 +403,6 @@ describe('IacController', () => {
     // `(evt, payload) => ...` shape the real ipcMain.handle callback fires
     // with, rather than calling controller.confirmRollback(payload, ctx)
     // directly.
-    // -------------------------------------------------------------------------
 
     it('should register ipcMain.handle for "iac.rollback.confirm" so ipcRenderer.invoke can resolve', async () => {
       await new IacController(makePulumi()).onModuleInit();
@@ -456,9 +444,7 @@ describe('IacController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // initializeStack
-  // -------------------------------------------------------------------------
 
   describe('initializeStack', () => {
     it('should return { started: true, streamId } immediately without waiting for the run to settle', async () => {
@@ -631,9 +617,7 @@ describe('IacController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // plan
-  // -------------------------------------------------------------------------
 
   describe('plan', () => {
     it('should return { started: true, runId } immediately without waiting for the run to settle', async () => {
@@ -802,7 +786,6 @@ describe('IacController', () => {
       expect(recordedEntry).toMatchObject({ action: 'plan', versionId: 'v42' });
     });
 
-    // -------------------------------------------------------------------------
     // TOCTOU regression test: pins the load-bearing ordering where
     // `stream.next()` — which synchronously reserves the shared workspace
     // inside PulumiService.preview, before its own first `await` — happens
@@ -811,7 +794,6 @@ describe('IacController', () => {
     // submissions could both pass the top-of-function
     // `getOperationInFlight()` busy check before either one actually reserves
     // the workspace.
-    // -------------------------------------------------------------------------
 
     it('should never resolve { started: true } for a second concurrent submission while a plan is already in flight, even when audit.record() is slow', async () => {
       const pulumi = makePulumi();
@@ -860,9 +842,7 @@ describe('IacController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // apply
-  // -------------------------------------------------------------------------
 
   describe('apply', () => {
     const APPLY_PAYLOAD = { planRunId: 'plan-run-1', planHash: 'plan-hash-abc' };
@@ -894,7 +874,6 @@ describe('IacController', () => {
       expect(record).not.toHaveBeenCalled();
     });
 
-    // -----------------------------------------------------------------------
     // The controller awaits the gate's first .next() call before acking.
     // PulumiService.apply's 8-step gate (plan lookup, approval/expiry,
     // plan-hash verification, engine-version check, durable lock
@@ -903,7 +882,6 @@ describe('IacController', () => {
     // awaiting-first-.next() contract itself rather than re-deriving the
     // gate's own step-by-step behavior (already covered by PulumiService's
     // own test suite).
-    // -----------------------------------------------------------------------
 
     it('should reject with { started: false, error } (no conflict) and never touch activeApplies or record an audit entry when the gate\'s first .next() rejects with a generic error', async () => {
       // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate any non-lock gate failure (e.g. StalePlanError, expired approval, tampered artifact)
@@ -1136,9 +1114,7 @@ describe('IacController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // mintDestroyToken
-  // -------------------------------------------------------------------------
 
   describe('mintDestroyToken', () => {
     it('should return the token minted by PulumiService.mintDestroyConfirmationToken', () => {
@@ -1152,9 +1128,7 @@ describe('IacController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // destroy
-  // -------------------------------------------------------------------------
 
   describe('destroy', () => {
     /** The `iac.destroy` payload matching {@link makePulumi}'s default `mintDestroyConfirmationToken` stub. */
@@ -1174,11 +1148,9 @@ describe('IacController', () => {
       expect(record).not.toHaveBeenCalled();
     });
 
-    // -----------------------------------------------------------------------
     // Mirrors apply()'s awaiting-first-.next() tests — PulumiService.destroy's
     // own gate (busy check, config-presence checks, single-use token
     // consumption, durable lock acquisition) is entirely self-contained.
-    // -----------------------------------------------------------------------
 
     it('should reject with { started: false, error } (no conflict) and never touch activeDestroys or record an audit entry when the gate\'s first .next() rejects with a generic error (e.g. DestroyNotConfirmedError)', async () => {
       // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate an unconfirmed/stale/consumed token
@@ -1387,9 +1359,7 @@ describe('IacController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // output
-  // -------------------------------------------------------------------------
 
   describe('output', () => {
     /** A minimal `StackOutputs` fixture shared across the "output" cases. */
@@ -1466,9 +1436,7 @@ describe('IacController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // approve
-  // -------------------------------------------------------------------------
 
   describe('approve', () => {
     it('should write approvedBy/approvedAt to the run record, using the OS-resolved username, and return them on a successful plan run', async () => {
@@ -1582,9 +1550,7 @@ describe('IacController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // resolveRollback
-  // -------------------------------------------------------------------------
 
   describe('resolveRollback', () => {
     it('should return resolved: true with the target versionId and lastModified on success', async () => {
@@ -1679,9 +1645,7 @@ describe('IacController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // confirmRollback — a structurally distinct streaming shape
-  // -------------------------------------------------------------------------
 
   describe('confirmRollback', () => {
     it('should return { confirmed: false, error } and never call PulumiService.confirmRollback when applyRunId is missing', async () => {
@@ -1947,9 +1911,7 @@ describe('IacController', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // mintLockClearToken
-  // -------------------------------------------------------------------------
 
   describe('mintLockClearToken', () => {
     it('should return the token minted by PulumiService.mintLockClearConfirmationToken', () => {

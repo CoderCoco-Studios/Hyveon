@@ -31,7 +31,7 @@ import { ElectronStoreService } from '../services/ElectronStoreService.js';
  * every top-level `DeploymentConfig` field EXCEPT `gameServers` (that map
  * keeps its own dedicated `GamesController`/`GamesWriteService` flow,
  * untouched here). Every handler is bound to an IPC channel via
- * `@MessagePattern` / `@Payload` — no HTTP routes are registered here.
+ * `@MessagePattern` / `@Payload`.
  * Mirrors `EnvController`'s minimal shape (business logic inline in the
  * controller, no dedicated write-service class) rather than
  * `GamesController`'s heavier `GamesWriteService` delegation — this surface
@@ -71,7 +71,6 @@ export class IacSettingsController {
    * round-trip as {@link update}'s `expectedVersionId` — see
    * `DeploymentConfigService.getTopLevelSettings()`.
    *
-   * Reachable via the Electron IPC transport (`iac.settings.get`).
    */
   @MessagePattern('iac.settings.get')
   async get(): Promise<DeploymentSettingsGetResult> {
@@ -123,7 +122,6 @@ export class IacSettingsController {
    * the same `{ code: 'error' }` shape every other unexpected failure here
    * resolves to.
    *
-   * Reachable via the Electron IPC transport (`iac.settings.update`).
    */
   @MessagePattern('iac.settings.update')
   async update(@Payload() payload: UpdateDeploymentSettingsPayload): Promise<DeploymentSettingsWriteResult> {
@@ -176,7 +174,6 @@ export class IacSettingsController {
    * underlying getter is a synchronous field read that never throws — see
    * {@link PulumiEngineVersionResult}'s own doc comment.
    *
-   * Reachable via the Electron IPC transport (`iac.settings.engineVersion`).
    */
   @MessagePattern('iac.settings.engineVersion')
   engineVersion(): PulumiEngineVersionResult {
@@ -195,7 +192,6 @@ export class IacSettingsController {
    * `{ ok: false }` result, mirroring {@link updateAutoUpdate}'s own
    * try/catch.
    *
-   * Reachable via the Electron IPC transport (`iac.settings.autoUpdate.get`).
    */
   @MessagePattern('iac.settings.autoUpdate.get')
   getAutoUpdate(): AutoUpdateSettingGetResult {
@@ -214,7 +210,6 @@ export class IacSettingsController {
    * (`electron-entry.ts`), so this write has no effect on the currently
    * running session.
    *
-   * Reachable via the Electron IPC transport (`iac.settings.autoUpdate.update`).
    */
   @MessagePattern('iac.settings.autoUpdate.update')
   updateAutoUpdate(@Payload() payload: AutoUpdateSettingUpdatePayload): AutoUpdateSettingWriteResult {
@@ -240,7 +235,6 @@ export class IacSettingsController {
    * flag — the flag gates only the automatic boot-time check. Never
    * downloads or installs; see that function's doc comment.
    *
-   * Reachable via the Electron IPC transport (`iac.settings.autoUpdate.check`).
    */
   @MessagePattern('iac.settings.autoUpdate.check')
   async checkAutoUpdate(): Promise<ManualUpdateCheckResult> {

@@ -6,9 +6,9 @@ import { DiscordCommandRegistrar } from '../services/DiscordCommandRegistrar.js'
 /**
  * Discord configuration module.
  *
- * After the serverless migration this module no longer hosts a discord.js
- * `Client` — the bot lives entirely in `InteractionsLambda` and
- * `FollowupLambda`. The Nest server only needs to:
+ * No discord.js client here — the bot lives entirely in the
+ * interactions/followup Lambdas (`InteractionsLambda` and `FollowupLambda`).
+ * The Nest server only needs to:
  *  - Persist DiscordConfig to DynamoDB and bot credentials to Secrets Manager
  *    (`DiscordConfigService`).
  *  - PUT slash commands into a guild via Discord's REST API when the operator

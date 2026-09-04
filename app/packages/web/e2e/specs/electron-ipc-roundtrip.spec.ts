@@ -2,7 +2,7 @@ import { test, expect, _electron } from '../fixtures/index.js';
 import { electronMain, electronEnv } from '../../playwright.config.js';
 
 /**
- * Regression spec for #277: unmocked renderer→main IPC round-trip.
+ * Regression spec for unmocked renderer→main IPC round-trip.
  *
  * `ElectronIPCTransport.listen()` only wires NestJS `@MessagePattern` handlers
  * onto its own internal dispatcher — it never calls `ipcMain.handle` itself.

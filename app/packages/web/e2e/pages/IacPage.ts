@@ -2,7 +2,7 @@ import type { Page, Locator } from '@playwright/test';
 import { gotoHashRoute } from './hashRoute.js';
 
 /**
- * Page object for the `/iac` route added in issue #110 — plan trigger,
+ * Page object for the `/iac` route — plan trigger,
  * live ANSI log viewer, resource-change summary, approve gate, and
  * plan-hash-gated apply.
  */

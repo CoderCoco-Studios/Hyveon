@@ -16,8 +16,7 @@ export type RunKind = 'plan' | 'apply' | 'destroy';
 /**
  * Lifecycle status of a {@link RunRecord}, derived (never stored ad hoc) via
  * {@link deriveRunStatus}. Also the hash key of the `status-index` GSI on the
- * `${project_name}-runs` DynamoDB table (schema originally defined by the
- * app's original, now retired IaC tool), so callers can list all runs in a
+ * `${project_name}-runs` DynamoDB table, so callers can list all runs in a
  * given status ordered by `startedAt` without scanning the table. There is
  * no `pending` status — a {@link RunRecord} is only persisted once the
  * operation has finished.
@@ -28,9 +27,7 @@ export type RunStatus = 'success' | 'failed' | 'aborted';
  * A single row in the DynamoDB run-history table (`${project_name}-runs`,
  * `pk = "RUN"`, `sk = ` {@link buildRunSk}). Records one plan/apply/destroy
  * invocation (see {@link RunKind}'s doc for the retained subcommand
- * vocabulary) driven through the management app's apply-history view —
- * schema originally defined by the app's original, retired IaC tool,
- * field list per issue #179.
+ * vocabulary) driven through the management app's apply-history view.
  */
 export interface RunRecord {
   /** Sort key: `<startedAt>#<runId>` — see {@link buildRunSk}. */
@@ -51,7 +48,7 @@ export interface RunRecord {
   configVersionId?: string;
   /**
    * Hash of the plan artifact this record's run produced (for a `plan` run)
-   * or was gated against (for an `apply` run) — see #109. The apply IPC
+   * or was gated against (for an `apply` run). The apply IPC
    * handler compares the caller-supplied `planHash` against the plan run's
    * stored value before allowing the apply to proceed, ensuring the
    * configuration/plan an admin approved is exactly what gets applied.
@@ -59,7 +56,7 @@ export interface RunRecord {
   planHash?: string;
   /**
    * Opaque identifier (e.g. username) of the admin who approved this plan
-   * run for apply. Set only by the `iac.approve` IPC channel (#109) and only
+   * run for apply. Set only by the `iac.approve` IPC channel and only
    * ever on `plan` records — an unapproved plan has this unset.
    */
   approvedBy?: string;
@@ -90,7 +87,7 @@ export interface RunRecord {
   logS3Key?: string;
   /**
    * The `runId` of the `apply` {@link RunRecord} this run rolled back, when
-   * this run was started by the rollback flow (#112) rather than an ordinary
+   * this run was started by the rollback flow rather than an ordinary
    * plan submission. Set only on the `plan` record produced when an operator
    * restores a prior configuration version from history — the plan runs against the
    * restored version, which becomes the new head, so no other field
@@ -152,7 +149,7 @@ export interface RunRecord {
    *
    * Also `true` on the durable pre-flight marker record
    * `RunRecordService.writePreflightMarker` writes BEFORE `stack.up()` is
-   * ever called (issue #399) — speculatively, before any resource step has
+   * ever called — speculatively, before any resource step has
    * actually run, since whether one WILL run before the attempt settles is
    * genuinely unknown at that point and the retry-safety gate this field
    * feeds must fail closed rather than assume the best. That marker shares
@@ -214,7 +211,7 @@ export function deriveRunStatus(exitCode: number | null): RunStatus {
 
 /**
  * Describes the single non-terminal run currently holding the apply lock —
- * the value returned by `RunService.getCurrentLock()` (desktop-main, #106).
+ * the value returned by `RunService.getCurrentLock()` (desktop-main).
  * Only one {@link RunLock} can be outstanding at a time: `RunService.createRun`
  * checks for an existing, unexpired lock before starting a new run and
  * rejects with a {@link RunLockHeldError} (see `errors.ts`) if one is found,
@@ -256,7 +253,7 @@ export function isRunLockExpired(lock: RunLock, now: Date = new Date()): boolean
 
 /**
  * Duration (in milliseconds) an admin's approval of a plan run remains valid
- * before the apply IPC handler (#109) must reject it and require
+ * before the apply IPC handler must reject it and require
  * re-approval. Fixed at 15 minutes — long enough to review a plan and click
  * apply, short enough that a stale approval can't be used to apply against
  * drifted configuration long after the reviewer looked at it.
@@ -281,17 +278,17 @@ export function isApprovalExpired(approvedAt: string, now: Date = new Date()): b
 }
 
 /**
- * Status surfaced by the run-detail view (the `iac.runs.get` IPC channel,
- * issue #108) — a superset of the persisted {@link RunStatus} with two
+ * Status surfaced by the run-detail view (the `iac.runs.get` IPC channel) —
+ * a superset of the persisted {@link RunStatus} with two
  * additional, non-persisted values computed at read time by
  * {@link computeRunDetailStatus}:
  *
  * - `running` — no {@link RunRecord} exists yet for this run, because (per
  *   {@link RunRecord}'s own doc) a record is only ever persisted once the
  *   operation has finished.
- * - `awaiting_approval` — a `plan` run finished successfully but, per the
- *   epic's design (#83), an `apply` may not proceed until an operator
- *   explicitly approves it (#109), so a bare `success` would be misleading.
+ * - `awaiting_approval` — a `plan` run finished successfully but the app's
+ *   design requires an operator to explicitly approve it before an `apply`
+ *   may proceed, so a bare `success` would be misleading.
  */
 export type RunDetailStatus = RunStatus | 'running' | 'awaiting_approval';
 
@@ -310,11 +307,11 @@ export type RunDetailStatus = RunStatus | 'running' | 'awaiting_approval';
  *    only ever persisted once the operation has finished (there is no
  *    `pending` status to store).
  * 2. A `plan` run that exited `0` maps to `awaiting_approval` only while its
- *    `.tfplan` artifact still exists on disk — because the epic's design
- *    (#83) gates `apply` behind an explicit operator approval (#109), a
+ *    `.tfplan` artifact still exists on disk — because the app's design
+ *    gates `apply` behind an explicit operator approval, a
  *    successful plan alone hasn't reached a terminal state from the
  *    operator's point of view. `planArtifactExists` is plumbed in for that
- *    future approval flow (#109), which is expected to delete the `.tfplan`
+ *    approval flow, which is expected to delete the `.tfplan`
  *    file once consumed; as of this writing nothing does, so this rule's
  *    actual escape hatch is rule ordering, not artifact deletion —
  *    `PulumiService.apply` writes its own {@link PulumiRunRecord}
