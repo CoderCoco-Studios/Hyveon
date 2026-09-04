@@ -8,43 +8,21 @@ import { logger } from './logger.js';
  * IPC channels that manage their own `ipcMain.handle` registration and must
  * be skipped by the generic bridge to avoid a double registration.
  *
- * - `logs.stream`: `LogsController.onModuleInit` bridges it manually because
- *   the handler needs to push follow-up chunk/end messages over side channels
- *   derived from a `streamId` it mints itself — see
- *   `app/packages/desktop-main/src/controllers/logs.controller.ts`.
- * - `logs.lambda.stream`: bridged manually by the same `LogsController` for
- *   the same reason as `logs.stream` — it mints its own `streamId` and pushes
- *   chunk/end messages over `logs.lambda.stream.<id>.*` side channels.
- * - `iac.plan`: bridged manually by its controller because it streams
- *   `pulumi preview` progress over a side channel for the duration of a
- *   long-running run, the same self-bridging pattern `logs.stream` uses.
- * - `iac.apply`: bridged manually by the same controller for the same
- *   reason as `iac.plan` — it streams `pulumi up` progress over a
- *   side channel for the duration of a long-running run (see #109).
- * - `iac.destroy`: bridged manually by the same controller for the
- *   same reason as `iac.apply` — it streams `pulumi destroy`
- *   progress over a side channel for the duration of a long-running run (see
- *   #307). `iac.destroy.mintToken` is *not* in this set — it resolves
- *   a single value, so the generic bridge handles it.
- * - `iac.rollback.confirm`: bridged manually by the same controller for
- *   the same reason as `iac.plan`/`iac.apply`/`iac.destroy`
- *   — `PulumiService.confirmRollback` is an `AsyncGenerator` that streams a
- *   real plan run internally, and `IacController.confirmRollback` forwards
- *   each chunk over its own side channel for the duration of that run
- *   before resolving. This channel must stay in this set: NestJS's
- *   `RpcContextCreator` never sizes its `initialArgs` array for the
- *   undecorated `ctx` parameter the generic bridge would pass, so leaving
- *   it off silently drops `ctx` and crashes every invocation with a
+ * Every channel in this set streams progress or output over a side channel
+ * (often derived from a `streamId` it mints itself) for the duration of a
+ * long-running run, and its owning controller bridges it manually to push
+ * those follow-up chunk/end messages — see `logs.controller.ts`,
+ * `iac.controller.ts`, and `iac-runs.controller.ts`.
+ *
+ * Two exceptions worth calling out specifically:
+ * - `iac.rollback.confirm` must stay in this set for a second, independent
+ *   reason: NestJS's `RpcContextCreator` never sizes its `initialArgs` array
+ *   for the undecorated `ctx` parameter the generic bridge would pass, so
+ *   leaving it off silently drops `ctx` and crashes every invocation with a
  *   "Cannot read properties of undefined (reading 'evt')" TypeError.
- * - `iac.runs.logs`: bridged manually by `IacRunsController`
- *   because the handler streams a run's live/replayed output over a side
- *   channel derived from a `streamId` it mints itself, the same
- *   self-bridging pattern `iac.plan`/`logs.stream` use — see
- *   `app/packages/desktop-main/src/controllers/iac-runs.controller.ts`.
- * - `iac.stack.initialize`: bridged manually by `IacController`, replacing
- *   the deleted `iac.init` channel, for the same reason as `iac.plan` — it
- *   streams `PulumiService.initializeStack`'s `onPhase` progress over a
- *   side channel for the duration of a long-running run.
+ * - `iac.destroy.mintToken` is deliberately *not* in this set — unlike
+ *   `iac.destroy`, it resolves a single value, so the generic bridge handles
+ *   it fine.
  */
 export const SELF_BRIDGED_PATTERNS: ReadonlySet<string> = new Set([
   'logs.stream',
@@ -109,22 +87,12 @@ export class BridgedElectronIPCTransport extends ElectronIPCTransport {
  * `ipcMain.handle` registration, so `ipcRenderer.invoke(channel, payload)`
  * calls made from the preload actually resolve.
  *
- * `ElectronIPCTransport.listen()` (from `nestjs-electron-ipc-transport`) only
- * subscribes to its own internal `ipcMessageDispatcher` — it never calls
- * `ipcMain.handle` itself. Without this bridge, every `@MessagePattern`
- * channel other than `logs.stream` (which bridges itself, see
- * {@link SELF_BRIDGED_PATTERNS}) hangs forever when invoked from the
- * renderer, because `ipcRenderer.invoke` requires a matching
- * `ipcMain.handle` registration in the main process (see #277).
- *
- * For each bridged pattern, any existing handler is removed first via
+ * `ElectronIPCTransport.listen()` only subscribes to its own internal
+ * `ipcMessageDispatcher` — it never calls `ipcMain.handle` itself. Without
+ * this bridge, every non-self-bridged channel hangs forever when invoked
+ * from the renderer (see #277). Any existing handler is removed first via
  * `ipcMain.removeHandler` so hot-reload re-registration does not throw
- * "Attempted to register a second handler for '<channel>'", mirroring the
- * approach `LogsController.onModuleInit` already takes for `logs.stream`.
- * The registered `ipcMain.handle` callback invokes the NestJS handler as
- * `handler(payload, { evt })`, matching the `{ evt }` context shape
- * `ElectronIPCTransport.onMessage` passes today so controller method
- * signatures do not need to change.
+ * "Attempted to register a second handler for '<channel>'".
  *
  * A rejected handler promise is caught and normalized to a plain `Error`
  * carrying only `.message` before it is rethrown. This app has no NestJS
@@ -134,34 +102,18 @@ export class BridgedElectronIPCTransport extends ElectronIPCTransport {
  * AWS SDK exception with non-plain fields like `$metadata` or symbol-keyed
  * internals) fails Electron's structured-clone when the rejection is
  * marshalled back to the renderer, surfacing as a generic "object could not
- * be cloned" failure and leaving the renderer's `invoke()` promise
- * unresolved instead of the real error message. Every failure is logged
- * here too, so the daily log file has a record of which channel failed and
- * why even when a caller doesn't handle the rejection.
+ * be cloned" failure instead of the real error message.
  *
  * An uncaught throw inside a `@MessagePattern` handler doesn't reach here as
  * a rejection at all: `RpcProxy.create` (`@nestjs/microservices`) catches it
- * and *resolves* with `exceptionsHandler.handle(...)`, an RxJS `Observable`
- * built from `throwError(...)` — Nest's RPC context has no HTTP response to
- * write the error to, so it hands the error back as a stream instead. Left
- * alone, that Observable is what Electron tries to structured-clone,
- * producing the same "object could not be cloned" failure without ever
- * entering the `catch` block below. `firstValueFrom` below converts that
+ * and *resolves* with an RxJS `Observable` built from `throwError(...)` —
+ * Nest's RPC context has no HTTP response to write the error to, so it hands
+ * the error back as a stream instead. Left alone, that Observable is what
+ * Electron tries to structured-clone, producing the same failure without
+ * ever entering the `catch` block below. `firstValueFrom` converts that
  * Observable back into a rejected promise so it flows through the same
- * normalization path as every other thrown error.
- *
- * That conversion only carries the *shape* of the error through, not its
- * message: `exceptionsHandler.handle(...)` is NestJS's
- * `RpcExceptionsHandler`, and for any exception that isn't itself an
- * `RpcException`, its built-in `BaseRpcExceptionFilter` discards the real
- * message and substitutes the constant string `'Internal server error'`
- * before this module ever sees the Observable. `firstValueFrom` alone cannot
- * recover a message that was already replaced upstream — the real fix is
- * `RpcErrorMessageFilter` (`rpc-error-message.filter.ts`), registered via
- * `app.useGlobalFilters()` in `main.ts`, which NestJS invokes instead of the
- * base filter and which preserves `.message`. This bridge's normalization
- * still matters on top of that filter for the non-Observable failure modes
- * above (raw rejections with non-cloneable fields, non-Error rejections).
+ * normalization path as every other thrown error — though the *message* on
+ * that rejection is only real because of {@link RpcErrorMessageFilter}.
  *
  * Silent no-op outside a real Electron main process
  * (`process.versions.electron` undefined) — matching the guard

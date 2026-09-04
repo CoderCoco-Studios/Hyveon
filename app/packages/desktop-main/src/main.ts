@@ -29,18 +29,16 @@ createLogger(path.join(app.getPath('userData'), 'logs'));
  * Bootstraps the NestJS IPC microservice.
  *
  * Called from `electron-entry.ts` after `app.whenReady()` so that
- * `ipcMain` is available before the transport is initialised.
+ * `ipcMain` is available before the transport is initialised. Returns the
+ * Nest application context so `electron-entry.ts` can resolve providers
+ * (e.g. `ElectronStoreService` for `initUpdater`) from the same DI graph the
+ * IPC controllers use, rather than constructing a second instance.
  *
- * After `app.listen()` starts the transport (registering its internal
- * `@MessagePattern` dispatch), {@link registerIpcMainBridges} is invoked once
- * to bridge each of those patterns onto a real `ipcMain.handle` registration
- * — without this, `ipcRenderer.invoke` calls from the renderer hang forever
- * because `ElectronIPCTransport.listen()` never calls `ipcMain.handle` itself
- * (see #277).
- *
- * Returns the Nest application context so `electron-entry.ts` can resolve
- * providers (e.g. `ElectronStoreService` for `initUpdater`) from the same DI
- * graph the IPC controllers use, rather than constructing a second instance.
+ * @remarks
+ * Global filters must be registered before `app.listen()`, since NestJS reads
+ * them while wiring up each `@MessagePattern` handler during listen(); after
+ * `app.listen()` starts the transport, {@link registerIpcMainBridges} bridges
+ * each registered pattern onto a real `ipcMain.handle` call.
  */
 export async function bootstrap(): Promise<INestMicroservice> {
   const strategy = new BridgedElectronIPCTransport();
@@ -48,11 +46,6 @@ export async function bootstrap(): Promise<INestMicroservice> {
     strategy,
   });
 
-  // Must run before `app.listen()`: NestJS reads global filters while
-  // registering each `@MessagePattern` handler's exception handler during
-  // listen(), so a filter added afterward would never be picked up. See
-  // `rpc-error-message.filter.ts` for why this is required for handler
-  // errors to surface with their real message instead of a generic one.
   app.useGlobalFilters(new RpcErrorMessageFilter());
 
   await app.listen();
