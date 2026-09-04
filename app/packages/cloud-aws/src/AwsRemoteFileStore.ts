@@ -9,6 +9,7 @@ import {
   type S3ClientConfig,
 } from '@aws-sdk/client-s3';
 import { RemoteFileConflictError, type RemoteFileStore } from '@hyveon/shared';
+import { createCachedAwsClient } from './cachedClient.js';
 
 /**
  * HTTP status codes S3 returns when a conditional write's `If-Match` etag no
@@ -36,8 +37,10 @@ function unquoteEtag(etag: string): string {
  * {@link RemoteFileStore}.
  */
 export class AwsRemoteFileStore implements RemoteFileStore {
-  private client: S3Client | null = null;
-  private clientCacheKey: string | null = null;
+  private readonly getCachedClient = createCachedAwsClient(
+    (config: { region: string; credentials?: S3ClientConfig['credentials']; credentialsSignature?: string }) =>
+      new S3Client({ region: config.region, credentials: config.credentials }),
+  );
 
   /**
    * Resolves bucket/region/credentials for this store on every call — see {@link
@@ -86,13 +89,7 @@ export class AwsRemoteFileStore implements RemoteFileStore {
       process.env['AWS_REGION'] ??
       process.env['AWS_DEFAULT_REGION'] ??
       'us-east-1';
-    const cacheKey = `${region}::${config?.credentialsSignature ?? ''}`;
-
-    if (!this.client || this.clientCacheKey !== cacheKey) {
-      this.client = new S3Client({ region, credentials: config?.credentials });
-      this.clientCacheKey = cacheKey;
-    }
-    return this.client;
+    return this.getCachedClient({ region, credentials: config?.credentials, credentialsSignature: config?.credentialsSignature });
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   type DiscordConfigStore,
 } from '@hyveon/shared';
 import { resolveDefaultAwsRegion } from './awsRegionEnv.js';
+import { createCachedAwsClient } from './cachedClient.js';
 
 /** {@link AwsDiscordConfigStore}'s `resolveConfig` callback return shape. */
 export interface AwsDiscordConfigStoreConfig {
@@ -30,8 +31,10 @@ export interface AwsDiscordConfigStoreConfig {
  * bodies, so callers depend only on {@link DiscordConfigStore}.
  */
 export class AwsDiscordConfigStore implements DiscordConfigStore {
-  private client: DynamoDBDocumentClient | null = null;
-  private clientCacheKey: string | null = null;
+  private readonly getCachedClient = createCachedAwsClient(
+    (config: { region: string; credentials?: DynamoDBClientConfig['credentials']; credentialsSignature?: string }) =>
+      DynamoDBDocumentClient.from(new DynamoDBClient({ region: config.region, credentials: config.credentials })),
+  );
 
   /**
    * @param resolveConfig - Resolves the DynamoDB table (and optional region /
@@ -78,13 +81,7 @@ export class AwsDiscordConfigStore implements DiscordConfigStore {
   private async getClient(): Promise<DynamoDBDocumentClient> {
     const config = await this.resolveConfig?.();
     const region = config?.region ?? resolveDefaultAwsRegion();
-    const cacheKey = `${region}::${config?.credentialsSignature ?? ''}`;
-
-    if (!this.client || this.clientCacheKey !== cacheKey) {
-      this.client = DynamoDBDocumentClient.from(new DynamoDBClient({ region, credentials: config?.credentials }));
-      this.clientCacheKey = cacheKey;
-    }
-    return this.client;
+    return this.getCachedClient({ region, credentials: config?.credentials, credentialsSignature: config?.credentialsSignature });
   }
 
   /** Read the app-managed dynamic config row. */
