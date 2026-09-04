@@ -1,5 +1,4 @@
-import { test, expect, _electron } from '../fixtures/index.js';
-import { electronMain, electronEnv } from '../../playwright.config.js';
+import { test, expect, launchElectron } from '../fixtures/index.js';
 import type { GameStatus } from '../fixtures/index.js';
 
 /**
@@ -15,10 +14,9 @@ import type { GameStatus } from '../fixtures/index.js';
  */
 test.describe('IPC mock seam', () => {
   test('should expose window.hyveon.__test in test mode', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
       const hasTestSurface = await win.evaluate(
         () => typeof (window as unknown as Record<string, unknown>)['hyveon'] === 'object'
           && typeof ((window as unknown as Record<string, unknown>)['hyveon'] as Record<string, unknown>)['__test'] === 'object',
@@ -30,11 +28,9 @@ test.describe('IPC mock seam', () => {
   });
 
   test('should return the mocked response instead of the real IPC response', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
-
       /** Canned status array returned by the mock — distinct from any real ECS response. */
       const mockedStatuses: GameStatus[] = [
         { game: 'minecraft', state: 'running', publicIp: '1.2.3.4' },
@@ -64,11 +60,9 @@ test.describe('IPC mock seam', () => {
   });
 
   test('should allow the mock to be overridden by a second registration on the same channel', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
-
       const firstStatuses: GameStatus[] = [{ game: 'valheim', state: 'stopped' }];
       const secondStatuses: GameStatus[] = [{ game: 'valheim', state: 'running', publicIp: '9.8.7.6' }];
 

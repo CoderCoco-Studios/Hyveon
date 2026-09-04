@@ -17,9 +17,9 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { _electron, expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright-core';
-import { electronEnv, electronMain } from '../../playwright.config.js';
+import { launchElectron } from '../fixtures/index.js';
 import { GamesPage, IacHistoryPage, IacPage } from '../pages/index.js';
 import { DEMO_LOG_STREAM_LINES, DEMO_NOW, seedDemo, seedWizard } from './demo-data.js';
 
@@ -49,8 +49,7 @@ test.beforeAll(() => {
  * `file://` origin, so the reload is a same-URL `goto` instead.
  */
 async function launchSeeded(seed: (win: Page) => Promise<void>): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await _electron.launch({ args: [electronMain], env: electronEnv });
-  const win = await app.firstWindow();
+  const { app, win } = await launchElectron();
   await win.waitForLoadState('domcontentloaded');
   await app.evaluate(({ BrowserWindow }, size) => {
     BrowserWindow.getAllWindows()[0]?.setContentSize(size.width, size.height);

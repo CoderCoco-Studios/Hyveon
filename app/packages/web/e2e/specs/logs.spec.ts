@@ -1,6 +1,5 @@
-import { test, expect, _electron, SAMPLE_LOG_LINES } from '../fixtures/index.js';
+import { test, expect, launchElectron, SAMPLE_LOG_LINES } from '../fixtures/index.js';
 import type { ElectronApplication, Page } from '../fixtures/index.js';
-import { electronMain, electronEnv } from '../../playwright.config.js';
 import { LogsPage } from '../pages/index.js';
 
 /**
@@ -77,8 +76,7 @@ test.describe('logs page', () => {
   let logs: LogsPage;
 
   test.beforeEach(async () => {
-    app = await _electron.launch({ args: [electronMain], env: electronEnv });
-    win = await app.firstWindow();
+    ({ app, win } = await launchElectron());
     logs = new LogsPage(win);
   });
 

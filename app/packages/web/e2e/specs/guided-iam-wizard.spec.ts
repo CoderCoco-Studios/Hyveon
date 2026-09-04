@@ -27,8 +27,7 @@
  */
 import { GUIDED_PROFILE_NAME } from '@hyveon/desktop-preload';
 import type { ElectronApplication, Page } from '../fixtures/index.js';
-import { test, expect, _electron, GuidedIamWizardPage } from '../fixtures/index.js';
-import { electronMain, electronEnv } from '../../playwright.config.js';
+import { test, expect, launchElectron, GuidedIamWizardPage } from '../fixtures/index.js';
 
 // ── Per-test Electron application ────────────────────────────────────────────
 //
@@ -40,8 +39,7 @@ let app: ElectronApplication;
 let win: Page;
 
 test.beforeEach(async () => {
-  app = await _electron.launch({ args: [electronMain], env: electronEnv });
-  win = await app.firstWindow();
+  ({ app, win } = await launchElectron());
 });
 
 test.afterEach(async () => {

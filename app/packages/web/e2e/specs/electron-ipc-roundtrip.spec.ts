@@ -1,5 +1,4 @@
-import { test, expect, _electron } from '../fixtures/index.js';
-import { electronMain, electronEnv } from '../../playwright.config.js';
+import { test, expect, launchElectron } from '../fixtures/index.js';
 
 /**
  * Regression spec for unmocked renderer→main IPC round-trip.
@@ -20,11 +19,9 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
  */
 test.describe('electron IPC round-trip (unmocked)', () => {
   test('should resolve window.hyveon.env.get() against the real main process instead of rejecting', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
-
       const result = await win.evaluate(async () => {
         const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           env: { get: () => Promise<{ region: string; domain: string; environment: string }> };
