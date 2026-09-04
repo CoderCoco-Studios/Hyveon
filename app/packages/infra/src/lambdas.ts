@@ -45,6 +45,7 @@ import type { GameServerConfig, GameServerHealthCheck } from '@hyveon/shared';
 import type { EfsResources } from './efs.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 import type { IamRoleResources } from './iam.js';
+import { lambdaLogGroup } from './logGroups.js';
 
 /** Node.js Lambda runtime every one of the five functions declares. */
 const LAMBDA_RUNTIME = 'nodejs24.x';
@@ -419,15 +420,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     opts,
   );
 
-  const followupLogGroup = new aws.cloudwatch.LogGroup(
-    `${projectName}-followup-logs`,
-    {
-      name: `/aws/lambda/${projectName}-followup`,
-      retentionInDays: 7,
-      tags: { Name: `${projectName}-followup-logs` },
-    },
-    opts,
-  );
+  const followupLogGroup = lambdaLogGroup(projectName, 'followup', opts);
 
   // ── Interactions Lambda ─────────────────────────────────────────────────────
   const interactionsFunction = new aws.lambda.Function(
@@ -455,15 +448,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     opts,
   );
 
-  const interactionsLogGroup = new aws.cloudwatch.LogGroup(
-    `${projectName}-interactions-logs`,
-    {
-      name: `/aws/lambda/${projectName}-interactions`,
-      retentionInDays: 7,
-      tags: { Name: `${projectName}-interactions-logs` },
-    },
-    opts,
-  );
+  const interactionsLogGroup = lambdaLogGroup(projectName, 'interactions', opts);
 
   const interactionsFunctionUrl = new aws.lambda.FunctionUrl(
     `${projectName}-interactions-url`,
@@ -526,15 +511,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     // const rather than a bare `!` at the use site, same as `seederSecurityGroupId` below.
     const healthCheckSg = healthCheckSecurityGroupId as pulumi.Input<string>;
 
-    healthCheckLogGroup = new aws.cloudwatch.LogGroup(
-      `${projectName}-health-check-logs`,
-      {
-        name: `/aws/lambda/${projectName}-health-check`,
-        retentionInDays: 7,
-        tags: { Name: `${projectName}-health-check-logs` },
-      },
-      opts,
-    );
+    healthCheckLogGroup = lambdaLogGroup(projectName, 'health-check', opts);
 
     healthCheckFunction = new aws.lambda.Function(
       `${projectName}-health-check`,
@@ -588,15 +565,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     opts,
   );
 
-  const watchdogLogGroup = new aws.cloudwatch.LogGroup(
-    `${projectName}-watchdog-logs`,
-    {
-      name: `/aws/lambda/${projectName}-watchdog`,
-      retentionInDays: 7,
-      tags: { Name: `${projectName}-watchdog-logs` },
-    },
-    opts,
-  );
+  const watchdogLogGroup = lambdaLogGroup(projectName, 'watchdog', opts);
 
   // `rate(1 minute)` vs `rate(N minutes)` — singular/plural matters to
   // EventBridge's schedule-expression parser, exactly as the HCL's inline
@@ -665,15 +634,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     opts,
   );
 
-  const dnsUpdaterLogGroup = new aws.cloudwatch.LogGroup(
-    `${projectName}-dns-updater-logs`,
-    {
-      name: `/aws/lambda/${projectName}-dns-updater`,
-      retentionInDays: 7,
-      tags: { Name: `${projectName}-dns-updater-logs` },
-    },
-    opts,
-  );
+  const dnsUpdaterLogGroup = lambdaLogGroup(projectName, 'dns-updater', opts);
 
   const ecsTaskChangeRule = new aws.cloudwatch.EventRule(
     `${projectName}-task-state-change`,
@@ -739,15 +700,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       const firstVolumeName = config.volumes[0].name;
       const accessPointArn = efs.gameAccessPoints[`${game}-${firstVolumeName}`].arn;
 
-      const logGroup = new aws.cloudwatch.LogGroup(
-        `${projectName}-efs-seeder-${game}-logs`,
-        {
-          name: `/aws/lambda/${projectName}-efs-seeder-${game}`,
-          retentionInDays: 7,
-          tags: { Name: `${projectName}-efs-seeder-${game}-logs`, Game: game },
-        },
-        opts,
-      );
+      const logGroup = lambdaLogGroup(projectName, `efs-seeder-${game}`, opts, { Game: game });
       efsSeederLogGroups[game] = logGroup;
 
       efsSeederFunctions[game] = new aws.lambda.Function(
