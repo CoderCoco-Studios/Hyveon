@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "${configDir}/dist",
+    "rootDir": "${configDir}/src",
+    "noEmit": true,
+    "composite": false
+  },
+  "include": ["${configDir}/src/**/*"],
+  "exclude": [
+    "${configDir}/src/**/*.test.ts",
+    "${configDir}/dist",
+    "${configDir}/node_modules"
+  ],
+  "references": [{ "path": "${configDir}/../../shared/tsconfig.json" }]
+}
