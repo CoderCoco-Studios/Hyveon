@@ -41,27 +41,11 @@ export const electronEnv: Record<string, string> = {
 };
 
 /**
- * Two e2e projects run side by side during the Electron pivot (Epic F #140):
- *
- *  - `chromium` runs the existing stub-based specs against `vite preview`. They
- *    stub `/api/*` over HTTP via `page.route()` and navigate to `baseURL`, so
- *    they cannot run under Electron until the IPC mock surface (F.7/#198) lands.
- *    Each existing spec migrates to Electron under its own issue (F.2–F.6).
- *  - `electron` runs the new `_electron.launch()` smoke spec and the IPC mock
- *    seam spec against the packaged main bundle. Each spec manages its own
- *    ElectronApplication.
- *
- * `electron-smoke.spec.ts`, `electron-clean-quit.spec.ts` (the permanent
- * clean-quit guard from the Pulumi automation-API spike),
- * `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`,
- * `dashboard.spec.ts`, `costs.spec.ts` (migrated in #193), `logs.spec.ts`
- * (migrated in #191), `discord.spec.ts` (migrated in #194),
- * `iac.spec.ts` (new route, issue #110; renamed from the pre-migration IaC spec),
- * `streaming-handle-roundtrip.spec.ts` (regression guard for the streaming-IPC
- * contextBridge clone bug — see its own doc comment), and
- * `guided-iam-wizard.spec.ts` (`add-one-click-aws-bootstrap`'s guided-IAM
- * wizard step, Group 8) are matched only by the `electron` project and
- * ignored by `chromium`; every other spec is the reverse.
+ * Two e2e projects run side by side: `electron` drives the packaged main
+ * bundle via `_electron.launch()`; `chromium` runs the remaining stub-based
+ * specs against `vite preview`, stubbing `/api/*` via `page.route()` — those
+ * cannot run under Electron. This array lists the specs matched only by the
+ * `electron` project; every other spec runs under `chromium`.
  */
 const ELECTRON_SPECS = [
   '**/electron-smoke.spec.ts',

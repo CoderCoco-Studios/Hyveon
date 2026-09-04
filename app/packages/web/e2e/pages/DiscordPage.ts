@@ -9,20 +9,9 @@ export class DiscordPage {
   constructor(public readonly page: Page) {}
 
   /**
-   * Navigate to `/discord` using a two-step `location.hash` assignment so
-   * React Router re-renders at the correct route without a full page
-   * reload. A direct `page.goto('/discord')` would resolve against the
-   * `file://` base URL used by `loadFile()` and produce `file:///discord`,
-   * which matches no route — the app routes via `HashRouter` (see
-   * `app.component.tsx`'s doc comment) precisely so navigation is immune to
-   * that, but that means the route must live after a `#` here too. Setting
-   * `location.hash` directly fires a native `hashchange` event — the event
-   * `HashRouter` actually listens for.
-   *
-   * Step 1 sets the hash to `/` to unmount any previously mounted Discord
-   * component; Step 2 sets it to `/discord` so the component mounts fresh
-   * with mocks already in place for the global polling providers and the
-   * Discord page's own effects.
+   * Navigate to `/discord`. Two-step hash assignment — a same-value
+   * `location.hash` set fires no `hashchange`, so `HashRouter` would not
+   * re-render (see `e2e/pages/index.ts`).
    */
   async goto(): Promise<void> {
     // Step 1 — unmount any previously mounted Discord page.

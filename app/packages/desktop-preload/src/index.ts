@@ -46,6 +46,11 @@ export type {
   SaveWizardProgressInput,
   RendererConsoleLevel,
   RendererLogEntry,
+  CloudHealthCheckStatus,
+  CloudHealthCheckSummary,
+  CloudHealthFixOutcome,
+  CloudHealthFixResult,
+  OpenConsoleResult,
 } from './hyveon-api.js';
 
 export { GUIDED_PROFILE_NAME } from './hyveon-api.js';

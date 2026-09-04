@@ -1,35 +1,14 @@
 /**
- * Flat edit form for an already-declared `game_servers` entry.
+ * Flat edit form for an already-declared `game_servers` entry — reuses the
+ * add wizard's step components (`../add-game-wizard/`), all rendered stacked
+ * instead of walked one at a time.
  *
- * Reuses the same draft shape and step components built for the add wizard
- * (see `../add-game-wizard/`) — {@link IdentityStep}, `ResourcesStep`,
- * `NetworkingStep`, `StorageStep`, `EnvironmentStep` — but renders every section stacked in one
- * flat view instead of walking the operator through them one at a time,
- * since the issue is scoped as "reuses most of the wizard from the prior
- * issue but as a flat form (not stepwise)".
- *
- * Differences from the add wizard's submit flow:
- *
- * - The `name` field is rendered read-only (`IdentityStep`'s `nameDisabled`
- *   prop): renaming a declared game is a delete+recreate, not an update, so
- *   it's out of scope for this form. Correspondingly, live client-side
- *   validation runs with `validateStep`'s `mode` argument set to `'edit'`
- *   (see the call below), which skips `name` validation entirely (see
- *   `WizardMode`'s doc in `wizard-form.utils.ts`), so an already-declared
- *   legacy name that predates the current DNS-safe name pattern never blocks
- *   saving an unrelated field.
- * - Submits via `api.updateGame` (the `games.update` IPC channel) instead
- *   of `api.createGame`, and the draft is validated against every *other*
- *   declared game (the entry being edited is excluded from the collision
- *   list by name, mirroring `checkPortCollisions`'s own self-exclusion in
- *   `@hyveon/shared/gameServerValidator`).
- *
- * Every {@link GameWriteResult} branch on submit is handled the same way the
- * add wizard handles it: `ok: true` invokes `onSaved` with the fresh result;
- * `code: 'validation'` re-renders the same fields with server-reported
- * issues (the draft is never reset, so the operator doesn't lose their
- * edits); `code: 'conflict' | 'not_found' | 'error'` surfaces the server's
- * message as an inline alert, again without touching the draft.
+ * The `name` field is read-only: renaming a declared game is a
+ * delete+recreate, not an update, so it's out of scope for this form.
+ * Submits via `api.updateGame`, and the draft is validated against every
+ * *other* declared game — the entry being edited is excluded from the
+ * collision list by name, mirroring `checkPortCollisions`'s own
+ * self-exclusion in `@hyveon/shared/gameServerValidator`.
  */
 
 import { useEffect, useRef, useState } from 'react';

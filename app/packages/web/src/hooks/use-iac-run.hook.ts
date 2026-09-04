@@ -43,13 +43,14 @@ export interface RunLogState {
  * `for await` + stream-handle-in-a-ref streaming idiom. Re-attaches
  * automatically if `runId` changes; tears the previous subscription down
  * first.
+ *
+ * @remarks
+ * The accumulated log is tagged with the run it belongs to (rather than
+ * cleared synchronously on every `runId` change, which `react-hooks/set-state-in-effect`
+ * flags) so switching runs discards the previous output at render time, and
+ * a stream failure on one run cannot bleed onto the next.
  */
 function useIacRunLog(runId: string | null): RunLogState {
-  // The accumulated log is tagged with the run it belongs to, so switching
-  // runs discards the previous output at render time. Previously the effect
-  // cleared `chunks`/`ended` synchronously on every `runId` change, which is
-  // what `react-hooks/set-state-in-effect` flags. `error` is tagged the same
-  // way so a stream failure on one run cannot bleed onto the next.
   const [log, setLog] = useState<{
     runId: string;
     chunks: IacRunChunk[];

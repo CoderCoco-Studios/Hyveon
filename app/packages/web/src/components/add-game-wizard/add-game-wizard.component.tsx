@@ -1,44 +1,18 @@
 /**
  * Wizard shell for declaring a new `game_servers` entry: a self-contained
- * `<Dialog>` — trigger, six-step navigation, and the submit handler — built
- * from the step components and validation utilities already assembled for
- * this issue (`identity-step`, `resources-step`, `networking-step`,
- * `storage-step`, `environment-step`, `review-step`, `wizard-form.utils`).
+ * `<Dialog>` with six-step navigation and a submit handler.
  *
- * The wizard owns every piece of its own state (open/closed, current step,
- * in-progress {@link WizardDraft}, the existing-games list used for
- * client-side collision checks, and submit status) so it can be dropped in
- * anywhere — e.g. on `/games` — without the caller wiring anything beyond
- * rendering `<AddGameWizard />`.
+ * On a `code: 'validation'` submit result the wizard jumps to the earliest
+ * step whose fields the returned issues belong to (via
+ * {@link stepForIssuePath}), so the offending fields render highlighted.
  *
- * "Next" (or, on the final step, "Submit") is disabled whenever the active
- * step has outstanding issues — either from client-side `validateStep`
- * (mirroring the same zod schema + business rules the server enforces, see
- * `wizard-form.utils.ts`) or from a server-reported validation failure the
- * client didn't catch. On submit, every {@link GameWriteResult} branch is
- * handled explicitly:
- *
- * - `ok: true` — success toast, redirect to `/games/:name`, dialog closes,
- *   the saved draft is cleared, and the in-memory draft resets.
- * - `code: 'validation'` — the dialog stays open; the returned issues are
- *   stored and the wizard jumps to the earliest step whose fields they
- *   belong to (via {@link stepForIssuePath}) so the offending fields render
- *   highlighted.
- * - `code: 'conflict' | 'not_found' | 'error'` — the dialog stays open, the
- *   wizard jumps to the Review step, and the server's message is surfaced
- *   via {@link ReviewStep}'s `submitError` prop.
- *
- * The in-progress draft is also debounce-autosaved (`api.saveGameDraft`,
- * ~1s after the operator stops typing) so it survives closing/relaunching
- * the app, flushed immediately on dialog close so no edit is lost to the
- * timer, and cleared (`api.clearGameDraft`) only on a successful submit —
- * never on a validation/conflict/error failure, since the operator still
- * needs it to retry. `initialDraft`/`initialStepIndex` let a caller (the
- * games-page "resume draft" banner) reopen the dialog pre-populated with a
- * previously saved draft; that same caller passes `hideTrigger` so the
- * resumed instance — which already self-opens and gets unmounted once its
- * banner goes away — never leaves behind a second, dangling "Add game"
- * trigger button once the operator closes it.
+ * The in-progress draft is debounce-autosaved (`api.saveGameDraft`, ~1s after
+ * the operator stops typing), flushed immediately on dialog close, and
+ * cleared (`api.clearGameDraft`) only on a successful submit — never on a
+ * validation/conflict/error failure, since the operator still needs it to
+ * retry. `initialDraft`/`hideTrigger` let a caller (the games-page "resume
+ * draft" banner) reopen the dialog pre-populated with a saved draft without
+ * leaving behind a second, dangling "Add game" trigger button.
  */
 
 import { useEffect, useRef, useState } from 'react';

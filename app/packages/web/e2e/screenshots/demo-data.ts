@@ -461,41 +461,20 @@ export interface DemoOverrides {
 }
 
 /**
- * Seeds every IPC channel the routed application (i.e. everything except the
- * first-run wizard — see {@link seedWizard} for that) touches, using the
- * `window.hyveon.__test.mock` seam exposed by the preload script under
- * `HYVEON_TEST_MODE=1`.
+ * Seeds every IPC channel the routed application touches (everything except
+ * the first-run wizard — see {@link seedWizard}), via `window.hyveon.__test.mock`.
  *
- * Registers via `win.addInitScript(...)` rather than `win.evaluate(...)`:
- * several channels (`wizard.state.get` at app-root mount, `costs.estimate`
- * at `GameStatusProvider` mount) are read exactly once, above the router, the
- * instant the renderer's bundle runs — by the time `_electron.launch()`
- * resolves `app.firstWindow()`, that mount has often already happened with
- * no mocks in place. `addInitScript` queues this registration to run again
- * on the *next* navigation, before the page's own scripts execute, so the
- * caller must follow this call with a same-URL reload
- * (`await win.goto(win.url())` — `win.reload()` throws `net::ERR_ABORTED` on
- * a `file://` origin) for the seeded mocks to actually take effect. See
- * `capture.spec.ts`'s `launchSeeded` helper, which does exactly this.
+ * Registers via `win.addInitScript(...)`, not `win.evaluate(...)`: some
+ * channels are read once, above the router, the instant the renderer's
+ * bundle runs, often before `app.firstWindow()` resolves. `addInitScript`
+ * only takes effect on the *next* navigation, so the caller must follow this
+ * call with a same-URL reload (`await win.goto(win.url())` —
+ * `win.reload()` throws on a `file://` origin) for the seeded mocks to
+ * actually apply. See `capture.spec.ts`'s `launchSeeded` helper.
  *
- * Always mocks `wizard.state.get` to `{ wizardCompleted: true }` so the app
- * root renders the normal router instead of the first-run wizard, regardless
- * of what's persisted in the Electron profile the harness happens to run
- * against.
- *
- * Streaming channels (`logs.stream`, `iac.runs.logs`, `iac.stack.initialize`)
- * are registered with a **plain-object async-iterable** mock (built by the
- * local `toIterable` helper below), not a real `async function*` — a real
- * generator instance returned from a mock handler still can't cross the
- * renderer→preload direction (the mock itself runs in the renderer, invoked
- * from preload via a reverse proxy), so it hits the same structured-clone
- * wall the original production bug did, just in the opposite direction. This
- * is a pre-existing property of the `__test.mock` convenience surface, not
- * the bug the app's own `HyveonStreamHandle` wrapper (see `preload.ts`) was
- * built to fix — see `streaming-handle-roundtrip.spec.ts` for the spec that
- * pins this pattern down directly against the real preload script. Every
- * streaming mock below follows that pattern, and each channel now yields
- * real content so `capture.spec.ts` can assert on it before taking a shot.
+ * Streaming channels use a plain-object async-iterable mock (`toIterable`
+ * below), not a real `async function*` — see `streaming-handle-roundtrip.spec.ts`
+ * for why.
  */
 export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promise<void> {
   const data = {

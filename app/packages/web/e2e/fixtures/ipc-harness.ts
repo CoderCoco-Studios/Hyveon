@@ -106,37 +106,17 @@ export interface IpcHarness {
  * Compiles the in-process IPC test harness.
  *
  * Builds the real `AppModule` DI container via `@nestjs/testing`'s
- * `Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PulumiService).useValue(pulumiStub).compile()` — a
- * `TestingModule` extends `NestApplicationContext` (the same base class
- * `NestFactory.createApplicationContext()` returns), so it already behaves
- * as a drop-in `INestApplicationContext` (`.get()`, `.close()`, ...) once
- * compiled; no separate "create an application" step is needed.
- * `NestFactory.createApplicationContext()` has no override hook at all, so
- * provider substitution requires this builder instead. `pulumiStub` (a fresh
- * {@link PulumiServiceStub} per harness) becomes the container's
- * `PulumiService` for every consumer that injects it (`ConfigService`,
- * `IacController`, `IacRunsController`, `DriftService`, ...) — the
- * `orchestrator-integration-coverage` delta spec's "In-process engine stub
- * injected via DI" requirement. No integration spec built through this
- * harness can reach a real Pulumi engine or real AWS through `PulumiService`
- * as a result; specs that need deployed-stack data script
- * `harness.mocks.pulumi` directly instead of relying on a fixture file, since
- * every real consumer reads `ConfigService.getStackOutputs()`, which
- * delegates to this stub, not a parsed legacy state file.
+ * `Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PulumiService).useValue(pulumiStub).compile()`,
+ * not `NestFactory.createApplicationContext()` — a `TestingModule` extends
+ * `NestApplicationContext` so it's already a drop-in `INestApplicationContext`
+ * once compiled, and `createApplicationContext()` has no provider-override
+ * hook at all. `pulumiStub` becomes the container's `PulumiService` for every
+ * injecting consumer, so no integration spec built through this harness can
+ * reach a real Pulumi engine or real AWS.
  *
  * Also installs the ECS, run-record DynamoDB, and configuration-bucket S3
- * mock interceptors. The run-record mock's backing store
- * (`runRecordMockStore`) and the configuration-bucket mock's backing store
- * (`remoteFileStoreMockStore`) are both reset first so a prior spec's
- * plan/apply/destroy records, apply lock, and configuration content never
- * leak into a freshly built context.
- *
- * The configuration-bucket mock backs `DeploymentConfigService`'s `RemoteFileStore`
- * reads/writes for specs that configure a bucket — installing it here
- * unconditionally is inert for every spec that doesn't, since
- * `AwsRemoteFileStore` throws its own "bucket not configured" error before
- * ever calling `S3Client.send()` in that case (there is no local-file
- * configuration fallback).
+ * mock interceptors, resetting their backing stores first so a prior spec's
+ * records never leak into a freshly built context.
  */
 export async function createIpcHarness(): Promise<IpcHarness> {
   installEcsMock();
