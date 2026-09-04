@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LogsController } from './logs.controller.js';
 import type { LogsService, LogEventLine } from '../services/LogsService.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
 
@@ -82,13 +83,6 @@ function flushPromises(): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
-/**
- * The metadata key NestJS stores on each method decorated with
- * `@MessagePattern`. Asserting this value guards against typos in the
- * channel name that would silently break IPC routing.
- */
-const PATTERN_METADATA_KEY = 'microservices:pattern';
-
 // Suite
 
 describe('LogsController', () => {
@@ -99,44 +93,17 @@ describe('LogsController', () => {
   // @MessagePattern channel name registration
 
   describe('@MessagePattern channel names', () => {
-    it('should register getRecentLogs on the "logs.get" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.getRecentLogs);
-      expect(pattern).toEqual(['logs.get']);
-    });
-
-    it('should register streamLogs on the "logs.stream" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.streamLogs);
-      expect(pattern).toEqual(['logs.stream']);
-    });
-
-    it('should register getRecentLambdaLogs on the "logs.lambda.get" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.getRecentLambdaLogs);
-      expect(pattern).toEqual(['logs.lambda.get']);
-    });
-
-    it('should register streamLambdaLogs on the "logs.lambda.stream" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.streamLambdaLogs);
-      expect(pattern).toEqual(['logs.lambda.stream']);
-    });
-
-    it('should register getOlderLogs on the "logs.getOlder" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.getOlderLogs);
-      expect(pattern).toEqual(['logs.getOlder']);
-    });
-
-    it('should register getNewerLogs on the "logs.getNewer" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.getNewerLogs);
-      expect(pattern).toEqual(['logs.getNewer']);
-    });
-
-    it('should register getOlderLambdaLogs on the "logs.lambda.getOlder" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.getOlderLambdaLogs);
-      expect(pattern).toEqual(['logs.lambda.getOlder']);
-    });
-
-    it('should register getNewerLambdaLogs on the "logs.lambda.getNewer" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.getNewerLambdaLogs);
-      expect(pattern).toEqual(['logs.lambda.getNewer']);
+    it('should register every channel', () => {
+      expectChannels(LogsController.prototype, [
+        ['getRecentLogs', 'logs.get'],
+        ['streamLogs', 'logs.stream'],
+        ['getRecentLambdaLogs', 'logs.lambda.get'],
+        ['streamLambdaLogs', 'logs.lambda.stream'],
+        ['getOlderLogs', 'logs.getOlder'],
+        ['getNewerLogs', 'logs.getNewer'],
+        ['getOlderLambdaLogs', 'logs.lambda.getOlder'],
+        ['getNewerLambdaLogs', 'logs.lambda.getNewer'],
+      ] as const);
     });
   });
 

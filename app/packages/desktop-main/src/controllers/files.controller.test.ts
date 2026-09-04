@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { FilesController } from './files.controller.js';
 import type { FileManagerService } from '../services/FileManagerService.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -17,6 +18,16 @@ function makeFiles(): FileManagerService {
 }
 
 describe('FilesController', () => {
+  describe('@MessagePattern channel names', () => {
+    it('should register every channel', () => {
+      expectChannels(FilesController.prototype, [
+        ['list', 'files.list'],
+        ['start', 'files.start'],
+        ['stop', 'files.stop'],
+      ] as const);
+    });
+  });
+
   describe('list', () => {
     it('should delegate to FileManagerService.getStatus with the requested game', async () => {
       const files = makeFiles();

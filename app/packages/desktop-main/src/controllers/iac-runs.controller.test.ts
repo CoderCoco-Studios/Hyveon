@@ -6,6 +6,7 @@ import { IacRunsController } from './iac-runs.controller.js';
 import type { PulumiService, PulumiRunChunk, PulumiRunRecord } from '../services/PulumiService.js';
 import { RunLockChangedError, RunLockClearNotConfirmedError, type RunService } from '../services/RunService.js';
 import type { RunRecordService, ListRunsOpts } from '../services/RunRecordService.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
 
@@ -142,6 +143,19 @@ function buildDynamoRecord(overrides: Partial<RunRecord> = {}): RunRecord {
     ...overrides,
   };
 }
+
+describe('@MessagePattern channel names', () => {
+  it('should register every channel', () => {
+    expectChannels(IacRunsController.prototype, [
+      ['get', 'iac.runs.get'],
+      ['logs', 'iac.runs.logs'],
+      ['list', 'iac.runs.list'],
+      ['logUrl', 'iac.runs.logUrl'],
+      ['mintLockClearToken', 'iac.runs.lock.clear.mintToken'],
+      ['clearLock', 'iac.runs.lock.clear'],
+    ] as const);
+  });
+});
 
 describe('IacRunsController.get', () => {
   it('should return found: true, status: running for the runId currently holding the apply lock', async () => {

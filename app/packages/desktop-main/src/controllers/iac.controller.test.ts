@@ -24,6 +24,7 @@ import {
 } from '../services/RunRecordService.js';
 import { RunLockHeldError, type DeploymentConfigDiff, type RunLock, type StackOutputs } from '@hyveon/shared';
 import { logger } from '../logger.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
 
@@ -206,13 +207,6 @@ function flushPromises(): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
-/**
- * The metadata key NestJS stores on each method decorated with
- * `@MessagePattern`. Asserting this value guards against typos in the
- * channel name that would silently break IPC routing.
- */
-const PATTERN_METADATA_KEY = 'microservices:pattern';
-
 // Suite
 
 describe('IacController', () => {
@@ -224,59 +218,20 @@ describe('IacController', () => {
   // @MessagePattern channel name registration
 
   describe('@MessagePattern channel names', () => {
-    it('should register initializeStack on the "iac.stack.initialize" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.initializeStack);
-      expect(pattern).toEqual(['iac.stack.initialize']);
-    });
-
-    it('should register output on the "iac.output" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.output);
-      expect(pattern).toEqual(['iac.output']);
-    });
-
-    it('should register plan on the "iac.plan" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.plan);
-      expect(pattern).toEqual(['iac.plan']);
-    });
-
-    it('should register approve on the "iac.approve" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.approve);
-      expect(pattern).toEqual(['iac.approve']);
-    });
-
-    it('should register apply on the "iac.apply" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.apply);
-      expect(pattern).toEqual(['iac.apply']);
-    });
-
-    it('should register mintDestroyToken on the "iac.destroy.mintToken" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.mintDestroyToken);
-      expect(pattern).toEqual(['iac.destroy.mintToken']);
-    });
-
-    it('should register destroy on the "iac.destroy" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.destroy);
-      expect(pattern).toEqual(['iac.destroy']);
-    });
-
-    it('should register resolveRollback on the "iac.rollback.resolve" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.resolveRollback);
-      expect(pattern).toEqual(['iac.rollback.resolve']);
-    });
-
-    it('should register confirmRollback on the "iac.rollback.confirm" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.confirmRollback);
-      expect(pattern).toEqual(['iac.rollback.confirm']);
-    });
-
-    it('should register clearStaleLock on the "iac.lock.clear" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.clearStaleLock);
-      expect(pattern).toEqual(['iac.lock.clear']);
-    });
-
-    it('should register mintLockClearToken on the "iac.lock.clear.mintToken" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.mintLockClearToken);
-      expect(pattern).toEqual(['iac.lock.clear.mintToken']);
+    it('should register every channel', () => {
+      expectChannels(IacController.prototype, [
+        ['initializeStack', 'iac.stack.initialize'],
+        ['output', 'iac.output'],
+        ['plan', 'iac.plan'],
+        ['approve', 'iac.approve'],
+        ['apply', 'iac.apply'],
+        ['mintDestroyToken', 'iac.destroy.mintToken'],
+        ['destroy', 'iac.destroy'],
+        ['resolveRollback', 'iac.rollback.resolve'],
+        ['confirmRollback', 'iac.rollback.confirm'],
+        ['clearStaleLock', 'iac.lock.clear'],
+        ['mintLockClearToken', 'iac.lock.clear.mintToken'],
+      ] as const);
     });
   });
 
