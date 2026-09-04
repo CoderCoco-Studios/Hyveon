@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { WindowController } from './window.controller.js';
 import type { WindowService } from '../services/WindowService.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -19,6 +20,17 @@ function makeWindowService(): Partial<WindowService> {
 }
 
 describe('WindowController', () => {
+  describe('@MessagePattern channel names', () => {
+    it('should register every channel', () => {
+      expectChannels(WindowController.prototype, [
+        ['minimize', 'window.minimize'],
+        ['toggleMaximize', 'window.toggleMaximize'],
+        ['close', 'window.close'],
+        ['isMaximized', 'window.isMaximized'],
+      ] as const);
+    });
+  });
+
   describe('minimize', () => {
     it('should delegate to WindowService.minimize', () => {
       const window = makeWindowService();

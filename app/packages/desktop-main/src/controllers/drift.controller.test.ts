@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { DriftReport } from '@hyveon/shared';
 import { DriftController } from './drift.controller.js';
 import type { DriftService } from '../services/DriftService.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -20,20 +21,10 @@ function makeDrift(report: DriftReport = DEFAULT_REPORT): DriftService {
   } as Partial<DriftService> as DriftService;
 }
 
-/**
- * The metadata key NestJS stores on each method decorated with
- * `@MessagePattern`. Asserting this value is the only automated guard
- * that prevents a typo in the controller from silently breaking IPC —
- * calling the method directly (as every other test does) would succeed
- * regardless of what string is registered with the transport.
- */
-const PATTERN_METADATA_KEY = 'microservices:pattern';
-
 describe('DriftController', () => {
   describe('@MessagePattern channel names', () => {
-    it('should register get on the "drift.get" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DriftController.prototype.get);
-      expect(pattern).toEqual(['drift.get']);
+    it('should register every channel', () => {
+      expectChannels(DriftController.prototype, [['get', 'drift.get']] as const);
     });
   });
 
