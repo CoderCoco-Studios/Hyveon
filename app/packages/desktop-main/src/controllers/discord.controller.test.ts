@@ -5,7 +5,8 @@ import { DiscordController } from './discord.controller.js';
 import type { DiscordConfigService, DiscordAction } from '../services/DiscordConfigService.js';
 import type { DiscordCommandRegistrar } from '../services/DiscordCommandRegistrar.js';
 import type { ConfigService } from '../services/ConfigService.js';
-import type { StackOutputs } from '@hyveon/shared';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -64,11 +65,9 @@ function makeRegistrar(): DiscordCommandRegistrar {
  * (i.e. the stack has not been deployed yet).
  */
 function makeConfig(invokeUrl: string | null = 'https://xyz.lambda-url.us-east-1.on.aws/'): ConfigService {
-  return {
-    getStackOutputs: vi.fn().mockResolvedValue(
-      invokeUrl !== null ? ({ interactionsInvokeUrl: invokeUrl } as Partial<StackOutputs>) : null,
-    ),
-  } as unknown as ConfigService;
+  return configServiceStub({
+    outputs: invokeUrl !== null ? stackOutputs({ interactionsInvokeUrl: invokeUrl }) : null,
+  });
 }
 
 function ctrl(

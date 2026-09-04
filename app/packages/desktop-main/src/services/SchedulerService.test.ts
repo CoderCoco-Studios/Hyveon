@@ -13,17 +13,11 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { SchedulerService } from './SchedulerService.js';
-import type { ConfigService } from './ConfigService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
 
 /** Typed stand-in for the AWS EventBridge Scheduler SDK client. */
 const schedulerMock = mockClient(SchedulerClient);
-
-/** Build a minimal ConfigService stub exposing only the members SchedulerService actually reads at runtime. */
-function makeConfig(): ConfigService {
-  const stub: Partial<ConfigService> = { getRegion: () => 'us-east-1' };
-  return stub as ConfigService;
-}
 
 /**
  * Build a minimal `ElectronStoreService` stub reporting no wizard-configured
@@ -42,7 +36,7 @@ describe('SchedulerService', () => {
 
   beforeEach(() => {
     schedulerMock.reset();
-    service = new SchedulerService(makeConfig(), makeStore());
+    service = new SchedulerService(configServiceStub(), makeStore());
   });
 
   describe('createStopSchedule', () => {

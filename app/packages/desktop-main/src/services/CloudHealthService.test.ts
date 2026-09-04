@@ -13,8 +13,8 @@ vi.mock('fs', () => ({ writeFileSync: vi.fn() }));
 import { writeFileSync } from 'fs';
 import { CloudHealthService } from './CloudHealthService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
-import type { ConfigService } from './ConfigService.js';
-import type { DeploymentConfigService } from './DeploymentConfigService.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { deploymentConfigStub } from '../testing/deployment-config.fixture.js';
 
 /** Widens {@link CloudHealthService}'s protected test seams to public so specs can spy on them without casts. */
 class TestableCloudHealthService extends CloudHealthService {
@@ -42,15 +42,12 @@ function makeStore(): ElectronStoreService {
   } as Partial<ElectronStoreService> as ElectronStoreService;
 }
 
-function makeConfig(): ConfigService {
-  return { getRegion: vi.fn().mockReturnValue('us-east-1') } as Partial<ConfigService> as ConfigService;
+function makeConfig() {
+  return configServiceStub();
 }
 
-/** Builds a stub {@link DeploymentConfigService} whose `getTopLevelSettings()` resolves with the given project name. */
-function makeDeploymentConfig(projectName = 'hyveon'): DeploymentConfigService {
-  return {
-    getTopLevelSettings: vi.fn().mockResolvedValue({ settings: { projectName } }),
-  } as Partial<DeploymentConfigService> as DeploymentConfigService;
+function makeDeploymentConfig() {
+  return deploymentConfigStub({ projectName: 'hyveon' });
 }
 
 beforeEach(() => {

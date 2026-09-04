@@ -59,7 +59,8 @@ import {
   ConfigurationNotConfiguredError,
   RunsTableRenameError,
 } from './DeploymentConfigService.js';
-import { ConfigService } from './ConfigService.js';
+import type { ConfigService } from './ConfigService.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
 
 /**
  * A deployment config fixture with non-`gameServers` top-level fields and
@@ -140,6 +141,7 @@ function makeRemoteFileStore(): RemoteFileStore & {
  */
 function makeConfig(opts: { bucket?: string | null } = {}): ConfigService {
   const stub: Partial<ConfigService> = {
+    ...configServiceStub(),
     getConfigurationBucket: () => opts.bucket ?? null,
     readEnvConfigCacheTtlMs: () => 30000,
   };

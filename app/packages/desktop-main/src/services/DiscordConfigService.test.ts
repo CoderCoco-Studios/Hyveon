@@ -19,10 +19,10 @@ vi.mock('../logger.js', () => ({
 import { logger } from '../logger.js';
 import { DiscordConfigService } from './DiscordConfigService.js';
 import { ConfigService } from './ConfigService.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 
 /** Minimal `StackOutputs` stub exposing just the Discord-store fields. */
-const STACK_OUTPUTS: StackOutputs = {
-  awsRegion: 'us-east-1',
+const STACK_OUTPUTS: StackOutputs = stackOutputs({
   ecsClusterName: '',
   ecsClusterArn: '',
   subnetIds: [],
@@ -40,9 +40,7 @@ const STACK_OUTPUTS: StackOutputs = {
   fileBrowserCredentialSecretArn: 'arn:filebrowser-credential',
   fileBrowserSchedulerRoleArn: 'arn:filebrowser-scheduler-role',
   interactionsInvokeUrl: 'https://url',
-  discordInteractionsUrl: null,
-  appliedGameServers: null,
-};
+});
 
 /** `get` mock for the injected `SecretsStore` stub — keyed by secret name/ARN so bot-token and public-key lookups can be stubbed independently. */
 const secretsGetMock = vi.fn<SecretsStore['get']>();

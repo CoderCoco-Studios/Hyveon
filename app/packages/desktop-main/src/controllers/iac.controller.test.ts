@@ -13,7 +13,6 @@ import {
   type PulumiDestroyResult,
   type PulumiRunRecord,
 } from '../services/PulumiService.js';
-import type { ConfigService } from '../services/ConfigService.js';
 import type { AuditService, RecordAuditEntryParams } from '../services/AuditService.js';
 import {
   RunRecordNotFoundError,
@@ -22,8 +21,10 @@ import {
   RunRecordTableNotConfiguredError,
   type RunRecordService,
 } from '../services/RunRecordService.js';
-import { RunLockHeldError, type DeploymentConfigDiff, type RunLock, type StackOutputs } from '@hyveon/shared';
+import { RunLockHeldError, type DeploymentConfigDiff, type RunLock } from '@hyveon/shared';
 import { logger } from '../logger.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
 
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
 
@@ -172,13 +173,6 @@ function makeRunRecord(): { runRecord: RunRecordService; approveRun: ReturnType<
   }));
   const stub: Partial<RunRecordService> = { approveRun };
   return { runRecord: stub as RunRecordService, approveRun };
-}
-
-/** Build a `ConfigService` stub whose `getStackOutputs` resolves `outputs` (defaults to `null`) — {@link output}'s preferred delegate. */
-function makeConfig(outputs: StackOutputs | null = null): { config: ConfigService; getStackOutputs: ReturnType<typeof vi.fn> } {
-  const getStackOutputs = vi.fn().mockResolvedValue(outputs);
-  const stub: Partial<ConfigService> = { getStackOutputs };
-  return { config: stub as ConfigService, getStackOutputs };
 }
 
 /**
@@ -1363,7 +1357,7 @@ describe('IacController', () => {
 
   describe('output', () => {
     /** A minimal `StackOutputs` fixture shared across the "output" cases. */
-    const OUTPUTS: StackOutputs = {
+    const OUTPUTS = stackOutputs({
       awsRegion: 'us-east-1',
       ecsClusterName: 'hyveon-cluster',
       ecsClusterArn: 'arn:aws:ecs:us-east-1:123:cluster/hyveon-cluster',
@@ -1384,11 +1378,11 @@ describe('IacController', () => {
       interactionsInvokeUrl: null,
       discordInteractionsUrl: null,
       appliedGameServers: null,
-    };
+    });
 
     it('should resolve with whatever ConfigService.getStackOutputs resolves with, when a ConfigService is wired', async () => {
       const pulumi = makePulumi();
-      const { config } = makeConfig(OUTPUTS);
+      const config = configServiceStub({ outputs: OUTPUTS });
 
       const result = await new IacController(pulumi, undefined, undefined, config).output({});
 
@@ -1407,7 +1401,7 @@ describe('IacController', () => {
 
     it('should resolve null when the stack has never been deployed', async () => {
       const pulumi = makePulumi();
-      const { config } = makeConfig(null);
+      const config = configServiceStub({ outputs: null });
 
       const result = await new IacController(pulumi, undefined, undefined, config).output({});
 
@@ -1416,7 +1410,8 @@ describe('IacController', () => {
 
     it('should ignore payload.force — no cache-bypass behavior exists any more', async () => {
       const pulumi = makePulumi();
-      const { config, getStackOutputs } = makeConfig(OUTPUTS);
+      const config = configServiceStub({ outputs: OUTPUTS });
+      const getStackOutputs = vi.spyOn(config, 'getStackOutputs');
 
       await new IacController(pulumi, undefined, undefined, config).output({ force: true });
 
@@ -1428,7 +1423,7 @@ describe('IacController', () => {
 
     it('should default the payload to {} when no payload is provided at all', async () => {
       const pulumi = makePulumi();
-      const { config } = makeConfig(OUTPUTS);
+      const config = configServiceStub({ outputs: OUTPUTS });
 
       const result = await new IacController(pulumi, undefined, undefined, config).output(undefined);
 

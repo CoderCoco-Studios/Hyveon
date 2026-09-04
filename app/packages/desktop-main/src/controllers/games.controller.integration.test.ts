@@ -34,7 +34,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { readFileSync, existsSync, writeFileSync } from 'fs';
-import type { DeploymentConfig, RemoteFileStore, StackOutputs } from '@hyveon/shared';
+import type { DeploymentConfig, RemoteFileStore } from '@hyveon/shared';
 import { RemoteFileConflictError } from '@hyveon/shared';
 import { GamesController } from './games.controller.js';
 import { DeploymentConfigService } from '../services/DeploymentConfigService.js';
@@ -42,6 +42,8 @@ import { GamesWriteService } from '../services/GamesWriteService.js';
 import type { ConfigService } from '../services/ConfigService.js';
 import type { EcsService } from '../services/EcsService.js';
 import type { AuditService } from '../services/AuditService.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 
 /** Strongly-typed mock handles for the `fs` module — asserted as NEVER called in every spec below. */
 const mockExists = vi.mocked(existsSync);
@@ -153,14 +155,11 @@ function makeMutableRemoteFileStore(initialJson: string): RemoteFileStore & { cu
  * mode any more.
  */
 function makeConfig(gameNames: string[]): ConfigService {
-  const outputs: Partial<StackOutputs> = { gameNames };
-  const config: Partial<ConfigService> = {
-    invalidateCache: vi.fn(),
-    getStackOutputs: vi.fn().mockResolvedValue(outputs),
+  const stub = configServiceStub({ outputs: stackOutputs({ gameNames }) });
+  return Object.assign(stub, {
     getConfigurationBucket: () => 'my-config-bucket',
     readEnvConfigCacheTtlMs: () => 30000,
-  };
-  return config as ConfigService;
+  });
 }
 
 /** Minimal `EcsService` stub — none of the specs in this file call it, but the constructor requires it. */

@@ -3,9 +3,11 @@ import { describe, it, expect, vi } from 'vitest';
 import type { TopLevelDeploymentSettings, UpdateDeploymentSettingsPayload } from '@hyveon/shared';
 import { OptimisticLockError } from '@hyveon/shared';
 import { IacSettingsController } from './iac-settings.controller.js';
-import { ConfigurationNotConfiguredError, RunsTableRenameError, DeploymentConfigService } from '../services/DeploymentConfigService.js';
+import { ConfigurationNotConfiguredError, RunsTableRenameError } from '../services/DeploymentConfigService.js';
+import type { DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import type { PulumiEngineService } from '../services/PulumiEngineService.js';
 import type { ElectronStoreService } from '../services/ElectronStoreService.js';
+import { deploymentConfigStub } from '../testing/deployment-config.fixture.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -34,10 +36,13 @@ const SETTINGS: TopLevelDeploymentSettings = {
 
 /** Build a `DeploymentConfigService` stub exposing just the methods `IacSettingsController` calls. */
 function makeDeploymentConfig(): DeploymentConfigService {
-  return {
-    getTopLevelSettings: vi.fn().mockResolvedValue({ settings: SETTINGS, etag: 'etag-1' }),
-    updateTopLevelSettings: vi.fn().mockResolvedValue({ etag: 'etag-2', versionId: 'v-2' }),
-  } as Partial<DeploymentConfigService> as DeploymentConfigService;
+  return deploymentConfigStub(
+    {},
+    {
+      getTopLevelSettings: vi.fn().mockResolvedValue({ settings: SETTINGS, etag: 'etag-1' }),
+      updateTopLevelSettings: vi.fn().mockResolvedValue({ etag: 'etag-2', versionId: 'v-2' }),
+    },
+  );
 }
 
 /**

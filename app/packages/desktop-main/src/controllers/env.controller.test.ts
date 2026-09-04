@@ -3,16 +3,16 @@ import { describe, it, expect, vi } from 'vitest';
 import { EnvController } from './env.controller.js';
 import type { ConfigService } from '../services/ConfigService.js';
 import type { StackOutputs } from '@hyveon/shared';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-/** Build a ConfigService stub returning the given (partial) stack outputs. */
-function makeConfig(outputs: Partial<StackOutputs> | null = null): ConfigService {
-  return {
-    getStackOutputs: vi.fn().mockResolvedValue(outputs),
-  } as unknown as ConfigService;
+/** Build a ConfigService stub returning the given (partial) stack outputs, or `null` to simulate an undeployed stack. */
+function makeConfig(overrides: Partial<StackOutputs> | null = null): ConfigService {
+  return configServiceStub({ outputs: overrides === null ? null : stackOutputs(overrides) });
 }
 
 /**

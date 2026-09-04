@@ -5,6 +5,8 @@ import type { ConfigService } from '../services/ConfigService.js';
 import type { CostService } from '../services/CostService.js';
 import type { EcsService } from '../services/EcsService.js';
 import type { StackOutputs } from '@hyveon/shared';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -19,11 +21,9 @@ const MOCK_ESTIMATE = {
   costPerMonth4hpd: 60,
 };
 
-/** Build a ConfigService stub with a minimal set of stack outputs. */
-function makeConfig(outputs: Partial<StackOutputs> | null = { gameNames: ['minecraft'] }): ConfigService {
-  return {
-    getStackOutputs: vi.fn().mockResolvedValue(outputs),
-  } as unknown as ConfigService;
+/** Build a ConfigService stub with a minimal set of stack outputs, or `null` to simulate an undeployed stack. */
+function makeConfig(overrides: Partial<StackOutputs> | null = { gameNames: ['minecraft'] }): ConfigService {
+  return configServiceStub({ outputs: overrides === null ? null : stackOutputs(overrides) });
 }
 
 /** Build a CostService stub whose estimateForSpec returns the canned estimate. */
