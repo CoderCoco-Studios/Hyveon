@@ -27,27 +27,29 @@ import {
   ChangeResourceRecordSetsCommand,
   ListResourceRecordSetsCommand,
 } from '@aws-sdk/client-route-53';
-import { deletePending, formatGameStatus, getPending, parseJsonEnv } from '@hyveon/shared';
+import {
+  deletePending,
+  familyToGameMap,
+  formatGameStatus,
+  gameNamesFromEnv,
+  getPending,
+  parseGameMapEnv,
+  requireEnv,
+} from '@hyveon/shared';
 
 const HOSTED_ZONE_ID = requireEnv('HOSTED_ZONE_ID');
 const DOMAIN_NAME = requireEnv('DOMAIN_NAME');
-const GAME_NAMES = (process.env['GAME_NAMES'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const GAME_NAMES = gameNamesFromEnv();
 const DNS_TTL = parseInt(process.env['DNS_TTL'] ?? '30', 10);
 const TABLE_NAME = process.env['TABLE_NAME'] ?? '';
 
-/** Per-game connect message templates, keyed by game name — sourced from `DeploymentConfig.gameServers` and wired into this env var by the infra program (`app/packages/infra/src/lambdas.ts`). Parsed defensively — see {@link parseJsonEnv}. */
-const CONNECT_MESSAGES: Record<string, string> = parseJsonEnv('CONNECT_MESSAGES', process.env['CONNECT_MESSAGES'], {});
+/** Per-game connect message templates, keyed by game name — sourced from `DeploymentConfig.gameServers` and wired into this env var by the infra program (`app/packages/infra/src/lambdas.ts`). Parsed defensively — see {@link parseGameMapEnv}. */
+const CONNECT_MESSAGES: Record<string, string> = parseGameMapEnv('CONNECT_MESSAGES');
 
-/** First container port per game, used to resolve the `{port}` placeholder. Parsed defensively — see {@link parseJsonEnv}. */
-const GAME_PORTS: Record<string, number> = parseJsonEnv('GAME_PORTS', process.env['GAME_PORTS'], {});
+/** First container port per game, used to resolve the `{port}` placeholder. Parsed defensively — see {@link parseGameMapEnv}. */
+const GAME_PORTS: Record<string, number> = parseGameMapEnv('GAME_PORTS');
 
-const FAMILY_TO_GAME = new Map<string, string>(GAME_NAMES.map((g) => [`${g}-server`, g]));
-
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var ${name}`);
-  return v;
-}
+const FAMILY_TO_GAME = familyToGameMap(GAME_NAMES);
 
 function region(): string {
   return (
@@ -284,7 +286,7 @@ export const handler = async (event: EcsStateChangeEvent): Promise<HandlerResult
   const taskArn = detail.taskArn ?? '';
   const clusterArn = detail.clusterArn ?? '';
   const family = (detail.group ?? '').replace('family:', '');
-  const game = FAMILY_TO_GAME.get(family);
+  const game = FAMILY_TO_GAME[family];
 
   if (!game) {
     console.log(`Task family ${family} is not a known game server — skipping.`);

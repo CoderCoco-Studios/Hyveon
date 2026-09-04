@@ -16,7 +16,7 @@
  */
 import { ECSClient, DescribeTasksCommand, type Task } from '@aws-sdk/client-ecs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import type { GameServerHealthCheck, GameServerHealthCheckAuth } from '@hyveon/shared';
+import { requireEnv, type GameServerHealthCheck, type GameServerHealthCheckAuth } from '@hyveon/shared';
 import { evaluateHealthCheck, type HealthCheckVerdict } from './engine.js';
 
 /** Invocation payload the watchdog sends: the game whose task is being checked, the task's ARN, and its declared health check. */
@@ -29,12 +29,6 @@ export interface HealthCheckEvent {
 function region(): string {
   // AWS_REGION_ (trailing underscore) — AWS_REGION is reserved by the Lambda runtime and cannot be set as a function env var.
   return process.env['AWS_REGION_'] ?? process.env['AWS_REGION'] ?? process.env['AWS_DEFAULT_REGION'] ?? 'us-east-1';
-}
-
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var ${name}`);
-  return v;
 }
 
 const ECS_CLUSTER = requireEnv('ECS_CLUSTER');
