@@ -100,6 +100,12 @@ these are easy to violate while making an otherwise reasonable change.
   booleans, never values.
 - **The desktop app has no HTTP transport.** `desktop-main` is an Electron IPC microservice;
   there is no bearer token and no API server (`openspec/specs/desktop-only-operator-surface`).
+- **`@hyveon/shared`'s barrel (`shared/src/index.ts`) stays free of AWS SDK imports beyond what
+  it already carries.** It's bundled into every Lambda *and* imported by the renderer. New
+  AWS-touching helpers go in a subpath module (`shared/src/aws/*.ts`) and are deep-imported —
+  never added to the barrel, which already pulls `@aws-sdk/client-dynamodb` and
+  `@aws-sdk/client-secrets-manager` into anything that imports it. Prefer structural parameter
+  types over SDK type imports where possible.
 
 ## Markdown formatting
 
