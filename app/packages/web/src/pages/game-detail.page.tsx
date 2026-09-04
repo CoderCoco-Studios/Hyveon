@@ -80,7 +80,7 @@ function ConfigTableCard<T>({ title, columns, rows, rowKey }: ConfigTableCardPro
 /**
  * Game detail route (`/games/:name`) — read-only rendering of the full
  * declared configuration for a single game, sourced from the same merged
- * `games.list` payload the `/games` list page uses (see issue #93).
+ * `games.list` payload the `/games` list page uses.
  *
  * Three renderable states, keyed off the merged `GameListEntry` for
  * `:name`:
@@ -96,7 +96,7 @@ function ConfigTableCard<T>({ title, columns, rows, rowKey }: ConfigTableCardPro
  *     set).
  *
  * Fully-declared entries also get an "Edit" toggle and a {@link
- * RemoveGameButton} (#100) in the header — both are hidden for ghost entries
+ * RemoveGameButton} in the header — both are hidden for ghost entries
  * since there's no declared configuration to edit or remove. Toggling "Edit"
  * swaps the read-only cards for a prefilled {@link EditGameForm}; a
  * successful save (`onSaved`) replaces the in-memory merged games list with

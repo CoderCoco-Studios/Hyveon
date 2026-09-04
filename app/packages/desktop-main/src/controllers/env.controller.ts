@@ -6,8 +6,6 @@ import { logger } from '../logger.js';
 /**
  * Environment metadata IPC controller. Returns deployment-level info (region, domain)
  * for UI display — e.g., the top bar env pill that shows "PROD · us-east-1".
- *
- * Handles only IPC messages via `@MessagePattern` / no HTTP routes are registered here.
  */
 @Controller()
 export class EnvController {

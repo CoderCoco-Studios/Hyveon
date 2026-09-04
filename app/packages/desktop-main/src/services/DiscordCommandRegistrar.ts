@@ -2,13 +2,9 @@
  * DiscordCommandRegistrar — calls Discord's REST API to install our four
  * slash commands into a single guild.
  *
- * Replaces the on-`ready` and on-`guildCreate` registration that the old
- * always-on `DiscordBotService` did. With the bot now serverless, there is no
- * gateway connection to react to those events; instead the operator clicks
- * "Register commands" in the web UI for each allowlisted guild.
- *
- * Uses native `fetch` rather than `discord.js` so we don't reintroduce the
- * dependency we just removed.
+ * The bot is serverless: there is no gateway connection, so registration
+ * happens when the operator clicks "Register commands" in the web UI for
+ * each allowlisted guild. Uses native `fetch` rather than `discord.js`.
  */
 import { Injectable } from '@nestjs/common';
 import { logger } from '../logger.js';

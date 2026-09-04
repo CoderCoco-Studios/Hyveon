@@ -65,9 +65,9 @@ export interface CredentialsStepProps {
 }
 
 /**
- * Credentials step of the first-run wizard (#192): the operator either picks
+ * Credentials step of the first-run wizard: the operator either picks
  * a discovered `~/.aws` CLI profile or pastes an access key ID/secret
- * directly (encrypted via the safeStorage flow from #197). Purely
+ * directly (encrypted via the safeStorage flow). Purely
  * presentational — the parent wizard shell owns all state, the
  * `listAwsProfiles`/`saveCredentials` IPC calls, and persisting the final
  * choice via `wizard.state.save` when the operator advances. The one

@@ -1,18 +1,18 @@
 /**
  * Secrets Manager secrets for the Discord bot token and application public
- * key. The two `aws_secretsmanager_secret_version` resources are part of
- * this package's "imperative escapes" inventory, but are implemented HERE,
- * alongside the secrets they version, rather than in `escapes.ts` (see that
- * file's doc for the rest of the escapes inventory).
+ * key. The two secret-version resources are part of this package's
+ * "imperative escapes" inventory, but are implemented HERE, alongside the
+ * secrets they version, rather than in `escapes.ts` (see that file's doc for
+ * the rest of the escapes inventory).
  *
- * | HCL address | This file |
+ * | Resource | This file |
  * | --- | --- |
- * | `aws_secretsmanager_secret.discord_bot_token` | {@link SecretsResources.discordBotTokenSecret} |
- * | `aws_secretsmanager_secret_version.discord_bot_token` | {@link SecretsResources.discordBotTokenSecretVersion} |
- * | `aws_secretsmanager_secret.discord_public_key` | {@link SecretsResources.discordPublicKeySecret} |
- * | `aws_secretsmanager_secret_version.discord_public_key` | {@link SecretsResources.discordPublicKeySecretVersion} |
- * | *(no HCL analogue — added post-migration, see below)* | {@link SecretsResources.fileBrowserCredentialSecret} |
- * | *(no HCL analogue — added post-migration, see below)* | {@link SecretsResources.fileBrowserCredentialSecretVersion} |
+ * | Discord bot-token secret | {@link SecretsResources.discordBotTokenSecret} |
+ * | Discord bot-token secret version | {@link SecretsResources.discordBotTokenSecretVersion} |
+ * | Discord public-key secret | {@link SecretsResources.discordPublicKeySecret} |
+ * | Discord public-key secret version | {@link SecretsResources.discordPublicKeySecretVersion} |
+ * | *(added post-migration, see below)* | {@link SecretsResources.fileBrowserCredentialSecret} |
+ * | *(added post-migration, see below)* | {@link SecretsResources.fileBrowserCredentialSecretVersion} |
  *
  * ## The FileBrowser credential secret — one shared secret, not per-game
  *
@@ -37,17 +37,14 @@
  * `discord_bot_token`/`discord_public_key` (see that file's file-level doc,
  * "It intentionally excludes every secret input") — so {@link DefineSecretsArgs}
  * has no such field to accept, and every version below is created with the
- * literal string {@link PLACEHOLDER_SECRET_VALUE} unconditionally, unlike the
- * HCL's `var.discord_bot_token != "" ? var.discord_bot_token : "placeholder"`
- * ternary (which could never take its non-placeholder branch once the
- * variable itself is gone). The app's existing `DiscordConfigService` writes
+ * literal string {@link PLACEHOLDER_SECRET_VALUE} unconditionally. The app's
+ * existing `DiscordConfigService` writes
  * the real values directly to Secrets Manager over the AWS SDK — this
  * program only ever creates the initial placeholder version.
  *
  * ## Create-only secret versions (`ignoreChanges: ['secretString']`)
  *
- * Reproduces the HCL's `lifecycle { ignore_changes = [secret_string] }`: the
- * version's value is written once, on creation, and thereafter excluded from
+ * The version's value is written once, on creation, and thereafter excluded from
  * this program's reconciliation — a later `pulumi up` computes no diff for
  * `secretString` regardless of what value is live in Secrets Manager. Without
  * this, a re-deploy after the operator configures real Discord credentials
@@ -86,15 +83,15 @@
 import * as aws from '@pulumi/aws';
 import type * as pulumi from '@pulumi/pulumi';
 
-/** Every resource {@link defineSecrets} declares, keyed by role — see this file's doc for the full HCL→Pulumi address table. */
+/** Every resource {@link defineSecrets} declares, keyed by role — see this file's doc for the full resource table. */
 export interface SecretsResources {
-  /** The Discord bot token secret (`aws_secretsmanager_secret.discord_bot_token`) — read by the management app to register guild slash commands. */
+  /** The Discord bot token secret — read by the management app to register guild slash commands. */
   discordBotTokenSecret: aws.secretsmanager.Secret;
-  /** {@link discordBotTokenSecret}'s create-only placeholder version (`aws_secretsmanager_secret_version.discord_bot_token`). */
+  /** {@link discordBotTokenSecret}'s create-only placeholder version. */
   discordBotTokenSecretVersion: aws.secretsmanager.SecretVersion;
-  /** The Discord application Ed25519 public key secret (`aws_secretsmanager_secret.discord_public_key`) — read by the interactions Lambda to verify request signatures. */
+  /** The Discord application Ed25519 public key secret — read by the interactions Lambda to verify request signatures. */
   discordPublicKeySecret: aws.secretsmanager.Secret;
-  /** {@link discordPublicKeySecret}'s create-only placeholder version (`aws_secretsmanager_secret_version.discord_public_key`). */
+  /** {@link discordPublicKeySecret}'s create-only placeholder version. */
   discordPublicKeySecretVersion: aws.secretsmanager.SecretVersion;
   /** The FileBrowser helper's per-launch credential-hash secret — one shared secret across every game, not per-game. See this file's doc, "The FileBrowser credential secret". */
   fileBrowserCredentialSecret: aws.secretsmanager.Secret;
@@ -104,7 +101,7 @@ export interface SecretsResources {
 
 /** Arguments {@link defineSecrets} needs to declare every secret and its placeholder version. Deliberately carries NO secret-value field — see this file's doc. */
 export interface DefineSecretsArgs {
-  /** Mirrors `var.project_name` — every secret's name below is `${projectName}/discord/...`, matching the HCL exactly. */
+  /** Project name — every secret's name below is `${projectName}/discord/...`. */
   projectName: string;
   /** The regional AWS provider every resource is declared against (region + default tags). */
   provider: aws.Provider;

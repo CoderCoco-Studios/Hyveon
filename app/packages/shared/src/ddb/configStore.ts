@@ -22,9 +22,8 @@ function emptyConfig(): DiscordConfig {
 
 /**
  * Coerce a stored `data` payload into a valid DiscordConfig, dropping
- * unexpected types the same way DiscordConfigService.load() used to do for
- * on-disk JSON. Runs on every read so hand-edited DynamoDB items can't crash
- * the Lambda.
+ * unexpected types. Runs on every read so hand-edited DynamoDB items can't
+ * crash the Lambda.
  */
 function parseConfigData(raw: unknown): DiscordConfig {
   const obj = (raw ?? {}) as Record<string, unknown>;

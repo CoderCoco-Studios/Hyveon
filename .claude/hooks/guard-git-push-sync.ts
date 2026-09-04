@@ -10,22 +10,12 @@
  * the drift before the first push avoids that churn.
  */
 
-import { deny, allow, readStdin, isRecord } from './lib/hook-io.js';
+import { deny, allow, readStdin, isRecord, getInput } from './lib/hook-io.js';
 import { checkBranchSync, describeDrift } from './lib/git-sync.js';
 
 const GIT_PUSH = /(^|[;&|]\s*)git\s+push\b/m;
 
-const raw = await readStdin();
-if (!raw.trim()) allow();
-
-let parsed: unknown;
-try {
-  parsed = JSON.parse(raw);
-} catch {
-  allow();
-}
-if (!isRecord(parsed)) allow();
-const input = parsed as Record<string, unknown>;
+const input = await getInput(isRecord)
 
 if (input.tool_name !== 'Bash') allow();
 const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
