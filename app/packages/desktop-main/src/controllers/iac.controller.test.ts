@@ -13,7 +13,6 @@ import {
   type PulumiDestroyResult,
   type PulumiRunRecord,
 } from '../services/PulumiService.js';
-import type { ConfigService } from '../services/ConfigService.js';
 import type { AuditService, RecordAuditEntryParams } from '../services/AuditService.js';
 import {
   RunRecordNotFoundError,
@@ -22,8 +21,11 @@ import {
   RunRecordTableNotConfiguredError,
   type RunRecordService,
 } from '../services/RunRecordService.js';
-import { RunLockHeldError, type DeploymentConfigDiff, type RunLock, type StackOutputs } from '@hyveon/shared';
+import { RunLockHeldError, type DeploymentConfigDiff, type RunLock } from '@hyveon/shared';
 import { logger } from '../logger.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
 
@@ -174,13 +176,6 @@ function makeRunRecord(): { runRecord: RunRecordService; approveRun: ReturnType<
   return { runRecord: stub as RunRecordService, approveRun };
 }
 
-/** Build a `ConfigService` stub whose `getStackOutputs` resolves `outputs` (defaults to `null`) — {@link output}'s preferred delegate. */
-function makeConfig(outputs: StackOutputs | null = null): { config: ConfigService; getStackOutputs: ReturnType<typeof vi.fn> } {
-  const getStackOutputs = vi.fn().mockResolvedValue(outputs);
-  const stub: Partial<ConfigService> = { getStackOutputs };
-  return { config: stub as ConfigService, getStackOutputs };
-}
-
 /**
  * Build a minimal `IpcMainInvokeEvent` stub with a controlled `sender`
  * (WebContents). Tests can inspect calls on `sender.send` and control the
@@ -206,13 +201,6 @@ function flushPromises(): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
-/**
- * The metadata key NestJS stores on each method decorated with
- * `@MessagePattern`. Asserting this value guards against typos in the
- * channel name that would silently break IPC routing.
- */
-const PATTERN_METADATA_KEY = 'microservices:pattern';
-
 // Suite
 
 describe('IacController', () => {
@@ -224,59 +212,20 @@ describe('IacController', () => {
   // @MessagePattern channel name registration
 
   describe('@MessagePattern channel names', () => {
-    it('should register initializeStack on the "iac.stack.initialize" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.initializeStack);
-      expect(pattern).toEqual(['iac.stack.initialize']);
-    });
-
-    it('should register output on the "iac.output" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.output);
-      expect(pattern).toEqual(['iac.output']);
-    });
-
-    it('should register plan on the "iac.plan" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.plan);
-      expect(pattern).toEqual(['iac.plan']);
-    });
-
-    it('should register approve on the "iac.approve" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.approve);
-      expect(pattern).toEqual(['iac.approve']);
-    });
-
-    it('should register apply on the "iac.apply" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.apply);
-      expect(pattern).toEqual(['iac.apply']);
-    });
-
-    it('should register mintDestroyToken on the "iac.destroy.mintToken" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.mintDestroyToken);
-      expect(pattern).toEqual(['iac.destroy.mintToken']);
-    });
-
-    it('should register destroy on the "iac.destroy" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.destroy);
-      expect(pattern).toEqual(['iac.destroy']);
-    });
-
-    it('should register resolveRollback on the "iac.rollback.resolve" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.resolveRollback);
-      expect(pattern).toEqual(['iac.rollback.resolve']);
-    });
-
-    it('should register confirmRollback on the "iac.rollback.confirm" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.confirmRollback);
-      expect(pattern).toEqual(['iac.rollback.confirm']);
-    });
-
-    it('should register clearStaleLock on the "iac.lock.clear" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.clearStaleLock);
-      expect(pattern).toEqual(['iac.lock.clear']);
-    });
-
-    it('should register mintLockClearToken on the "iac.lock.clear.mintToken" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.mintLockClearToken);
-      expect(pattern).toEqual(['iac.lock.clear.mintToken']);
+    it('should register every channel', () => {
+      expectChannels(IacController.prototype, [
+        ['initializeStack', 'iac.stack.initialize'],
+        ['output', 'iac.output'],
+        ['plan', 'iac.plan'],
+        ['approve', 'iac.approve'],
+        ['apply', 'iac.apply'],
+        ['mintDestroyToken', 'iac.destroy.mintToken'],
+        ['destroy', 'iac.destroy'],
+        ['resolveRollback', 'iac.rollback.resolve'],
+        ['confirmRollback', 'iac.rollback.confirm'],
+        ['clearStaleLock', 'iac.lock.clear'],
+        ['mintLockClearToken', 'iac.lock.clear.mintToken'],
+      ] as const);
     });
   });
 
@@ -1363,7 +1312,7 @@ describe('IacController', () => {
 
   describe('output', () => {
     /** A minimal `StackOutputs` fixture shared across the "output" cases. */
-    const OUTPUTS: StackOutputs = {
+    const OUTPUTS = stackOutputs({
       awsRegion: 'us-east-1',
       ecsClusterName: 'hyveon-cluster',
       ecsClusterArn: 'arn:aws:ecs:us-east-1:123:cluster/hyveon-cluster',
@@ -1384,11 +1333,11 @@ describe('IacController', () => {
       interactionsInvokeUrl: null,
       discordInteractionsUrl: null,
       appliedGameServers: null,
-    };
+    });
 
     it('should resolve with whatever ConfigService.getStackOutputs resolves with, when a ConfigService is wired', async () => {
       const pulumi = makePulumi();
-      const { config } = makeConfig(OUTPUTS);
+      const config = configServiceStub({ outputs: OUTPUTS });
 
       const result = await new IacController(pulumi, undefined, undefined, config).output({});
 
@@ -1407,7 +1356,7 @@ describe('IacController', () => {
 
     it('should resolve null when the stack has never been deployed', async () => {
       const pulumi = makePulumi();
-      const { config } = makeConfig(null);
+      const config = configServiceStub({ outputs: null });
 
       const result = await new IacController(pulumi, undefined, undefined, config).output({});
 
@@ -1416,7 +1365,8 @@ describe('IacController', () => {
 
     it('should ignore payload.force — no cache-bypass behavior exists any more', async () => {
       const pulumi = makePulumi();
-      const { config, getStackOutputs } = makeConfig(OUTPUTS);
+      const config = configServiceStub({ outputs: OUTPUTS });
+      const getStackOutputs = vi.spyOn(config, 'getStackOutputs');
 
       await new IacController(pulumi, undefined, undefined, config).output({ force: true });
 
@@ -1428,7 +1378,7 @@ describe('IacController', () => {
 
     it('should default the payload to {} when no payload is provided at all', async () => {
       const pulumi = makePulumi();
-      const { config } = makeConfig(OUTPUTS);
+      const config = configServiceStub({ outputs: OUTPUTS });
 
       const result = await new IacController(pulumi, undefined, undefined, config).output(undefined);
 

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CheckCircle2, Loader2, Play, RotateCcw, ShieldCheck } from 'lucide-react';
 import type { IacPlanPayload } from '@hyveon/desktop-preload';
+import { errMessage } from '@hyveon/shared';
 import { Button } from '../components/ui/button.component.js';
 import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { ErrorBanner } from '../components/error-banner.component.js';
@@ -12,6 +13,7 @@ import { DestroySection } from '../components/iac-destroy-section.component.js';
 import { SubmissionBanners } from '../components/submission-banners.component.js';
 import { ChangeSummaryStatus } from '../components/change-summary-status.component.js';
 import { useIacRun } from '../hooks/use-iac-run.hook.js';
+import { useNowTick } from '../hooks/use-now-tick.hook.js';
 
 /**
  * `location.state` shape the rollback flow navigates to `/iac`
@@ -101,13 +103,8 @@ export function IacPage() {
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
 
-  const [now, setNow] = useState(() => Date.now());
-
   // Tick every 30s so the approval-staleness hint stays roughly fresh.
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(id);
-  }, []);
+  const now = useNowTick(30_000);
 
   const submitPlan = useCallback(
     (payload?: IacPlanPayload) => {
@@ -152,7 +149,7 @@ export function IacPage() {
           setApproveError(ack.error ?? 'Approval failed.');
         }
       } catch (err) {
-        setApproveError(err instanceof Error ? err.message : String(err));
+        setApproveError(errMessage(err));
       } finally {
         setApproving(false);
       }

@@ -5,7 +5,7 @@ import { rm, rename } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import * as os from 'node:os';
-import type { GameStatus } from '@hyveon/shared';
+import { errMessage, type GameStatus } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { DiagnosticsService } from './DiagnosticsService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
@@ -129,7 +129,7 @@ export class DiagnosticsBundleService {
       await this.writeZip(destinationPath, sections, errors);
       return { path: destinationPath };
     } catch (err) {
-      const message = this.errorMessage(err);
+      const message = errMessage(err);
       logger.error('DiagnosticsBundleService.writeBundle: failed to write bundle to disk', { message });
       throw new Error(message);
     }
@@ -146,13 +146,9 @@ export class DiagnosticsBundleService {
       assign(result.value);
       return;
     }
-    const message = scrubSecrets(this.errorMessage(result.reason));
+    const message = scrubSecrets(errMessage(result.reason));
     errors.push({ section, message });
     logger.warn('DiagnosticsBundleService.writeBundle: section failed', { section, message });
-  }
-
-  private errorMessage(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
   }
 
   private async gatherLogs(): Promise<string> {
@@ -197,7 +193,7 @@ export class DiagnosticsBundleService {
     const games = results.map((result, index) => {
       if (result.status === 'fulfilled') return result.value;
       const game = outputs.gameNames[index]!;
-      const message = this.errorMessage(result.reason);
+      const message = errMessage(result.reason);
       logger.warn('DiagnosticsBundleService.gatherAwsSnapshot: getStatus failed for game', { game, message });
       return { game, state: 'error' as const, message };
     });
@@ -278,7 +274,7 @@ export class DiagnosticsBundleService {
       } catch (cleanupErr) {
         logger.warn('DiagnosticsBundleService.writeZip: failed to remove temp file after write failure', {
           tempPath,
-          message: this.errorMessage(cleanupErr),
+          message: errMessage(cleanupErr),
         });
       }
       throw err;

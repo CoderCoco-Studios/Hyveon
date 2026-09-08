@@ -11,20 +11,11 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { Ec2Service } from './Ec2Service.js';
-import type { ConfigService } from './ConfigService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
 
 /** Typed stand-in for the AWS EC2 SDK client. */
 const ec2Mock = mockClient(EC2Client);
-
-/**
- * Build a minimal ConfigService stub exposing only the members Ec2Service
- * actually reads at runtime.
- */
-function makeConfig(): ConfigService {
-  const stub: Partial<ConfigService> = { getRegion: () => 'us-east-1' };
-  return stub as ConfigService;
-}
 
 /**
  * Build a minimal `ElectronStoreService` stub reporting no wizard-configured
@@ -43,7 +34,7 @@ describe('Ec2Service', () => {
 
   beforeEach(() => {
     ec2Mock.reset();
-    service = new Ec2Service(makeConfig(), makeStore());
+    service = new Ec2Service(configServiceStub(), makeStore());
   });
 
   describe('getPublicIp', () => {
@@ -104,7 +95,7 @@ describe('Ec2Service', () => {
         get: vi.fn().mockReturnValue({ profile: 'my-profile' }),
         getPastedCredentials: vi.fn().mockReturnValue({ accessKeyId: 'AKIA-test', secretAccessKey: 'secret-test' }),
       };
-      const credentialedService = new Ec2Service(makeConfig(), store as ElectronStoreService);
+      const credentialedService = new Ec2Service(configServiceStub(), store as ElectronStoreService);
 
       let observedCredentials: unknown;
       ec2Mock.on(DescribeNetworkInterfacesCommand).callsFake(async (_input, getClient) => {

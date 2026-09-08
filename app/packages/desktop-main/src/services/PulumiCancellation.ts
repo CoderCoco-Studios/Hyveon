@@ -1,4 +1,5 @@
 import { logger } from '../logger.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Reusable cancellation-with-escalation primitive satisfying the
@@ -97,7 +98,7 @@ export class PulumiOperationAbortedError extends Error {
   constructor(public readonly cause: unknown) {
     super(
       'Pulumi operation was aborted: cancellation was requested and the underlying invocation ' +
-        `subsequently exited/rejected. Underlying error: ${cause instanceof Error ? cause.message : String(cause)}`,
+        `subsequently exited/rejected. Underlying error: ${errMessage(cause)}`,
     );
     this.name = 'PulumiOperationAbortedError';
   }
@@ -250,7 +251,7 @@ export function runWithEscalatingCancellation<T>(
       cleanup();
       if (abortRequested) {
         logger.warn('runWithEscalatingCancellation: Pulumi operation rejected after cancellation was requested', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         });
         reject(new PulumiOperationAbortedError(err));
       } else {

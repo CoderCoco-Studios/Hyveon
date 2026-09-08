@@ -2,6 +2,7 @@ import { DynamoDBClient, type DynamoDBClientConfig } from '@aws-sdk/client-dynam
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import type { AuditAction, AuditEntry, AuditLogStore, AuditPageResult, RedactedGameServer } from '@hyveon/shared';
 import { resolveDefaultAwsRegion } from './awsRegionEnv.js';
+import { createCachedAwsClient } from './cachedClient.js';
 
 /**
  * The single DynamoDB partition every audit entry lives under (`pk = AUDIT`).
@@ -20,8 +21,10 @@ const PARTITION_KEY = 'AUDIT';
  * {@link AuditLogStore}.
  */
 export class AwsAuditLogStore implements AuditLogStore {
-  private client: DynamoDBDocumentClient | null = null;
-  private clientCacheKey: string | null = null;
+  private readonly getCachedClient = createCachedAwsClient(
+    (config: { region: string; credentials?: DynamoDBClientConfig['credentials']; credentialsSignature?: string }) =>
+      DynamoDBDocumentClient.from(new DynamoDBClient({ region: config.region, credentials: config.credentials })),
+  );
 
   /**
    * Resolves table/region/credentials for this store on every call, not once at construction —
@@ -79,13 +82,7 @@ export class AwsAuditLogStore implements AuditLogStore {
   private async getClient(): Promise<DynamoDBDocumentClient> {
     const config = await this.getConfig?.();
     const region = config?.region ?? resolveDefaultAwsRegion();
-    const cacheKey = `${region}::${config?.credentialsSignature ?? ''}`;
-
-    if (!this.client || this.clientCacheKey !== cacheKey) {
-      this.client = DynamoDBDocumentClient.from(new DynamoDBClient({ region, credentials: config?.credentials }));
-      this.clientCacheKey = cacheKey;
-    }
-    return this.client;
+    return this.getCachedClient({ region, credentials: config?.credentials, credentialsSignature: config?.credentialsSignature });
   }
 
   /**

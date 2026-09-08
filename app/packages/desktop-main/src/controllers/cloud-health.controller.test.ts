@@ -7,11 +7,23 @@ vi.mock('../logger.js', () => ({
 
 import { CloudHealthController } from './cloud-health.controller.js';
 import type { CloudHealthService, CloudHealthCheck } from '../services/CloudHealthService.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 /** Builds a stub {@link CloudHealthService} whose `getChecks()` returns the given fixed set of checks. */
 function makeService(checks: CloudHealthCheck[]): CloudHealthService {
   return { getChecks: vi.fn().mockReturnValue(checks) } as Partial<CloudHealthService> as CloudHealthService;
 }
+
+describe('@MessagePattern channel names', () => {
+  it('should register every channel', () => {
+    expectChannels(CloudHealthController.prototype, [
+      ['list', 'cloudHealth.list'],
+      ['fix', 'cloudHealth.fix'],
+      ['downloadPolicy', 'cloudHealth.downloadPolicy'],
+      ['openPolicyConsole', 'cloudHealth.openPolicyConsole'],
+    ] as const);
+  });
+});
 
 describe('CloudHealthController.list', () => {
   it('should return one summary per registered check', async () => {

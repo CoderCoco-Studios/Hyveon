@@ -12,6 +12,7 @@ import type { BootstrapService, BootstrapResult } from '../services/BootstrapSer
 import type { IamCheckService, IamCheckResult } from '../services/IamCheckService.js';
 import type { FirstRunWizardService, WizardProgress } from '../services/FirstRunWizardService.js';
 import type { GuidedIamService } from '../services/GuidedIamService.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 const SAMPLE_PROFILES: AwsProfileSummary[] = [
   { profileName: 'default', region: 'us-east-1' },
@@ -109,13 +110,6 @@ function makeController(overrides: {
   );
 }
 
-/**
- * The metadata key NestJS stores on each method decorated with
- * `@MessagePattern`. Asserting this value is the only automated guard
- * that prevents a typo in the controller from silently breaking IPC.
- */
-const PATTERN_METADATA_KEY = 'microservices:pattern';
-
 describe('WizardController', () => {
   beforeEach(() => {
     loggerMock.debug.mockReset();
@@ -125,95 +119,26 @@ describe('WizardController', () => {
   });
 
   describe('@MessagePattern channel names', () => {
-    it('should register listAwsProfiles on the "wizard.aws.listProfiles" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.listAwsProfiles);
-      expect(pattern).toEqual(['wizard.aws.listProfiles']);
-    });
-
-    it('should register saveCredentials on the "wizard.aws.saveCredentials" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.saveCredentials);
-      expect(pattern).toEqual(['wizard.aws.saveCredentials']);
-    });
-
-    it('should register getState on the "wizard.state.get" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.getState);
-      expect(pattern).toEqual(['wizard.state.get']);
-    });
-
-    it('should register saveState on the "wizard.state.save" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.saveState);
-      expect(pattern).toEqual(['wizard.state.save']);
-    });
-
-    it('should register bootstrapStateBucket on the "wizard.bootstrap.stateBucket" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapStateBucket);
-      expect(pattern).toEqual(['wizard.bootstrap.stateBucket']);
-    });
-
-    it('should register bootstrapConfigurationBucket on the "wizard.bootstrap.configurationBucket" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapConfigurationBucket);
-      expect(pattern).toEqual(['wizard.bootstrap.configurationBucket']);
-    });
-
-    it('should register bootstrapRunsTable on the "wizard.bootstrap.runsTable" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapRunsTable);
-      expect(pattern).toEqual(['wizard.bootstrap.runsTable']);
-    });
-
-    it('should register simulateIamPermissions on the "wizard.iam.simulate" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.simulateIamPermissions);
-      expect(pattern).toEqual(['wizard.iam.simulate']);
-    });
-
-    it('should register getProgress on the "wizard.progress.get" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.getProgress);
-      expect(pattern).toEqual(['wizard.progress.get']);
-    });
-
-    it('should register saveProgress on the "wizard.progress.save" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.saveProgress);
-      expect(pattern).toEqual(['wizard.progress.save']);
-    });
-
-    it('should register complete on the "wizard.complete" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.complete);
-      expect(pattern).toEqual(['wizard.complete']);
-    });
-
-    it('should register reset on the "wizard.reset" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.reset);
-      expect(pattern).toEqual(['wizard.reset']);
-    });
-
-    it('should register prepareGuidedIamTemplate on the "wizard.guidedIam.prepareTemplate" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.prepareGuidedIamTemplate);
-      expect(pattern).toEqual(['wizard.guidedIam.prepareTemplate']);
-    });
-
-    it('should register openGuidedIamConsole on the "wizard.guidedIam.openConsole" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.openGuidedIamConsole);
-      expect(pattern).toEqual(['wizard.guidedIam.openConsole']);
-    });
-
-    it('should register submitGuidedIamBootstrapKey on the "wizard.guidedIam.submitBootstrapKey" IPC channel', () => {
-      const pattern = Reflect.getMetadata(
-        PATTERN_METADATA_KEY,
-        WizardController.prototype.submitGuidedIamBootstrapKey,
-      );
-      expect(pattern).toEqual(['wizard.guidedIam.submitBootstrapKey']);
-    });
-
-    it('should register rotateGuidedIamKey on the "wizard.guidedIam.rotate" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.rotateGuidedIamKey);
-      expect(pattern).toEqual(['wizard.guidedIam.rotate']);
-    });
-
-    it('should register revokeGuidedIamBootstrapKey on the "wizard.guidedIam.revokeBootstrapKey" IPC channel', () => {
-      const pattern = Reflect.getMetadata(
-        PATTERN_METADATA_KEY,
-        WizardController.prototype.revokeGuidedIamBootstrapKey,
-      );
-      expect(pattern).toEqual(['wizard.guidedIam.revokeBootstrapKey']);
+    it('should register every channel', () => {
+      expectChannels(WizardController.prototype, [
+        ['listAwsProfiles', 'wizard.aws.listProfiles'],
+        ['saveCredentials', 'wizard.aws.saveCredentials'],
+        ['getState', 'wizard.state.get'],
+        ['saveState', 'wizard.state.save'],
+        ['bootstrapStateBucket', 'wizard.bootstrap.stateBucket'],
+        ['bootstrapConfigurationBucket', 'wizard.bootstrap.configurationBucket'],
+        ['bootstrapRunsTable', 'wizard.bootstrap.runsTable'],
+        ['simulateIamPermissions', 'wizard.iam.simulate'],
+        ['getProgress', 'wizard.progress.get'],
+        ['saveProgress', 'wizard.progress.save'],
+        ['complete', 'wizard.complete'],
+        ['reset', 'wizard.reset'],
+        ['prepareGuidedIamTemplate', 'wizard.guidedIam.prepareTemplate'],
+        ['openGuidedIamConsole', 'wizard.guidedIam.openConsole'],
+        ['submitGuidedIamBootstrapKey', 'wizard.guidedIam.submitBootstrapKey'],
+        ['rotateGuidedIamKey', 'wizard.guidedIam.rotate'],
+        ['revokeGuidedIamBootstrapKey', 'wizard.guidedIam.revokeBootstrapKey'],
+      ] as const);
     });
   });
 

@@ -6,12 +6,13 @@ import {
   GetLogEventsCommand,
 } from '@aws-sdk/client-cloudwatch-logs';
 import type { CloudProvider, LambdaFunctionKey, LogChunk } from '@hyveon/shared';
-import { DEPLOYMENT_CONFIG_DEFAULTS } from '@hyveon/shared';
+import { DEPLOYMENT_CONFIG_DEFAULTS, errMessage } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.js';
+import { resolveAwsClientCredentialsWithSignature, type AwsClientCredentials } from './awsCredentialSource.js';
+import { createCachedAwsClient } from './awsClientCache.js';
 import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
 
 /**
@@ -153,8 +154,10 @@ const MAX_STREAMS_SCANNED = 50;
  */
 @Injectable()
 export class LogsService {
-  private client: CloudWatchLogsClient | null = null;
-  private clientCacheKey: string | null = null;
+  private readonly getCachedClient = createCachedAwsClient(
+    (config: { region: string; credentials: AwsClientCredentials; credentialsSignature: string }) =>
+      new CloudWatchLogsClient({ region: config.region, credentials: config.credentials }),
+  );
 
   constructor(
     private readonly config: ConfigService,
@@ -179,12 +182,7 @@ export class LogsService {
   private getClient(): CloudWatchLogsClient {
     const region = this.config.getRegion();
     const { credentials, signature } = resolveAwsClientCredentialsWithSignature(this.store);
-    const cacheKey = `${region}::${signature}`;
-    if (!this.client || this.clientCacheKey !== cacheKey) {
-      this.client = new CloudWatchLogsClient({ region, credentials });
-      this.clientCacheKey = cacheKey;
-    }
-    return this.client;
+    return this.getCachedClient({ region, credentials, credentialsSignature: signature });
   }
 
   /**
@@ -210,6 +208,62 @@ export class LogsService {
   }
 
   /**
+   * Shared shell backing all six public get-log methods: resolves the log group, runs a
+   * caller-supplied debug log, calls `fn`, and normalizes any failure `fn` throws.
+   *
+   * @remarks
+   * `kind: 'recent'` matches {@link getRecentLogs}'s no-throw contract: a "No log streams
+   * found for `entity.label`." error surfaces verbatim via `hooks.recentFallback`, and any
+   * other error is logged via `hooks.logFailure` then also folded into
+   * `hooks.recentFallback` (with a `String(err)`-based message, matching the pre-extraction
+   * call sites byte-for-byte).
+   * `kind: 'paging'` matches {@link getOlderLogs}'s throw contract: any error is normalized
+   * via {@link errMessage}, logged via `hooks.logFailure`, and rethrown as a plain `Error`.
+   * `hooks.notFound`, when given, intercepts a `ResourceNotFoundException` ahead of either
+   * branch — only the three Lambda-log methods pass one (only Lambda log groups can be
+   * unprovisioned) and it does its own logging plus return-or-throw, since that differs by
+   * `kind` too.
+   *
+   * @param entity - `label` identifies the game/Lambda function for the "no log streams
+   *   found" message; `resolve` returns the log group `fn` should operate against.
+   * @param kind - Selects the failure contract — see `@remarks`.
+   * @param fn - Does the actual CloudWatch work against the resolved log group.
+   * @param hooks - Per-call logging/fallback closures, each reproducing exactly what its
+   *   pre-extraction call site logged or returned — see `LogsService.test.ts`'s exact
+   *   message-string assertions for all six methods.
+   * @returns Whatever `fn` resolves to, or a `kind: 'recent'` synthesized fallback.
+   * @throws Error — `kind: 'paging'` only, with a normalized message.
+   */
+  private async withLogGroup<T>(
+    entity: { label: string; resolve: () => string | Promise<string> },
+    kind: 'recent' | 'paging',
+    fn: (logGroup: string) => Promise<T>,
+    hooks: {
+      logDebug: (logGroup: string) => void;
+      logFailure: (message: string, logGroup: string) => void;
+      recentFallback?: (message: string) => T;
+      notFound?: (logGroup: string) => T;
+    },
+  ): Promise<T> {
+    const logGroup = await entity.resolve();
+    hooks.logDebug(logGroup);
+    try {
+      return await fn(logGroup);
+    } catch (err) {
+      if (hooks.notFound && err instanceof Error && err.name === 'ResourceNotFoundException') {
+        return hooks.notFound(logGroup);
+      }
+      if (kind === 'recent' && err instanceof Error && err.message === `No log streams found for ${entity.label}.`) {
+        return hooks.recentFallback!(err.message);
+      }
+      const message = errMessage(err);
+      hooks.logFailure(message, logGroup);
+      if (kind === 'paging') throw new Error(message);
+      return hooks.recentFallback!(`Error fetching logs for ${entity.label}: ${String(err)}`);
+    }
+  }
+
+  /**
    * Return up to `limit` recent lines (each carrying its own CloudWatch
    * timestamp) from the most recently written log stream in
    * `/ecs/{game}-server`. Errors are folded into a single synthesized
@@ -221,18 +275,16 @@ export class LogsService {
    * @returns The recent snapshot — see {@link RecentLogsPage}.
    */
   async getRecentLogs(game: string, limit = 50): Promise<RecentLogsPage> {
-    const logGroup = `/ecs/${game}-server`;
-    logger.debug('LogsService.getRecentLogs: fetching recent logs', { game, limit, logGroup });
-    try {
-      return await this.getRecentFromLogGroup(logGroup, limit, game);
-    } catch (err) {
-      if (err instanceof Error && err.message === `No log streams found for ${game}.`) {
-        return { lines: [syntheticLine(err.message)] };
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error('LogsService.getRecentLogs: failed to fetch logs', { game, logGroup, error: message });
-      return { lines: [syntheticLine(`Error fetching logs for ${game}: ${String(err)}`)] };
-    }
+    return this.withLogGroup(
+      { label: game, resolve: () => `/ecs/${game}-server` },
+      'recent',
+      (logGroup) => this.getRecentFromLogGroup(logGroup, limit, game),
+      {
+        logDebug: (logGroup) => logger.debug('LogsService.getRecentLogs: fetching recent logs', { game, limit, logGroup }),
+        logFailure: (message, logGroup) => logger.error('LogsService.getRecentLogs: failed to fetch logs', { game, logGroup, error: message }),
+        recentFallback: (message) => ({ lines: [syntheticLine(message)] }),
+      },
+    );
   }
 
   /**
@@ -298,15 +350,15 @@ export class LogsService {
    * @throws Error — When the log group has no streams, or the CloudWatch call fails.
    */
   async getOlderLogs(game: string, beforeTimestamp: number, limit = 100): Promise<OlderLogsPage> {
-    const logGroup = `/ecs/${game}-server`;
-    logger.debug('LogsService.getOlderLogs: fetching older logs', { game, beforeTimestamp, limit, logGroup });
-    try {
-      return await this.fetchAcrossStreams(logGroup, 'older', beforeTimestamp, limit);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn('LogsService.getOlderLogs: failed to fetch older logs', { game, beforeTimestamp, logGroup, error: message });
-      throw new Error(message);
-    }
+    return this.withLogGroup(
+      { label: game, resolve: () => `/ecs/${game}-server` },
+      'paging',
+      (logGroup) => this.fetchAcrossStreams(logGroup, 'older', beforeTimestamp, limit),
+      {
+        logDebug: (logGroup) => logger.debug('LogsService.getOlderLogs: fetching older logs', { game, beforeTimestamp, limit, logGroup }),
+        logFailure: (message, logGroup) => logger.warn('LogsService.getOlderLogs: failed to fetch older logs', { game, beforeTimestamp, logGroup, error: message }),
+      },
+    );
   }
 
   /**
@@ -336,15 +388,15 @@ export class LogsService {
     limit = 100,
     excludeEventIds: string[] = [],
   ): Promise<NewerLogsPage> {
-    const logGroup = `/ecs/${game}-server`;
-    logger.debug('LogsService.getNewerLogs: fetching newer logs', { game, afterTimestamp, limit, logGroup });
-    try {
-      return await this.fetchAcrossStreams(logGroup, 'newer', afterTimestamp, limit, excludeEventIds);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn('LogsService.getNewerLogs: failed to fetch newer logs', { game, afterTimestamp, logGroup, error: message });
-      throw new Error(message);
-    }
+    return this.withLogGroup(
+      { label: game, resolve: () => `/ecs/${game}-server` },
+      'paging',
+      (logGroup) => this.fetchAcrossStreams(logGroup, 'newer', afterTimestamp, limit, excludeEventIds),
+      {
+        logDebug: (logGroup) => logger.debug('LogsService.getNewerLogs: fetching newer logs', { game, afterTimestamp, limit, logGroup }),
+        logFailure: (message, logGroup) => logger.warn('LogsService.getNewerLogs: failed to fetch newer logs', { game, afterTimestamp, logGroup, error: message }),
+      },
+    );
   }
 
   /**
@@ -545,7 +597,7 @@ export class LogsService {
       const { settings } = await this.deploymentConfig.getTopLevelSettings();
       projectName = settings.projectName ?? DEPLOYMENT_CONFIG_DEFAULTS.projectName;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('LogsService.resolveLambdaLogGroup: falling back to the default project name', { functionKey, error: message });
     }
     return `/aws/lambda/${projectName}-${functionKey}`;
@@ -570,22 +622,20 @@ export class LogsService {
    * @returns The recent snapshot — see {@link RecentLogsPage}.
    */
   async getRecentLambdaLogs(functionKey: LambdaFunctionKey, limit = 50): Promise<RecentLogsPage> {
-    const logGroup = await this.resolveLambdaLogGroup(functionKey);
-    logger.debug('LogsService.getRecentLambdaLogs: fetching recent logs', { functionKey, limit, logGroup });
-    try {
-      return await this.getRecentFromLogGroup(logGroup, limit, functionKey);
-    } catch (err) {
-      if (err instanceof Error && err.name === 'ResourceNotFoundException') {
-        logger.warn('LogsService.getRecentLambdaLogs: log group does not exist yet', { functionKey, logGroup });
-        return { lines: [syntheticLine(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`)] };
-      }
-      if (err instanceof Error && err.message === `No log streams found for ${functionKey}.`) {
-        return { lines: [syntheticLine(err.message)] };
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error('LogsService.getRecentLambdaLogs: failed to fetch logs', { functionKey, logGroup, error: message });
-      return { lines: [syntheticLine(`Error fetching logs for ${functionKey}: ${String(err)}`)] };
-    }
+    return this.withLogGroup(
+      { label: functionKey, resolve: () => this.resolveLambdaLogGroup(functionKey) },
+      'recent',
+      (logGroup) => this.getRecentFromLogGroup(logGroup, limit, functionKey),
+      {
+        logDebug: (logGroup) => logger.debug('LogsService.getRecentLambdaLogs: fetching recent logs', { functionKey, limit, logGroup }),
+        logFailure: (message, logGroup) => logger.error('LogsService.getRecentLambdaLogs: failed to fetch logs', { functionKey, logGroup, error: message }),
+        recentFallback: (message) => ({ lines: [syntheticLine(message)] }),
+        notFound: (logGroup) => {
+          logger.warn('LogsService.getRecentLambdaLogs: log group does not exist yet', { functionKey, logGroup });
+          return { lines: [syntheticLine(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`)] };
+        },
+      },
+    );
   }
 
   /**
@@ -601,19 +651,19 @@ export class LogsService {
    * @throws Error — When the log group/streams don't exist, or the CloudWatch call fails.
    */
   async getOlderLambdaLogs(functionKey: LambdaFunctionKey, beforeTimestamp: number, limit = 100): Promise<OlderLogsPage> {
-    const logGroup = await this.resolveLambdaLogGroup(functionKey);
-    logger.debug('LogsService.getOlderLambdaLogs: fetching older logs', { functionKey, beforeTimestamp, limit, logGroup });
-    try {
-      return await this.fetchAcrossStreams(logGroup, 'older', beforeTimestamp, limit);
-    } catch (err) {
-      if (err instanceof Error && err.name === 'ResourceNotFoundException') {
-        logger.warn('LogsService.getOlderLambdaLogs: log group does not exist yet', { functionKey, logGroup });
-        throw new Error(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`);
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn('LogsService.getOlderLambdaLogs: failed to fetch older logs', { functionKey, beforeTimestamp, logGroup, error: message });
-      throw new Error(message);
-    }
+    return this.withLogGroup(
+      { label: functionKey, resolve: () => this.resolveLambdaLogGroup(functionKey) },
+      'paging',
+      (logGroup) => this.fetchAcrossStreams(logGroup, 'older', beforeTimestamp, limit),
+      {
+        logDebug: (logGroup) => logger.debug('LogsService.getOlderLambdaLogs: fetching older logs', { functionKey, beforeTimestamp, limit, logGroup }),
+        logFailure: (message, logGroup) => logger.warn('LogsService.getOlderLambdaLogs: failed to fetch older logs', { functionKey, beforeTimestamp, logGroup, error: message }),
+        notFound: (logGroup) => {
+          logger.warn('LogsService.getOlderLambdaLogs: log group does not exist yet', { functionKey, logGroup });
+          throw new Error(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`);
+        },
+      },
+    );
   }
 
   /**
@@ -637,19 +687,19 @@ export class LogsService {
     limit = 100,
     excludeEventIds: string[] = [],
   ): Promise<NewerLogsPage> {
-    const logGroup = await this.resolveLambdaLogGroup(functionKey);
-    logger.debug('LogsService.getNewerLambdaLogs: fetching newer logs', { functionKey, afterTimestamp, limit, logGroup });
-    try {
-      return await this.fetchAcrossStreams(logGroup, 'newer', afterTimestamp, limit, excludeEventIds);
-    } catch (err) {
-      if (err instanceof Error && err.name === 'ResourceNotFoundException') {
-        logger.warn('LogsService.getNewerLambdaLogs: log group does not exist yet', { functionKey, logGroup });
-        throw new Error(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`);
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn('LogsService.getNewerLambdaLogs: failed to fetch newer logs', { functionKey, afterTimestamp, logGroup, error: message });
-      throw new Error(message);
-    }
+    return this.withLogGroup(
+      { label: functionKey, resolve: () => this.resolveLambdaLogGroup(functionKey) },
+      'paging',
+      (logGroup) => this.fetchAcrossStreams(logGroup, 'newer', afterTimestamp, limit, excludeEventIds),
+      {
+        logDebug: (logGroup) => logger.debug('LogsService.getNewerLambdaLogs: fetching newer logs', { functionKey, afterTimestamp, limit, logGroup }),
+        logFailure: (message, logGroup) => logger.warn('LogsService.getNewerLambdaLogs: failed to fetch newer logs', { functionKey, afterTimestamp, logGroup, error: message }),
+        notFound: (logGroup) => {
+          logger.warn('LogsService.getNewerLambdaLogs: log group does not exist yet', { functionKey, logGroup });
+          throw new Error(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`);
+        },
+      },
+    );
   }
 
   /**
@@ -709,7 +759,7 @@ export class LogsService {
           yield `No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`;
           return;
         }
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errMessage(err);
         yield `[stream error] ${message}`;
       }
       if (signal.aborted) return;

@@ -35,6 +35,7 @@ import { BootstrapService } from './BootstrapService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
 
 const s3Mock = mockClient(S3Client);
 
@@ -49,6 +50,7 @@ function makeStore(aws: { profile?: string; region?: string } | undefined): Elec
 /** Builds a `ConfigService` stub exposing just the methods `DeploymentConfigService` reads. */
 function makeConfig(bucket: string): ConfigService {
   return {
+    ...configServiceStub(),
     getConfigurationBucket: () => bucket,
     readEnvConfigCacheTtlMs: () => 30000,
   } as ConfigService;

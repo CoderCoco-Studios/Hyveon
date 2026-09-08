@@ -1,0 +1,26 @@
+{
+  // Shadows `../../tsconfig.json`'s `paths` for everything under this folder:
+  // Playwright's TS transform resolves module specifiers via the *nearest*
+  // tsconfig.json to each file (walking up from the file's own directory),
+  // not the one `npm run app:typecheck` uses, so this file — not a comment
+  // in the parent — is what actually governs runtime resolution here.
+  //
+  // The parent's `@hyveon/shared` source alias (added for `@hyveon/web`'s
+  // standalone build, see its comment) must not reach this folder: these
+  // specs deep-import `@hyveon/desktop-main/dist/...` directly (see
+  // `../fixtures/ipc-harness.ts`), which resolves `@hyveon/shared` itself via
+  // plain `dist/` node resolution — an unavoidable precondition of this test
+  // tier (`npm run app:test:integration` always runs after a full build).
+  // If a spec here also imports a class from `@hyveon/shared` (e.g.
+  // `RunLockHeldError` in `iac-apply-gates.spec.ts`) through the parent's
+  // source alias instead, it becomes a second, distinct module instance from
+  // the one desktop-main's dist bundle uses — an `instanceof` check across
+  // the two then silently fails. Overriding `paths` to empty here (TS
+  // replaces, not merges, an inherited `paths` object) restores plain node
+  // resolution to `dist/` for every import in this folder, matching what
+  // `@hyveon/desktop-main`'s compiled code already uses.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "paths": {}
+  }
+}

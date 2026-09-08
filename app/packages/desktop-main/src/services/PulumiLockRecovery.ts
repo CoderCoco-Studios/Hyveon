@@ -1,7 +1,9 @@
 import { hostname as osHostname, userInfo } from 'node:os';
 import { ConcurrentUpdateError } from '@pulumi/pulumi/automation/index.js';
+import { formatRelativeAge } from '@hyveon/shared';
 import type { ElectronStoreService, PulumiLockOwnershipRecord } from './ElectronStoreService.js';
 import { logger } from '../logger.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Stale-backend-lock-recovery primitives, satisfying the
@@ -109,7 +111,7 @@ const DIY_BACKEND_CONFLICT_PATTERN = /the stack is currently locked by/i;
  */
 export function isStackLockConflict(err: unknown): boolean {
   if (err instanceof ConcurrentUpdateError) return true;
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errMessage(err);
   return DIY_BACKEND_CONFLICT_PATTERN.test(message) || SERVICE_BACKEND_CONFLICT_PATTERN.test(message);
 }
 
@@ -125,7 +127,7 @@ export function isStackLockConflict(err: unknown): boolean {
  * when `err` is not a lock conflict at all.
  */
 export function parseStackLocks(err: unknown): PulumiStackLockInfo[] {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errMessage(err);
   const locks: PulumiStackLockInfo[] = [];
   for (const match of message.matchAll(LOCK_ENTRY_PATTERN)) {
     const [, lockUrl, username, hostname, pid, timestamp] = match;
@@ -311,18 +313,16 @@ export function classifyStackLockConflict(
  * (plausibly still in progress — pause and check) vs. "3 days old"
  * (plausibly abandoned), not second-level precision.
  *
+ * @remarks
+ * Signature adapter over `@hyveon/shared`'s {@link formatRelativeAge} — this side works in
+ * `Date`s, the web side (`submission-banners.component.tsx`'s `formatLockAge`) works in ISO
+ * strings + an epoch ms, so each converts its own timestamp shape into a millisecond delta.
+ *
  * @param lockedAt - When the lock was created (see {@link PulumiStackLockInfo.lockedAt}).
  * @param now - Injectable for tests; defaults to the real current time.
  */
 export function formatLockAge(lockedAt: Date, now: Date = new Date()): string {
-  const ms = Math.max(0, now.getTime() - lockedAt.getTime());
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return 'less than a minute ago';
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? '' : 's'} ago`;
+  return formatRelativeAge(now.getTime() - lockedAt.getTime());
 }
 
 /**

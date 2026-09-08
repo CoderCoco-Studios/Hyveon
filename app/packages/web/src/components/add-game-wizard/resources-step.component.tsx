@@ -5,6 +5,7 @@ import {
   estimateFargateHourlyCost,
   type GameServerValidationIssue,
 } from '@hyveon/shared/gameServerValidator';
+import { formatUsd } from '../../lib/format.utils.js';
 
 /** Updates the "Resources" step emits — always both fields, since a cpu change may also reset memory. */
 export interface ResourcesStepChange {
@@ -186,7 +187,9 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
       </div>
 
       <div className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-foreground)]">
-        {hourlyCost !== null ? `$${hourlyCost.toFixed(4)}/hr while running` : 'Select vCPU and memory to see cost'}
+        {hourlyCost !== null
+          ? `${formatUsd(hourlyCost, { digits: 4, grouping: false })}/hr while running`
+          : 'Select vCPU and memory to see cost'}
       </div>
     </div>
   );

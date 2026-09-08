@@ -9,18 +9,13 @@ import { logger } from '../logger.js';
 import { DriftService, computeDrift } from './DriftService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { DeploymentConfigService } from './DeploymentConfigService.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { gameServer, deploymentConfigStub } from '../testing/deployment-config.fixture.js';
 
 /** Minimal, valid `GameServer` fixture for a single declared game. */
 function buildGameServer(name: string, overrides: Partial<GameServer> = {}): GameServer {
-  return {
-    name,
-    image: 'example/image:latest',
-    cpu: 1024,
-    memory: 2048,
-    ports: [{ container: 25565, protocol: 'tcp' }],
-    volumes: [{ name: 'saves', container_path: '/data' }],
-    ...overrides,
-  };
+  return gameServer(name, overrides);
 }
 
 /** Minimal StackOutputs for DriftService tests. */
@@ -42,18 +37,12 @@ const DEFAULT_OUTPUTS: Partial<StackOutputs> = {
  * where `getStackOutputs()` resolves to null.
  */
 function makeConfig(outputs: Partial<StackOutputs> | null = DEFAULT_OUTPUTS): ConfigService {
-  return {
-    invalidateCache: vi.fn(),
-    getStackOutputs: vi.fn().mockResolvedValue(outputs),
-  } as Partial<ConfigService> as ConfigService;
+  return configServiceStub({ outputs: outputs === null ? null : stackOutputs(outputs) });
 }
 
 /** Build a DeploymentConfigService stub with `invalidateCache` and `getGameServers` pre-wired. */
 function makeDeploymentConfig(declared: GameServer[] = []): DeploymentConfigService {
-  return {
-    invalidateCache: vi.fn(),
-    getGameServers: vi.fn().mockResolvedValue(declared),
-  } as Partial<DeploymentConfigService> as DeploymentConfigService;
+  return deploymentConfigStub({ declared });
 }
 
 describe('computeDrift', () => {

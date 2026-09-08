@@ -9,7 +9,7 @@
 import { Injectable } from '@nestjs/common';
 import { logger } from '../logger.js';
 import { DiscordConfigService } from './DiscordConfigService.js';
-import { COMMAND_DESCRIPTORS } from '@hyveon/shared';
+import { COMMAND_DESCRIPTORS, errMessage } from '@hyveon/shared';
 
 const DISCORD_API = 'https://discord.com/api/v10';
 
@@ -103,7 +103,7 @@ export class DiscordCommandRegistrar {
       logger.info('Discord commands registered', { guildId, count: COMMAND_DESCRIPTORS.length });
       return { success: true, message: `Registered ${COMMAND_DESCRIPTORS.length} commands in guild ${guildId}.` };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('Discord command registration threw', { error: message, guildId });
       return { success: false, message: `Request failed: ${message}` };
     }

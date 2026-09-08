@@ -29,10 +29,10 @@ import {
 } from './RunRecordService.js';
 import { ConfigService } from './ConfigService.js';
 import { RunService } from './RunService.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 
 /** Minimal `StackOutputs` stub exposing just `runsTableName`. */
-const STACK_OUTPUTS: StackOutputs = {
-  awsRegion: 'us-east-1',
+const STACK_OUTPUTS: StackOutputs = stackOutputs({
   ecsClusterName: '',
   ecsClusterArn: '',
   subnetIds: [],
@@ -49,10 +49,7 @@ const STACK_OUTPUTS: StackOutputs = {
   discordPublicKeySecretArn: '',
   fileBrowserCredentialSecretArn: '',
   fileBrowserSchedulerRoleArn: '',
-  interactionsInvokeUrl: null,
-  discordInteractionsUrl: null,
-  appliedGameServers: null,
-};
+});
 
 const putRecordMock = vi.fn<RunRecordStore['putRecord']>();
 const putLogMock = vi.fn<RunRecordStore['putLog']>();

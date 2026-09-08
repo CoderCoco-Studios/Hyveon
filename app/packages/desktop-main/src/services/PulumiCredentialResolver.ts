@@ -1,6 +1,7 @@
 import type { ElectronStoreService } from './ElectronStoreService.js';
 import { logger } from '../logger.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Thrown by {@link resolveCredentialEnvVars} when the wizard's credentials
@@ -86,7 +87,7 @@ export function resolveCredentialEnvVars(store: ElectronStoreService): Record<st
     source = resolveAwsCredentialSource(store);
   } catch (err) {
     logger.warn('resolveCredentialEnvVars: failed to resolve the AWS credential source', {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
     throw err;
   }

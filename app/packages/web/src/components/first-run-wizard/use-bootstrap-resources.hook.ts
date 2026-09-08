@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import type { IamCheckResult } from '@hyveon/desktop-preload';
 import { defaultBootstrapResourceNames, type BootstrapResourceKey, type BootstrapResourceState } from './wizard.utils.js';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /** Status/message pair for a bootstrap side-effect that has no editable name field of its own (the run-history table, the initial configuration seed). */
 export interface BootstrapSideResourceState {
@@ -132,16 +133,15 @@ export function useBootstrapResources(): UseBootstrapResourcesResult {
    */
   async function runBootstrap() {
     if (!window.hyveon) {
-      const bridgeUnavailable = 'IPC bridge (window.hyveon) is not available in this context.';
       setStatuses({ stateBucket: 'failed', configurationBucket: 'failed' });
       setMessages({
-        stateBucket: bridgeUnavailable,
-        configurationBucket: bridgeUnavailable,
+        stateBucket: BRIDGE_UNAVAILABLE,
+        configurationBucket: BRIDGE_UNAVAILABLE,
       });
       setRunsTableStatus('failed');
-      setRunsTableMessage(bridgeUnavailable);
+      setRunsTableMessage(BRIDGE_UNAVAILABLE);
       setDeploymentConfigStatus('failed');
-      setDeploymentConfigMessage(bridgeUnavailable);
+      setDeploymentConfigMessage(BRIDGE_UNAVAILABLE);
       return;
     }
     setBootstrapping(true);
@@ -223,7 +223,7 @@ export function useBootstrapResources(): UseBootstrapResourcesResult {
   /** Runs the best-effort IAM permission dry-run. Never blocks wizard progression. */
   async function runIamCheck() {
     if (!window.hyveon) {
-      setIamError('IPC bridge (window.hyveon) is not available in this context.');
+      setIamError(BRIDGE_UNAVAILABLE);
       return;
     }
     setIamChecking(true);

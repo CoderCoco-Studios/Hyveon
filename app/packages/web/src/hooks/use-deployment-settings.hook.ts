@@ -41,6 +41,7 @@ import {
   type DeploymentSettingsValidationIssue,
   type TopLevelDeploymentSettings,
 } from '@hyveon/shared';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /**
  * Draft form of {@link TopLevelDeploymentSettings}: every field held as a
@@ -194,7 +195,7 @@ export function useDeploymentSettings(): UseDeploymentSettingsResult {
   // identical `useState(() => ...)` pattern in `app.component.tsx`).
   const [loadState, setLoadState] = useState<LoadState>(() => (hasSettingsBridge() ? 'loading' : 'error'));
   const [loadMessage, setLoadMessage] = useState<string | null>(() =>
-    hasSettingsBridge() ? null : 'IPC bridge (window.hyveon) is not available in this context.',
+    hasSettingsBridge() ? null : BRIDGE_UNAVAILABLE,
   );
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -268,7 +269,7 @@ export function useDeploymentSettings(): UseDeploymentSettingsResult {
   const reload = useCallback(() => {
     if (!hasSettingsBridge()) {
       setLoadState('error');
-      setLoadMessage('IPC bridge (window.hyveon) is not available in this context.');
+      setLoadMessage(BRIDGE_UNAVAILABLE);
       return;
     }
     setLoadState('loading');

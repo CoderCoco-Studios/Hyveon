@@ -44,7 +44,7 @@
  * regardless of cloud provider.
  */
 import { Inject, Injectable } from '@nestjs/common';
-import { CONFIGURATION_OBJECT_KEY, DEPLOYMENT_CONFIG_DEFAULTS } from '@hyveon/shared';
+import { CONFIGURATION_OBJECT_KEY, DEPLOYMENT_CONFIG_DEFAULTS, errMessage } from '@hyveon/shared';
 import type { DeploymentConfig, GameServer, GameServerConfig, RemoteFileStore } from '@hyveon/shared';
 import {
   GAME_NAME_PATTERN,
@@ -800,7 +800,7 @@ export class DeploymentConfigService {
       parsed = JSON.parse(raw);
     } catch (err) {
       logger.error('Failed to parse deployment config JSON', { err });
-      throw new Error(`Failed to parse deployment config JSON: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`Failed to parse deployment config JSON: ${errMessage(err)}`);
     }
 
     if (!isPlainObject(parsed)) {

@@ -728,6 +728,215 @@ describe('preload dispatcher', () => {
     });
   });
 
+  // streamLambdaLogs
+
+  describe('streamLambdaLogs', () => {
+    /**
+     * Helper to collect all chunks from a `logs.lambda.stream`
+     * {@link HyveonStreamHandle} into an array — mirrors `collectChunks` in
+     * the `streamLogs` describe block above.
+     */
+    async function collectChunks(handle: HyveonStreamHandle<string>): Promise<string[]> {
+      const chunks: string[] = [];
+      for await (const chunk of handle) {
+        chunks.push(chunk);
+      }
+      return chunks;
+    }
+
+    // Mocked-delegation branch
+
+    describe('mocked-delegation branch', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('1');
+      });
+
+      it('should delegate to the registered mock iterable instead of ipcRenderer when logs.lambda.stream is mocked', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+
+        async function* fakeStream() {
+          yield 'chunk-a';
+          yield 'chunk-b';
+        }
+
+        const mockHandler = vi.fn().mockReturnValue(fakeStream());
+        testApi.mock('logs.lambda.stream', mockHandler);
+
+        const logs = bridge['logs'] as { lambda: { stream: (functionKey: string) => HyveonStreamHandle<string> } };
+        const chunks = await collectChunks(logs.lambda.stream('watchdog'));
+
+        expect(mockHandler).toHaveBeenCalledOnce();
+        expect(ipcInvoke).not.toHaveBeenCalled();
+        expect(ipcSend).not.toHaveBeenCalled();
+        expect(chunks).toEqual(['chunk-a', 'chunk-b']);
+      });
+
+      it('should forward the functionKey argument and an internally-minted AbortSignal to the mock handler', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+
+        async function* emptyStream() {}
+        const mockHandler = vi.fn().mockReturnValue(emptyStream());
+        testApi.mock('logs.lambda.stream', mockHandler);
+
+        const logs = bridge['logs'] as { lambda: { stream: (functionKey: string) => HyveonStreamHandle<string> } };
+        await collectChunks(logs.lambda.stream('health-check'));
+
+        expect(mockHandler).toHaveBeenCalledWith('health-check', expect.any(AbortSignal));
+      });
+
+      it("should abort the mock's forwarded AbortSignal only once the returned handle is cancelled", async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+
+        async function* emptyStream() {}
+        const mockHandler = vi.fn().mockReturnValue(emptyStream());
+        testApi.mock('logs.lambda.stream', mockHandler);
+
+        const logs = bridge['logs'] as { lambda: { stream: (functionKey: string) => HyveonStreamHandle<string> } };
+        const handle = logs.lambda.stream('dns-updater');
+        await collectChunks(handle);
+
+        const forwardedSignal = mockHandler.mock.calls[0]?.[1] as AbortSignal;
+        expect(forwardedSignal.aborted).toBe(false);
+
+        handle.cancel();
+
+        expect(forwardedSignal.aborted).toBe(true);
+      });
+
+      it('should not attach any ipcRenderer listeners when the mock handles the stream', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+
+        async function* singleChunk() {
+          yield 'only-chunk';
+        }
+        testApi.mock('logs.lambda.stream', vi.fn().mockReturnValue(singleChunk()));
+
+        const logs = bridge['logs'] as { lambda: { stream: (functionKey: string) => HyveonStreamHandle<string> } };
+        await collectChunks(logs.lambda.stream('interactions'));
+
+        expect(ipcOn).not.toHaveBeenCalled();
+        expect(ipcOnce).not.toHaveBeenCalled();
+      });
+    });
+
+    // Unmocked passthrough branch
+
+    describe('unmocked passthrough branch', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        // Load with test-mode OFF so no mock registry is active — the real IPC
+        // path is always exercised.
+        bridge = await loadPreloadBridge('0');
+      });
+
+      it('should invoke logs.lambda.stream on ipcRenderer to obtain a streamId when no mock is registered', async () => {
+        const streamId = 'sid-101';
+        ipcInvoke.mockResolvedValue({ streamId });
+
+        // Simulate the main process sending an end event synchronously after the
+        // invoke so the generator completes without hanging.
+        ipcOnce.mockImplementation((_channel: string, listener: (...args: unknown[]) => void) => {
+          Promise.resolve().then(() => listener({} as unknown, {}));
+        });
+
+        const logs = bridge['logs'] as { lambda: { stream: (functionKey: string) => HyveonStreamHandle<string> } };
+        const chunks = await collectChunks(logs.lambda.stream('watchdog'));
+
+        expect(ipcInvoke).toHaveBeenCalledWith('logs.lambda.stream', 'watchdog');
+        expect(chunks).toEqual([]);
+      });
+
+      it('should yield chunks received over the chunk IPC channel', async () => {
+        const streamId = 'sid-102';
+        ipcInvoke.mockResolvedValue({ streamId });
+
+        const chunkChannel = `logs.lambda.stream.${streamId}.chunk`;
+        const endChannel = `logs.lambda.stream.${streamId}.end`;
+
+        const capturedChunkListener: { current: ((_evt: unknown, chunk: string) => void) | null } = { current: null };
+        ipcOn.mockImplementation((channel: string, listener: (_evt: unknown, chunk: string) => void) => {
+          if (channel === chunkChannel) {
+            capturedChunkListener.current = listener;
+          }
+        });
+
+        ipcOnce.mockImplementation((channel: string, listener: (_evt: unknown, data: { error?: string }) => void) => {
+          if (channel === endChannel) {
+            Promise.resolve()
+              .then(() => {
+                capturedChunkListener.current?.({}, 'line-1');
+                capturedChunkListener.current?.({}, 'line-2');
+              })
+              .then(() => listener({} as unknown, {}));
+          }
+        });
+
+        const logs = bridge['logs'] as { lambda: { stream: (functionKey: string) => HyveonStreamHandle<string> } };
+        const chunks = await collectChunks(logs.lambda.stream('health-check'));
+
+        expect(chunks).toEqual(['line-1', 'line-2']);
+      });
+
+      it('should throw when the end event carries an error field', async () => {
+        const streamId = 'sid-103';
+        ipcInvoke.mockResolvedValue({ streamId });
+
+        const endChannel = `logs.lambda.stream.${streamId}.end`;
+
+        ipcOnce.mockImplementation((channel: string, listener: (_evt: unknown, data: { error?: string }) => void) => {
+          if (channel === endChannel) {
+            Promise.resolve().then(() => listener({} as unknown, { error: 'stream-failed' }));
+          }
+        });
+
+        const logs = bridge['logs'] as { lambda: { stream: (functionKey: string) => HyveonStreamHandle<string> } };
+
+        await expect(collectChunks(logs.lambda.stream('dns-updater'))).rejects.toThrow('stream-failed');
+      });
+
+      it('should send cancel immediately and remove listeners once the main process acks the cancel', async () => {
+        const streamId = 'sid-104';
+        ipcInvoke.mockResolvedValue({ streamId });
+
+        const chunkChannel = `logs.lambda.stream.${streamId}.chunk`;
+        const endChannel = `logs.lambda.stream.${streamId}.end`;
+        const cancelChannel = `logs.lambda.stream.${streamId}.cancel`;
+
+        const capturedChunkListener: { current: ((_evt: unknown, chunk: string) => void) | null } = { current: null };
+        const capturedEndListener: { current: ((_evt: unknown, data: { error?: string }) => void) | null } = {
+          current: null,
+        };
+        ipcOn.mockImplementation((channel: string, listener: (_evt: unknown, chunk: string) => void) => {
+          if (channel === chunkChannel) capturedChunkListener.current = listener;
+        });
+        ipcOnce.mockImplementation((channel: string, listener: (_evt: unknown, data: { error?: string }) => void) => {
+          if (channel === endChannel) capturedEndListener.current = listener;
+        });
+
+        const logs = bridge['logs'] as { lambda: { stream: (functionKey: string) => HyveonStreamHandle<string> } };
+        const handle = logs.lambda.stream('followup');
+
+        const firstNext = handle.next();
+        await Promise.resolve();
+        capturedChunkListener.current?.({}, 'first-chunk');
+        await firstNext;
+
+        handle.cancel();
+        expect(ipcSend).toHaveBeenCalledWith(cancelChannel);
+
+        capturedEndListener.current?.({}, {});
+        const finalResult = await handle.next();
+
+        expect(finalResult.done).toBe(true);
+        expect(ipcRemoveListener).toHaveBeenCalledWith(chunkChannel, expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith(endChannel, expect.any(Function));
+      }, 10_000);
+    });
+  });
+
   // iac.stack.initialize
 
   describe('iac.stack.initialize', () => {

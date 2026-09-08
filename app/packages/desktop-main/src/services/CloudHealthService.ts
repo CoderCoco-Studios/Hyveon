@@ -4,11 +4,12 @@ import { join } from 'path';
 import { createRequire } from 'module';
 import { IAMClient, GetRoleCommand, CreateServiceLinkedRoleCommand } from '@aws-sdk/client-iam';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
-import { generateHyveonDeployAllPolicy, DEPLOYMENT_CONFIG_DEFAULTS } from '@hyveon/shared';
+import { DEPLOYMENT_CONFIG_DEFAULTS, errMessage, generateHyveonDeployAllPolicy } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import { readIsPackaged as sharedReadIsPackaged } from './electronRuntime.js';
 import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.js';
 import type { OpenConsoleResult } from './GuidedIamService.js';
 
@@ -97,7 +98,7 @@ export class CloudHealthService {
       return { status: 'ok' };
     } catch (err) {
       const name = err instanceof Error ? err.name : undefined;
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       if (name === 'NoSuchEntityException') {
         return {
           status: 'missing',
@@ -123,7 +124,7 @@ export class CloudHealthService {
       const { settings } = await this.deploymentConfig.getTopLevelSettings();
       return settings.projectName ?? DEPLOYMENT_CONFIG_DEFAULTS.projectName;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('CloudHealthService.getProjectName: falling back to the default project name', { message });
       return DEPLOYMENT_CONFIG_DEFAULTS.projectName;
     }
@@ -136,7 +137,7 @@ export class CloudHealthService {
       return { outcome: 'fixed' };
     } catch (err) {
       const name = err instanceof Error ? err.name : undefined;
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       // "Already exists" arrives as InvalidInputException — the SDK models no
       // dedicated exception for this case, so the message must be inspected.
       if (name === 'InvalidInputException' && /already exists/i.test(message)) {
@@ -180,7 +181,7 @@ export class CloudHealthService {
       }
       return `https://console.aws.amazon.com/iam/home#/policies/arn:aws:iam::${response.Account}:policy/HyveonDeployAll`;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('CloudHealthService.buildPolicyConsoleUrl: could not resolve account ID', { error: message });
       return undefined;
     }
@@ -258,18 +259,12 @@ export class CloudHealthService {
 
   /**
    * Return `process.resourcesPath` when running inside an Electron packaged
-   * app, or `undefined` otherwise. Extracted as a protected method so tests
-   * can stub it. Mirrors `GuidedIamService.readIsPackaged`/`ConfigService.readIsPackaged` exactly.
+   * app, or `undefined` otherwise. One-line delegate to the shared
+   * {@link sharedReadIsPackaged} (`electronRuntime.ts`), which `GuidedIamService`
+   * also delegates to. Extracted as a protected method so tests can stub it.
    */
   protected readIsPackaged(): boolean {
-    if (!process.versions['electron']) return false;
-    try {
-      const _require = createRequire(import.meta.url);
-      const electron = _require('electron') as { app: { isPackaged: boolean } };
-      return electron.app.isPackaged;
-    } catch {
-      return false;
-    }
+    return sharedReadIsPackaged();
   }
 
   /**

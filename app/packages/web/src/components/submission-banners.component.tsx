@@ -1,11 +1,14 @@
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
+import { formatRelativeAge } from '@hyveon/shared';
 import type { IacStaleLockInfo, RunLock } from '@hyveon/desktop-preload';
+import { errMessage } from '@hyveon/shared';
 import { Button } from './ui/button.component.js';
 import { ConfirmDialog } from './confirm-dialog.component.js';
 import { ErrorBanner } from './error-banner.component.js';
 import type { Conflict } from '../hooks/use-iac-run.hook.js';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /**
  * Operator-facing label for each {@link Conflict} value — maps the raw
@@ -56,7 +59,7 @@ function useLockClearConfirmation(options: {
 
   const handleConfirmClear = useCallback(() => {
     if (!window.hyveon) {
-      setClearError('IPC bridge (window.hyveon) is not available in this context.');
+      setClearError(BRIDGE_UNAVAILABLE);
       return;
     }
     setClearing(true);
@@ -73,7 +76,7 @@ function useLockClearConfirmation(options: {
           setClearError(ack.error ?? 'Could not clear the lock.');
         }
       } catch (err) {
-        setClearError(err instanceof Error ? err.message : String(err));
+        setClearError(errMessage(err));
       } finally {
         setClearing(false);
       }
@@ -185,23 +188,18 @@ function BusyBanner({
 
 /**
  * Formats how long ago `lockedAt` was, for the stale-lock banner's "age"
- * display — mirrors `PulumiLockRecovery.formatLockAge` (desktop-main) field
- * for field. Duplicated here rather than imported (the renderer bundle has
- * no reason to depend on `desktop-main`'s source, and this is a small,
- * stable, purely-cosmetic formatting rule). Deliberately coarse
- * (minutes/hours/days) — an operator deciding whether a lock is stale cares
- * whether it's "5 minutes old" (plausibly still in progress) vs. "3 days
- * old" (plausibly abandoned), not second-level precision.
+ * display. Deliberately coarse (minutes/hours/days) — an operator deciding
+ * whether a lock is stale cares whether it's "5 minutes old" (plausibly
+ * still in progress) vs. "3 days old" (plausibly abandoned), not
+ * second-level precision.
+ *
+ * @remarks
+ * Signature adapter over `@hyveon/shared`'s {@link formatRelativeAge} — this side works in
+ * ISO strings + an epoch ms, the desktop-main side (`PulumiLockRecovery.formatLockAge`)
+ * works in `Date`s, so each converts its own timestamp shape into a millisecond delta.
  */
 function formatLockAge(lockedAt: string, nowMs: number): string {
-  const ms = Math.max(0, nowMs - new Date(lockedAt).getTime());
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return 'less than a minute ago';
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? '' : 's'} ago`;
+  return formatRelativeAge(nowMs - new Date(lockedAt).getTime());
 }
 
 /**

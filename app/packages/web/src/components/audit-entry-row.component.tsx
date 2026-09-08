@@ -4,7 +4,8 @@ import type { AuditAction, AuditEntry } from '../api.service.js';
 import { Badge } from '@/components/ui/badge.component';
 import { Button } from '@/components/ui/button.component';
 import { TableCell, TableRow } from '@/components/ui/table.component';
-import { cn, formatTimestamp } from '@/lib/utils.utils';
+import { cn } from '@/lib/utils.utils';
+import { formatTimestamp } from '@/lib/format.utils';
 
 /**
  * Maps an {@link AuditAction} to the badge color variant used in the audit log.

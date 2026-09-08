@@ -5,6 +5,9 @@ import type { ConfigService } from '../services/ConfigService.js';
 import type { CostService } from '../services/CostService.js';
 import type { EcsService } from '../services/EcsService.js';
 import type { StackOutputs } from '@hyveon/shared';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -19,11 +22,9 @@ const MOCK_ESTIMATE = {
   costPerMonth4hpd: 60,
 };
 
-/** Build a ConfigService stub with a minimal set of stack outputs. */
-function makeConfig(outputs: Partial<StackOutputs> | null = { gameNames: ['minecraft'] }): ConfigService {
-  return {
-    getStackOutputs: vi.fn().mockResolvedValue(outputs),
-  } as unknown as ConfigService;
+/** Build a ConfigService stub with a minimal set of stack outputs, or `null` to simulate an undeployed stack. */
+function makeConfig(overrides: Partial<StackOutputs> | null = { gameNames: ['minecraft'] }): ConfigService {
+  return configServiceStub({ outputs: overrides === null ? null : stackOutputs(overrides) });
 }
 
 /** Build a CostService stub whose estimateForSpec returns the canned estimate. */
@@ -43,20 +44,10 @@ function makeEcs(td: { cpu: number; memory: number } | null = { cpu: 4096, memor
   } as unknown as EcsService;
 }
 
-/**
- * The metadata key NestJS stores on each method decorated with
- * `@MessagePattern`. Asserting this value is the only automated guard
- * that prevents a typo in the controller from silently breaking IPC —
- * calling the method directly (as every other test does) would succeed
- * regardless of what string is registered with the transport.
- */
-const PATTERN_METADATA_KEY = 'microservices:pattern';
-
 describe('CostsController', () => {
   describe('@MessagePattern channel names', () => {
-    it('should register estimate on the "costs.estimate" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, CostsController.prototype.estimate);
-      expect(pattern).toEqual(['costs.estimate']);
+    it('should register every channel', () => {
+      expectChannels(CostsController.prototype, [['estimate', 'costs.estimate']] as const);
     });
 
     it('should not register an actual handler', () => {

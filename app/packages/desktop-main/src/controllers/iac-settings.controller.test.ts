@@ -3,9 +3,12 @@ import { describe, it, expect, vi } from 'vitest';
 import type { TopLevelDeploymentSettings, UpdateDeploymentSettingsPayload } from '@hyveon/shared';
 import { OptimisticLockError } from '@hyveon/shared';
 import { IacSettingsController } from './iac-settings.controller.js';
-import { ConfigurationNotConfiguredError, RunsTableRenameError, DeploymentConfigService } from '../services/DeploymentConfigService.js';
+import { ConfigurationNotConfiguredError, RunsTableRenameError } from '../services/DeploymentConfigService.js';
+import type { DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import type { PulumiEngineService } from '../services/PulumiEngineService.js';
 import type { ElectronStoreService } from '../services/ElectronStoreService.js';
+import { deploymentConfigStub } from '../testing/deployment-config.fixture.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -34,51 +37,26 @@ const SETTINGS: TopLevelDeploymentSettings = {
 
 /** Build a `DeploymentConfigService` stub exposing just the methods `IacSettingsController` calls. */
 function makeDeploymentConfig(): DeploymentConfigService {
-  return {
-    getTopLevelSettings: vi.fn().mockResolvedValue({ settings: SETTINGS, etag: 'etag-1' }),
-    updateTopLevelSettings: vi.fn().mockResolvedValue({ etag: 'etag-2', versionId: 'v-2' }),
-  } as Partial<DeploymentConfigService> as DeploymentConfigService;
+  return deploymentConfigStub(
+    {},
+    {
+      getTopLevelSettings: vi.fn().mockResolvedValue({ settings: SETTINGS, etag: 'etag-1' }),
+      updateTopLevelSettings: vi.fn().mockResolvedValue({ etag: 'etag-2', versionId: 'v-2' }),
+    },
+  );
 }
-
-/**
- * The metadata key NestJS stores on each method decorated with
- * `@MessagePattern`. Asserting this value guards against a typo in the
- * controller silently breaking IPC — calling the method directly (as every
- * other test does) would succeed regardless of what string is registered
- * with the transport.
- */
-const PATTERN_METADATA_KEY = 'microservices:pattern';
 
 describe('IacSettingsController', () => {
   describe('@MessagePattern channel names', () => {
-    it('should register get on the "iac.settings.get" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.get);
-      expect(pattern).toEqual(['iac.settings.get']);
-    });
-
-    it('should register update on the "iac.settings.update" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.update);
-      expect(pattern).toEqual(['iac.settings.update']);
-    });
-
-    it('should register engineVersion on the "iac.settings.engineVersion" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.engineVersion);
-      expect(pattern).toEqual(['iac.settings.engineVersion']);
-    });
-
-    it('should register getAutoUpdate on the "iac.settings.autoUpdate.get" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.getAutoUpdate);
-      expect(pattern).toEqual(['iac.settings.autoUpdate.get']);
-    });
-
-    it('should register updateAutoUpdate on the "iac.settings.autoUpdate.update" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.updateAutoUpdate);
-      expect(pattern).toEqual(['iac.settings.autoUpdate.update']);
-    });
-
-    it('should register checkAutoUpdate on the "iac.settings.autoUpdate.check" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.checkAutoUpdate);
-      expect(pattern).toEqual(['iac.settings.autoUpdate.check']);
+    it('should register every channel', () => {
+      expectChannels(IacSettingsController.prototype, [
+        ['get', 'iac.settings.get'],
+        ['update', 'iac.settings.update'],
+        ['engineVersion', 'iac.settings.engineVersion'],
+        ['getAutoUpdate', 'iac.settings.autoUpdate.get'],
+        ['updateAutoUpdate', 'iac.settings.autoUpdate.update'],
+        ['checkAutoUpdate', 'iac.settings.autoUpdate.check'],
+      ] as const);
     });
   });
 

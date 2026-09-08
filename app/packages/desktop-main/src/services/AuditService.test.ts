@@ -23,10 +23,10 @@ vi.mock('node:os', async () => {
 import { AuditService } from './AuditService.js';
 import { ConfigService } from './ConfigService.js';
 import { logger } from '../logger.js';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 
 /** Minimal `StackOutputs` stub exposing just `auditTableName`. */
-const STACK_OUTPUTS: StackOutputs = {
-  awsRegion: 'us-east-1',
+const STACK_OUTPUTS: StackOutputs = stackOutputs({
   ecsClusterName: '',
   ecsClusterArn: '',
   subnetIds: [],
@@ -43,10 +43,7 @@ const STACK_OUTPUTS: StackOutputs = {
   discordPublicKeySecretArn: '',
   fileBrowserCredentialSecretArn: '',
   fileBrowserSchedulerRoleArn: '',
-  interactionsInvokeUrl: null,
-  discordInteractionsUrl: null,
-  appliedGameServers: null,
-};
+});
 
 /** Minimal valid `GameServer` fixture used to populate `before`/`after`. */
 const sampleGameServer: GameServer = {

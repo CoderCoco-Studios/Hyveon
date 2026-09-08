@@ -18,7 +18,8 @@ import type {
   WorkloadHandle,
   WorkloadStatus,
 } from '@hyveon/shared';
-import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR } from '@hyveon/shared';
+import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR, getTaskEniId, resolveEniPublicIp } from '@hyveon/shared';
+import { createCachedAwsClient } from './cachedClient.js';
 
 /**
  * Fargate on-demand pricing constants (us-east-1). Re-exported here from
@@ -181,12 +182,27 @@ export interface AwsCloudProviderLogger {
  * `openspec/changes/remove-cost-explorer-calls`.
  */
 export class AwsCloudProvider implements CloudProvider {
-  private ecsClient: ECSClient | null = null;
-  private ecsClientCacheKey: string | null = null;
-  private ec2Client: EC2Client | null = null;
-  private ec2ClientCacheKey: string | null = null;
-  private logsClient: CloudWatchLogsClient | null = null;
-  private logsClientCacheKey: string | null = null;
+  private readonly getCachedEcsClient = createCachedAwsClient(
+    (config: {
+      region: string;
+      credentials: AwsCloudProviderConfig['credentials'];
+      credentialsSignature: AwsCloudProviderConfig['credentialsSignature'];
+    }) => new ECSClient({ region: config.region, credentials: config.credentials }),
+  );
+  private readonly getCachedEc2Client = createCachedAwsClient(
+    (config: {
+      region: string;
+      credentials: AwsCloudProviderConfig['credentials'];
+      credentialsSignature: AwsCloudProviderConfig['credentialsSignature'];
+    }) => new EC2Client({ region: config.region, credentials: config.credentials }),
+  );
+  private readonly getCachedLogsClient = createCachedAwsClient(
+    (config: {
+      region: string;
+      credentials: AwsCloudProviderConfig['credentials'];
+      credentialsSignature: AwsCloudProviderConfig['credentialsSignature'];
+    }) => new CloudWatchLogsClient({ region: config.region, credentials: config.credentials }),
+  );
 
   /**
    * Per-game tail of the in-flight critical-section chain, used by {@link
@@ -230,12 +246,7 @@ export class AwsCloudProvider implements CloudProvider {
     credentials: AwsCloudProviderConfig['credentials'],
     credentialsSignature: AwsCloudProviderConfig['credentialsSignature'],
   ): ECSClient {
-    const cacheKey = `${region}::${credentialsSignature ?? ''}`;
-    if (!this.ecsClient || this.ecsClientCacheKey !== cacheKey) {
-      this.ecsClient = new ECSClient({ region, credentials });
-      this.ecsClientCacheKey = cacheKey;
-    }
-    return this.ecsClient;
+    return this.getCachedEcsClient({ region, credentials, credentialsSignature });
   }
 
   /**
@@ -248,12 +259,7 @@ export class AwsCloudProvider implements CloudProvider {
     credentials: AwsCloudProviderConfig['credentials'],
     credentialsSignature: AwsCloudProviderConfig['credentialsSignature'],
   ): EC2Client {
-    const cacheKey = `${region}::${credentialsSignature ?? ''}`;
-    if (!this.ec2Client || this.ec2ClientCacheKey !== cacheKey) {
-      this.ec2Client = new EC2Client({ region, credentials });
-      this.ec2ClientCacheKey = cacheKey;
-    }
-    return this.ec2Client;
+    return this.getCachedEc2Client({ region, credentials, credentialsSignature });
   }
 
   /**
@@ -266,12 +272,7 @@ export class AwsCloudProvider implements CloudProvider {
     credentials: AwsCloudProviderConfig['credentials'],
     credentialsSignature: AwsCloudProviderConfig['credentialsSignature'],
   ): CloudWatchLogsClient {
-    const cacheKey = `${region}::${credentialsSignature ?? ''}`;
-    if (!this.logsClient || this.logsClientCacheKey !== cacheKey) {
-      this.logsClient = new CloudWatchLogsClient({ region, credentials });
-      this.logsClientCacheKey = cacheKey;
-    }
-    return this.logsClient;
+    return this.getCachedLogsClient({ region, credentials, credentialsSignature });
   }
 
   /**
@@ -335,22 +336,6 @@ export class AwsCloudProvider implements CloudProvider {
   }
 
   /**
-   * Dig the ENI ID out of a task's `attachments` array. Needed because the
-   * public IP isn't on the task itself — it has to be looked up via EC2
-   * using this ENI. Returns `null` if the task has no ENI attachment yet
-   * (common while a task is still provisioning).
-   */
-  private extractEniId(task: Task): string | null {
-    for (const att of task.attachments ?? []) {
-      if (att.type !== 'ElasticNetworkInterface') continue;
-      for (const detail of att.details ?? []) {
-        if (detail.name === 'networkInterfaceId') return detail.value ?? null;
-      }
-    }
-    return null;
-  }
-
-  /**
    * Locate the current non-stopped task for a game, keyed by the `{game}-server`
    * task-definition family the infra program provisions. `ListTasks` is filtered to
    * `desiredStatus: RUNNING` and STOPPED/DEPROVISIONING tasks are filtered
@@ -401,10 +386,11 @@ export class AwsCloudProvider implements CloudProvider {
     eniId: string,
   ): Promise<string | null> {
     try {
-      const resp = await this.getEc2Client(region, credentials, credentialsSignature).send(
-        new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }),
+      const client = this.getEc2Client(region, credentials, credentialsSignature);
+      return await resolveEniPublicIp(
+        (id) => client.send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [id] })),
+        eniId,
       );
-      return resp.NetworkInterfaces?.[0]?.Association?.PublicIp ?? null;
     } catch (err) {
       this.logger?.error('Failed to resolve public IP', err);
       return null;
@@ -524,7 +510,7 @@ export class AwsCloudProvider implements CloudProvider {
       const task = await this.findRunningTask(region, credentials, credentialsSignature, cluster, game);
       if (task) {
         if (task.lastStatus === 'RUNNING') {
-          const eniId = this.extractEniId(task);
+          const eniId = getTaskEniId(task);
           const publicIp = eniId ? await this.getPublicIp(region, credentials, credentialsSignature, eniId) : null;
           return {
             state: 'running',
