@@ -6,6 +6,7 @@ import type { DiscordConfigService, DiscordAction } from '../services/DiscordCon
 import type { DiscordCommandRegistrar } from '../services/DiscordCommandRegistrar.js';
 import type { ConfigService } from '../services/ConfigService.js';
 import type { StackOutputs } from '@hyveon/shared';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -79,70 +80,22 @@ function ctrl(
   return new DiscordController(discord, registrar, config);
 }
 
-/**
- * The metadata key NestJS stores on each method decorated with
- * `@MessagePattern`. Asserting this value is the only automated guard
- * that prevents a typo in the controller from silently breaking IPC —
- * calling the method directly (as every other test does) would succeed
- * regardless of what string is registered with the transport.
- */
-const PATTERN_METADATA_KEY = 'microservices:pattern';
-
 describe('DiscordController', () => {
   describe('@MessagePattern channel names', () => {
-    it('should register getConfig on the "discord.getConfig" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DiscordController.prototype.getConfig);
-      expect(pattern).toEqual(['discord.getConfig']);
-    });
-
-    it('should register putConfig on the "discord.putConfig" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DiscordController.prototype.putConfig);
-      expect(pattern).toEqual(['discord.putConfig']);
-    });
-
-    it('should register listGuilds on the "discord.listGuilds" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DiscordController.prototype.listGuilds);
-      expect(pattern).toEqual(['discord.listGuilds']);
-    });
-
-    it('should register addGuild on the "discord.addGuild" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DiscordController.prototype.addGuild);
-      expect(pattern).toEqual(['discord.addGuild']);
-    });
-
-    it('should register removeGuild on the "discord.removeGuild" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DiscordController.prototype.removeGuild);
-      expect(pattern).toEqual(['discord.removeGuild']);
-    });
-
-    it('should register registerCommands on the "discord.registerCommands" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DiscordController.prototype.registerCommands);
-      expect(pattern).toEqual(['discord.registerCommands']);
-    });
-
-    it('should register getAdmins on the "discord.getAdmins" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DiscordController.prototype.getAdmins);
-      expect(pattern).toEqual(['discord.getAdmins']);
-    });
-
-    it('should register putAdmins on the "discord.putAdmins" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DiscordController.prototype.putAdmins);
-      expect(pattern).toEqual(['discord.putAdmins']);
-    });
-
-    it('should register getPermissions on the "discord.getPermissions" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DiscordController.prototype.getPermissions);
-      expect(pattern).toEqual(['discord.getPermissions']);
-    });
-
-    it('should register putPermission on the "discord.putPermission" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DiscordController.prototype.putPermission);
-      expect(pattern).toEqual(['discord.putPermission']);
-    });
-
-    it('should register deletePermission on the "discord.deletePermission" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, DiscordController.prototype.deletePermission);
-      expect(pattern).toEqual(['discord.deletePermission']);
+    it('should register every channel', () => {
+      expectChannels(DiscordController.prototype, [
+        ['getConfig', 'discord.getConfig'],
+        ['putConfig', 'discord.putConfig'],
+        ['listGuilds', 'discord.listGuilds'],
+        ['addGuild', 'discord.addGuild'],
+        ['removeGuild', 'discord.removeGuild'],
+        ['registerCommands', 'discord.registerCommands'],
+        ['getAdmins', 'discord.getAdmins'],
+        ['putAdmins', 'discord.putAdmins'],
+        ['getPermissions', 'discord.getPermissions'],
+        ['putPermission', 'discord.putPermission'],
+        ['deletePermission', 'discord.deletePermission'],
+      ] as const);
     });
   });
 
