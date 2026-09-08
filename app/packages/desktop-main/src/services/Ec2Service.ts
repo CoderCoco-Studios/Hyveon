@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
+import { resolveEniPublicIp } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.js';
+import { resolveAwsClientCredentialsWithSignature, type AwsClientCredentials } from './awsCredentialSource.js';
+import { createCachedAwsClient } from './awsClientCache.js';
 
 /**
  * Thin EC2 wrapper used solely to turn an ECS task's Elastic Network
@@ -13,8 +15,10 @@ import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.
  */
 @Injectable()
 export class Ec2Service {
-  private client: EC2Client | null = null;
-  private clientCacheKey: string | null = null;
+  private readonly getCachedClient = createCachedAwsClient(
+    (config: { region: string; credentials: AwsClientCredentials; credentialsSignature: string }) =>
+      new EC2Client({ region: config.region, credentials: config.credentials }),
+  );
 
   constructor(
     private readonly config: ConfigService,
@@ -30,12 +34,7 @@ export class Ec2Service {
   private getClient(): EC2Client {
     const region = this.config.getRegion();
     const { credentials, signature } = resolveAwsClientCredentialsWithSignature(this.store);
-    const cacheKey = `${region}::${signature}`;
-    if (!this.client || this.clientCacheKey !== cacheKey) {
-      this.client = new EC2Client({ region, credentials });
-      this.clientCacheKey = cacheKey;
-    }
-    return this.client;
+    return this.getCachedClient({ region, credentials, credentialsSignature: signature });
   }
 
   /**
@@ -45,10 +44,10 @@ export class Ec2Service {
    */
   async getPublicIp(eniId: string): Promise<string | null> {
     try {
-      const resp = await this.getClient().send(
-        new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }),
+      const ip = await resolveEniPublicIp(
+        (id) => this.getClient().send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [id] })),
+        eniId,
       );
-      const ip = resp.NetworkInterfaces?.[0]?.Association?.PublicIp ?? null;
       logger.debug('Resolved public IP', { eniId, ip });
       return ip;
     } catch (err) {

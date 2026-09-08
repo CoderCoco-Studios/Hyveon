@@ -9,6 +9,7 @@ import type {
   RunDetailStatus,
   RunLock,
 } from '@hyveon/desktop-preload';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /**
  * Operation name a BUSY rejection reports as already holding the shared
@@ -220,7 +221,7 @@ export function useIacRun(kind: IacRunKind): UseIacRunResult {
   const submit = useCallback(
     (fn: () => Promise<IacPlanAck>) => {
       if (!window.hyveon) {
-        setSubmitError('IPC bridge (window.hyveon) is not available in this context.');
+        setSubmitError(BRIDGE_UNAVAILABLE);
         return;
       }
       setInFlight(true);

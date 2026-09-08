@@ -11,6 +11,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { RunLockHeldError } from '@hyveon/shared';
 import type { RunLock, RunPageResult, RunRecord, RunRecordStore, RunStatus } from '@hyveon/shared';
 import { resolveDefaultAwsRegion } from './awsRegionEnv.js';
+import { createCachedAwsClient } from './cachedClient.js';
 
 /**
  * The single DynamoDB partition every run record lives under (`pk = RUN`).
@@ -82,10 +83,14 @@ function parseStartedAtFromSk(sk: string): string {
  * {@link RunRecordStore}.
  */
 export class AwsRunRecordStore implements RunRecordStore {
-  private dynamoClient: DynamoDBDocumentClient | null = null;
-  private dynamoClientCacheKey: string | null = null;
-  private s3Client: S3Client | null = null;
-  private s3ClientCacheKey: string | null = null;
+  private readonly getCachedDynamoClient = createCachedAwsClient(
+    (config: { region: string; credentials?: S3ClientConfig['credentials']; credentialsSignature?: string }) =>
+      DynamoDBDocumentClient.from(new DynamoDBClient({ region: config.region, credentials: config.credentials })),
+  );
+  private readonly getCachedS3Client = createCachedAwsClient(
+    (config: { region: string; credentials?: S3ClientConfig['credentials']; credentialsSignature?: string }) =>
+      new S3Client({ region: config.region, credentials: config.credentials }),
+  );
 
   /**
    * Resolves table/bucket/region/credentials for this store on every call — see {@link
@@ -156,14 +161,7 @@ export class AwsRunRecordStore implements RunRecordStore {
   private async getDynamoClient(): Promise<DynamoDBDocumentClient> {
     const config = await this.getConfig?.();
     const region = config?.region ?? resolveDefaultAwsRegion();
-    const cacheKey = `${region}::${config?.credentialsSignature ?? ''}`;
-    if (!this.dynamoClient || this.dynamoClientCacheKey !== cacheKey) {
-      this.dynamoClient = DynamoDBDocumentClient.from(
-        new DynamoDBClient({ region, credentials: config?.credentials }),
-      );
-      this.dynamoClientCacheKey = cacheKey;
-    }
-    return this.dynamoClient;
+    return this.getCachedDynamoClient({ region, credentials: config?.credentials, credentialsSignature: config?.credentialsSignature });
   }
 
   /**
@@ -176,12 +174,7 @@ export class AwsRunRecordStore implements RunRecordStore {
   private async getS3Client(): Promise<S3Client> {
     const config = await this.getConfig?.();
     const region = config?.region ?? resolveDefaultAwsRegion();
-    const cacheKey = `${region}::${config?.credentialsSignature ?? ''}`;
-    if (!this.s3Client || this.s3ClientCacheKey !== cacheKey) {
-      this.s3Client = new S3Client({ region, credentials: config?.credentials });
-      this.s3ClientCacheKey = cacheKey;
-    }
-    return this.s3Client;
+    return this.getCachedS3Client({ region, credentials: config?.credentials, credentialsSignature: config?.credentialsSignature });
   }
 
   /**

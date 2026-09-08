@@ -18,7 +18,7 @@ import { verifyAsync } from '@noble/ed25519';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 // `canRun` is the single shared copy; never inline or fork it.
-import { canRun, getEffectiveDiscordConfig, getPublicKey } from '@hyveon/shared';
+import { canRun, gameNamesFromEnv, getEffectiveDiscordConfig, getPublicKey, requireEnv } from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig } from '@hyveon/shared';
 
 /** Discord interaction types we care about. Full list in discord-api-types. */
@@ -59,12 +59,6 @@ function getLambdaClient(): LambdaClient {
     lambdaClient = new LambdaClient({ region });
   }
   return lambdaClient;
-}
-
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var ${name}`);
-  return v;
 }
 
 /** Convert a hex string to a Uint8Array. Throws on odd length / non-hex chars. */
@@ -119,11 +113,6 @@ function extractGameOption(data: InteractionData | undefined): string | undefine
   return data?.options?.find((o) => o.name === 'game')?.value;
 }
 
-function gameListFromEnv(): string[] {
-  const raw = process.env['GAME_NAMES'] ?? '';
-  return raw.split(',').map((s) => s.trim()).filter(Boolean);
-}
-
 function ephemeralMessage(content: string, deferred = false): APIGatewayProxyResultV2 {
   if (deferred) {
     return jsonResponse({
@@ -174,7 +163,7 @@ async function handleAutocomplete(
   const userId = extractUserId(interaction);
   const roleIds = extractRoleIds(interaction);
   const guildId = interaction.guild_id ?? '';
-  const choices = gameListFromEnv()
+  const choices = gameNamesFromEnv()
     .filter((g) => g.toLowerCase().includes(partial))
     .filter((g) => canRun(cfg, { guildId, userId, roleIds, game: g, action }))
     .slice(0, 25)

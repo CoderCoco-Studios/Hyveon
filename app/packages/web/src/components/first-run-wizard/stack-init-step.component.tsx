@@ -3,15 +3,13 @@ import { CheckCircle2, Circle, Loader2, RotateCcw, XCircle } from 'lucide-react'
 import type { HyveonStreamHandle, StackInitPhase, StackInitPhaseEvent } from '@hyveon/desktop-preload';
 import { InlineAlert } from '@/components/inline-alert.component';
 import { Button } from '@/components/ui/button.component';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /** Per-phase status this step tracks, derived from the {@link StackInitPhaseEvent} stream. */
 export type StackInitPhaseState = 'pending' | 'in-progress' | 'done' | 'failed';
 
 /** Overall status of one `iac.stack.initialize()` attempt. */
 export type StackInitStatus = 'running' | 'success' | 'failed';
-
-/** Reported when the step is rendered outside Electron, where there is no IPC bridge to initialize the stack through. */
-const BRIDGE_UNAVAILABLE = 'IPC bridge (window.hyveon) is not available in this context.';
 
 /**
  * The three provisioning phases {@link StackInitializationStep} renders, in

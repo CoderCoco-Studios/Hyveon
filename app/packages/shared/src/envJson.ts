@@ -10,6 +10,11 @@
  * wrong-shaped value (`"null"`, `"42"`, `"\"x\""`) also falls back, instead
  * of returning a non-object that would throw on property access downstream.
  *
+ * @remarks
+ * When `fallback` is a plain (non-array) object, a parsed JSON array is also rejected —
+ * `typeof [] === 'object'` would otherwise let `Array.isArray` mismatches like
+ * `GAME_MAP='["palworld"]'` through as a `Record<string, T>`.
+ *
  * @param envName - Name of the environment variable, used only in the warning message.
  * @param raw - The raw environment variable value (`process.env[envName]`).
  * @param fallback - Value returned when `raw` is absent, fails to parse, or fails the object-shape check.
@@ -19,8 +24,9 @@ export function parseJsonEnv<T>(envName: string, raw: string | undefined, fallba
   try {
     const parsed = JSON.parse(raw) as T;
     const expectObject = typeof fallback === 'object' && fallback !== null;
-    if (expectObject && (parsed === null || typeof parsed !== 'object')) {
-      throw new Error(`expected an object, got ${parsed === null ? 'null' : typeof parsed}`);
+    const expectArray = Array.isArray(fallback);
+    if (expectObject && (parsed === null || typeof parsed !== 'object' || (Array.isArray(parsed) !== expectArray))) {
+      throw new Error(`expected ${expectArray ? 'an array' : 'an object'}, got ${parsed === null ? 'null' : Array.isArray(parsed) ? 'array' : typeof parsed}`);
     }
     return parsed;
   } catch (err) {

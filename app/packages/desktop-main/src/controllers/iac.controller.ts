@@ -21,6 +21,7 @@ import { ConfigService } from '../services/ConfigService.js';
 import { AuditService } from '../services/AuditService.js';
 import { RunRecordService } from '../services/RunRecordService.js';
 import { logger } from '../logger.js';
+import { isNonEmptyString } from './validation.js';
 
 /** Fixed side-channel `IacController.plan` pushes streamed output on. */
 const PLAN_CHUNK_CHANNEL = 'iac.plan.chunk';
@@ -1362,9 +1363,6 @@ export class IacController implements OnModuleInit {
    * `payload` is valid.
    */
   private static validateApprovePayload(payload: IacApprovePayload): string | null {
-    const isNonEmptyString = (value: unknown): value is string =>
-      typeof value === 'string' && value.length > 0;
-
     if (!isNonEmptyString(payload?.planRunId)) {
       return 'iac.approve requires a non-empty planRunId string';
     }
@@ -1377,9 +1375,6 @@ export class IacController implements OnModuleInit {
    * when `payload` is valid.
    */
   private static validateDestroyPayload(payload: IacDestroyPayload): string | null {
-    const isNonEmptyString = (value: unknown): value is string =>
-      typeof value === 'string' && value.length > 0;
-
     if (!isNonEmptyString(payload?.confirmationToken)) {
       return 'iac.destroy requires a non-empty confirmationToken string';
     }
@@ -1392,9 +1387,6 @@ export class IacController implements OnModuleInit {
    * confirmation gate.
    */
   private static validateLockClearPayload(payload: IacLockClearPayload): string | null {
-    const isNonEmptyString = (value: unknown): value is string =>
-      typeof value === 'string' && value.length > 0;
-
     if (!isNonEmptyString(payload?.confirmationToken)) {
       return 'iac.lock.clear requires a non-empty confirmationToken string';
     }
@@ -1408,9 +1400,6 @@ export class IacController implements OnModuleInit {
    * {@link confirmRollback} — both key off the same field.
    */
   private static validateRollbackPayload(payload: IacRollbackPayload): string | null {
-    const isNonEmptyString = (value: unknown): value is string =>
-      typeof value === 'string' && value.length > 0;
-
     if (!isNonEmptyString(payload?.applyRunId)) {
       return 'iac.rollback requires a non-empty applyRunId string';
     }
@@ -1423,9 +1412,6 @@ export class IacController implements OnModuleInit {
    * fails, or `null` when `payload` is valid.
    */
   private static validateApplyPayload(payload: IacApplyPayload): string | null {
-    const isNonEmptyString = (value: unknown): value is string =>
-      typeof value === 'string' && value.length > 0;
-
     if (!isNonEmptyString(payload?.planRunId) || !isNonEmptyString(payload?.planHash)) {
       return 'iac.apply requires non-empty planRunId and planHash strings';
     }

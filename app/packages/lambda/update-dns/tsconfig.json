@@ -1,12 +1,4 @@
 {
-  "extends": "../../../tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "noEmit": true,
-    "composite": false
-  },
-  "include": ["src/**/*"],
-  "exclude": ["src/**/*.test.ts", "dist", "node_modules"],
+  "extends": "../tsconfig.lambda.json",
   "references": [{ "path": "../../shared/tsconfig.json" }]
 }

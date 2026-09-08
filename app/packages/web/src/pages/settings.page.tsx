@@ -10,6 +10,7 @@ import { FirstRunWizard } from '../components/first-run-wizard/first-run-wizard.
 import { Button } from '../components/ui/button.component.js';
 import { CloudHealthSection } from '../components/cloud-health-section.component.js';
 import { SettingsRow } from '../components/settings-row.component.js';
+import { SETTINGS_BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /**
  * Client-side state for the Cloud Setup section's Pulumi engine version row —
@@ -92,7 +93,7 @@ export function SettingsPage() {
     // every `setEngineVersion` call below happens inside a promise callback,
     // never synchronously in the effect body (react-hooks/set-state-in-effect).
     const settings = window.hyveon?.iac?.settings;
-    const read = settings ? settings.engineVersion() : Promise.reject(new Error('hyveon IPC bridge unavailable'));
+    const read = settings ? settings.engineVersion() : Promise.reject(new Error(SETTINGS_BRIDGE_UNAVAILABLE));
     read
       .then((result) => setEngineVersion({ status: 'ready', resolvedVersion: result.resolvedVersion }))
       .catch(() => setEngineVersion('error'));
@@ -103,7 +104,7 @@ export function SettingsPage() {
     // routed through the rejected-promise path so `setAutoUpdate` only ever
     // runs inside a promise callback.
     const settings = window.hyveon?.iac?.settings;
-    const read = settings ? settings.autoUpdateGet() : Promise.reject(new Error('hyveon IPC bridge unavailable'));
+    const read = settings ? settings.autoUpdateGet() : Promise.reject(new Error(SETTINGS_BRIDGE_UNAVAILABLE));
     read
       .then((result) => setAutoUpdate(result.ok ? { status: 'ready', enabled: result.enableAutoUpdate } : 'error'))
       .catch(() => setAutoUpdate('error'));
@@ -119,7 +120,7 @@ export function SettingsPage() {
    */
   function handleAutoUpdateToggle(next: boolean) {
     const settings = window.hyveon?.iac?.settings;
-    const write = settings ? settings.autoUpdateUpdate({ enableAutoUpdate: next }) : Promise.reject(new Error('hyveon IPC bridge unavailable'));
+    const write = settings ? settings.autoUpdateUpdate({ enableAutoUpdate: next }) : Promise.reject(new Error(SETTINGS_BRIDGE_UNAVAILABLE));
     write
       .then((result) => {
         if (result.ok) {
@@ -139,7 +140,7 @@ export function SettingsPage() {
   function handleManualCheck() {
     setManualCheck('checking');
     const settings = window.hyveon?.iac?.settings;
-    const check = settings ? settings.autoUpdateCheck() : Promise.reject(new Error('hyveon IPC bridge unavailable'));
+    const check = settings ? settings.autoUpdateCheck() : Promise.reject(new Error(SETTINGS_BRIDGE_UNAVAILABLE));
     check
       .then((result) => setManualCheck({ status: 'done', result }))
       .catch(() =>

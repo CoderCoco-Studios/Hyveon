@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { StackOutputs } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import { readResourcesPath as sharedReadResourcesPath } from './electronRuntime.js';
 import { PulumiService } from './PulumiService.js';
 
 /**
@@ -203,11 +204,13 @@ export class ConfigService {
 
   /**
    * Return `process.resourcesPath` when running inside an Electron packaged app,
-   * or `undefined` otherwise. Extracted as a protected method so tests can stub
-   * it via `vi.spyOn` without touching `process.resourcesPath` directly.
+   * or `undefined` otherwise. One-line delegate to the shared
+   * {@link sharedReadResourcesPath} (`electronRuntime.ts`), which `PulumiService`
+   * also delegates to. Extracted as a protected method so tests can stub it
+   * via `vi.spyOn` without touching `process.resourcesPath` directly.
    */
   protected readResourcesPath(): string | undefined {
-    return (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+    return sharedReadResourcesPath();
   }
 
   /**

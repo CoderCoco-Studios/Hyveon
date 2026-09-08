@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Server, DollarSign, TrendingUp, Bell } from 'lucide-react';
 import { type CostEstimates, type GameStatus } from '../api.service.js';
 import { cn } from '../lib/utils.utils.js';
+import { formatUsd } from '../lib/format.utils.js';
 
 interface Props {
   statuses: GameStatus[];
@@ -81,14 +82,14 @@ export function KpiStrip({ statuses, estimates }: Props) {
         accent: 'cyan',
         label: 'Current run rate',
         Icon: DollarSign,
-        value: `$${runRate.toFixed(2)}`,
+        value: formatUsd(runRate, { digits: 2, grouping: false }),
         delta: { text: 'per hour', tone: 'neutral' },
       },
       {
         accent: 'orange',
         label: 'Est. month cap',
         Icon: TrendingUp,
-        value: `$${monthCap.toFixed(2)}`,
+        value: formatUsd(monthCap, { digits: 2, grouping: false }),
         delta: { text: 'if every game ran all month', tone: 'neutral' },
       },
       {

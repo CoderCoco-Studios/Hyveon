@@ -27,6 +27,7 @@ import { useWizardProgress } from './use-wizard-progress.hook.js';
 import { useReconfigureAnswers, isGuidedProfile } from './use-reconfigure-answers.hook.js';
 import { useAwsCredentialsForm } from './use-aws-credentials-form.hook.js';
 import { STEP_LABELS, WIZARD_STEPS, type WizardStep } from './wizard.utils.js';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /** Props for {@link FirstRunWizard}. */
 export interface FirstRunWizardProps {
@@ -143,7 +144,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   async function handleReset() {
     if (!window.hyveon) {
       setResetConfirmOpen(false);
-      setSaveError('IPC bridge (window.hyveon) is not available in this context.');
+      setSaveError(BRIDGE_UNAVAILABLE);
       return;
     }
     setResetting(true);
@@ -264,7 +265,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     fallbackErrorMessage: string,
   ): Promise<boolean> {
     if (!window.hyveon) {
-      setSaveError('IPC bridge (window.hyveon) is not available in this context.');
+      setSaveError(BRIDGE_UNAVAILABLE);
       return false;
     }
     setSaving(true);

@@ -9,6 +9,7 @@ import { generateHyveonDeployAllPolicy, generateHyveonSelfRotatePolicy } from '@
 import { resolveCloudFormationTemplatePath } from '../cloudformationTemplate.js';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import { readIsPackaged as sharedReadIsPackaged } from './electronRuntime.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import { SafeStorageUnavailableError } from './AwsProfileService.js';
 import { resolveAwsCredentialSource, type AwsCredentialSource } from './awsCredentialSource.js';
@@ -689,22 +690,13 @@ export class GuidedIamService {
 
   /**
    * Return `process.resourcesPath` when running inside an Electron packaged app,
-   * or `undefined` otherwise. Extracted as a protected method so tests can stub
-   * it via `vi.spyOn` without touching `process.resourcesPath` directly.
-   *
-   * Mirrors `ConfigService.readIsPackaged`'s implementation exactly (see that
-   * method's doc comment for why `process.resourcesPath` alone cannot be used
-   * as the packaged-build guard).
+   * or `undefined` otherwise. One-line delegate to the shared
+   * {@link sharedReadIsPackaged} (`electronRuntime.ts`), which `CloudHealthService`
+   * also delegates to. Extracted as a protected method so tests can stub it
+   * via `vi.spyOn`.
    */
   protected readIsPackaged(): boolean {
-    if (!process.versions['electron']) return false;
-    try {
-      const _require = createRequire(import.meta.url);
-      const electron = _require('electron') as { app: { isPackaged: boolean } };
-      return electron.app.isPackaged;
-    } catch {
-      return false;
-    }
+    return sharedReadIsPackaged();
   }
 
   /**

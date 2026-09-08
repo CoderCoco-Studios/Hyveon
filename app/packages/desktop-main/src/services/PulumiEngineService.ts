@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Injectable } from '@nestjs/common';
@@ -13,6 +12,7 @@ import { PulumiCommand } from '@pulumi/pulumi/automation/index.js';
 import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
 import { SemVer } from 'semver';
 import { logger } from '../logger.js';
+import { resolveUserDataPath as sharedResolveUserDataPath } from './electronRuntime.js';
 
 /**
  * Narrows an unknown thrown value to a human-readable message for the
@@ -665,28 +665,16 @@ export class PulumiEngineService {
 
   /**
    * Returns the Electron `userData` directory when running inside an
-   * Electron process, or `null` otherwise. Duplicates
-   * `ConfigService.readUserDataPath()`'s exact seam (lazy `createRequire`,
-   * guarded on `process.versions['electron']`, `try/catch → null`) rather
-   * than injecting `ConfigService` to reuse it: that accessor is `protected`
-   * on `ConfigService` today (widening it to `public` would broaden that
-   * service's surface for a single caller outside its own concern —
-   * Pulumi workspace paths — and `PulumiEngineService` has no other
-   * reason to depend on `ConfigService` at all), and duplicating ten lines
-   * keeps this service's constructor dependency-free, which is what makes
-   * "construction is synchronous and never throws" trivially true rather
-   * than something that depends on `ConfigService`'s own constructor
-   * behaviour. `protected` (not `private`) so a test subclass can override
-   * it to `public`, mirroring `ConfigService.test.ts`'s `TestableConfigService`.
+   * Electron process, or `null` otherwise. One-line delegate to the shared
+   * {@link sharedResolveUserDataPath} (`electronRuntime.ts`) rather than injecting
+   * `ConfigService` to reuse a service-level accessor: `PulumiEngineService`
+   * has no other reason to depend on `ConfigService` at all, and duplicating
+   * a constructor dependency here would break "construction is synchronous
+   * and never throws" being trivially true. `protected` (not `private`) so
+   * a test subclass can override it, mirroring `ConfigService.test.ts`'s
+   * `TestableConfigService`.
    */
   protected resolveUserDataPath(): string | null {
-    if (!process.versions['electron']) return null;
-    try {
-      const _require = createRequire(import.meta.url);
-      const electron = _require('electron') as { app: { getPath(name: string): string } };
-      return electron.app.getPath('userData');
-    } catch {
-      return null;
-    }
+    return sharedResolveUserDataPath();
   }
 }

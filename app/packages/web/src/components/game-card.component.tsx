@@ -16,6 +16,7 @@ import { Card } from '@/components/ui/card.component';
 import { Button } from '@/components/ui/button.component';
 import { Badge } from '@/components/ui/badge.component';
 import { cn } from '@/lib/utils.utils';
+import { formatUsd } from '@/lib/format.utils';
 import { ConfirmDialog } from './confirm-dialog.component.js';
 import { isSuppressed } from '../lib/confirm-skip.utils.js';
 import { useGameActions } from '../hooks/use-game-actions.hook.js';
@@ -150,7 +151,7 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
   const canStop  = state === 'running'  || state === 'starting';
 
   const connectStr = status.hostname ?? status.publicIp ?? null;
-  const costPerHourLabel = estimate ? `$${estimate.costPerHour.toFixed(3)}` : '—';
+  const costPerHourLabel = estimate ? formatUsd(estimate.costPerHour, { digits: 3, grouping: false }) : '—';
   const { label, badgeVariant, Icon, accentClass, dotClass, lastRunLabel } = STATE_PRESENTATION[state];
 
   return (

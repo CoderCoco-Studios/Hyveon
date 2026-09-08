@@ -5,6 +5,7 @@ import type { ConfigService } from '../services/ConfigService.js';
 import type { StackOutputs } from '@hyveon/shared';
 import { configServiceStub } from '../testing/config-service.fixture.js';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -15,20 +16,10 @@ function makeConfig(overrides: Partial<StackOutputs> | null = null): ConfigServi
   return configServiceStub({ outputs: overrides === null ? null : stackOutputs(overrides) });
 }
 
-/**
- * The metadata key NestJS stores on each method decorated with
- * `@MessagePattern`. Asserting this value is the only automated guard
- * that prevents a typo in the controller from silently breaking IPC —
- * calling the method directly (as every other test does) would succeed
- * regardless of what string is registered with the transport.
- */
-const PATTERN_METADATA_KEY = 'microservices:pattern';
-
 describe('EnvController', () => {
   describe('@MessagePattern channel names', () => {
-    it('should register getEnv on the "env.get" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, EnvController.prototype.getEnv);
-      expect(pattern).toEqual(['env.get']);
+    it('should register every channel', () => {
+      expectChannels(EnvController.prototype, [['getEnv', 'env.get']] as const);
     });
   });
 
