@@ -270,10 +270,7 @@ export const api = {
   createGame: async (payload: CreateGamePayload): Promise<GameWriteResult> => hyveon().games.create(payload),
   updateGame: async (payload: UpdateGamePayload): Promise<GameWriteResult> => hyveon().games.update(payload),
   deleteGame: async (payload: DeleteGamePayload): Promise<GameWriteResult> => hyveon().games.delete(payload),
-  // `GameWizardDraft` has no shared-package counterpart (see file header) — the preload's
-  // independently hand-maintained copy types `ports[].visibility` as optional, this file's as
-  // required. Out of scope here (unlike the CreateGamePayload/UpdateGamePayload drift this PR
-  // fixes at the root): a single-step cast, never `as unknown as`.
+  // Preload types `ports[].visibility` optional, this file's `GameWizardDraft` requires it — hence the cast.
   getGameDraft: async (): Promise<StoredGameWizardDraft | null> =>
     hyveon().games.draft.get() as Promise<StoredGameWizardDraft | null>,
   saveGameDraft: async (draft: GameWizardDraft, stepIndex: number): Promise<void> =>

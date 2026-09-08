@@ -18,6 +18,7 @@ import type {
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
   ExportDiagnosticsBundleResult,
+  GameServerHealthCheckAuth,
   LambdaFunctionKey,
   ManualUpdateCheckResult,
   OpType,
@@ -58,6 +59,7 @@ export type {
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
   ExportDiagnosticsBundleResult,
+  GameServerHealthCheckAuth,
   LambdaFunctionKey,
   ManualUpdateCheckResult,
   OpType,
@@ -324,16 +326,6 @@ export interface GameServerFileSeed {
   content?: string;
   content_base64?: string;
   mode?: string;
-}
-
-/**
- * Credential reference for an authenticated health check.
- *
- * Mirrors `GameServerHealthCheckAuth` in `@hyveon/shared/src/gameServerConfig.ts`
- * — that file is the source of truth; keep this copy in sync with it.
- */
-export interface GameServerHealthCheckAuth {
-  secretArn: string;
 }
 
 /**
