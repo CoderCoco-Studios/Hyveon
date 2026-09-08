@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { errMessage } from '@hyveon/shared';
 import type {
   HyveonStreamHandle,
   IacPlanAck,
@@ -102,7 +103,7 @@ function useIacRunLog(runId: string | null): RunLogState {
         // but a *stream* failure (as opposed to the run failing) would
         // otherwise vanish here silently, so still surface it.
         if (!cancelled) {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errMessage(err);
           update((prev) => ({ ...prev, error: message }));
         }
       } finally {
@@ -208,7 +209,7 @@ export function useIacRun(kind: IacRunKind): UseIacRunResult {
         }
       } catch (err) {
         if (cancelled) return;
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errMessage(err);
         setSubmitError(`${label} run "${runId}" status could not be fetched: ${message}`);
       }
     })();
@@ -242,7 +243,7 @@ export function useIacRun(kind: IacRunKind): UseIacRunResult {
             setSubmitError(ack.error ?? `${label} could not be started.`);
           }
         } catch (err) {
-          setSubmitError(err instanceof Error ? err.message : String(err));
+          setSubmitError(errMessage(err));
         } finally {
           setInFlight(false);
         }

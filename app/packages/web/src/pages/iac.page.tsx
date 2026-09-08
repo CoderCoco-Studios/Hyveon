@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CheckCircle2, Loader2, Play, RotateCcw, ShieldCheck } from 'lucide-react';
 import type { IacPlanPayload } from '@hyveon/desktop-preload';
+import { errMessage } from '@hyveon/shared';
 import { Button } from '../components/ui/button.component.js';
 import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { ErrorBanner } from '../components/error-banner.component.js';
@@ -152,7 +153,7 @@ export function IacPage() {
           setApproveError(ack.error ?? 'Approval failed.');
         }
       } catch (err) {
-        setApproveError(err instanceof Error ? err.message : String(err));
+        setApproveError(errMessage(err));
       } finally {
         setApproving(false);
       }
