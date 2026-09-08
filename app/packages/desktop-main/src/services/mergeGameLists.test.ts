@@ -1,18 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { DriftEntry, GameServer } from '@hyveon/shared';
 import { mergeGameLists } from './mergeGameLists.js';
-
-/** Minimal, valid `GameServer` fixture for a single declared game. */
-function buildGameServer(name: string): GameServer {
-  return {
-    name,
-    image: 'example/image:latest',
-    cpu: 1024,
-    memory: 2048,
-    ports: [{ container: 25565, protocol: 'tcp' }],
-    volumes: [{ name: 'saves', container_path: '/data' }],
-  };
-}
+import { gameServer as buildGameServer } from '../testing/deployment-config.fixture.js';
 
 describe('mergeGameLists', () => {
   it('should mark a game declared-only when it appears only in the deployment config', () => {

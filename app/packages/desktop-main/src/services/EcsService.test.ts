@@ -23,6 +23,8 @@ import type { ConfigService } from './ConfigService.js';
 import type { Ec2Service } from './Ec2Service.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 import type { StackOutputs } from '@hyveon/shared';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
 
 /** Typed stand-in for the AWS ECS SDK client. */
 const ecsMock = mockClient(ECSClient);
@@ -40,7 +42,7 @@ const ec2Mock = mockClient(EC2Client);
  * A canonical set of stack outputs used by most tests. Individual tests
  * spread over this to tweak specific fields (e.g. clearing `domainName`).
  */
-const DEFAULT_OUTPUTS: StackOutputs = {
+const DEFAULT_OUTPUTS: StackOutputs = stackOutputs({
   awsRegion: 'us-east-1',
   ecsClusterName: 'game-cluster',
   ecsClusterArn: 'arn:aws:ecs:us-east-1:123:cluster/game-cluster',
@@ -61,18 +63,14 @@ const DEFAULT_OUTPUTS: StackOutputs = {
   interactionsInvokeUrl: null,
   discordInteractionsUrl: null,
   appliedGameServers: null,
-};
+});
 
 /**
  * Build a minimal ConfigService stub with just the methods EcsService reads.
  * Pass `null` to simulate "nothing has been deployed yet".
  */
 function makeConfig(outputs: StackOutputs | null = DEFAULT_OUTPUTS): ConfigService {
-  const stub: Partial<ConfigService> = {
-    getRegion: () => 'us-east-1',
-    getStackOutputs: async () => outputs,
-  };
-  return stub as ConfigService;
+  return configServiceStub({ outputs });
 }
 
 /**

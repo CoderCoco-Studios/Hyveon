@@ -24,33 +24,20 @@ import type { ConfigService } from './ConfigService.js';
 import type { DeploymentConfigService } from './DeploymentConfigService.js';
 import { ConfigurationNotConfiguredError, GameServerEntryError } from './DeploymentConfigService.js';
 import { logger } from '../logger.js';
-
-/** Minimal, valid `GameServer` fixture matching the Fargate cpu/memory pairing table. */
-function buildGameServer(name: string, overrides: Partial<GameServer> = {}): GameServer {
-  return {
-    name,
-    image: 'example/image:latest',
-    cpu: 1024,
-    memory: 2048,
-    ports: [{ container: 25565, protocol: 'tcp' }],
-    volumes: [{ name: 'saves', container_path: '/data' }],
-    ...overrides,
-  };
-}
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { gameServer, deploymentConfigStub } from '../testing/deployment-config.fixture.js';
 
 /** Structurally-valid config payload (everything but `name`) for a `CreateGamePayload`/`UpdateGamePayload`. */
 function buildConfig(overrides: Partial<Omit<GameServer, 'name'>> = {}): Omit<GameServer, 'name'> {
-  const { name: _name, ...config } = buildGameServer('unused', overrides);
+  const { name: _name, ...config } = gameServer('unused', overrides);
   return config;
 }
 
 /** Build a ConfigService stub with `invalidateCache` and `getStackOutputs` pre-wired. */
 function makeConfigService(options: { outputs?: Partial<StackOutputs> | null } = {}): ConfigService {
   const { outputs = { gameNames: [] } } = options;
-  return {
-    invalidateCache: vi.fn(),
-    getStackOutputs: vi.fn().mockResolvedValue(outputs),
-  } as Partial<ConfigService> as ConfigService;
+  return configServiceStub({ outputs: outputs === null ? null : stackOutputs(outputs) });
 }
 
 /**
@@ -61,13 +48,14 @@ function makeConfigService(options: { outputs?: Partial<StackOutputs> | null } =
  * assertions have a concrete value to check against.
  */
 function makeDeploymentConfig(declared: GameServer[] = [], versionId: string | undefined = 'v-new'): DeploymentConfigService {
-  return {
-    invalidateCache: vi.fn(),
-    getGameServers: vi.fn().mockResolvedValue(declared),
-    addGameServer: vi.fn().mockResolvedValue({ etag: 'etag-new', versionId }),
-    updateGameServer: vi.fn().mockResolvedValue({ etag: 'etag-new', versionId }),
-    removeGameServer: vi.fn().mockResolvedValue({ etag: 'etag-new', versionId }),
-  } as Partial<DeploymentConfigService> as DeploymentConfigService;
+  return deploymentConfigStub(
+    { declared },
+    {
+      addGameServer: vi.fn().mockResolvedValue({ etag: 'etag-new', versionId }),
+      updateGameServer: vi.fn().mockResolvedValue({ etag: 'etag-new', versionId }),
+      removeGameServer: vi.fn().mockResolvedValue({ etag: 'etag-new', versionId }),
+    },
+  );
 }
 
 /** Build an AuditService stub with `record()` pre-wired to a no-op `vi.fn()`. */
@@ -93,7 +81,7 @@ type HealthCheckOverrides = Omit<Partial<GameServerHealthCheck>, 'auth'> & {
 
 /**
  * Build a minimal, fully-valid healthCheck object targeting container port
- * 25565 (matching {@link buildGameServer}'s declared ports); override any
+ * 25565 (matching {@link gameServer}'s declared ports); override any
  * fields — including `auth`, which may be a write-input shape
  * (`{ type, username, password }`/`{ type, token }`/`{ secretArn }`) or a
  * persisted shape (`{ type, secretArn }`) depending on the caller — per test.
@@ -127,7 +115,7 @@ function makeConfig(overrides: { healthCheck?: unknown } & Partial<Omit<GameServ
 
 /** Build a minimal existing `GameServer` entry (as returned by `DeploymentConfigService.getGameServers()`); override any fields, including a persisted `healthCheck`, per test. */
 function makeExistingGame(overrides: Partial<GameServer> = {}): GameServer {
-  return buildGameServer(overrides.name ?? 'minecraft', overrides);
+  return gameServer(overrides.name ?? 'minecraft', overrides);
 }
 
 /**
@@ -167,7 +155,7 @@ describe('GamesWriteService', () => {
       expect(config.invalidateCache).toHaveBeenCalledOnce();
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.game).toEqual(buildGameServer('ark'));
+        expect(result.game).toEqual(gameServer('ark'));
         expect(result.games).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'minecraft' })]));
       }
     });
@@ -212,7 +200,7 @@ describe('GamesWriteService', () => {
         action: 'add',
         game: 'ark',
         before: null,
-        after: buildGameServer('ark'),
+        after: gameServer('ark'),
         versionId: 'v-new',
       });
     });
@@ -368,7 +356,7 @@ describe('GamesWriteService', () => {
 
   describe('updateGame', () => {
     it('should write the updated entry and return the updated game plus the refreshed games list on success', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const config = makeConfigService({ outputs: { gameNames: ['minecraft'] } });
       const service = new GamesWriteService(config, deploymentConfig, makeAudit());
       const newConfig = buildConfig({ cpu: 2048, memory: 4096 });
@@ -380,12 +368,12 @@ describe('GamesWriteService', () => {
       expect(config.invalidateCache).toHaveBeenCalledOnce();
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.game).toEqual(buildGameServer('minecraft', { cpu: 2048, memory: 4096 }));
+        expect(result.game).toEqual(gameServer('minecraft', { cpu: 2048, memory: 4096 }));
       }
     });
 
     it('should record an audit entry exactly once with the pre-mutation sibling entry as before, the validated after, and the write versionId', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfigService(), deploymentConfig, audit);
       const newConfig = buildConfig({ cpu: 2048, memory: 4096 });
@@ -396,14 +384,14 @@ describe('GamesWriteService', () => {
       expect(audit.record).toHaveBeenCalledWith({
         action: 'edit',
         game: 'minecraft',
-        before: buildGameServer('minecraft'),
-        after: buildGameServer('minecraft', { cpu: 2048, memory: 4096 }),
+        before: gameServer('minecraft'),
+        after: gameServer('minecraft', { cpu: 2048, memory: 4096 }),
         versionId: 'v-new',
       });
     });
 
     it('should return a validation failure without writing or recording an audit entry when the proposed config fails business-rule validation', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfigService(), deploymentConfig, audit);
 
@@ -418,7 +406,7 @@ describe('GamesWriteService', () => {
     });
 
     it('should return a conflict result without recording an audit entry when the write raises OptimisticLockError', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       deploymentConfig.updateGameServer = vi.fn().mockRejectedValue(new OptimisticLockError('old-etag', 'new-etag'));
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfigService(), deploymentConfig, audit);
@@ -439,7 +427,7 @@ describe('GamesWriteService', () => {
     });
 
     it('should return a not_found result without recording an audit entry when the target game does not exist in gameServers', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       deploymentConfig.updateGameServer = vi.fn().mockRejectedValue(new GameServerEntryError('Entry "ark" not found in "gameServers".', 'not-found'));
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfigService(), deploymentConfig, audit);
@@ -454,7 +442,7 @@ describe('GamesWriteService', () => {
     });
 
     it('should surface a distinct setup_incomplete code (not the generic error code) without recording an audit entry when updateGameServer() throws ConfigurationNotConfiguredError', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const notConfiguredError = new ConfigurationNotConfiguredError();
       deploymentConfig.updateGameServer = vi.fn().mockRejectedValue(notConfiguredError);
       const audit = makeAudit();
@@ -468,7 +456,7 @@ describe('GamesWriteService', () => {
     });
 
     it('should log a debug entry line naming the game being updated', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const service = new GamesWriteService(makeConfigService(), deploymentConfig, makeAudit());
       const loggerDebugSpy = vi.spyOn(logger, 'debug');
 
@@ -482,7 +470,7 @@ describe('GamesWriteService', () => {
 
   describe('deleteGame', () => {
     it('should remove the entry and return the refreshed games list without a game field on success', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const config = makeConfigService({ outputs: { gameNames: [] } });
       const service = new GamesWriteService(config, deploymentConfig, makeAudit());
 
@@ -498,7 +486,7 @@ describe('GamesWriteService', () => {
     });
 
     it('should record an audit entry exactly once with the pre-mutation sibling entry as before, a null after, and the write versionId', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfigService(), deploymentConfig, audit);
 
@@ -508,14 +496,14 @@ describe('GamesWriteService', () => {
       expect(audit.record).toHaveBeenCalledWith({
         action: 'remove',
         game: 'minecraft',
-        before: buildGameServer('minecraft'),
+        before: gameServer('minecraft'),
         after: null,
         versionId: 'v-new',
       });
     });
 
     it('should emit a structured audit log entry with the game name even though no game object is returned', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const service = new GamesWriteService(makeConfigService(), deploymentConfig, makeAudit());
 
       await service.deleteGame({ name: 'minecraft' });
@@ -524,7 +512,7 @@ describe('GamesWriteService', () => {
     });
 
     it('should log a debug entry line naming the game being deleted', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const service = new GamesWriteService(makeConfigService(), deploymentConfig, makeAudit());
       const loggerDebugSpy = vi.spyOn(logger, 'debug');
 
@@ -536,7 +524,7 @@ describe('GamesWriteService', () => {
     });
 
     it('should return a conflict result without recording an audit entry when the write raises OptimisticLockError', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       deploymentConfig.removeGameServer = vi.fn().mockRejectedValue(new OptimisticLockError('old-etag', 'new-etag'));
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfigService(), deploymentConfig, audit);
@@ -565,7 +553,7 @@ describe('GamesWriteService', () => {
     });
 
     it('should surface a distinct setup_incomplete code (not the generic error code) without recording an audit entry when removeGameServer() throws ConfigurationNotConfiguredError', async () => {
-      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const notConfiguredError = new ConfigurationNotConfiguredError();
       deploymentConfig.removeGameServer = vi.fn().mockRejectedValue(notConfiguredError);
       const audit = makeAudit();

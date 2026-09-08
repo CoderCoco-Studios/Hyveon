@@ -24,10 +24,10 @@ import {
 import { ConfigService } from './ConfigService.js';
 import { logger } from '../logger.js';
 import type { StackOutputs } from '@hyveon/shared';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 
 /** Minimal `StackOutputs` stub exposing just `runsTableName`. */
-const STACK_OUTPUTS: StackOutputs = {
-  awsRegion: 'us-east-1',
+const STACK_OUTPUTS: StackOutputs = stackOutputs({
   ecsClusterName: '',
   ecsClusterArn: '',
   subnetIds: [],
@@ -44,10 +44,7 @@ const STACK_OUTPUTS: StackOutputs = {
   discordPublicKeySecretArn: '',
   fileBrowserCredentialSecretArn: '',
   fileBrowserSchedulerRoleArn: '',
-  interactionsInvokeUrl: null,
-  discordInteractionsUrl: null,
-  appliedGameServers: null,
-};
+});
 
 const acquireRunLockMock = vi.fn<RunRecordStore['acquireRunLock']>();
 const getRunLockMock = vi.fn<RunRecordStore['getRunLock']>();

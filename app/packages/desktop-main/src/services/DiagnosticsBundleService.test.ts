@@ -10,6 +10,10 @@ import type { DeploymentConfigService } from './DeploymentConfigService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { EcsService } from './EcsService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
+import type { StackOutputs } from '@hyveon/shared';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
+import { deploymentConfigStub } from '../testing/deployment-config.fixture.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -39,27 +43,29 @@ function makeDiagnostics(lines: string[] = ['line one', 'line two']): Diagnostic
 }
 
 function makeDeploymentConfig(): DeploymentConfigService {
-  return {
-    getTopLevelSettings: vi.fn().mockResolvedValue({
-      settings: {
-        projectName: 'hyveon',
-        awsRegion: 'us-east-1',
-        vpcCidr: '10.0.0.0/16',
-        hostedZoneName: 'example.com',
-        dnsTtl: 60,
-        watchdogIntervalMinutes: 5,
-        watchdogIdleChecks: 3,
-        watchdogMinPackets: 10,
-        auditTableName: 'hyveon-audit',
-        runsTableName: 'hyveon-runs',
-      },
-    }),
-    getGameServers: vi.fn().mockResolvedValue([]),
-  } as Partial<DeploymentConfigService> as DeploymentConfigService;
+  return deploymentConfigStub(
+    { declared: [] },
+    {
+      getTopLevelSettings: vi.fn().mockResolvedValue({
+        settings: {
+          projectName: 'hyveon',
+          awsRegion: 'us-east-1',
+          vpcCidr: '10.0.0.0/16',
+          hostedZoneName: 'example.com',
+          dnsTtl: 60,
+          watchdogIntervalMinutes: 5,
+          watchdogIdleChecks: 3,
+          watchdogMinPackets: 10,
+          auditTableName: 'hyveon-audit',
+          runsTableName: 'hyveon-runs',
+        },
+      }),
+    },
+  );
 }
 
-function makeConfig(stackOutputs: unknown = null): ConfigService {
-  return { getStackOutputs: vi.fn().mockResolvedValue(stackOutputs) } as Partial<ConfigService> as ConfigService;
+function makeConfig(outputs: StackOutputs | null = null): ConfigService {
+  return configServiceStub({ outputs });
 }
 
 function makeEcs(): EcsService {
@@ -126,10 +132,10 @@ describe('DiagnosticsBundleService.writeBundle', () => {
   it('should write a bundle containing only errors.json when every section fails', async () => {
     const destinationPath = join(tempDir, 'bundle.zip');
     const failingDiagnostics = { readTail: vi.fn().mockRejectedValue(new Error('log read failed')) } as Partial<DiagnosticsService> as DiagnosticsService;
-    const failingDeploymentConfig = {
-      getTopLevelSettings: vi.fn().mockRejectedValue(new Error('config read failed')),
-      getGameServers: vi.fn().mockResolvedValue([]),
-    } as Partial<DeploymentConfigService> as DeploymentConfigService;
+    const failingDeploymentConfig = deploymentConfigStub(
+      { declared: [] },
+      { getTopLevelSettings: vi.fn().mockRejectedValue(new Error('config read failed')) },
+    );
     const failingConfig = { getStackOutputs: vi.fn().mockRejectedValue(new Error('aws call failed')) } as Partial<ConfigService> as ConfigService;
     const failingStore = {
       get: vi.fn().mockImplementation(() => {
@@ -168,19 +174,24 @@ describe('DiagnosticsBundleService.writeBundle', () => {
 
   it('should gather a per-game AWS snapshot when stack outputs are present', async () => {
     const destinationPath = join(tempDir, 'bundle.zip');
-    const outputs = {
+    const outputs = stackOutputs({
       awsRegion: 'us-east-1',
       ecsClusterName: 'hyveon-cluster',
       domainName: 'example.com',
       gameNames: ['minecraft'],
-    };
+    });
     const service = new DiagnosticsBundleService(makeDiagnostics(), makeDeploymentConfig(), makeConfig(outputs), makeEcs(), makeStore());
 
     await service.writeBundle(destinationPath);
 
     const entries = await readZipEntries(destinationPath);
     const aws = JSON.parse(entries['aws-snapshot.json']!);
-    expect(aws.stackOutputs).toEqual(outputs);
+    expect(aws.stackOutputs).toEqual({
+      awsRegion: outputs.awsRegion,
+      ecsClusterName: outputs.ecsClusterName,
+      domainName: outputs.domainName,
+      gameNames: outputs.gameNames,
+    });
     expect(aws.games).toEqual([{ game: 'minecraft', state: 'running' }]);
   });
 
@@ -197,12 +208,12 @@ describe('DiagnosticsBundleService.writeBundle', () => {
 
   it('should keep the other game statuses and stackOutputs when one game status lookup rejects', async () => {
     const destinationPath = join(tempDir, 'bundle.zip');
-    const outputs = {
+    const outputs = stackOutputs({
       awsRegion: 'us-east-1',
       ecsClusterName: 'hyveon-cluster',
       domainName: 'example.com',
       gameNames: ['minecraft', 'valheim'],
-    };
+    });
     const partiallyFailingEcs = {
       getStatus: vi.fn().mockImplementation((game: string) =>
         game === 'valheim'
@@ -223,7 +234,12 @@ describe('DiagnosticsBundleService.writeBundle', () => {
     expect(result).toEqual({ path: destinationPath });
     const entries = await readZipEntries(destinationPath);
     const aws = JSON.parse(entries['aws-snapshot.json']!);
-    expect(aws.stackOutputs).toEqual(outputs);
+    expect(aws.stackOutputs).toEqual({
+      awsRegion: outputs.awsRegion,
+      ecsClusterName: outputs.ecsClusterName,
+      domainName: outputs.domainName,
+      gameNames: outputs.gameNames,
+    });
     expect(aws.games).toEqual([
       { game: 'minecraft', state: 'running' },
       { game: 'valheim', state: 'error', message: 'ECS DescribeTasks failed' },

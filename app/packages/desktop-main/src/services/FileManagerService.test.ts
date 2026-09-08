@@ -13,12 +13,14 @@ import type { EcsService } from './EcsService.js';
 import type { Ec2Service } from './Ec2Service.js';
 import type { SchedulerService } from './SchedulerService.js';
 import type { StackOutputs } from '@hyveon/shared';
+import { stackOutputs } from '../testing/stack-outputs.fixture.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
 
 /**
  * A canonical set of stack outputs used by most tests. Individual tests
  * spread over this to tweak specific fields (e.g. clearing EFS access points).
  */
-const DEFAULT_OUTPUTS: StackOutputs = {
+const DEFAULT_OUTPUTS: StackOutputs = stackOutputs({
   awsRegion: 'us-east-1',
   ecsClusterName: 'game-cluster',
   ecsClusterArn: 'arn:...',
@@ -39,7 +41,7 @@ const DEFAULT_OUTPUTS: StackOutputs = {
   interactionsInvokeUrl: null,
   discordInteractionsUrl: null,
   appliedGameServers: null,
-};
+});
 
 /**
  * Subset of EcsService that FileManagerService actually calls. Tests create
@@ -61,11 +63,7 @@ type EcsStub = Pick<
  * hasn't been deployed yet".
  */
 function makeConfig(outputs: StackOutputs | null = DEFAULT_OUTPUTS): ConfigService {
-  const stub: Partial<ConfigService> = {
-    getStackOutputs: async () => outputs,
-    getRegion: () => 'us-east-1',
-  };
-  return stub as ConfigService;
+  return configServiceStub({ outputs });
 }
 
 /**

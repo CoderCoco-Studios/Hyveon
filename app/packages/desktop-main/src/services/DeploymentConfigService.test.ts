@@ -46,8 +46,9 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { DeploymentConfigService, ConfigurationNotConfiguredError, GameServerEntryError } from './DeploymentConfigService.js';
-import { ConfigService } from './ConfigService.js';
+import type { ConfigService } from './ConfigService.js';
 import { logger } from '../logger.js';
+import { configServiceStub } from '../testing/config-service.fixture.js';
 
 /** A minimal, valid deployment config defining a single game server. */
 const FIXTURE_CONFIG: DeploymentConfig = {
@@ -314,11 +315,13 @@ class TestableDeploymentConfigService extends DeploymentConfigService {
 
 /**
  * Builds a `ConfigService` stub exposing just the methods `DeploymentConfigService`
- * reads. `bucket: null` (the default) selects the "unconfigured" state; any
+ * reads, layered on {@link configServiceStub} for the shared `getRegion`/`getStackOutputs`/
+ * `invalidateCache` trio. `bucket: null` (the default) selects the "unconfigured" state; any
  * non-null string selects the configured (S3) state.
  */
 function makeConfig(opts: { bucket?: string | null; ttlMs?: number } = {}): ConfigService {
   const stub: Partial<ConfigService> = {
+    ...configServiceStub(),
     getConfigurationBucket: () => opts.bucket ?? null,
     readEnvConfigCacheTtlMs: () => opts.ttlMs ?? 30000,
   };
