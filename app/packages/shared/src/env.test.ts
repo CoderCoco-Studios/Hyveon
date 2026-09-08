@@ -69,4 +69,11 @@ describe('familyToGameMap', () => {
   it('should return an empty object for an empty game list', () => {
     expect(familyToGameMap([])).toEqual({});
   });
+
+  it('should return undefined, not an inherited Object.prototype member, for a family named after one', () => {
+    const map = familyToGameMap(['palworld']);
+    expect(map['constructor']).toBeUndefined();
+    expect(map['toString']).toBeUndefined();
+    expect(map['hasOwnProperty']).toBeUndefined();
+  });
 });

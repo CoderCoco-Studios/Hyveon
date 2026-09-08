@@ -53,9 +53,14 @@ export function parseGameMapEnv<T>(name: string): Record<string, T> {
  * the `{game}-server` family naming convention used across the infra program's task
  * definitions.
  *
+ * @remarks
+ * Built with a `null` prototype so a bracket lookup for an inherited `Object.prototype`
+ * key (e.g. a task family literally named `constructor` or `toString`) returns `undefined`
+ * instead of the inherited function — callers rely on `!map[family]` to detect an unknown game.
+ *
  * @param names - Game names, typically from {@link gameNamesFromEnv}.
  * @returns Map from `{game}-server` to `game`.
  */
 export function familyToGameMap(names: string[]): Record<string, string> {
-  return Object.fromEntries(names.map((g) => [`${g}-server`, g]));
+  return Object.assign(Object.create(null) as Record<string, string>, Object.fromEntries(names.map((g) => [`${g}-server`, g])));
 }

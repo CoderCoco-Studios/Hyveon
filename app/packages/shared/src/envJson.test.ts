@@ -36,7 +36,23 @@ describe('parseJsonEnv', () => {
     expect(warn).toHaveBeenCalledTimes(3);
   });
 
-  it('should accept a parsed array when the fallback is an object', () => {
-    expect(parseJsonEnv('FOO', '[1,2,3]', {})).toEqual([1, 2, 3]);
+  it('should return the fallback and log a warning when the value is a JSON array but the fallback is a plain object', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(parseJsonEnv('GAME_MAP', '["palworld"]', {})).toEqual({});
+
+    expect(warn).toHaveBeenCalledWith('Malformed GAME_MAP env var — falling back to default', expect.any(Object));
+  });
+
+  it('should accept a parsed array when the fallback is itself an array', () => {
+    expect(parseJsonEnv('FOO', '[1,2,3]', [] as number[])).toEqual([1, 2, 3]);
+  });
+
+  it('should return the fallback when the value is a JSON object but the fallback is an array', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(parseJsonEnv('FOO', '{"a":1}', [] as number[])).toEqual([]);
+
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });
