@@ -19,6 +19,7 @@ import type {
   WorkloadStatus,
 } from '@hyveon/shared';
 import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR, getTaskEniId, resolveEniPublicIp } from '@hyveon/shared';
+import { createCachedAwsClient } from './cachedClient.js';
 
 /**
  * Fargate on-demand pricing constants (us-east-1). Re-exported here from
@@ -181,12 +182,27 @@ export interface AwsCloudProviderLogger {
  * `openspec/changes/remove-cost-explorer-calls`.
  */
 export class AwsCloudProvider implements CloudProvider {
-  private ecsClient: ECSClient | null = null;
-  private ecsClientCacheKey: string | null = null;
-  private ec2Client: EC2Client | null = null;
-  private ec2ClientCacheKey: string | null = null;
-  private logsClient: CloudWatchLogsClient | null = null;
-  private logsClientCacheKey: string | null = null;
+  private readonly getCachedEcsClient = createCachedAwsClient(
+    (config: {
+      region: string;
+      credentials: AwsCloudProviderConfig['credentials'];
+      credentialsSignature: AwsCloudProviderConfig['credentialsSignature'];
+    }) => new ECSClient({ region: config.region, credentials: config.credentials }),
+  );
+  private readonly getCachedEc2Client = createCachedAwsClient(
+    (config: {
+      region: string;
+      credentials: AwsCloudProviderConfig['credentials'];
+      credentialsSignature: AwsCloudProviderConfig['credentialsSignature'];
+    }) => new EC2Client({ region: config.region, credentials: config.credentials }),
+  );
+  private readonly getCachedLogsClient = createCachedAwsClient(
+    (config: {
+      region: string;
+      credentials: AwsCloudProviderConfig['credentials'];
+      credentialsSignature: AwsCloudProviderConfig['credentialsSignature'];
+    }) => new CloudWatchLogsClient({ region: config.region, credentials: config.credentials }),
+  );
 
   /**
    * Per-game tail of the in-flight critical-section chain, used by {@link
@@ -230,12 +246,7 @@ export class AwsCloudProvider implements CloudProvider {
     credentials: AwsCloudProviderConfig['credentials'],
     credentialsSignature: AwsCloudProviderConfig['credentialsSignature'],
   ): ECSClient {
-    const cacheKey = `${region}::${credentialsSignature ?? ''}`;
-    if (!this.ecsClient || this.ecsClientCacheKey !== cacheKey) {
-      this.ecsClient = new ECSClient({ region, credentials });
-      this.ecsClientCacheKey = cacheKey;
-    }
-    return this.ecsClient;
+    return this.getCachedEcsClient({ region, credentials, credentialsSignature });
   }
 
   /**
@@ -248,12 +259,7 @@ export class AwsCloudProvider implements CloudProvider {
     credentials: AwsCloudProviderConfig['credentials'],
     credentialsSignature: AwsCloudProviderConfig['credentialsSignature'],
   ): EC2Client {
-    const cacheKey = `${region}::${credentialsSignature ?? ''}`;
-    if (!this.ec2Client || this.ec2ClientCacheKey !== cacheKey) {
-      this.ec2Client = new EC2Client({ region, credentials });
-      this.ec2ClientCacheKey = cacheKey;
-    }
-    return this.ec2Client;
+    return this.getCachedEc2Client({ region, credentials, credentialsSignature });
   }
 
   /**
@@ -266,12 +272,7 @@ export class AwsCloudProvider implements CloudProvider {
     credentials: AwsCloudProviderConfig['credentials'],
     credentialsSignature: AwsCloudProviderConfig['credentialsSignature'],
   ): CloudWatchLogsClient {
-    const cacheKey = `${region}::${credentialsSignature ?? ''}`;
-    if (!this.logsClient || this.logsClientCacheKey !== cacheKey) {
-      this.logsClient = new CloudWatchLogsClient({ region, credentials });
-      this.logsClientCacheKey = cacheKey;
-    }
-    return this.logsClient;
+    return this.getCachedLogsClient({ region, credentials, credentialsSignature });
   }
 
   /**

@@ -21,7 +21,8 @@ import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { Ec2Service } from './Ec2Service.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.js';
+import { resolveAwsClientCredentialsWithSignature, type AwsClientCredentials } from './awsCredentialSource.js';
+import { createCachedAwsClient } from './awsClientCache.js';
 import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
 
 /**
@@ -180,8 +181,10 @@ export interface StartResult {
  */
 @Injectable()
 export class EcsService {
-  private client: ECSClient | null = null;
-  private clientCacheKey: string | null = null;
+  private readonly getCachedClient = createCachedAwsClient(
+    (config: { region: string; credentials: AwsClientCredentials; credentialsSignature: string }) =>
+      new ECSClient({ region: config.region, credentials: config.credentials }),
+  );
 
   constructor(
     private readonly config: ConfigService,
@@ -204,12 +207,7 @@ export class EcsService {
   private getClient(): ECSClient {
     const region = this.config.getRegion();
     const { credentials, signature } = resolveAwsClientCredentialsWithSignature(this.store);
-    const cacheKey = `${region}::${signature}`;
-    if (!this.client || this.clientCacheKey !== cacheKey) {
-      this.client = new ECSClient({ region, credentials });
-      this.clientCacheKey = cacheKey;
-    }
-    return this.client;
+    return this.getCachedClient({ region, credentials, credentialsSignature: signature });
   }
 
   /**
