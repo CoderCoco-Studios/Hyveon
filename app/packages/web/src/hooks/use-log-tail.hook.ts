@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HyveonStreamHandle, LogChunk, LogEventLine, NewerLogsPage, OlderLogsPage } from '@hyveon/desktop-preload';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /**
  * Maximum number of lines kept loaded in the viewport at once, in either
@@ -277,7 +278,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   const startStream = useCallback(
     (t: string) => {
       if (!window.hyveon) {
-        setError('IPC bridge (window.hyveon) is not available in this context.');
+        setError(BRIDGE_UNAVAILABLE);
         return;
       }
       stopStream();
@@ -331,7 +332,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
       if (!target) return;
 
       if (!window.hyveon) {
-        if (!cancelled) setError('IPC bridge (window.hyveon) is not available in this context.');
+        if (!cancelled) setError(BRIDGE_UNAVAILABLE);
         return;
       }
       try {
