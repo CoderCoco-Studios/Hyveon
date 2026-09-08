@@ -14,9 +14,14 @@
  * failure handles it, rather than relying on a lower layer that may never
  * run at all.
  */
-import { ECSClient, DescribeTasksCommand, type Task } from '@aws-sdk/client-ecs';
+import { ECSClient, DescribeTasksCommand } from '@aws-sdk/client-ecs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import type { GameServerHealthCheck, GameServerHealthCheckAuth } from '@hyveon/shared';
+import {
+  getTaskPrivateIp,
+  requireEnv,
+  type GameServerHealthCheck,
+  type GameServerHealthCheckAuth,
+} from '@hyveon/shared';
 import { evaluateHealthCheck, type HealthCheckVerdict } from './engine.js';
 
 /** Invocation payload the watchdog sends: the game whose task is being checked, the task's ARN, and its declared health check. */
@@ -29,12 +34,6 @@ export interface HealthCheckEvent {
 function region(): string {
   // AWS_REGION_ (trailing underscore) — AWS_REGION is reserved by the Lambda runtime and cannot be set as a function env var.
   return process.env['AWS_REGION_'] ?? process.env['AWS_REGION'] ?? process.env['AWS_DEFAULT_REGION'] ?? 'us-east-1';
-}
-
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var ${name}`);
-  return v;
 }
 
 const ECS_CLUSTER = requireEnv('ECS_CLUSTER');
@@ -58,27 +57,13 @@ function log(level: 'debug' | 'warn', message: string, fields: Record<string, un
  * than `networkInterfaceId`). This is the sole source of the request's
  * destination host; the declared configuration never supplies one.
  */
-function getPrivateIpAddress(task: Task): string | null {
-  for (const attachment of task.attachments ?? []) {
-    if (attachment.type !== 'ElasticNetworkInterface') {
-      continue;
-    }
-    for (const detail of attachment.details ?? []) {
-      if (detail.name === 'privateIPv4Address') {
-        return detail.value ?? null;
-      }
-    }
-  }
-  return null;
-}
-
 async function resolveTaskHost(taskArn: string): Promise<string> {
   const resp = await ecs.send(new DescribeTasksCommand({ cluster: ECS_CLUSTER, tasks: [taskArn] }));
   const task = resp.tasks?.[0];
   if (!task) {
     throw new Error(`ECS task ${taskArn} was not found`);
   }
-  const host = getPrivateIpAddress(task);
+  const host = getTaskPrivateIp(task);
   if (!host) {
     throw new Error(`No private IPv4 address found for task ${taskArn}`);
   }

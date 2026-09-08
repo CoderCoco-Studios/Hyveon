@@ -20,12 +20,21 @@ import {
   StopTaskCommand,
   type Task,
 } from '@aws-sdk/client-ecs';
-import {
-  EC2Client,
-  DescribeNetworkInterfacesCommand,
-} from '@aws-sdk/client-ec2';
+import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
 // `canRun` is the single shared copy; never inline or fork it.
-import { canRun, formatGameStatus, getEffectiveDiscordConfig, parseJsonEnv, putPending } from '@hyveon/shared';
+import {
+  canRun,
+  formatGameStatus,
+  gameNamesFromEnv,
+  getEffectiveDiscordConfig,
+  getTaskEniId,
+  parseGameMapEnv,
+  patchInteractionOriginal,
+  putPending,
+  renderConnectMessage,
+  requireEnv,
+  resolveEniPublicIp,
+} from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig, GameStatus } from '@hyveon/shared';
 
 interface FollowupEvent {
@@ -61,38 +70,11 @@ function getEc2(): EC2Client {
   return ec2Client;
 }
 
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var ${name}`);
-  return v;
-}
+/** Per-game connect message templates, keyed by game name — sourced from `DeploymentConfig.gameServers` and wired into this env var by the infra program (`app/packages/infra/src/lambdas.ts`). Parsed defensively — see {@link parseGameMapEnv}. */
+const CONNECT_MESSAGES: Record<string, string> = parseGameMapEnv('CONNECT_MESSAGES');
 
-function gameListFromEnv(): string[] {
-  return (process.env['GAME_NAMES'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-}
-
-/** Per-game connect message templates, keyed by game name — sourced from `DeploymentConfig.gameServers` and wired into this env var by the infra program (`app/packages/infra/src/lambdas.ts`). Parsed defensively — see {@link parseJsonEnv}. */
-const CONNECT_MESSAGES: Record<string, string> = parseJsonEnv('CONNECT_MESSAGES', process.env['CONNECT_MESSAGES'], {});
-
-/** First container port per game, used to resolve the `{port}` placeholder. Parsed defensively — see {@link parseJsonEnv}. */
-const GAME_PORTS: Record<string, number> = parseJsonEnv('GAME_PORTS', process.env['GAME_PORTS'], {});
-
-function extractEniId(task: Task): string | null {
-  for (const att of task.attachments ?? []) {
-    if (att.type !== 'ElasticNetworkInterface') continue;
-    for (const detail of att.details ?? []) {
-      if (detail.name === 'networkInterfaceId') return detail.value ?? null;
-    }
-  }
-  return null;
-}
-
-async function getPublicIp(eniId: string): Promise<string | null> {
-  const resp = await getEc2().send(
-    new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }),
-  );
-  return resp.NetworkInterfaces?.[0]?.Association?.PublicIp ?? null;
-}
+/** First container port per game, used to resolve the `{port}` placeholder. Parsed defensively — see {@link parseGameMapEnv}. */
+const GAME_PORTS: Record<string, number> = parseGameMapEnv('GAME_PORTS');
 
 async function findRunningTask(cluster: string, game: string): Promise<Task | null> {
   const list = await getEcs().send(
@@ -110,8 +92,13 @@ async function getStatus(game: string): Promise<GameStatus> {
     const task = await findRunningTask(cluster, game);
     if (task) {
       if (task.lastStatus === 'RUNNING') {
-        const eniId = extractEniId(task);
-        const publicIp = eniId ? await getPublicIp(eniId) : null;
+        const eniId = getTaskEniId(task);
+        const publicIp = eniId
+          ? await resolveEniPublicIp(
+              (id) => getEc2().send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [id] })),
+              eniId,
+            )
+          : null;
         return {
           game,
           state: 'running',
@@ -174,28 +161,8 @@ async function runStop(game: string): Promise<string> {
   }
 }
 
-const DISCORD_API = 'https://discord.com/api/v10';
-
-/** PATCH the original deferred-ack message. */
-async function patchOriginal(
-  applicationId: string,
-  interactionToken: string,
-  content: string,
-): Promise<void> {
-  const url = `${DISCORD_API}/webhooks/${applicationId}/${interactionToken}/messages/@original`;
-  const resp = await fetch(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    console.error('Discord PATCH failed', { status: resp.status, body });
-  }
-}
-
 async function handleList(event: FollowupEvent, cfg: DiscordConfig): Promise<string> {
-  const games = gameListFromEnv();
+  const games = gameNamesFromEnv();
   if (!games.length) return 'No games configured.';
   const visible = games.filter((g) =>
     canRun(cfg, {
@@ -236,11 +203,8 @@ async function handleStart(event: FollowupEvent): Promise<string> {
       const port = GAME_PORTS[event.game];
       const domain = process.env['DOMAIN_NAME'] ?? '';
       const host = domain ? `${event.game}.${domain}` : '';
-      const rendered = connectMsg
-        .replace(/\{host\}/g, host)
-        .replace(/\{ip\}/g, '')
-        .replace(/\{port\}/g, port !== undefined ? String(port) : '')
-        .replace(/\{game\}/g, event.game);
+      // {ip} is deliberately blank here — the task hasn't reached RUNNING yet, so no public IP exists.
+      const rendered = renderConnectMessage(connectMsg, { host, ip: '', port, game: event.game });
       return `${message}\n${rendered}`;
     }
   }
@@ -305,5 +269,5 @@ export const handler = async (event: FollowupEvent): Promise<void> => {
     content = '❌ Command failed. Check server logs.';
   }
 
-  await patchOriginal(event.applicationId, event.interactionToken, content);
+  await patchInteractionOriginal(event.applicationId, event.interactionToken, content);
 };
