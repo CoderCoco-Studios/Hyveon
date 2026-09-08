@@ -9,11 +9,31 @@
  * --git-dir` (worktree-specific, e.g. .git/worktrees/<name>) against
  * `--git-common-dir` (always the real .git) — they differ only inside a
  * linked worktree.
+ *
+ * Edit/Write only trip this guard when the target `file_path` actually
+ * resolves inside the repo's working tree — a file elsewhere on disk (a
+ * plan under `~/.claude/plans/`, a memory file under `~/.claude/projects/`)
+ * isn't a tracked-file change this rule is about, and the session's git
+ * state is irrelevant to it. Containment is checked on the realpath of
+ * both sides, not the lexical path, so a symlink under an allowed
+ * directory can't be used to reach a tracked file without detection.
  */
 
 import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { readStdin, deny, allow, isRecord } from './lib/hook-io.js';
+
+/** Resolves through symlinks, falling back to a plain resolve for a path (or path prefix) that doesn't exist yet. */
+function resolveReal(target: string): string {
+  try {
+    return realpathSync(target);
+  } catch {
+    const dir = path.dirname(target);
+    if (dir === target) return target;
+    return path.join(resolveReal(dir), path.basename(target));
+  }
+}
 
 const GIT_ADD_COMMIT = /(^|[;&|]\s*)git\s+(add|commit)\b/;
 
@@ -42,8 +62,8 @@ if (!isRecord(parsed)) allow();
 const input = parsed as Record<string, unknown>;
 
 const toolName = input.tool_name;
+const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
 if (toolName === 'Bash') {
-  const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
   const command = typeof toolInput.command === 'string' ? toolInput.command : '';
   if (!GIT_ADD_COMMIT.test(command)) allow();
 } else if (toolName === 'CreateWorktree') {
@@ -54,12 +74,26 @@ if (toolName === 'Bash') {
 
 let gitDir: string;
 let commonDir: string;
+let toplevel: string;
 try {
   gitDir = git(['rev-parse', '--git-dir']);
   commonDir = git(['rev-parse', '--git-common-dir']);
+  toplevel = git(['rev-parse', '--show-toplevel']);
 } catch {
   // Not a git repo — nothing to enforce.
   allow();
+}
+
+if (toolName === 'Edit' || toolName === 'Write') {
+  const filePath = typeof toolInput.file_path === 'string' ? toolInput.file_path : '';
+  const resolved = resolveReal(path.resolve(process.cwd(), filePath));
+  const repoRoot = resolveReal(path.resolve(toplevel));
+  const relativeToRepo = path.relative(repoRoot, resolved);
+  const outsideRepo =
+    relativeToRepo === ''
+      ? false
+      : relativeToRepo === '..' || relativeToRepo.startsWith('..' + path.sep) || path.isAbsolute(relativeToRepo);
+  if (!filePath || outsideRepo) allow();
 }
 
 const inWorktree = path.resolve(gitDir) !== path.resolve(commonDir);
