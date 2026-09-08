@@ -11,6 +11,5 @@
     "${configDir}/src/**/*.test.ts",
     "${configDir}/dist",
     "${configDir}/node_modules"
-  ],
-  "references": [{ "path": "${configDir}/../../shared/tsconfig.json" }]
+  ]
 }

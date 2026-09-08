@@ -1,3 +1,4 @@
 {
-  "extends": "../tsconfig.lambda.json"
+  "extends": "../tsconfig.lambda.json",
+  "references": [{ "path": "../../shared/tsconfig.json" }]
 }
