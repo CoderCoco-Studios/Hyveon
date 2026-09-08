@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException, Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
-import { computeRunDetailStatus, type RunDetailStatus, type RunPageResult, type RunStatus } from '@hyveon/shared';
+import { computeRunDetailStatus, errMessage, type RunDetailStatus, type RunPageResult, type RunStatus } from '@hyveon/shared';
 import {
   PulumiService,
   type PulumiRunChunk,
@@ -384,7 +384,7 @@ export class IacRunsController implements OnModuleInit {
       const token = await this.runService.mintLockClearConfirmationToken(expectedRunId);
       return { token };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       const reason = err instanceof RunLockChangedError ? 'the held lock has changed' : 'no run lock currently held';
       logger.warn(`iac.runs.lock.clear.mintToken rejected: ${reason}`, { error: message });
       throw new BadRequestException({ success: false, error: message });
@@ -421,7 +421,7 @@ export class IacRunsController implements OnModuleInit {
         logger.warn('iac.runs.lock.clear rejected: confirmation not fresh', { error: err.message });
         return { cleared: false, error: err.message };
       }
-      const error = err instanceof Error ? err.message : String(err);
+      const error = errMessage(err);
       logger.error('iac.runs.lock.clear error', { error });
       return { cleared: false, error };
     }

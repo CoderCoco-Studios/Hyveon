@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { IAMClient, CreateAccessKeyCommand, DeleteAccessKeyCommand } from '@aws-sdk/client-iam';
-import { generateHyveonDeployAllPolicy, generateHyveonSelfRotatePolicy } from '@hyveon/shared';
+import { errMessage, generateHyveonDeployAllPolicy, generateHyveonSelfRotatePolicy } from '@hyveon/shared';
 import { resolveCloudFormationTemplatePath } from '../cloudformationTemplate.js';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
@@ -332,7 +332,7 @@ export class GuidedIamService {
       }
       return { accountId: response.Account };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('GuidedIamService.intakeBootstrapKey: failed to validate the pasted bootstrap key', {
         region: input.region,
         error: message,
@@ -452,7 +452,7 @@ export class GuidedIamService {
         {
           sleep: (ms) => this.sleep(ms),
           onAttemptFailed: (attempt, totalAttempts, attemptErr) => {
-            const attemptMessage = attemptErr instanceof Error ? attemptErr.message : String(attemptErr);
+            const attemptMessage = errMessage(attemptErr);
             logger.warn('GuidedIamService.rotate: verification attempt failed for newly minted key', {
               accessKeyId: newKey.AccessKeyId,
               attempt,
@@ -463,7 +463,7 @@ export class GuidedIamService {
         },
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('GuidedIamService.rotate: verification failed for newly minted key after exhausting all retry attempts', {
         accessKeyId: newKey.AccessKeyId,
         error: message,
@@ -477,7 +477,7 @@ export class GuidedIamService {
         await bootstrapClient.send(new DeleteAccessKeyCommand({ AccessKeyId: newKey.AccessKeyId }));
         this.store.deletePastedCredentials(GUIDED_PROFILE_NAME);
       } catch (cleanupErr) {
-        const cleanupMessage = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+        const cleanupMessage = errMessage(cleanupErr);
         logger.warn('GuidedIamService.rotate: failed to clean up orphaned new key after verification failure — may need manual cleanup', {
           accessKeyId: newKey.AccessKeyId,
           error: cleanupMessage,
@@ -498,7 +498,7 @@ export class GuidedIamService {
       const newIamClient = this.createIamClient(newCreds);
       await newIamClient.send(new DeleteAccessKeyCommand({ AccessKeyId: input.bootstrapAccessKeyId }));
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('GuidedIamService.rotate: failed to delete bootstrap access key — still active, revoke manually', {
         bootstrapAccessKeyId: input.bootstrapAccessKeyId,
         error: message,
@@ -570,7 +570,7 @@ export class GuidedIamService {
     try {
       source = resolveAwsCredentialSource(this.store);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       return { revoked: false, message };
     }
 
@@ -593,7 +593,7 @@ export class GuidedIamService {
       await client.send(new DeleteAccessKeyCommand({ AccessKeyId: input.bootstrapAccessKeyId }));
       return { revoked: true };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('GuidedIamService.revokeBootstrapKey: iam:DeleteAccessKey failed for the bootstrap key', {
         error: message,
       });

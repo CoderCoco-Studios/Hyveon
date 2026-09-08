@@ -25,27 +25,35 @@
  * method live on its prototype, which the clone drops). Every streaming
  * channel below is therefore split into two layers:
  *
- * - A **preload-internal** `async function*` (`streamLogs`,
- *   `streamStackInitialize`, `streamIacRunLogs`) that does the real IPC
- *   listener wiring and still accepts a real `AbortSignal` — this signal is
- *   always minted *inside* preload by a `bridgeStream` wrapper, so it never
- *   itself crosses the bridge.
- * - A thin **bridge-facing wrapper** (`openLogsStream`, `openStackInitializeStream`,
- *   `openIacRunLogsStream`) that mints an `AbortController`, calls the
- *   internal generator with its signal, and hands the renderer a
- *   {@link HyveonStreamHandle} — a plain object with an own `next()`, an own
- *   `cancel()`, and an own `[Symbol.asyncIterator]` returning itself. This
- *   shape was empirically verified to survive the clone boundary intact and
- *   remains directly usable in a renderer-side `for await` loop over the
- *   handle. `cancel()` aborts the wrapper's internal controller, driving the
- *   same cancellation path the internal generator already had.
+ * - A **preload-internal** `async function*` (`streamLogs`, `streamLambdaLogs`,
+ *   `streamStackInitialize`, `streamIacRunLogs`) — each built by
+ *   {@link createBufferedStream} in `stream-bridge.ts`, which does the real
+ *   IPC listener wiring and still accepts a real `AbortSignal` — this signal
+ *   is always minted *inside* preload by a `bridgeStream` wrapper, so it
+ *   never itself crosses the bridge.
+ * - A thin **bridge-facing wrapper** (`openLogsStream`, `openLambdaLogsStream`,
+ *   `openStackInitializeStream`, `openIacRunLogsStream`) that mints an
+ *   `AbortController`, calls the internal generator with its signal, and
+ *   hands the renderer a {@link HyveonStreamHandle} — a plain object with an
+ *   own `next()`, an own `cancel()`, and an own `[Symbol.asyncIterator]`
+ *   returning itself. This shape was empirically verified to survive the
+ *   clone boundary intact and remains directly usable in a renderer-side
+ *   `for await` loop over the handle. `cancel()` aborts the wrapper's
+ *   internal controller, driving the same cancellation path the internal
+ *   generator already had.
  *
- * See each `streamX`/`openXStream` function's own doc for its channel names and
- * streamId-filtering details; `iac.plan`/`iac.runs.get`/`iac.runs.list`/`iac.runs.logUrl` are
- * plain `invoke` calls with no streaming involved.
+ * `createBufferedStream` is called four times, here, to produce those four separately-named
+ * generators — it is never used to build the exposed `window.hyveon` object itself, which stays a
+ * plain object literal of statically named, own-enumerable properties (see `hyveon-api.ts`'s
+ * {@link HyveonStreamHandle} doc for why a Proxy/generated surface can't cross the bridge either).
+ * See each `streamX`/`openXStream` function's own doc for its channel names and streamId-filtering
+ * details; `iac.plan`/`iac.runs.get`/`iac.runs.list`/`iac.runs.logUrl` are plain `invoke` calls
+ * with no streaming involved.
  */
 
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+
+import { createBufferedStream } from './stream-bridge.js';
 
 import type {
   AutoUpdateSettingGetResult,
@@ -166,400 +174,104 @@ function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
 }
 
 /**
- * Preload-internal — never exposed to the renderer directly (see {@link openLogsStream}).
- * Bridges the per-stream chunk/end/cancel IPC channels into an {@link AsyncIterable} of log
- * chunks.
- *
- * When a mock is registered for the `'logs.stream'` channel (test mode only), the mock handler is
- * called with `(game, signal)` and its return value is treated as an `AsyncIterable<LogChunk>` —
- * the real IPC listener path is never touched.
- *
- * In production, opens the stream via `ipcRenderer.invoke('logs.stream', game)`, buffers incoming
- * chunks, and yields them in order. Completes when `.end` fires (throwing if it carried an
- * `error`). If the consumer aborts `signal` or breaks out of the loop early, `finally` detaches
- * all listeners and sends `.cancel` so the main process tears the stream down.
+ * Preload-internal — never exposed to the renderer directly (see {@link openLogsStream}). Bridges
+ * the per-stream `logs.stream.<id>.{chunk,end,cancel}` IPC channels into an
+ * {@link AsyncIterable} of log chunks, via {@link createBufferedStream}'s per-call channel style.
+ * When a mock is registered for `'logs.stream'` (test mode only), it is called with
+ * `(game, signal)` and its return value is treated as an `AsyncIterable<LogChunk>` instead.
  */
-async function* streamLogs(game: string, signal?: AbortSignal): AsyncGenerator<LogChunk> {
-  const streamMock = mockRegistry.get('logs.stream');
-  if (streamMock !== undefined) {
-    const mockIterable = streamMock(game, signal) as AsyncIterable<LogChunk>;
-    yield* mockIterable;
-    return;
-  }
-
-  const { streamId } = (await invoke('logs.stream', game)) as { streamId: string };
-  const chunkChannel = `logs.stream.${streamId}.chunk`;
-  const endChannel = `logs.stream.${streamId}.end`;
-  const sendCancel = () => ipcRenderer.send(`logs.stream.${streamId}.cancel`);
-
-  /** Chunks received but not yet yielded. */
-  const buffer: LogChunk[] = [];
-  let ended = false;
-  let endError: string | undefined;
-  /** Resolves the pending `await` when a chunk arrives or the stream ends. */
-  let wake: (() => void) | null = null;
-  const signalWake = () => {
-    if (wake) {
-      const fn = wake;
-      wake = null;
-      fn();
-    }
-  };
-
-  const onChunk = (_evt: IpcRendererEvent, chunk: LogChunk) => {
-    buffer.push(chunk);
-    signalWake();
-  };
-  const onEnd = (_evt: IpcRendererEvent, data: { error?: string }) => {
-    ended = true;
-    endError = data?.error;
-    signalWake();
-  };
-  const onAbort = () => sendCancel();
-
-  ipcRenderer.on(chunkChannel, onChunk);
-  ipcRenderer.once(endChannel, onEnd);
-  if (signal) {
-    if (signal.aborted) sendCancel();
-    else signal.addEventListener('abort', onAbort, { once: true });
-  }
-
-  try {
-    while (true) {
-      while (buffer.length > 0) {
-        yield buffer.shift()!;
-      }
-      if (ended) {
-        if (endError) throw new Error(endError);
-        return;
-      }
-      await new Promise<void>((resolve) => {
-        wake = resolve;
-      });
-    }
-  } finally {
-    ipcRenderer.removeListener(chunkChannel, onChunk);
-    ipcRenderer.removeListener(endChannel, onEnd);
-    signal?.removeEventListener('abort', onAbort);
-    // Consumer left before the stream ended (early break/return or abort) —
-    // tell the main process to stop tailing so it doesn't leak the loop.
-    if (!ended) sendCancel();
-  }
-}
+const streamLogs = createBufferedStream<string, LogChunk, LogChunk>(
+  {
+    invokeChannel: 'logs.stream',
+    chunkChannel: (id) => `logs.stream.${id}.chunk`,
+    endChannel: (id) => `logs.stream.${id}.end`,
+    cancelChannel: (id) => `logs.stream.${id}.cancel`,
+    mapChunk: (chunk) => chunk,
+    checkAck: (ack) => (ack as { streamId: string }).streamId,
+  },
+  { invoke, mockRegistry },
+);
 
 /**
- * Preload-internal — never exposed to the renderer directly (see
- * {@link openLambdaLogsStream}). Bridges the per-stream chunk/end/cancel
- * `logs.lambda.stream.<id>.*` channels into an {@link AsyncIterable} of
- * log chunks, mirroring {@link streamLogs} exactly but against
- * `logs.lambda.stream`/`logs.lambda.stream.<id>.cancel`.
- *
- * When a mock is registered for the `'logs.lambda.stream'` channel (test
- * mode only), the mock handler is called with `(functionKey, signal)` —
- * same convention as {@link streamLogs}'s `'logs.stream'` mock.
+ * Preload-internal — never exposed to the renderer directly (see {@link openLambdaLogsStream}).
+ * Bridges the per-stream `logs.lambda.stream.<id>.{chunk,end,cancel}` IPC channels into an
+ * {@link AsyncIterable} of log chunks, mirroring {@link streamLogs} exactly. When a mock is
+ * registered for `'logs.lambda.stream'` (test mode only), it is called with
+ * `(functionKey, signal)`.
  */
-async function* streamLambdaLogs(functionKey: LambdaFunctionKey, signal?: AbortSignal): AsyncGenerator<LogChunk> {
-  const streamMock = mockRegistry.get('logs.lambda.stream');
-  if (streamMock !== undefined) {
-    const mockIterable = streamMock(functionKey, signal) as AsyncIterable<LogChunk>;
-    yield* mockIterable;
-    return;
-  }
-  const { streamId } = (await invoke('logs.lambda.stream', functionKey)) as { streamId: string };
-  const chunkChannel = `logs.lambda.stream.${streamId}.chunk`;
-  const endChannel = `logs.lambda.stream.${streamId}.end`;
-  const sendCancel = () => ipcRenderer.send(`logs.lambda.stream.${streamId}.cancel`);
-  const buffer: LogChunk[] = [];
-  let ended = false;
-  let endError: string | undefined;
-  let wake: (() => void) | null = null;
-  const signalWake = () => { if (wake) { const fn = wake; wake = null; fn(); } };
-  const onChunk = (_evt: IpcRendererEvent, chunk: LogChunk) => { buffer.push(chunk); signalWake(); };
-  const onEnd = (_evt: IpcRendererEvent, data: { error?: string }) => { ended = true; endError = data?.error; signalWake(); };
-  const onAbort = () => sendCancel();
-  ipcRenderer.on(chunkChannel, onChunk);
-  ipcRenderer.once(endChannel, onEnd);
-  if (signal) {
-    if (signal.aborted) sendCancel();
-    else signal.addEventListener('abort', onAbort, { once: true });
-  }
-  try {
-    while (true) {
-      while (buffer.length > 0) yield buffer.shift()!;
-      if (ended) { if (endError) throw new Error(endError); return; }
-      await new Promise<void>((resolve) => { wake = resolve; });
-    }
-  } finally {
-    ipcRenderer.removeListener(chunkChannel, onChunk);
-    ipcRenderer.removeListener(endChannel, onEnd);
-    signal?.removeEventListener('abort', onAbort);
-    if (!ended) sendCancel();
-  }
+const streamLambdaLogs = createBufferedStream<LambdaFunctionKey, LogChunk, LogChunk>(
+  {
+    invokeChannel: 'logs.lambda.stream',
+    chunkChannel: (id) => `logs.lambda.stream.${id}.chunk`,
+    endChannel: (id) => `logs.lambda.stream.${id}.end`,
+    cancelChannel: (id) => `logs.lambda.stream.${id}.cancel`,
+    mapChunk: (chunk) => chunk,
+    checkAck: (ack) => (ack as { streamId: string }).streamId,
+  },
+  { invoke, mockRegistry },
+);
+
+/** Raw `iac.stack.initialize` chunk payload, tagged with the `streamId` it belongs to. */
+interface StackInitWireChunk {
+  streamId: string;
+  phase: StackInitPhaseEvent['phase'];
+  status: StackInitPhaseEvent['status'];
 }
 
 /**
  * Preload-internal — never exposed to the renderer directly (see {@link openStackInitializeStream}).
  * Bridges `IacController.initializeStack`'s fixed `iac.stack.initialize.chunk` /
  * `iac.stack.initialize.end` side channels into an {@link AsyncIterable} of
- * {@link StackInitPhaseEvent}, replacing the deleted `iac.init` streaming helper.
- *
- * These channels are shared by every call, so each payload is tagged with the `streamId` minted
- * for this call and returned in the invoke ack — events tagged with a different `streamId` are
- * ignored, which is what stops a rejected concurrent call's end event from prematurely
- * terminating this caller's stream. Events observed before the ack resolves (and this call's own
- * `streamId` becomes known) are buffered raw and replayed through the filter once it arrives.
- *
- * When a mock is registered for the `'iac.stack.initialize'` channel (test mode only), the mock
- * handler is called with `(signal)` and its return value is treated as an
- * `AsyncIterable<StackInitPhaseEvent>` — the real IPC listener path is never touched.
+ * {@link StackInitPhaseEvent}, via {@link createBufferedStream}'s shared-side-channel style.
  *
  * A `false` `started` ack means the shared workspace was already busy and no run was ever
- * attempted — the generator throws immediately using `error`, since no chunk/end will ever arrive.
+ * attempted — `checkAck` throws immediately using `error`, since no chunk/end will ever arrive.
+ * When a mock is registered for `'iac.stack.initialize'` (test mode only), it is called with just
+ * `(signal)`.
  */
-async function* streamStackInitialize(signal?: AbortSignal): AsyncGenerator<StackInitPhaseEvent> {
-  const initMock = mockRegistry.get('iac.stack.initialize');
-  if (initMock !== undefined) {
-    const mockIterable = initMock(signal) as AsyncIterable<StackInitPhaseEvent>;
-    yield* mockIterable;
-    return;
-  }
+const streamStackInitialize = createBufferedStream<undefined, StackInitWireChunk, StackInitPhaseEvent>(
+  {
+    invokeChannel: 'iac.stack.initialize',
+    chunkChannel: STACK_INIT_CHUNK_CHANNEL,
+    endChannel: STACK_INIT_END_CHANNEL,
+    mapChunk: (data) => ({ phase: data.phase, status: data.status }),
+    getStreamId: (data) => data.streamId,
+    checkAck: (ack) => {
+      const a = ack as { started: boolean; streamId?: string; error?: string };
+      if (!a.started || !a.streamId) throw new Error(a.error ?? 'iac.stack.initialize failed to start');
+      return a.streamId;
+    },
+  },
+  { invoke, mockRegistry },
+);
 
-  /** Events received but not yet yielded. */
-  const buffer: StackInitPhaseEvent[] = [];
-  let ended = false;
-  let endError: string | undefined;
-  let aborted = false;
-  /**
-   * This call's own `streamId`, known only once the `iac.stack.initialize`
-   * invoke resolves. `null` until then, at which point every raw chunk/end
-   * event buffered so far is replayed through the `streamId` filter below.
-   */
-  let ownStreamId: string | null = null;
-  /** Chunk events observed before `ownStreamId` is known. */
-  const rawChunkBuffer: Array<{ streamId: string; phase: StackInitPhaseEvent['phase']; status: StackInitPhaseEvent['status'] }> = [];
-  /** End events observed before `ownStreamId` is known. */
-  const rawEndBuffer: Array<{ streamId: string; error?: string }> = [];
-  /** Resolves the pending `await` when an event arrives, the stream ends, or the signal aborts. */
-  let wake: (() => void) | null = null;
-  const signalWake = () => {
-    if (wake) {
-      const fn = wake;
-      wake = null;
-      fn();
-    }
-  };
-
-  /** Applies a phase-event, discarding it if it belongs to a different `iac.stack.initialize` call. */
-  const applyChunk = (data: { streamId: string; phase: StackInitPhaseEvent['phase']; status: StackInitPhaseEvent['status'] }) => {
-    if (data.streamId !== ownStreamId) return;
-    buffer.push({ phase: data.phase, status: data.status });
-    signalWake();
-  };
-  /** Applies an end event, discarding it if it belongs to a different `iac.stack.initialize` call. */
-  const applyEnd = (data: { streamId: string; error?: string }) => {
-    if (data.streamId !== ownStreamId) return;
-    ended = true;
-    endError = data.error;
-    signalWake();
-  };
-
-  const onChunk = (
-    _evt: IpcRendererEvent,
-    data: { streamId: string; phase: StackInitPhaseEvent['phase']; status: StackInitPhaseEvent['status'] },
-  ) => {
-    if (ownStreamId === null) {
-      rawChunkBuffer.push(data);
-      return;
-    }
-    applyChunk(data);
-  };
-  const onEnd = (_evt: IpcRendererEvent, data: { streamId: string; error?: string }) => {
-    if (ownStreamId === null) {
-      rawEndBuffer.push(data);
-      return;
-    }
-    applyEnd(data);
-  };
-  const onAbort = () => {
-    aborted = true;
-    signalWake();
-  };
-
-  // Attach both listeners before invoking so no early event sent right after
-  // the main process acknowledges the call is ever dropped — unlike
-  // `streamLogs`, the channel names here are fixed constants known up front,
-  // so there is no need to wait for the invoke response first. `onEnd` can no
-  // longer use `ipcRenderer.once`: a rejected concurrent call's end event
-  // (tagged with a foreign `streamId`) could arrive on this same fixed
-  // channel before our own, and a `once` listener would consume and discard
-  // it, missing our own end event entirely.
-  ipcRenderer.on(STACK_INIT_CHUNK_CHANNEL, onChunk);
-  ipcRenderer.on(STACK_INIT_END_CHANNEL, onEnd);
-  if (signal) {
-    if (signal.aborted) aborted = true;
-    else signal.addEventListener('abort', onAbort, { once: true });
-  }
-
-  try {
-    if (aborted) return;
-
-    const ack = (await invoke('iac.stack.initialize')) as { started: boolean; streamId?: string; error?: string };
-    if (!ack.started || !ack.streamId) {
-      throw new Error(ack.error ?? 'iac.stack.initialize failed to start');
-    }
-    ownStreamId = ack.streamId;
-
-    // Replay anything observed before we knew our own streamId, filtering
-    // out events tagged with a different (foreign, overlapping) run.
-    for (const data of rawChunkBuffer) applyChunk(data);
-    rawChunkBuffer.length = 0;
-    for (const data of rawEndBuffer) applyEnd(data);
-    rawEndBuffer.length = 0;
-
-    while (true) {
-      while (buffer.length > 0) {
-        if (aborted) return;
-        yield buffer.shift()!;
-      }
-      if (aborted) return;
-      if (ended) {
-        if (endError) throw new Error(endError);
-        return;
-      }
-      await new Promise<void>((resolve) => {
-        wake = resolve;
-      });
-    }
-  } finally {
-    ipcRenderer.removeListener(STACK_INIT_CHUNK_CHANNEL, onChunk);
-    ipcRenderer.removeListener(STACK_INIT_END_CHANNEL, onEnd);
-    signal?.removeEventListener('abort', onAbort);
-  }
+/** Raw `iac.runs.logs` chunk payload, tagged with the `streamId` it belongs to. */
+interface IacRunLogsWireChunk {
+  streamId: string;
+  chunk: IacRunChunk;
 }
 
 /**
  * Preload-internal — never exposed to the renderer directly (see {@link openIacRunLogsStream}).
  * Bridges `IacRunsController.logs`'s fixed `iac.runs.logs.chunk` / `iac.runs.logs.end` side
  * channels into an {@link AsyncIterable} of {@link IacRunChunk} for a single run identified by
- * `runId`.
- *
- * Mirrors {@link streamStackInitialize}; differs only in channel names and that `runId` scopes
- * the stream.
+ * `runId`, via {@link createBufferedStream}'s shared-side-channel style — mirrors
+ * {@link streamStackInitialize}, differing only in channel names and the lack of a `started`
+ * check on the ack. When a mock is registered for `'iac.runs.logs'` (test mode only), it is
+ * called with `(runId, signal)`.
  */
-async function* streamIacRunLogs(runId: string, signal?: AbortSignal): AsyncGenerator<IacRunChunk> {
-  const logsMock = mockRegistry.get('iac.runs.logs');
-  if (logsMock !== undefined) {
-    const mockIterable = logsMock(runId, signal) as AsyncIterable<IacRunChunk>;
-    yield* mockIterable;
-    return;
-  }
-
-  /** Chunks received but not yet yielded. */
-  const buffer: IacRunChunk[] = [];
-  let ended = false;
-  let endError: string | undefined;
-  let aborted = false;
-  /**
-   * This call's own `streamId`, known only once the `iac.runs.logs`
-   * invoke resolves. `null` until then, at which point every raw chunk/end
-   * event buffered so far is replayed through the `streamId` filter below.
-   */
-  let ownStreamId: string | null = null;
-  /** Chunk events observed before `ownStreamId` is known. */
-  const rawChunkBuffer: Array<{ streamId: string; chunk: IacRunChunk }> = [];
-  /** End events observed before `ownStreamId` is known. */
-  const rawEndBuffer: Array<{ streamId: string; error?: string }> = [];
-  /** Resolves the pending `await` when a chunk arrives, the stream ends, or the signal aborts. */
-  let wake: (() => void) | null = null;
-  const signalWake = () => {
-    if (wake) {
-      const fn = wake;
-      wake = null;
-      fn();
-    }
-  };
-
-  /** Applies a chunk event, discarding it if it belongs to a different run's log subscription. */
-  const applyChunk = (data: { streamId: string; chunk: IacRunChunk }) => {
-    if (data.streamId !== ownStreamId) return;
-    buffer.push(data.chunk);
-    signalWake();
-  };
-  /** Applies an end event, discarding it if it belongs to a different run's log subscription. */
-  const applyEnd = (data: { streamId: string; error?: string }) => {
-    if (data.streamId !== ownStreamId) return;
-    ended = true;
-    endError = data.error;
-    signalWake();
-  };
-
-  const onChunk = (_evt: IpcRendererEvent, data: { streamId: string; chunk: IacRunChunk }) => {
-    if (ownStreamId === null) {
-      rawChunkBuffer.push(data);
-      return;
-    }
-    applyChunk(data);
-  };
-  const onEnd = (_evt: IpcRendererEvent, data: { streamId: string; error?: string }) => {
-    if (ownStreamId === null) {
-      rawEndBuffer.push(data);
-      return;
-    }
-    applyEnd(data);
-  };
-  const onAbort = () => {
-    aborted = true;
-    signalWake();
-  };
-
-  // Attach both listeners before invoking so no early event sent right after
-  // the main process acknowledges the call is ever dropped — the channel
-  // names here are fixed constants known up front, so there is no need to
-  // wait for the invoke response first. `onEnd` uses `ipcRenderer.on` (not
-  // `.once`): a subscription to a different run's log stream could deliver
-  // its end event on this same fixed channel before our own, and a `once`
-  // listener would consume and discard it, missing our own end event
-  // entirely.
-  ipcRenderer.on(IAC_RUNS_LOGS_CHUNK_CHANNEL, onChunk);
-  ipcRenderer.on(IAC_RUNS_LOGS_END_CHANNEL, onEnd);
-  if (signal) {
-    if (signal.aborted) aborted = true;
-    else signal.addEventListener('abort', onAbort, { once: true });
-  }
-
-  try {
-    if (aborted) return;
-
-    const ack = (await invoke('iac.runs.logs', { runId })) as { streamId: string };
-    ownStreamId = ack.streamId;
-
-    // Replay anything observed before we knew our own streamId, filtering
-    // out events tagged with a different (foreign, overlapping) run.
-    for (const data of rawChunkBuffer) applyChunk(data);
-    rawChunkBuffer.length = 0;
-    for (const data of rawEndBuffer) applyEnd(data);
-    rawEndBuffer.length = 0;
-
-    while (true) {
-      while (buffer.length > 0) {
-        if (aborted) return;
-        yield buffer.shift()!;
-      }
-      if (aborted) return;
-      if (ended) {
-        if (endError) throw new Error(endError);
-        return;
-      }
-      await new Promise<void>((resolve) => {
-        wake = resolve;
-      });
-    }
-  } finally {
-    ipcRenderer.removeListener(IAC_RUNS_LOGS_CHUNK_CHANNEL, onChunk);
-    ipcRenderer.removeListener(IAC_RUNS_LOGS_END_CHANNEL, onEnd);
-    signal?.removeEventListener('abort', onAbort);
-  }
-}
+const streamIacRunLogs = createBufferedStream<string, IacRunLogsWireChunk, IacRunChunk>(
+  {
+    invokeChannel: 'iac.runs.logs',
+    chunkChannel: IAC_RUNS_LOGS_CHUNK_CHANNEL,
+    endChannel: IAC_RUNS_LOGS_END_CHANNEL,
+    mapChunk: (data) => data.chunk,
+    getStreamId: (data) => data.streamId,
+    checkAck: (ack) => (ack as { streamId: string }).streamId,
+    toInvokeArgs: (runId) => [{ runId }],
+  },
+  { invoke, mockRegistry },
+);
 
 /**
  * Wraps a preload-internal `AsyncGenerator` in a plain, contextBridge-safe
@@ -588,46 +300,39 @@ function bridgeStream<T>(source: AsyncGenerator<T>, controller: AbortController)
 }
 
 /**
- * Bridge-facing wrapper for {@link streamLogs}. Mints an `AbortController`
- * that never leaves preload and returns a {@link HyveonStreamHandle} in
- * place of the raw async generator — see {@link bridgeStream}.
+ * Mints an `AbortController` that never leaves preload, invokes `source` with `arg` and its
+ * signal, and wraps the result via {@link bridgeStream} — the shared body behind each
+ * `open*Stream` bridge-facing wrapper below.
+ *
+ * @param source - One of the preload-internal stream generators (`streamLogs`, `streamLambdaLogs`, `streamStackInitialize`, `streamIacRunLogs`).
+ * @param arg - The generator's single positional argument (`undefined` for a stream that takes none).
  */
+function openBufferedStream<TArg, TOut>(
+  source: (arg: TArg, signal?: AbortSignal) => AsyncGenerator<TOut>,
+  arg: TArg,
+): HyveonStreamHandle<TOut> {
+  const controller = new AbortController();
+  return bridgeStream(source(arg, controller.signal), controller);
+}
+
+/** Bridge-facing wrapper for {@link streamLogs} — see {@link openBufferedStream}. */
 function openLogsStream(game: string): HyveonStreamHandle<LogChunk> {
-  const controller = new AbortController();
-  return bridgeStream(streamLogs(game, controller.signal), controller);
+  return openBufferedStream(streamLogs, game);
 }
 
-/**
- * Bridge-facing wrapper for {@link streamLambdaLogs}. Mints an
- * `AbortController` that never leaves preload and returns a
- * {@link HyveonStreamHandle} in place of the raw async generator — see
- * {@link bridgeStream}.
- */
+/** Bridge-facing wrapper for {@link streamLambdaLogs} — see {@link openBufferedStream}. */
 function openLambdaLogsStream(functionKey: LambdaFunctionKey): HyveonStreamHandle<LogChunk> {
-  const controller = new AbortController();
-  return bridgeStream(streamLambdaLogs(functionKey, controller.signal), controller);
+  return openBufferedStream(streamLambdaLogs, functionKey);
 }
 
-/**
- * Bridge-facing wrapper for {@link streamStackInitialize}. Mints an
- * `AbortController` that never leaves preload and returns a
- * {@link HyveonStreamHandle} in place of the raw async generator — see
- * {@link bridgeStream}.
- */
+/** Bridge-facing wrapper for {@link streamStackInitialize} — see {@link openBufferedStream}. */
 function openStackInitializeStream(): HyveonStreamHandle<StackInitPhaseEvent> {
-  const controller = new AbortController();
-  return bridgeStream(streamStackInitialize(controller.signal), controller);
+  return openBufferedStream(streamStackInitialize, undefined);
 }
 
-/**
- * Bridge-facing wrapper for {@link streamIacRunLogs}. Mints an
- * `AbortController` that never leaves preload and returns a
- * {@link HyveonStreamHandle} in place of the raw async generator — see
- * {@link bridgeStream}.
- */
+/** Bridge-facing wrapper for {@link streamIacRunLogs} — see {@link openBufferedStream}. */
 function openIacRunLogsStream(runId: string): HyveonStreamHandle<IacRunChunk> {
-  const controller = new AbortController();
-  return bridgeStream(streamIacRunLogs(runId, controller.signal), controller);
+  return openBufferedStream(streamIacRunLogs, runId);
 }
 
 const api: HyveonApi = {

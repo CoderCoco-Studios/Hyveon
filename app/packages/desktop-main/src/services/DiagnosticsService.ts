@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { logger } from '../logger.js';
 import type { RendererConsoleLevel, RendererLogEntry } from '@hyveon/shared';
+import { errMessage } from '@hyveon/shared';
 
 /** Maximum bytes read from the end of the log file per tail call (~200 KB covers ~500 typical log lines). */
 const TAIL_READ_BYTES = 200 * 1024;
@@ -139,7 +140,7 @@ export class DiagnosticsService {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         return [];
       }
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('DiagnosticsService.readTail: failed to read log file', { error: message });
       throw new Error(message);
     } finally {

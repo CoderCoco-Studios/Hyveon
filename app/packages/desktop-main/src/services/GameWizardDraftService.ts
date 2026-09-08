@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ADD_GAME_WIZARD_STEPS } from '@hyveon/shared';
+import { ADD_GAME_WIZARD_STEPS, errMessage } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService, type GameWizardDraft, type StoredGameWizardDraft } from './ElectronStoreService.js';
 
@@ -331,5 +331,5 @@ function redactSecretFields(stored: StoredGameWizardDraft): StoredGameWizardDraf
 
 /** `Error.message` for a genuine `Error`, or `String(err)` otherwise — never logs a raw thrown value. */
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return errMessage(err);
 }

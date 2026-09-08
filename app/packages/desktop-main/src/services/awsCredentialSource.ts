@@ -1,6 +1,7 @@
 import { fromIni } from '@aws-sdk/credential-providers';
 import { logger } from '../logger.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
+import { errMessage } from '@hyveon/shared';
 
 /** Static access-key/secret pair, as accepted by every `@aws-sdk/client-*` `credentials` field. */
 export interface StaticAwsCredentials {
@@ -100,7 +101,7 @@ export function resolveAwsCredentialSource(store: ElectronStoreService): AwsCred
   try {
     pasted = store.getPastedCredentials(profile);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errMessage(err);
     logger.warn('resolveAwsCredentialSource: failed to decrypt stored pasted-credentials entry', {
       profile,
       error: message,
