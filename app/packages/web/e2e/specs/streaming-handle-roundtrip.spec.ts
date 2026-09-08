@@ -1,5 +1,4 @@
-import { test, expect, _electron } from '../fixtures/index.js';
-import { electronMain, electronEnv } from '../../playwright.config.js';
+import { test, expect, launchElectron } from '../fixtures/index.js';
 
 /**
  * Regression spec for the streaming-IPC contextBridge clone bug: every
@@ -30,11 +29,9 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
  */
 test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
   test('should stream chunks from window.hyveon.logs.stream() without a clone error', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
-
       const result = await win.evaluate(async () => {
         const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
@@ -73,11 +70,9 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
   });
 
   test('should stream phase events from window.hyveon.iac.stack.initialize() without a clone error', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
-
       const result = await win.evaluate(async () => {
         const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
@@ -124,11 +119,9 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
   });
 
   test('should stream chunks from window.hyveon.iac.runs.streamLogs() without a clone error', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
-
       const result = await win.evaluate(async () => {
         const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
@@ -182,11 +175,9 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
    * pre-existing `__test.mock` limitation, not something this spec guards.
    */
   test('should expose a callable cancel() on the returned handle without throwing across the bridge', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
-
       const result = await win.evaluate(async () => {
         const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };

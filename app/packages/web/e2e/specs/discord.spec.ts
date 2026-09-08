@@ -2,7 +2,7 @@ import type { ElectronApplication, Page } from '../fixtures/index.js';
 import {
   test,
   expect,
-  _electron,
+  launchElectron,
   CONFIGURED_DISCORD_CONFIG,
   FIRST_RUN_DISCORD_CONFIG,
   MULTI_GAME_STATUSES,
@@ -16,7 +16,6 @@ import {
   clearElectronMocks,
   type DiscordConfigRedacted,
 } from '../fixtures/index.js';
-import { electronMain, electronEnv } from '../../playwright.config.js';
 
 declare global {
   interface Window {
@@ -40,8 +39,7 @@ let app: ElectronApplication;
 let win: Page;
 
 test.beforeAll(async () => {
-  app = await _electron.launch({ args: [electronMain], env: electronEnv });
-  win = await app.firstWindow();
+  ({ app, win } = await launchElectron());
 });
 
 test.afterAll(async () => {
