@@ -9,7 +9,7 @@ import { RolledBackFromLink } from '../components/rolled-back-from-link.componen
 import { ErrorBanner } from '../components/error-banner.component.js';
 import { LoadingState } from '../components/loading-state.component.js';
 import { PageHeader } from '../components/page-header.component.js';
-import { formatTimestamp } from '../lib/utils.utils.js';
+import { formatTimestamp } from '../lib/format.utils.js';
 import { ChangeSummaryStatus } from '../components/change-summary-status.component.js';
 
 /**
