@@ -57,3 +57,22 @@ The two Vitest projects, `renderPage()`, `toStreamHandleMock()`, and which API
 methods a page spec must stub or it hangs, are documented in
 `docs/docs/components/integration-tests.md`. Read it before adding a
 `@hyveon/web` component or routed-page spec.
+
+## Fixtures over per-spec scaffolding
+
+When three or more spec files need the same stub factory, mock module, or config literal,
+put it in the package's fixture module (`app/packages/infra/src/testing/fixtures.ts` and
+`app/packages/desktop-main/src/services/__fixtures__/` are the existing pattern) rather than
+copying the factory. Any type with no optional fields (e.g. `StackOutputs`,
+`DeploymentConfig`) **must** be constructed through a fixture builder in tests, never as an
+inline literal — otherwise adding one field breaks every spec at once.
+
+`renderPage()` is for **routed-page specs only**. Per-component specs render directly with
+plain `render()` — that is the documented contract at
+`app/packages/web/src/test-utils/render-page.utils.tsx:27`. Do not accept review suggestions
+to widen `renderPage()`'s scope to cover per-component specs; that has been raised before (a
+CodeRabbit review on PR #514) and is incorrect for this codebase's test architecture.
+
+**Why:** this codebase accumulated ~1200 lines of duplicated test scaffolding across seven
+near-identical spec files before this rule existed, and a bot reviewer has already raised the
+incorrect version of this suggestion once.
