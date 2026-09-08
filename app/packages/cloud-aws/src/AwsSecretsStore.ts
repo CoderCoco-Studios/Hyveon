@@ -6,6 +6,7 @@ import {
   type SecretsManagerClientConfig,
 } from '@aws-sdk/client-secrets-manager';
 import { SECRET_PLACEHOLDER, type SecretsStore } from '@hyveon/shared';
+import { createCachedAwsClient } from './cachedClient.js';
 
 /** Length of time a successfully-resolved secret is served from the
  * in-process cache before {@link AwsSecretsStore.get} re-fetches it. */
@@ -28,8 +29,13 @@ interface SecretCacheEntry {
  * depend only on {@link SecretsStore}.
  */
 export class AwsSecretsStore implements SecretsStore {
-  private client: SecretsManagerClient | null = null;
-  private clientCacheKey: string | null = null;
+  private readonly getCachedClient = createCachedAwsClient(
+    (config: {
+      region: string;
+      credentials?: SecretsManagerClientConfig['credentials'];
+      credentialsSignature?: string;
+    }) => new SecretsManagerClient({ region: config.region, credentials: config.credentials }),
+  );
 
   /**
    * Per-name cache of resolved secret values, populated by {@link get} and
@@ -69,13 +75,11 @@ export class AwsSecretsStore implements SecretsStore {
       process.env['AWS_REGION'] ??
       process.env['AWS_DEFAULT_REGION'] ??
       'us-east-1';
-    const cacheKey = `${region}::${this.getCredentialsSignature?.() ?? ''}`;
-
-    if (!this.client || this.clientCacheKey !== cacheKey) {
-      this.client = new SecretsManagerClient({ region, credentials: this.getCredentials?.() });
-      this.clientCacheKey = cacheKey;
-    }
-    return this.client;
+    return this.getCachedClient({
+      region,
+      credentials: this.getCredentials?.(),
+      credentialsSignature: this.getCredentialsSignature?.(),
+    });
   }
 
   /**

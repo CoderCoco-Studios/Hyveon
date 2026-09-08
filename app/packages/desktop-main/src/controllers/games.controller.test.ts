@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 import { GamesController } from './games.controller.js';
 import type { ConfigService } from '../services/ConfigService.js';
 import type { EcsService } from '../services/EcsService.js';
@@ -90,55 +91,19 @@ function makeGameWizardDraft(): GameWizardDraftService {
   } as Partial<GameWizardDraftService> as GameWizardDraftService;
 }
 
-/**
- * The metadata key NestJS stores on each method decorated with
- * `@MessagePattern`. Asserting this value is the only automated guard
- * that prevents a typo in the controller from silently breaking IPC —
- * calling the method directly (as every other test does) would succeed
- * regardless of what string is registered with the transport.
- */
-const PATTERN_METADATA_KEY = 'microservices:pattern';
-
 describe('GamesController', () => {
   describe('@MessagePattern channel names', () => {
-    it('should register listGames on the "games.list" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, GamesController.prototype.listGames);
-      expect(pattern).toEqual(['games.list']);
-    });
-
-    it('should register listStatus on the "games.status" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, GamesController.prototype.listStatus);
-      expect(pattern).toEqual(['games.status']);
-    });
-
-    it('should register getStatus on the "games.getStatus" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, GamesController.prototype.getStatus);
-      expect(pattern).toEqual(['games.getStatus']);
-    });
-
-    it('should register start on the "games.start" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, GamesController.prototype.start);
-      expect(pattern).toEqual(['games.start']);
-    });
-
-    it('should register stop on the "games.stop" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, GamesController.prototype.stop);
-      expect(pattern).toEqual(['games.stop']);
-    });
-
-    it('should register createGame on the "games.create" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, GamesController.prototype.createGame);
-      expect(pattern).toEqual(['games.create']);
-    });
-
-    it('should register updateGame on the "games.update" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, GamesController.prototype.updateGame);
-      expect(pattern).toEqual(['games.update']);
-    });
-
-    it('should register deleteGame on the "games.delete" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, GamesController.prototype.deleteGame);
-      expect(pattern).toEqual(['games.delete']);
+    it('should register every channel', () => {
+      expectChannels(GamesController.prototype, [
+        ['listGames', 'games.list'],
+        ['listStatus', 'games.status'],
+        ['getStatus', 'games.getStatus'],
+        ['start', 'games.start'],
+        ['stop', 'games.stop'],
+        ['createGame', 'games.create'],
+        ['updateGame', 'games.update'],
+        ['deleteGame', 'games.delete'],
+      ] as const);
     });
   });
 
@@ -365,14 +330,11 @@ describe('GamesController', () => {
 
 describe('games.draft.* handlers', () => {
   it('should register games.draft.get, games.draft.save, and games.draft.clear as MessagePatterns', () => {
-    const controller = new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft());
-    for (const [method, pattern] of [
+    expectChannels(GamesController.prototype, [
       ['getDraft', 'games.draft.get'],
       ['saveDraft', 'games.draft.save'],
       ['clearDraft', 'games.draft.clear'],
-    ] as const) {
-      expect(Reflect.getMetadata(PATTERN_METADATA_KEY, controller[method])).toEqual([pattern]);
-    }
+    ] as const);
   });
 
   it('should return the draft service result verbatim from games.draft.get', () => {

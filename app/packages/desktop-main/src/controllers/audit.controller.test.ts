@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { AuditPageResult } from '@hyveon/shared';
 import { AuditController } from './audit.controller.js';
 import type { AuditService } from '../services/AuditService.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -30,20 +31,10 @@ function makeAudit(page: AuditPageResult = DEFAULT_PAGE): AuditService {
   } as Partial<AuditService> as AuditService;
 }
 
-/**
- * The metadata key NestJS stores on each method decorated with
- * `@MessagePattern`. Asserting this value is the only automated guard
- * that prevents a typo in the controller from silently breaking IPC —
- * calling the method directly (as every other test does) would succeed
- * regardless of what string is registered with the transport.
- */
-const PATTERN_METADATA_KEY = 'microservices:pattern';
-
 describe('AuditController', () => {
   describe('@MessagePattern channel names', () => {
-    it('should register list on the "audit.list" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, AuditController.prototype.list);
-      expect(pattern).toEqual(['audit.list']);
+    it('should register every channel', () => {
+      expectChannels(AuditController.prototype, [['list', 'audit.list']] as const);
     });
   });
 

@@ -1,17 +1,3 @@
-import { build } from 'esbuild';
-import { mkdirSync } from 'fs';
+import { buildLambda } from '../buildLambda.mjs';
 
-mkdirSync('dist', { recursive: true });
-
-await build({
-  entryPoints: ['src/handler.ts'],
-  outfile: 'dist/handler.cjs',
-  bundle: true,
-  platform: 'node',
-  target: 'node24',
-  format: 'cjs',
-  minify: true,
-  sourcemap: true,
-  external: ['@aws-sdk/*'],
-  logLevel: 'info',
-});
+await buildLambda({ external: ['@aws-sdk/*'] });

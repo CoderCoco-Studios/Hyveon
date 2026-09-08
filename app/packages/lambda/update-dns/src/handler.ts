@@ -13,41 +13,39 @@
  * pending row. The Discord interaction token in the pending row is valid for
  * up to 15 minutes — same window as the ECS provisioning timeline.
  */
-import {
-  ECSClient,
-  DescribeTasksCommand,
-  type Task,
-} from '@aws-sdk/client-ecs';
-import {
-  EC2Client,
-  DescribeNetworkInterfacesCommand,
-} from '@aws-sdk/client-ec2';
+import { ECSClient, DescribeTasksCommand } from '@aws-sdk/client-ecs';
+import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
 import {
   Route53Client,
   ChangeResourceRecordSetsCommand,
   ListResourceRecordSetsCommand,
 } from '@aws-sdk/client-route-53';
-import { deletePending, formatGameStatus, getPending, parseJsonEnv } from '@hyveon/shared';
+import {
+  deletePending,
+  familyToGameMap,
+  formatGameStatus,
+  gameNamesFromEnv,
+  getPending,
+  getTaskEniId,
+  parseGameMapEnv,
+  patchInteractionOriginal,
+  requireEnv,
+  resolveEniPublicIp,
+} from '@hyveon/shared';
 
 const HOSTED_ZONE_ID = requireEnv('HOSTED_ZONE_ID');
 const DOMAIN_NAME = requireEnv('DOMAIN_NAME');
-const GAME_NAMES = (process.env['GAME_NAMES'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const GAME_NAMES = gameNamesFromEnv();
 const DNS_TTL = parseInt(process.env['DNS_TTL'] ?? '30', 10);
 const TABLE_NAME = process.env['TABLE_NAME'] ?? '';
 
-/** Per-game connect message templates, keyed by game name — sourced from `DeploymentConfig.gameServers` and wired into this env var by the infra program (`app/packages/infra/src/lambdas.ts`). Parsed defensively — see {@link parseJsonEnv}. */
-const CONNECT_MESSAGES: Record<string, string> = parseJsonEnv('CONNECT_MESSAGES', process.env['CONNECT_MESSAGES'], {});
+/** Per-game connect message templates, keyed by game name — sourced from `DeploymentConfig.gameServers` and wired into this env var by the infra program (`app/packages/infra/src/lambdas.ts`). Parsed defensively — see {@link parseGameMapEnv}. */
+const CONNECT_MESSAGES: Record<string, string> = parseGameMapEnv('CONNECT_MESSAGES');
 
-/** First container port per game, used to resolve the `{port}` placeholder. Parsed defensively — see {@link parseJsonEnv}. */
-const GAME_PORTS: Record<string, number> = parseJsonEnv('GAME_PORTS', process.env['GAME_PORTS'], {});
+/** First container port per game, used to resolve the `{port}` placeholder. Parsed defensively — see {@link parseGameMapEnv}. */
+const GAME_PORTS: Record<string, number> = parseGameMapEnv('GAME_PORTS');
 
-const FAMILY_TO_GAME = new Map<string, string>(GAME_NAMES.map((g) => [`${g}-server`, g]));
-
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var ${name}`);
-  return v;
-}
+const FAMILY_TO_GAME = familyToGameMap(GAME_NAMES);
 
 function region(): string {
   return (
@@ -62,21 +60,6 @@ function region(): string {
 const ec2 = new EC2Client({ region: region() });
 const ecs = new ECSClient({ region: region() });
 const route53 = new Route53Client({});
-
-function extractEniId(task: Task): string | null {
-  for (const att of task.attachments ?? []) {
-    if (att.type !== 'ElasticNetworkInterface') continue;
-    for (const detail of att.details ?? []) {
-      if (detail.name === 'networkInterfaceId') return detail.value ?? null;
-    }
-  }
-  return null;
-}
-
-async function getEniPublicIp(eniId: string): Promise<string | null> {
-  const resp = await ec2.send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }));
-  return resp.NetworkInterfaces?.[0]?.Association?.PublicIp ?? null;
-}
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -93,12 +76,15 @@ async function resolvePublicIp(taskArn: string, clusterArn: string): Promise<str
         await sleep(3000);
         continue;
       }
-      const eniId = extractEniId(task);
+      const eniId = getTaskEniId(task);
       if (!eniId) {
         await sleep(3000);
         continue;
       }
-      const ip = await getEniPublicIp(eniId);
+      const ip = await resolveEniPublicIp(
+        (id) => ec2.send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [id] })),
+        eniId,
+      );
       if (ip) return ip;
     } catch (err) {
       console.error(`IP resolution attempt ${attempt} failed`, { err });
@@ -182,25 +168,6 @@ async function deleteDns(dnsName: string): Promise<void> {
   }
 }
 
-const DISCORD_API = 'https://discord.com/api/v10';
-
-async function patchOriginal(
-  applicationId: string,
-  interactionToken: string,
-  content: string,
-): Promise<void> {
-  const url = `${DISCORD_API}/webhooks/${applicationId}/${interactionToken}/messages/@original`;
-  const resp = await fetch(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    console.error('Discord PATCH failed', { status: resp.status, body });
-  }
-}
-
 /**
  * If a Discord interaction is pending for this task, PATCH it with the
  * resolved hostname/IP and delete the pending row.
@@ -220,7 +187,7 @@ async function notifyDiscordIfPending(
       CONNECT_MESSAGES[game],
       GAME_PORTS[game],
     );
-    await patchOriginal(pending.applicationId, pending.interactionToken, message);
+    await patchInteractionOriginal(pending.applicationId, pending.interactionToken, message);
     await deletePending(TABLE_NAME, taskArn);
   } catch (err) {
     console.error('Discord followup notification failed', { err, taskArn });
@@ -284,7 +251,7 @@ export const handler = async (event: EcsStateChangeEvent): Promise<HandlerResult
   const taskArn = detail.taskArn ?? '';
   const clusterArn = detail.clusterArn ?? '';
   const family = (detail.group ?? '').replace('family:', '');
-  const game = FAMILY_TO_GAME.get(family);
+  const game = FAMILY_TO_GAME[family];
 
   if (!game) {
     console.log(`Task family ${family} is not a known game server — skipping.`);

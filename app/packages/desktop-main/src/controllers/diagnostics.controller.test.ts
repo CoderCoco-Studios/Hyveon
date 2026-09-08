@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { DiagnosticsController } from './diagnostics.controller.js';
 import type { DiagnosticsService } from '../services/DiagnosticsService.js';
 import type { DiagnosticsBundleService } from '../services/DiagnosticsBundleService.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -37,6 +38,19 @@ class TestableDiagnosticsController extends DiagnosticsController {
 }
 
 describe('DiagnosticsController', () => {
+  describe('@MessagePattern channel names', () => {
+    it('should register every channel', () => {
+      expectChannels(DiagnosticsController.prototype, [
+        ['getTail', 'diagnostics.tail'],
+        ['getPath', 'diagnostics.path'],
+        ['reportError', 'diagnostics.reportError'],
+        ['reportLog', 'diagnostics.reportLog'],
+        ['exportBundle', 'diagnostics.exportBundle'],
+        ['showInFolder', 'diagnostics.showInFolder'],
+      ] as const);
+    });
+  });
+
   describe('getTail', () => {
     it('should return lines from DiagnosticsService', async () => {
       const svc = makeDiagnostics();

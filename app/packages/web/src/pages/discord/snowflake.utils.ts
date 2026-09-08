@@ -3,4 +3,4 @@
  * (`@/lib/snowflake.utils.js`) so callers in this directory can import them
  * alongside the rest of the Discord page split.
  */
-export { isSnowflake, parseSnowflakes, uniq } from '../../lib/snowflake.utils.js';
+export { isSnowflake, parseSnowflakes } from '../../lib/snowflake.utils.js';
