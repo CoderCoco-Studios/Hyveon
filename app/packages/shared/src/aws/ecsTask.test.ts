@@ -7,6 +7,7 @@ import {
   type EcsTaskLike,
 } from './ecsTask.js';
 
+/** Builds an `EcsTaskLike` with a single ElasticNetworkInterface attachment holding `details`. */
 const taskWithEni = (details: Array<{ name?: string; value?: string }>): EcsTaskLike => ({
   attachments: [{ type: 'ElasticNetworkInterface', details }],
 });
