@@ -1,18 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { BrowserWindow } from 'electron';
+import { errMessage } from '@hyveon/shared';
 import { logger } from '../logger.js';
-
-/**
- * Normalizes a caught error into a log-safe message, matching the
- * `err instanceof Error ? err.message : String(err)` shape used throughout
- * this file (and the rest of `desktop-main`'s services) so it's written once.
- *
- * @param err - The caught value, typed `unknown` per a `catch` clause.
- * @returns `err.message` when `err` is an `Error`, otherwise its string form.
- */
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 /**
  * Drives the single main `BrowserWindow`'s minimize/maximize/close chrome and
@@ -58,7 +47,7 @@ export class WindowService {
         if (this.win === win) this.win = null;
       });
     } catch (err) {
-      logger.warn(`WindowService: attach failed: ${errorMessage(err)}`);
+      logger.warn(`WindowService: attach failed: ${errMessage(err)}`);
     }
   }
 
@@ -68,7 +57,7 @@ export class WindowService {
     try {
       this.win.minimize();
     } catch (err) {
-      logger.warn(`WindowService: minimize failed: ${errorMessage(err)}`);
+      logger.warn(`WindowService: minimize failed: ${errMessage(err)}`);
     }
   }
 
@@ -86,7 +75,7 @@ export class WindowService {
         this.win.maximize();
       }
     } catch (err) {
-      logger.warn(`WindowService: toggleMaximize failed: ${errorMessage(err)}`);
+      logger.warn(`WindowService: toggleMaximize failed: ${errMessage(err)}`);
     }
   }
 
@@ -96,7 +85,7 @@ export class WindowService {
     try {
       this.win.close();
     } catch (err) {
-      logger.warn(`WindowService: close failed: ${errorMessage(err)}`);
+      logger.warn(`WindowService: close failed: ${errMessage(err)}`);
     }
   }
 
@@ -111,7 +100,7 @@ export class WindowService {
     try {
       return this.win.isMaximized();
     } catch (err) {
-      logger.warn(`WindowService: isMaximized failed: ${errorMessage(err)}`);
+      logger.warn(`WindowService: isMaximized failed: ${errMessage(err)}`);
       return false;
     }
   }
@@ -130,7 +119,7 @@ export class WindowService {
     try {
       this.win.webContents.send('window.maximizedChange', isMaximized);
     } catch (err) {
-      logger.warn(`WindowService: failed to push maximizedChange: ${errorMessage(err)}`);
+      logger.warn(`WindowService: failed to push maximizedChange: ${errMessage(err)}`);
     }
   }
 }

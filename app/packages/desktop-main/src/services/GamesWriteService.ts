@@ -29,7 +29,7 @@ import type {
   GameWriteResult,
   UpdateGamePayload,
 } from '@hyveon/shared';
-import { OptimisticLockError, redactGameServer, validateGameServer } from '@hyveon/shared';
+import { OptimisticLockError, errMessage, redactGameServer, validateGameServer } from '@hyveon/shared';
 import type { GameServerWriteConfig } from '@hyveon/shared';
 import { validateHealthCheckAuthInput } from '@hyveon/shared/gameServerValidator';
 import { deleteHealthCheckAuthSecret, upsertHealthCheckAuthSecret } from '@hyveon/shared/secrets/secretsStore';
@@ -515,7 +515,7 @@ export class GamesWriteService {
     try {
       return await upsertHealthCheckAuthSecret(gameId, value);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('GamesWriteService.resolveHealthCheckAuthSecret: failed to create/update the health-check credential secret', {
         game: gameId,
         error: message,
@@ -529,7 +529,7 @@ export class GamesWriteService {
     try {
       await deleteHealthCheckAuthSecret(gameId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn('GamesWriteService.resolveHealthCheckAuthSecret: failed to delete an orphaned health-check credential secret', {
         game: gameId,
         secretArn,

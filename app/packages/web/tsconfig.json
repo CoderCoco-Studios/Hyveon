@@ -23,7 +23,18 @@
       // Mirrors the source aliases vitest.config.ts already uses for
       // @hyveon/shared and @hyveon/cloud-aws.
       "@hyveon/desktop-preload": ["../desktop-preload/src/index.ts"],
-      "@hyveon/desktop-preload/*": ["../desktop-preload/src/*"]
+      "@hyveon/desktop-preload/*": ["../desktop-preload/src/*"],
+      // @hyveon/shared's `exports` map also only points at `dist/`, and unlike
+      // desktop-preload the renderer imports real values from it (errMessage,
+      // PULUMI_ENGINE_VERSION, etc.), not just types — so this same source
+      // alias is required here too for `npm run build`/`tsc --noEmit` to work
+      // from a clean checkout. The subpath entry must come before the bare
+      // specifier: TS matches `paths` keys by longest prefix, but listing the
+      // narrower entry second here keeps the ordering readable and mirrors
+      // vitest.config.ts's own ordering for the same reason.
+      "@hyveon/shared/gameServerValidator": ["../shared/src/gameServerValidator.ts"],
+      "@hyveon/shared/secrets/secretsStore": ["../shared/src/secrets/secretsStore.ts"],
+      "@hyveon/shared": ["../shared/src/index.ts"]
     }
   },
   "include": ["src/**/*"]

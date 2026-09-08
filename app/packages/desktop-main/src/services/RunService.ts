@@ -22,7 +22,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { isRunLockExpired, RunLockHeldError } from '@hyveon/shared';
+import { RunLockHeldError, errMessage, isRunLockExpired } from '@hyveon/shared';
 import type { RunKind, RunLock, RunRecordStore } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
@@ -184,7 +184,7 @@ export class RunService {
         if (this.currentLock?.runId === lock.runId) {
           this.currentLock = null;
         }
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errMessage(err);
         logger.warn('RunService.createRun: failed to acquire DynamoDB apply lock, rolling back in-memory lock', {
           runId: lock.runId,
           error: message,
@@ -274,7 +274,7 @@ export class RunService {
         return await this.store.getRunLock();
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.warn(`${context}: failed to read DynamoDB apply lock`, { error: message });
     }
     return undefined;

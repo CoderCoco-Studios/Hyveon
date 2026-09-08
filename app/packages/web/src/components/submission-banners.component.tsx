@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { formatRelativeAge } from '@hyveon/shared';
 import type { IacStaleLockInfo, RunLock } from '@hyveon/desktop-preload';
+import { errMessage } from '@hyveon/shared';
 import { Button } from './ui/button.component.js';
 import { ConfirmDialog } from './confirm-dialog.component.js';
 import { ErrorBanner } from './error-banner.component.js';
@@ -75,7 +76,7 @@ function useLockClearConfirmation(options: {
           setClearError(ack.error ?? 'Could not clear the lock.');
         }
       } catch (err) {
-        setClearError(err instanceof Error ? err.message : String(err));
+        setClearError(errMessage(err));
       } finally {
         setClearing(false);
       }

@@ -24,6 +24,7 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsClientCredentialsWithSignature, type AwsClientCredentials } from './awsCredentialSource.js';
 import { createCachedAwsClient } from './awsClientCache.js';
 import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Maps `ConfigService`'s stack-outputs shape onto the narrow config
@@ -386,7 +387,7 @@ export class EcsService {
       });
       return null;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('Exception running task', { error: message });
       return null;
     }
@@ -428,7 +429,7 @@ export class EcsService {
     try {
       await this.getClient().send(new StopTaskCommand({ cluster, task: taskArn, reason }));
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       logger.error('EcsService.stopTask: failed to stop task', { cluster, taskArn, error: message });
       const wrapped = new Error(message);
       if (err instanceof Error) {

@@ -1,6 +1,7 @@
 import { Catch } from '@nestjs/common';
 import type { ArgumentsHost, RpcExceptionFilter } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Global RPC exception filter that preserves the real `.message` of any
@@ -32,7 +33,7 @@ export class RpcErrorMessageFilter implements RpcExceptionFilter<unknown> {
    * is `exception.message` (or `String(exception)` for a non-`Error` throw)
    */
   catch(exception: unknown, _host: ArgumentsHost): Observable<never> {
-    const message = exception instanceof Error ? exception.message : String(exception);
+    const message = errMessage(exception);
     return throwError(() => new Error(message));
   }
 }

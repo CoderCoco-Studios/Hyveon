@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, AlertTriangle, XCircle, Copy, ExternalLink, Download, Loader2 } from 'lucide-react';
+import { errMessage } from '@hyveon/shared';
 import { api, type CloudHealthCheckSummary, type CloudHealthFixResult } from '../api.service.js';
 import { Button } from './ui/button.component.js';
 import { Badge } from './ui/badge.component.js';
@@ -55,7 +56,7 @@ function PolicyUpdatePanel({ policyJson, policyConsoleUrl }: { policyJson: strin
       setConsoleOpened(result.opened);
       setConsoleFallbackUrl(result.opened ? null : result.url);
     } catch (err) {
-      setConsoleError(err instanceof Error ? err.message : String(err));
+      setConsoleError(errMessage(err));
     } finally {
       setOpeningConsole(false);
     }
@@ -69,7 +70,7 @@ function PolicyUpdatePanel({ policyJson, policyConsoleUrl }: { policyJson: strin
       const { path } = await api.cloudHealthDownloadPolicy(policyJson);
       setDownloadedPath(path);
     } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : String(err));
+      setDownloadError(errMessage(err));
     } finally {
       setDownloading(false);
     }
@@ -174,7 +175,7 @@ function HealthRow({ check, onFixed }: { check: CloudHealthCheckSummary; onFixed
         setFixResult(result);
       }
     } catch (err) {
-      setFixError(err instanceof Error ? err.message : String(err));
+      setFixError(errMessage(err));
     } finally {
       setFixing(false);
     }
@@ -238,7 +239,7 @@ export function CloudHealthSection() {
         setListError(null);
       })
       .catch((err: unknown) => {
-        setListError(err instanceof Error ? err.message : String(err));
+        setListError(errMessage(err));
       })
       .finally(() => setLoading(false));
   }, []);

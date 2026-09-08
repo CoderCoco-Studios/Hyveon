@@ -1,4 +1,5 @@
 import { logger } from '../logger.js';
+import { errMessage } from '@hyveon/shared';
 
 /**
  * Leaked-promise-handling primitive: if the inline Pulumi program leaves
@@ -46,7 +47,7 @@ const LEAKED_PROMISE_MESSAGE_PATTERN = /The Pulumi runtime detected that \d+ pro
  * succeeded.
  */
 export function isLeakedPromiseError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errMessage(err);
   return LEAKED_PROMISE_MESSAGE_PATTERN.test(message);
 }
 

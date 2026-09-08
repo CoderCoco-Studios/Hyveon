@@ -17,7 +17,7 @@ import type {
   UpResult,
 } from '@pulumi/pulumi/automation/index.js';
 import { createInfraProgram } from '@hyveon/infra';
-import { CONFIGURATION_OBJECT_KEY, diffDeploymentConfig, isApprovalExpired } from '@hyveon/shared';
+import { CONFIGURATION_OBJECT_KEY, diffDeploymentConfig, errMessage, isApprovalExpired } from '@hyveon/shared';
 import type {
   ChangeSummary,
   DeploymentConfig,
@@ -833,7 +833,7 @@ export class PulumiService {
       throw new Error(
         'PulumiService: RUN_RECORD_PERSISTER is not registered anywhere in the application\'s DI ' +
           `container — this is a wiring bug (see run-record.module.ts), not a runtime condition: ` +
-          `${err instanceof Error ? err.message : String(err)}`,
+          `${errMessage(err)}`,
       );
     }
   }
@@ -857,7 +857,7 @@ export class PulumiService {
       throw new Error(
         'PulumiService: REMOTE_FILE_STORE is not registered anywhere in the application\'s DI ' +
           `container — this is a wiring bug (see cloud-provider.module.ts), not a runtime condition: ` +
-          `${err instanceof Error ? err.message : String(err)}`,
+          `${errMessage(err)}`,
       );
     }
   }
@@ -879,7 +879,7 @@ export class PulumiService {
       throw new Error(
         'PulumiService: RUN_LOCK_SERVICE is not registered anywhere in the application\'s DI ' +
           `container — this is a wiring bug (see run-record.module.ts), not a runtime condition: ` +
-          `${err instanceof Error ? err.message : String(err)}`,
+          `${errMessage(err)}`,
       );
     }
   }
@@ -902,7 +902,7 @@ export class PulumiService {
       throw new Error(
         'PulumiService: CONFIG_CACHE_INVALIDATOR is not registered anywhere in the application\'s DI ' +
           `container — this is a wiring bug (see config.module.ts), not a runtime condition: ` +
-          `${err instanceof Error ? err.message : String(err)}`,
+          `${errMessage(err)}`,
       );
     }
   }
@@ -925,7 +925,7 @@ export class PulumiService {
       throw new Error(
         'PulumiService: DEPLOYMENT_CONFIG_SERVICE is not registered anywhere in the application\'s DI ' +
           `container — this is a wiring bug (see deployment-config.module.ts), not a runtime condition: ` +
-          `${err instanceof Error ? err.message : String(err)}`,
+          `${errMessage(err)}`,
       );
     }
   }
@@ -1136,7 +1136,7 @@ export class PulumiService {
         });
       } catch (err) {
         logger.error('PulumiService.initializeStack: getOrCreateStack failed', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         });
         throw new PulumiStackInitializationError(PulumiService.classifyGetOrCreateStackFailure(err), err);
       }
@@ -1146,7 +1146,7 @@ export class PulumiService {
         await stack.workspace.installPlugin('aws', PulumiService.resolveAwsProviderVersion(), 'resource');
       } catch (err) {
         logger.error('PulumiService.initializeStack: installPlugin("aws") failed', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         });
         throw new PulumiStackInitializationError('plugins', err);
       } finally {
@@ -1160,7 +1160,7 @@ export class PulumiService {
         await stack.refresh();
       } catch (err) {
         logger.error('PulumiService.initializeStack: stack.refresh() failed', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         });
         throw new PulumiStackInitializationError('operation', err);
       } finally {
@@ -1271,7 +1271,7 @@ export class PulumiService {
       }
     } catch (err) {
       logger.warn('pulumi: stack.history() fallback for changeSummary failed', {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
     }
     return captured;
@@ -2141,7 +2141,7 @@ export class PulumiService {
           logger.warn('pulumi apply: failed to release the durable apply lock after the local-workspace re-check refused', {
             planRunId,
             inFlight,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMessage(err),
           });
         }
         throw new Error(
@@ -2212,7 +2212,7 @@ export class PulumiService {
       } catch (err) {
         logger.warn(
           'pulumi apply: failed to write the durable pre-flight marker; aborting before stack.up() to fail closed',
-          { planRunId, runId, error: err instanceof Error ? err.message : String(err) },
+          { planRunId, runId, error: errMessage(err) },
         );
         try {
           await this.getRunLockService().releaseRun(runId);
@@ -2220,7 +2220,7 @@ export class PulumiService {
         } catch (releaseErr) {
           logger.warn(
             'pulumi apply: failed to release the durable apply lock after aborting on a pre-flight marker failure',
-            { planRunId, runId, error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr) },
+            { planRunId, runId, error: errMessage(releaseErr) },
           );
         }
         runRecordWritten = true;
@@ -2506,7 +2506,7 @@ export class PulumiService {
         } catch (err) {
           logger.warn('pulumi apply: failed to invalidate the stack-outputs cache after a successful apply', {
             runId,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMessage(err),
           });
         }
 
@@ -2699,7 +2699,7 @@ export class PulumiService {
         } catch (err) {
           logger.warn('pulumi apply: failed to release the durable apply lock as a backstop', {
             runId,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMessage(err),
           });
         }
       }
@@ -2960,7 +2960,7 @@ export class PulumiService {
         } catch (err) {
           logger.warn('pulumi destroy: failed to release the durable lock after an early abort', {
             reservedRunId,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMessage(err),
           });
         }
         return undefined;
@@ -2982,7 +2982,7 @@ export class PulumiService {
             {
               reservedRunId,
               inFlight,
-              error: err instanceof Error ? err.message : String(err),
+              error: errMessage(err),
             },
           );
         }
@@ -3216,7 +3216,7 @@ export class PulumiService {
         } catch (err) {
           logger.warn('pulumi destroy: failed to invalidate the stack-outputs cache after a successful destroy', {
             runId,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMessage(err),
           });
         }
 
@@ -3339,7 +3339,7 @@ export class PulumiService {
         } catch (err) {
           logger.warn('pulumi destroy: failed to release the durable lock as a backstop', {
             runId,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMessage(err),
           });
         }
       }
@@ -3411,7 +3411,7 @@ export class PulumiService {
       parsed = JSON.parse(raw);
     } catch (err) {
       logger.warn('PulumiService: failed to parse configuration JSON for a rollback diff', {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
       return undefined;
     }
@@ -3486,7 +3486,7 @@ export class PulumiService {
     } catch (err) {
       logger.warn('PulumiService.computeRollbackDiff: best-effort diff computation failed — omitting diff', {
         targetVersionId,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
       return undefined;
     }
@@ -3606,13 +3606,13 @@ export class PulumiService {
         logger.error('PulumiService.confirmRollback: rollback plan failed after the configuration was restored', {
           applyRunId,
           restoredVersionId,
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         });
         this.store.recordOrphanedRollback({
           applyRunId,
           restoredVersionId,
           failedAt: new Date().toISOString(),
-          failureMessage: err instanceof Error ? err.message : String(err),
+          failureMessage: errMessage(err),
         });
         throw new PulumiRollbackPlanFailedError(applyRunId, restoredVersionId, err);
       }
@@ -3710,7 +3710,7 @@ export class PulumiService {
     } catch (err) {
       logger.error('PulumiService.clearStaleLock: stack.cancel() failed', {
         stackName: PULUMI_STACK_NAME,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
       throw new PulumiLockClearError(err);
     }
@@ -4096,7 +4096,7 @@ export class PulumiService {
     } catch (err) {
       logger.warn('failed to write pulumi run log', {
         runId,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
     }
   }
@@ -4234,11 +4234,11 @@ export class PulumiService {
       logger.error('PulumiService.writeRunRecord: failed to write run record to disk', {
         runId,
         kind,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
       throw new Error(
         `Failed to write pulumi run record to "${join(runDir, 'run.json')}": ` +
-          `${err instanceof Error ? err.message : String(err)}`,
+          `${errMessage(err)}`,
         { cause: err },
       );
     }
@@ -4289,7 +4289,7 @@ export class PulumiService {
       logger.warn('failed to persist pulumi run record to RunRecordStore', {
         runId,
         kind,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
     }
   }
@@ -4454,7 +4454,7 @@ export class PulumiStackInitializationError extends Error {
   ) {
     super(
       `Pulumi stack initialization failed during the "${phase}" phase: ` +
-        `${cause instanceof Error ? cause.message : String(cause)}`,
+        `${errMessage(cause)}`,
     );
     this.name = 'PulumiStackInitializationError';
   }
@@ -4469,7 +4469,7 @@ export class PulumiStackInitializationError extends Error {
  */
 export class PulumiPreviewError extends Error {
   constructor(public readonly cause: unknown) {
-    super(`pulumi preview failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    super(`pulumi preview failed: ${errMessage(cause)}`);
     this.name = 'PulumiPreviewError';
   }
 }
@@ -4484,7 +4484,7 @@ export class PulumiPreviewError extends Error {
  */
 export class PulumiUpError extends Error {
   constructor(public readonly cause: unknown) {
-    super(`pulumi up failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    super(`pulumi up failed: ${errMessage(cause)}`);
     this.name = 'PulumiUpError';
   }
 }
@@ -4497,7 +4497,7 @@ export class PulumiUpError extends Error {
  */
 export class PulumiDestroyError extends Error {
   constructor(public readonly cause: unknown) {
-    super(`pulumi destroy failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    super(`pulumi destroy failed: ${errMessage(cause)}`);
     this.name = 'PulumiDestroyError';
   }
 }
@@ -4517,7 +4517,7 @@ export class PulumiDestroyError extends Error {
 export class PulumiLockClearError extends Error {
   constructor(public readonly cause: unknown) {
     super(
-      `pulumi stack.cancel() failed while clearing the stale backend lock: ${cause instanceof Error ? cause.message : String(cause)}`,
+      `pulumi stack.cancel() failed while clearing the stale backend lock: ${errMessage(cause)}`,
     );
     this.name = 'PulumiLockClearError';
   }
@@ -4568,7 +4568,7 @@ export class PulumiPartialApplyError extends Error {
   ) {
     super(
       `pulumi up failed partway through (${completedSteps.length} resource step(s) already applied): ` +
-        `${cause instanceof Error ? cause.message : String(cause)}`,
+        `${errMessage(cause)}`,
     );
     this.name = 'PulumiPartialApplyError';
   }
@@ -4730,7 +4730,7 @@ export class PulumiPlanArtifactStaleError extends Error {
     super(
       cause !== undefined
         ? `Failed to re-verify plan artifact "${artifactPath}" for run "${planRunId}" before apply: ` +
-            `${cause instanceof Error ? cause.message : String(cause)}`
+            `${errMessage(cause)}`
         : `Plan artifact "${artifactPath}" for run "${planRunId}" no longer matches its approved hash — it may ` +
             'have been modified since the plan was reviewed. Re-run preview() before applying.',
     );
@@ -4776,7 +4776,7 @@ export class PulumiPlanHashError extends Error {
   ) {
     super(
       `Failed to compute SHA-256 hash of plan artifact "${artifactPath}" for run "${runId}": ` +
-        `${cause instanceof Error ? cause.message : String(cause)}`,
+        `${errMessage(cause)}`,
     );
     this.name = 'PulumiPlanHashError';
   }
@@ -4811,7 +4811,7 @@ export class PulumiRunPersistError extends Error {
     super(
       `Failed to persist run record for run "${runId}" (outcome: ` +
         `${PulumiRunPersistError.describeOutcome(outcome)}): ` +
-        `${cause instanceof Error ? cause.message : String(cause)}`,
+        `${errMessage(cause)}`,
     );
     this.name = 'PulumiRunPersistError';
   }
@@ -4851,7 +4851,7 @@ export class PulumiPreflightMarkerError extends Error {
     super(
       `pulumi apply refused: failed to write the durable pre-flight marker for plan run "${planRunId}" — aborting ` +
         `before stack.up() to fail closed (no infrastructure was touched): ` +
-        `${cause instanceof Error ? cause.message : String(cause)}`,
+        `${errMessage(cause)}`,
     );
     this.name = 'PulumiPreflightMarkerError';
   }
@@ -4966,7 +4966,7 @@ export class PulumiRollbackPlanFailedError extends Error {
     super(
       `Rollback of apply run "${applyRunId}" restored configuration version "${restoredVersionId}" as the new ` +
         `head, but the follow-up plan could not be completed: ` +
-        `${cause instanceof Error ? cause.message : String(cause)}. The restored configuration is now the head ` +
+        `${errMessage(cause)}. The restored configuration is now the head ` +
         'with no completed plan attached — this has been durably recorded via ' +
         'ElectronStoreService.recordOrphanedRollback() (readable via getOrphanedRollback()) for a later ' +
         'operator-facing surface to present. Retry the rollback, or restore a different version, to resolve it.',
