@@ -41,6 +41,10 @@ matches what you're doing right now:
 
 - **[Setup guide](/setup)** — from a blank AWS account
   to a running game server, in order.
+- **[Install](./install.md)** — per-OS steps to get the packaged app running,
+  including getting past the unsigned-build warning (see the
+  [code-signing roadmap](./code-signing-roadmap.md) for the plan to change
+  that).
 - **[User guide](/guides/user)** — day-to-day
   operation: starting/stopping servers from the dashboard or Discord, reading
   the cost panel, checking logs.
