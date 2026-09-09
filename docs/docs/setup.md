@@ -265,14 +265,15 @@ npm install
 npm run desktop:run
 ```
 
-`desktop:run` chains three steps: `app:build` compiles every TypeScript
+`desktop:run` chains four steps: `app:build` compiles every TypeScript
 workspace (`@hyveon/shared` → `@hyveon/infra` → `@hyveon/cloud-aws` →
 `@hyveon/desktop-main` → `@hyveon/desktop-preload` → `@hyveon/web`), then
-`desktop:build` runs `electron-vite build`, then `app:start` launches the
-built app. On a clean checkout `npm run desktop:build` alone fails — Vite
-can't resolve `@hyveon/shared` and the other workspace packages until
-`app:build` has compiled them — so `desktop:run` exists to get from a fresh
-clone to a running app in one command without hitting that error first.
+`app:build:lambdas` bundles the six Lambda packages, then `desktop:build`
+runs `electron-vite build`, then `app:start` launches the built app. On a
+clean checkout `npm run desktop:build` alone fails — Vite can't resolve
+`@hyveon/shared` and the other workspace packages until `app:build` has
+compiled them — so `desktop:run` exists to get from a fresh clone to a
+running app in one command without hitting that error first.
 
 Once you've run `app:build` at least once, you don't need to repeat it on
 every iteration:
@@ -330,10 +331,11 @@ steps, none of them a CLI command:
    noncurrent-version expiry, AES-256 encrypted) that holds the JSON
    configuration object your game servers are declared in; and a
    **run-history table** (default
-   `hyveon-runs`) that records every plan/apply/destroy run. All three names
-   can be selected during this bootstrap step; the run-history table name
-   cannot change afterward without a migration, since it names an
-   already-created physical table. This step also seeds the configuration
+   `hyveon-runs`) that records every plan/apply/destroy run. Only the state
+   bucket and configuration bucket names can be edited during this bootstrap
+   step; the run-history table name is fixed and cannot change afterward
+   without a migration, since it names an already-created physical table.
+   This step also seeds the configuration
    object with an
    initial, empty document (`gameServers: {}`, every other field at its
    default) if one doesn't already exist — without this seed, nothing else
@@ -447,8 +449,8 @@ npm run desktop:run
 Same one-shot command used in
 [step 2](#2-clone-install-and-launch-the-wizard) above — chains `app:build`
 (compiles `@hyveon/shared` and every other TypeScript workspace),
-`desktop:build` (`electron-vite build`), and `app:start` (launches the
-built app).
+`app:build:lambdas` (bundles the six Lambda packages), `desktop:build`
+(`electron-vite build`), and `app:start` (launches the built app).
 
 If you've already run `app:build` and just changed Electron main/preload or
 renderer code, skip straight to the cheaper manual two-step instead of
@@ -478,22 +480,29 @@ electron-builder (config: `electron-builder.yml`). Run it from the repo root:
 npm run desktop:package
 ```
 
-This runs `desktop:build` (electron-vite) first, then electron-builder,
-which produces one output per platform in `release/`:
+This runs `app:build:lambdas` first, then `desktop:build` (electron-vite),
+then electron-builder, which produces these outputs in `release/`:
 
 | Platform | Output |
 |---|---|
 | Windows | `release/Hyveon Setup *.exe` (NSIS installer) |
-| macOS | `release/Hyveon-*.dmg` (DMG image) |
+| macOS | `release/Hyveon-*.dmg` (DMG image) and `release/Hyveon-*.zip` |
 | Linux | `release/Hyveon-*.AppImage` (AppImage) |
+
+macOS builds both a `.dmg` (the distributed installer) and a `.zip` —
+`electron-updater`'s `MacUpdater` only ever looks for a `zip` asset in the
+release feed, so the zip is required for macOS auto-update even though the
+dmg is what users download and run. `.github/workflows/package.yml` uploads
+both as release assets.
 
 By default electron-builder targets only the host platform. To cross-compile,
 pass `--win`, `--mac`, or `--linux` explicitly:
 `npx electron-builder --config electron-builder.yml --linux`.
 
 **What gets bundled**: the Electron sources under `out/` are packed into an
-asar archive. Lambda bundles are deployed to AWS by the Pulumi program and
-are not packaged into the installer.
+asar archive. Lambda bundles (built by `app:build:lambdas`) are also
+packaged as `extraResources`, so they ship inside the installer — the Pulumi
+program deploys them to AWS from there.
 
 #### App icon
 
@@ -652,4 +661,4 @@ owning game is removed.
 | `/server-*` slash commands don't appear in Discord | Per-guild registration not done | Guilds tab → **Register commands** next to the guild ID. |
 | `/server-start` says "You don't have permission" | Your user/role isn't in admins or per-game permissions, or the `start` action isn't ticked | Admins tab or Per-Game Permissions tab, then retry. |
 | Task reaches RUNNING but DNS never updates | update-dns Lambda errored; EventBridge rule might be disabled | Check the Lambda's CloudWatch logs; verify the EventBridge rule is enabled. |
-| Watchdog stops tasks too aggressively | Low idle-packet threshold, short check interval, or few idle checks configured | Tune the three knobs via the dashboard **Server Config** panel and re-apply. |
+| Watchdog stops tasks too aggressively | Low idle-packet threshold, short check interval, or few idle checks configured | Tune the three knobs via Settings → **General** ("Watchdog tuning") and re-apply. |

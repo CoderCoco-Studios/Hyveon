@@ -43,10 +43,10 @@ packages under `app/packages/lambda/*`.
 npm install                     # install every workspace (run from repo root)
 
 npm run desktop:dev             # Electron dev mode: renderer HMR, auto-restart main+preload
-npm run app:build                # compile shared → cloud-aws → desktop-main → preload → web
+npm run app:build                # compile shared → infra → cloud-aws → desktop-main → desktop-preload → web
 npm run desktop:build           # electron-vite build → out/main, out/preload, out/renderer
 npm run app:start                # launch the built app (requires desktop:build first)
-npm run desktop:run              # one-shot: app:build → desktop:build → app:start
+npm run desktop:run              # one-shot: app:build → app:build:lambdas → desktop:build → app:start
 npm run desktop:package         # electron-builder installers → release/ (Win NSIS, macOS DMG, Linux AppImage)
 
 npm run app:build:lambdas        # bundle all six Lambda packages (REQUIRED before the first infra apply)
