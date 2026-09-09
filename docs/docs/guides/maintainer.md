@@ -97,8 +97,9 @@ npm run desktop:dev
 npm run desktop:build
 npm run app:start
 
-# One-shot: app:build → desktop:build → app:start. Use this on a fresh
-# clone — the two-step form above needs the workspaces already compiled.
+# One-shot: app:build → app:build:lambdas → desktop:build → app:start. Use
+# this on a fresh clone — the two-step form above needs the workspaces
+# already compiled.
 npm run desktop:run
 
 # Before pushing
@@ -109,17 +110,17 @@ npm run app:lint && npm run app:test && npm run app:build
 
 | Command | What it does |
 |---|---|
-| `npm run app:build` | Compiles shared → cloud-aws → desktop-main → web TypeScript. |
-| `npm run desktop:run` | `app:build` → `desktop:build` → `app:start` chained as one command. The one-shot way to go from a fresh clone to a running app without hitting `desktop:build`'s "Failed to resolve entry for package @hyveon/shared" (the TypeScript workspaces have to be compiled before electron-vite can bundle main/preload). |
-| `npm run desktop:dev` | `electron-vite dev` run directly from the repo root — HMR on renderer saves, auto-restarts main+preload. Must run with cwd at the repo root: `package.json` there has the `main` field electron-vite's entry-point check requires. |
+| `npm run app:build` | Compiles shared → infra → cloud-aws → desktop-main → desktop-preload → web TypeScript. |
+| `npm run desktop:run` | `app:build` → `app:build:lambdas` → `desktop:build` → `app:start` chained as one command. The one-shot way to go from a fresh clone to a running app without hitting `desktop:build`'s "Failed to resolve entry for package @hyveon/shared" (the TypeScript workspaces have to be compiled before electron-vite can bundle main/preload). |
+| `npm run desktop:dev` | `app:build` → `app:build:lambdas` → `electron-vite dev` — HMR on renderer saves, auto-restarts main+preload. Must run with cwd at the repo root: `package.json` there has the `main` field electron-vite's entry-point check requires. |
 | `npm run desktop:build` | electron-vite build — produces `out/main`, `out/preload`, `out/renderer`. |
-| `npm run desktop:package` | Runs `desktop:build` then `electron-builder` to produce a platform installer under `release/`. |
+| `npm run desktop:package` | Runs `app:build:lambdas` then `desktop:build` then `electron-builder` to produce a platform installer under `release/`. |
 | `npm run app:build:lambdas` | esbuild every Lambda (including `efs-seeder`) to `dist/handler.cjs`. Required before the first infra apply. |
 | `npm run app:start` | Runs the built Electron app (requires `desktop:build` first). |
 | `npm run app:test` | `vitest run` across every workspace. |
 | `npm run app:test:watch` | Same but watch mode. |
 | `npm run app:test:coverage` | `vitest run --coverage` in the `@hyveon/app` workspace. |
-| `npm run app:test:e2e` | Builds `shared` + `cloud-aws`, then runs the Playwright e2e suite (`chromium` + `electron` projects) in `@hyveon/web`. |
+| `npm run app:test:e2e` | Builds `shared` + `infra` + `cloud-aws` + `desktop-preload`, then runs the Playwright e2e suite (`chromium` + `electron` projects) in `@hyveon/web`. |
 | `npm run app:test:integration` | Builds `desktop-main`, then runs the tier-2 Playwright integration suite in `@hyveon/web`. |
 | `npm run app:lint` / `app:lint:fix` | ESLint flat config over all packages. |
 | `npm run app:typecheck` | Full cross-workspace `tsc` pass — `shared` → `cloud-aws` → `infra` → `desktop-preload` → `desktop-main` → `web` → every Lambda package. Required before opening a PR. |
@@ -194,7 +195,7 @@ appears to touch one without calling it out.
 ### 1. Don't introduce a long-running ECS service
 
 The whole cost-saving argument is that game tasks run via `RunTask` and stop
-with `StopTask`. Adding `aws_ecs_service` anywhere means you pay for a task
+with `StopTask`. Adding `aws.ecs.Service` anywhere means you pay for a task
 24/7 and defeat the watchdog.
 
 ### 2. `DeploymentConfig.gameServers` is the single source of truth

@@ -12,7 +12,7 @@ your OS from the project's
 | Platform | Artifact |
 |---|---|
 | Windows | `Hyveon Setup *.exe` |
-| macOS | `Hyveon-*.dmg` |
+| macOS | `Hyveon-*.dmg` (download and run this one — the `.zip` published alongside it is the auto-update feed asset, not a separate installer) |
 | Linux | `Hyveon-*.AppImage` |
 
 ## Why you'll see an "unsigned" warning
