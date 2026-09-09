@@ -287,13 +287,6 @@ Use this manual two-step when you're iterating on Electron main/preload or
 renderer code without touching the shared/infra/cloud-aws TypeScript — it
 skips recompiling every workspace and just re-bundles and relaunches.
 
-:::note
-`npm run desktop:dev` (hot-reload dev mode) has a known outstanding bundling
-bug unrelated to this migration and shouldn't be used right now — use
-`desktop:run` (or the manual two-step above) instead; re-run after pulling
-new code.
-:::
-
 The first launch replaces the entire window with the **first-run setup
 wizard** — there is no dashboard, no sidebar, and no way to skip it. Five
 steps, none of them a CLI command:
@@ -461,9 +454,8 @@ npm run desktop:build
 npm run app:start
 ```
 
-`npm run desktop:dev` normally adds hot-reload on renderer saves, but has a
-known outstanding bundling bug right now — use `desktop:run` (or the manual
-two-step above) instead until that's fixed.
+`npm run desktop:dev` adds hot-reload on renderer saves and rebuilds Lambda
+bundles automatically.
 
 ### Option B — packaged Electron app (distributable installer)
 
