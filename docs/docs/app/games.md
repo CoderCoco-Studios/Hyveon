@@ -45,6 +45,14 @@ clicking elsewhere in the row does nothing.
 
 The page fetches once when you open it. Navigate away and back to refresh it.
 
+### Loading, error and empty states
+
+| Situation | What you see |
+|---|---|
+| Fetch in flight | The card's normal loading placeholder, no table yet |
+| Fetch failed | `Failed to load games: <error>` in place of the table |
+| No games declared or deployed | `No games declared or deployed yet.`, with an **Add game** button beneath it (hidden while a resumed draft is open) |
+
 ### Status chips
 
 Exactly one chip per game.
@@ -88,7 +96,7 @@ current step shown as `Step 1 of 6: Identity`.
 
 | Field | Example | Rules |
 |---|---|---|
-| **Name** | `minecraft` | Required. Must start with a letter or underscore and contain only letters, numbers, underscores and hyphens. Must not duplicate an existing declared game |
+| **Name** | `minecraft` | Required. Must be a lowercase alphanumeric DNS-safe label (letters, digits, and internal hyphens only, 1-32 characters, no leading/trailing hyphen). Must not duplicate an existing declared game |
 | **Image** | `itzg/minecraft-server` | Required |
 | **Connect message** | `Connect at {ip}:25565` | Optional. Only the placeholders `{host}`, `{ip}`, `{port}` and `{game}` are allowed |
 
@@ -364,7 +372,10 @@ Clicking a name opens `/games/:name`.
 ![A game detail page showing the In sync chip, Edit and Remove buttons, and cards for Container, Ports and Volumes](/img/app/games-detail.png)
 
 The header carries the game name, its status chip, and — for declared games —
-**Edit** and **Remove game** buttons. Below that:
+**Edit** and **Remove game** buttons. Clicking **Edit** swaps both buttons
+out for a single **Cancel** button for the duration of the edit; **Cancel**
+discards the in-progress edit and swaps **Edit**/**Remove game** back in,
+without prompting for confirmation. Below that:
 
 | Card | Contents | Shown |
 |---|---|---|

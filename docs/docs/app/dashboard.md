@@ -241,9 +241,11 @@ address works.
 | No games declared or deployed | A card headed **No games deployed**, explaining that you declare a game on the [Games](/app/games) page, then run a plan and apply from [Infrastructure](/app/iac) to create its ECS task definition, EFS volume, and CloudWatch log group — with links to the setup guide and to add a game |
 | Filter matches nothing | `No games match "abc".` |
 
-If the very first status poll *fails*, the page stays on `Loading servers…` —
-the polling indicator next to the filter box is what tells you something is
-wrong.
+If the very first status poll *fails* (before any statuses have ever loaded),
+the grid shows a **Couldn't load game status** card with the underlying error
+message and a **Retry** button, instead of any game cards. This is distinct
+from **No games deployed** above — a failed fetch can't be mistaken for a
+deployment with nothing declared.
 
 ## Polling
 

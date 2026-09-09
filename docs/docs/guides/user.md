@@ -67,7 +67,7 @@ see.
 Once a game is RUNNING:
 
 - DNS: `{game}.yourdomain.com` resolves to the task's public IP after up to
-  `dns_ttl` seconds (default 30).
+  `dnsTtl` seconds (default 30).
 - Ports: whatever the operator configured under `ports`. UDP/TCP games
   connect directly to that port on the resolved hostname. HTTPS games
   (`https = true`) connect over 443 — TLS terminates in-task via a Caddy
@@ -83,9 +83,9 @@ The watchdog runs on an EventBridge schedule — default every 15 minutes —
 and for every running task it:
 
 1. Reads `NetworkPacketsIn` for the task's ENI over the last window.
-2. If it's below `watchdog_min_packets`, increments the `idle_checks` tag on
+2. If it's below `watchdogMinPackets`, increments the `idle_checks` tag on
    the task.
-3. If the counter reaches `watchdog_idle_checks`, issues `StopTask` with
+3. If the counter reaches `watchdogIdleChecks`, issues `StopTask` with
    reason `Watchdog: idle for N minutes`. The watchdog **only** stops the
    task — it never touches DNS or any load balancer itself. The task
    stopping triggers an ECS state-change event that a separate Lambda
