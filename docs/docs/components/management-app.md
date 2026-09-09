@@ -45,6 +45,13 @@ types and permission logic.
 | `ddb/configStore.ts` | `getDiscordConfig()` / `putDiscordConfig()` for the `CONFIG#discord` row. |
 | `ddb/pendingStore.ts` | `getPending()` / `putPending()` / `deletePending()` for `PENDING#{taskArn}`. `putPending()` sets `expiresAt = now + 15 minutes` so DDB TTL reaps stale rows. |
 | `secrets/secretsStore.ts` | Secrets Manager wrapper with a 5-minute in-process cache. Recognises the infra program's `"placeholder"` seed value as "not configured". `invalidateSecretsCache()` is called by the Nest credentials endpoint. Also owns the app-owned health-check credential secret's full write lifecycle — `healthCheckAuthSecretName(gameId)` (deterministic name `hyveon-{gameId}-healthcheck-auth`, one per game), `upsertHealthCheckAuthSecret()` (tries `PutSecretValueCommand` first, falls back to `CreateSecretCommand` only on `ResourceNotFoundException` — no separate existence check; if the same name is still within its recovery window from a prior `deleteHealthCheckAuthSecret()`, both commands instead fail with `InvalidRequestException`, confirmed via `DescribeSecretCommand`'s `DeletedDate`, so this un-schedules the deletion with `RestoreSecretCommand` and retries the put once), and `deleteHealthCheckAuthSecret()` (default recovery window, no-op if already absent). See [Games](/app/games#health-check-optional) for the operator-facing credential-type model this backs. |
+| `deploymentConfig.ts` | `DeploymentConfig` — the app's configuration source of truth, persisted verbatim as `deployment-config.json` in the operator's S3 configuration bucket. `gameServers: Record<string, GameServerConfig>` is the single source of truth every per-game resource fans out from. |
+| `gameServerConfig.ts` | `GameServerConfig` (aliased `GameServer`) — the canonical per-game container configuration shape embedded in `DeploymentConfig.gameServers`; deliberately reuses `snake_case` field names already load-bearing across the validator, `DeploymentConfigService`'s JSON read/write paths, and the Games UI. |
+| `gameServerValidator.ts` | `gameServerSchema` (zod structural schema for one `game_servers` entry) plus `validateGameServer` (cross-entry business rules — port collisions, Fargate CPU/memory pairing, absolute paths, connect-message placeholders, HTTPS port constraints) — shared by the desktop-main API and the web client's form validation. |
+| `cloud.ts` | The cloud-agnostic contracts (`CloudProvider`, `SecretsStore`, and the other five tokens `CloudProviderModule` binds) — no `@aws-sdk/*` shapes appear here; concrete implementations live in `@hyveon/cloud-aws`. |
+| `iamPolicy.ts` | `HYVEON_DEPLOY_ALL_ACTIONS` — the flattened, deduplicated action set mirroring the `HyveonDeployAll` inline IAM policy documented in `docs/docs/setup.md`; drives the first-run wizard's `iam:SimulatePrincipalPolicy` permission check. |
+| `stackOutputs.ts` | `StackOutputs` — the typed contract for every value the app reads back off a deployed Pulumi stack (`PulumiService.getStackOutputs()`), including `domainName`, cluster/subnet/security-group IDs, and per-game `appliedGameServers` for drift detection. |
+| `pulumiVersion.ts` | `PULUMI_ENGINE_VERSION` — the exact Pulumi engine version the app provisions and runs against, matching the `@pulumi/pulumi` dependency pinned in both `desktop-main` and `infra`. |
 
 **Invariants**: `canRun()` lives in exactly one place; the four slash
 commands are JSON descriptors, not classes; secrets' raw values never
@@ -61,22 +68,33 @@ boot sequence in `src/main.ts` (invoked from `electron-entry.ts` after
    throws immediately if `process.versions.electron` is unset, rather than
    silently doing nothing under plain Node.
 2. `NestFactory.createMicroservice(AppModule, { strategy: new BridgedElectronIPCTransport() })`.
-3. `app.listen()` starts the transport, registering its internal
+3. `app.useGlobalFilters(new RpcErrorMessageFilter())` — must run before
+   `app.listen()`, since NestJS reads global filters while wiring up each
+   `@MessagePattern` handler during `listen()`.
+4. `app.listen()` starts the transport, registering its internal
    `@MessagePattern` dispatch.
-4. `registerIpcMainBridges(strategy)` bridges each of those patterns onto a
+5. `registerIpcMainBridges(strategy)` bridges each of those patterns onto a
    real `ipcMain.handle` registration, so `ipcRenderer.invoke` calls from
    the renderer resolve instead of hanging.
 
-This app has no NestJS exception filter — `registerIpcMainBridges` is the one
-structural choke point every bridged handler passes through, so it also
-catches any rejection there and normalizes it to a plain `Error` (message
-only) before rethrowing, logging the pattern name and original message/stack
-via the winston `logger`. Without this, a handler that lets a raw SDK/Node
-error escape (e.g. an AWS SDK exception carrying non-plain fields like
-`$metadata`) fails Electron's structured-clone when the rejection is
-marshalled back to the renderer, surfacing as `Error: An object could not be
-cloned` and leaving the caller's `invoke()` promise unresolved instead of
-the real error message.
+A global `RpcErrorMessageFilter` (`src/rpc-error-message.filter.ts`, `@Catch()`
+with no arguments) is registered via `app.useGlobalFilters(new
+RpcErrorMessageFilter())` between `createMicroservice` and `app.listen()` (step
+2 above) — NestJS's `RpcExceptionsHandler` invokes it in place of the default
+`BaseRpcExceptionFilter` for every `@MessagePattern` handler. Without it,
+anything that isn't itself an `RpcException` is reduced to the generic string
+`'Internal server error'` by NestJS's own `handleUnknownError()`, discarding
+the handler's real message before it ever reaches `ipc-main-bridge.ts`'s
+`firstValueFrom` unwrapping — no amount of unwrapping downstream can recover
+text that's already gone. The filter re-emits the exception as a rejected
+Observable carrying only its real `.message` (via `@hyveon/shared`'s
+`errMessage`), so the operator/renderer see the actual failure instead of a
+generic one. `registerIpcMainBridges` is still the structural choke point that
+turns that rejection into a plain `Error` object safe for Electron's
+structured-clone (a raw SDK/Node error carrying non-plain fields like
+`$metadata` otherwise fails the clone, surfacing as `Error: An object could
+not be cloned` and leaving the caller's `invoke()` promise unresolved) and
+logs the pattern name and original message/stack via the winston `logger`.
 
 There is no listen port, no `NODE_ENV=production` bearer-token check, and no
 static-file serving — the renderer is a separate Electron `BrowserWindow`
@@ -93,14 +111,14 @@ never speaks HTTP to this process.
   transitively through `AwsModule`/`DeploymentConfigModule`/`RunRecordModule`, each of
   which imports both). Also directly provides a handful of
   controller-adjacent services that don't warrant their own module
-  (`DiagnosticsService`, `DriftService`, `GamesWriteService`,
-  `AuditService`, `GameWizardDraftService`) plus the `DIAGNOSTICS_LOG_DIR`
-  token.
+  (`DiagnosticsService`, `DiagnosticsBundleService`, `DriftService`,
+  `GamesWriteService`, `AuditService`, `GameWizardDraftService`,
+  `WindowService`) plus the `DIAGNOSTICS_LOG_DIR` token.
 - **`ConfigModule`** — imports `ElectronStoreModule` and `PulumiServiceModule`
   (so `ConfigService` can inject `PulumiService`); provides just
   `ConfigService`. Extracted on its own so every other feature module can
   depend on it without pulling in `AwsModule`.
-- **`CloudProviderModule`** — imports `ConfigModule`. Binds seven
+- **`CloudProviderModule`** — imports `ConfigModule` and `ElectronStoreModule`. Binds seven
   cloud-agnostic contracts (from `@hyveon/shared/cloud.js`) to concrete
   `@hyveon/cloud-aws` implementations via `useFactory` providers keyed off
   `ConfigService.getActiveCloud()`: `CLOUD_PROVIDER`, `SECRETS_STORE`,
@@ -113,9 +131,16 @@ never speaks HTTP to this process.
   token still resolves to AWS; a future non-AWS provider is added by
   extending the `CLOUD_BINDINGS` registry in `cloud-provider.module.ts`, not
   by touching this module's provider definitions.
-- **`AwsModule`** — imports `ConfigModule` and `CloudProviderModule`
-  (re-exporting both); provides and exports `Ec2Service`, `EcsService`,
-  `LogsService`, `CostService`, `SchedulerService`, `FileManagerService`. It
+- **`AwsModule`** — imports `ConfigModule`, `CloudProviderModule`,
+  `ElectronStoreModule`, and `DeploymentConfigModule` (re-exporting the first
+  two); provides and exports `Ec2Service`, `EcsService`,
+  `LogsService`, `CostService`, `SchedulerService`, `FileManagerService`. The
+  `ElectronStoreModule` import lets `Ec2Service`/`EcsService` inject
+  `ElectronStoreService` to resolve AWS credentials for their own raw
+  `EC2Client`/`ECSClient`; the `DeploymentConfigModule` import lets
+  `LogsService` inject `DeploymentConfigService` to resolve the operator's
+  configured `projectName` when building a Lambda function's log group name.
+  It
   no longer provides
   `ConfigService` directly (that's `ConfigModule`'s job — `AwsModule`
   re-exports it for existing consumers that import `AwsModule` expecting
@@ -160,10 +185,16 @@ never speaks HTTP to this process.
   resolves `RUN_RECORD_PERSISTER`, `REMOTE_FILE_STORE`, and the `DeploymentConfigService`
   it needs at call time via `ModuleRef.get(token, { strict: false })` instead
   of constructor injection.
-- **`WizardModule`** — imports `ElectronStoreModule`; provides
+- **`WizardModule`** — imports `ElectronStoreModule`, `ConfigModule`, and
+  `DeploymentConfigModule`; provides
   `AwsProfileService`, `BootstrapService`, `IamCheckService`,
-  `FirstRunWizardService`, and `GuidedIamService` for the first-run setup
-  wizard. `GuidedIamService` backs the guided-IAM step: renders the
+  `FirstRunWizardService`, `GuidedIamService`, and `CloudHealthService`
+  for the first-run setup wizard and the Settings page's Cloud Health
+  checklist (`CloudHealthController`). `CloudHealthService` additionally
+  injects `ConfigService` (for `getRegion()`, building its `IAMClient`) and
+  resolves the operator's configured project name via
+  `DeploymentConfigModule` for its `HyveonDeployAll` remediation policy.
+  `GuidedIamService` backs the guided-IAM step: renders the
   `iam-bootstrap.yaml` CloudFormation template, hands off to the console,
   intakes the operator-pasted bootstrap key, and performs the mandatory
   mint-then-revoke rotation onto a freshly-minted key pair — plus a
@@ -189,11 +220,12 @@ called out again in the `WindowController` row below.
 |---|---|---|
 | `GamesController` | `games.list`, `games.status`, `games.getStatus`, `games.start`, `games.stop`, `games.create`, `games.update`, `games.delete`, `games.draft.get`, `games.draft.save`, `games.draft.updateStepIndex`, `games.draft.clear` | List/read status, trigger RunTask/StopTask, manage `gameServers` entries in the JSON configuration object (`deployment-config.json`) via `DeploymentConfigService`. Invalidates `DeploymentConfigService`'s cache on list/status reads so a config edit made outside the app (e.g. by another operator) is picked up without restarting; `ConfigService`'s cached stack outputs are untouched by this and expire on their own 20s/`invalidateCache()` schedule. The four `games.draft.*` channels save/resume/discard a single in-progress add-game wizard draft via `GameWizardDraftService` — see [Credential storage at rest](#credential-storage-at-rest) for where it's persisted. `games.draft.updateStepIndex` exists so the renderer can persist step-only navigation on a *resumed* draft without re-sending its (secret-redacted) copy through `games.draft.save`, which would otherwise overwrite the real values still on disk. |
 | `CostsController` | `costs.estimate` | Per-game Fargate estimates, derived from each game's `{game}-server` task-definition CPU/memory. The app makes no AWS Cost Explorer API calls — see [Costs](/app/costs). |
-| `LogsController` | `logs.get`, `logs.stream`, `logs.lambda.get`, `logs.lambda.stream` | Snapshot of last N log events and a streaming channel that pushes new events as they arrive (polls `FilterLogEvents` every 2 s under the hood) for a game's `/ecs/{game}-server` log group; the `logs.lambda.*` pair does the same against `/aws/lambda/{projectName}-{functionKey}` for one of the app's 5 Lambda functions (`LambdaFunctionKey`), resolving `projectName` from `DeploymentConfig` settings and falling back to the `hyveon` default on any read failure. |
+| `LogsController` | `logs.get`, `logs.getOlder`, `logs.getNewer`, `logs.stream`, `logs.lambda.get`, `logs.lambda.getOlder`, `logs.lambda.getNewer`, `logs.lambda.stream` | Snapshot of last N log events, paged "load older"/"load newer" backfill channels, and a streaming channel that pushes new events as they arrive (polls `FilterLogEvents` every 2 s under the hood) for a game's `/ecs/{game}-server` log group; the `logs.lambda.*` set does the same against `/aws/lambda/{projectName}-{functionKey}` for one of the app's 5 Lambda functions (`LambdaFunctionKey`), resolving `projectName` from `DeploymentConfig` settings and falling back to the `hyveon` default on any read failure. |
+| `CloudHealthController` | `cloudHealth.list`, `cloudHealth.fix`, `cloudHealth.downloadPolicy`, `cloudHealth.openPolicyConsole` | Surfaces the account-prerequisite checklist from `CloudHealthService` to the Settings page's Cloud Health section: list check statuses, attempt an automated fix, write a remediation policy JSON to disk, and open an IAM console link for it. |
 | `FilesController` | `files.list`, `files.start`, `files.stop` | Ad-hoc FileBrowser task against the game's EFS access point. `files.start` seeds a random per-launch password (bcrypt-hashed into the container's `--password` flag), returns the one-time plaintext credential in its response, and creates an EventBridge Scheduler one-time schedule that auto-stops the task after 2 hours; `files.stop` cancels that schedule. |
 | `DiscordController` | `discord.getConfig`, `discord.putConfig`, `discord.listGuilds`, `discord.addGuild`, `discord.removeGuild`, `discord.registerCommands`, `discord.getAdmins`, `discord.putAdmins`, `discord.getPermissions`, `discord.putPermission`, `discord.deletePermission` | Read-redacted config, save credentials, manage guild allowlist + commands, admins, per-game permissions. |
 | `EnvController`, `DiagnosticsController`, `DriftController`, `AuditController` | `env.get`; `diagnostics.tail`/`diagnostics.path`/`diagnostics.reportError`/`diagnostics.reportLog`/`diagnostics.exportBundle`/`diagnostics.showInFolder`; `drift.get`; `audit.list` | Environment info, log-tail diagnostics, config-drift detection, and the audit-log view. Two renderer-forwarding channels land in the same `main-*.log` file but stay distinguishable by line prefix: `diagnostics.reportError` forwards a renderer-side crash (from the top-level `ErrorBoundary` or a `window.onerror`/`unhandledrejection` listener) via `DiagnosticsService.logRendererError`, writing `renderer error (${source}): ${message}`; `diagnostics.reportLog` forwards batched `console.log`/`info`/`warn`/`error` calls (every call, not just crashes — see `installConsoleForwarding()` below) via `DiagnosticsService.logRendererConsoleBatch`, writing one `renderer console (${level}): ${message}` line per entry (level mapped `log`→`debug`, others 1:1) plus a combined `renderer console: ${n} entries dropped (queue capacity exceeded)` warning per flush when the renderer's own queue overflowed. `diagnostics.exportBundle` opens a native save dialog, then (on a chosen path) calls the new `DiagnosticsBundleService` to gather four sections — recent log text (regex-scrubbed), an allowlisted deployment-config summary, app/system metadata, and a best-effort AWS resource snapshot reusing `ConfigService.getStackOutputs()`/`EcsService.getStatus()` — via `Promise.allSettled` and streams them into a single `.zip` (`archiver`) written atomically (temp file + rename) to disk; any section that fails is recorded in the bundle's own `errors.json`, never surfaced as a thrown error. A dialog cancel resolves `{ status: 'cancelled' }` with nothing written. `diagnostics.showInFolder` reveals a written bundle via `shell.showItemInFolder`, backing the Settings page's "Show in folder" action. |
-| `IacController` | `iac.stack.initialize`, `iac.plan`, `iac.apply`, `iac.destroy.mintToken`, `iac.destroy`, `iac.output`, `iac.approve`, `iac.rollback.resolve`, `iac.rollback.confirm`, `iac.lock.clear` | Drives `PulumiService` (Automation API via `LocalWorkspace`, which launches the pinned `@pulumi/pulumi` engine as a child process through `LocalWorkspaceOptions.pulumiCommand` — the app downloads and verifies that engine itself, so no host-installed or PATH-discovered CLI is ever used) for the plan/apply/destroy/rollback pipeline. `iac.destroy.mintToken` issues the type-to-confirm token the UI requires before a `destroy` call is accepted; `iac.lock.clear` recovers a stale Pulumi backend lock. |
+| `IacController` | `iac.stack.initialize`, `iac.plan`, `iac.apply`, `iac.destroy.mintToken`, `iac.destroy`, `iac.output`, `iac.approve`, `iac.rollback.resolve`, `iac.rollback.confirm`, `iac.lock.clear.mintToken`, `iac.lock.clear` | Drives `PulumiService` (Automation API via `LocalWorkspace`, which launches the pinned `@pulumi/pulumi` engine as a child process through `LocalWorkspaceOptions.pulumiCommand` — the app downloads and verifies that engine itself, so no host-installed or PATH-discovered CLI is ever used) for the plan/apply/destroy/rollback pipeline. `iac.destroy.mintToken` issues the type-to-confirm token the UI requires before a `destroy` call is accepted; `iac.lock.clear` recovers a stale Pulumi backend lock, gated the same way behind a `iac.lock.clear.mintToken`-issued type-to-confirm token — clearing a backend lock is not accepted on request alone. |
 | `IacRunsController` | `iac.runs.get`, `iac.runs.logs`, `iac.runs.list`, `iac.runs.logUrl`, `iac.runs.lock.clear.mintToken`, `iac.runs.lock.clear` | Run history: fetch a record, stream/fetch its log, list/paginate, resolve an offloaded S3 log link. `iac.runs.lock.clear.mintToken`/`iac.runs.lock.clear` recover a wedged durable run lock (`RunService`'s apply lock, distinct from `IacController`'s `iac.lock.clear` Pulumi-backend-lock recovery) — mint-then-confirm the same as `iac.destroy.mintToken`, backing the `/iac` page's busy-banner "Clear lock and retry" action described in [The workspace-busy banner](/app/iac#the-workspace-busy-banner). |
 | `IacSettingsController` | `iac.settings.get`, `iac.settings.update`, `iac.settings.engineVersion`, `iac.settings.autoUpdate.get`, `iac.settings.autoUpdate.update`, `iac.settings.autoUpdate.check` | Reads/writes every top-level `deployment-config.json` field EXCEPT `gameServers` — backs the Settings page's [General section](/app/settings#general). `update` validates via the shared `validateDeploymentSettingsPatch` (`@hyveon/shared`) before delegating to `DeploymentConfigService.updateTopLevelSettings()`; a stale `expectedVersionId` returns `{ code: 'conflict' }` rather than silently overwriting a concurrent edit. `engineVersion` reads `PulumiEngineService.getResolvedVersion()` (`null` when not yet provisioned) — backs the [Cloud Setup section](/app/settings#cloud-setup)'s Pulumi engine version row. The `autoUpdate.*` pair reads/writes `ElectronStoreService`'s `enableAutoUpdate` flag (a local install-level setting, not a `deployment-config.json` field) — backs the [Updates section](/app/settings#updates)'s toggle. `autoUpdate.check` triggers an on-demand `checkForUpdatesNow()` call in `updater.ts`, independent of the `enableAutoUpdate` flag (that flag only gates `initUpdater`'s automatic boot-time check); it never downloads or installs, and resolves the discriminated `ManualUpdateCheckResult` (`@hyveon/shared`) — `{ ok: true, updateAvailable: true, version }`, `{ ok: true, updateAvailable: false }`, or `{ ok: false, message }`. Both `engine` and `store` are optional constructor params so direct-construction test call sites keep compiling without stubbing them; a real `AppModule` bootstrap always resolves both. |
 | `WizardController` | first-run wizard channels (AWS profile/credentials, bootstrap, IAM check, guided-IAM CloudFormation bootstrap, progress) | Backs the in-app setup wizard — see the [setup guide](/setup). |
@@ -205,7 +237,8 @@ called out again in the `WindowController` row below.
   `getStackOutputs()` is a memoised delegate to `PulumiService.getStackOutputs()`,
   which reads the deployed Pulumi stack's outputs (`StackOutputs` from
   `@hyveon/shared` — cluster ARN, subnets, security groups, EFS access
-  points, game names, hosted zone, Discord table + secret ARNs, interactions
+  points, game names, `domainName` (the configured hosted zone's base
+  domain), Discord table + secret ARNs, interactions
   URL) via the Automation API against the S3 backend, not a local state
   file. The in-flight promise is cached so concurrent callers
   coalesce; a resolved `null` (infra not yet deployed) expires after 20 s, a
@@ -277,8 +310,10 @@ Prod: JSON lines with ISO timestamps. Use `logger.info` / `warn` / `error`
 everywhere, not `console.log`.
 
 The winston log file is the only durable record of what happened in a given
-run — there's no HTTP transport and no NestJS exception filter to fall back
-on for tracing (see [Auth](#auth) above). Two conventions keep it useful,
+run — there's no HTTP transport to fall back on for tracing (see
+[Auth](#auth) above); the global `RpcErrorMessageFilter` preserves a handler's
+real error message, but only the winston log captures it durably. Two
+conventions keep it useful,
 applied across every controller and every service method in
 `desktop-main/src/services/*.ts` that can fail (not just controllers): every
 `@MessagePattern` handler logs its pattern name on entry via `logger.debug`
