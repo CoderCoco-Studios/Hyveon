@@ -35,7 +35,7 @@ The app SHALL provide a `CloudHealthCheck` (id `ecs-service-linked-role`)
 whose `check()` calls `iam:GetRole` for `AWSServiceRoleForECS` and reports
 `missing` when the role does not exist (`NoSuchEntityException`), `ok` when
 it does, and `error` for any other failure. This check MUST be included in
-the app's registered `CLOUD_HEALTH_CHECKS` list without requiring any
+the list returned by `CloudHealthService.getChecks()` without requiring any
 Settings-page code change to add future checks to the same list.
 
 #### Scenario: Service-linked role exists

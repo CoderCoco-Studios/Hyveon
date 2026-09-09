@@ -5,7 +5,7 @@ Defines the app's own diagnostic-logging surface: forwarding renderer
 `console.*` calls into the main-process log alongside the pre-existing
 crash reporting, the service-layer logging convention that keeps the
 winston log file a reliable record of what happened, and the Settings →
-Diagnostics panel's pause/filter/search/autoscroll controls for reading
+Diagnostics panel's pause/search/autoscroll controls for reading
 that log.
 ## Requirements
 ### Requirement: Renderer console forwarding to the main-process log

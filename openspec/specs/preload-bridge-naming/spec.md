@@ -13,7 +13,7 @@ The desktop preload script SHALL expose the renderer-facing IPC bridge object as
 #### Scenario: Renderer reads the bridge after preload initializes
 
 - **WHEN** the Electron renderer process loads and the preload script has run
-- **THEN** `window.hyveon` is defined and exposes the `games`, `costs`, `logs`, `files`, `discord`, `env`, `wizard`, `drift`, `diagnostics`, `audit`, and `iac` namespaces
+- **THEN** `window.hyveon` is defined and exposes the `games`, `costs`, `logs`, `files`, `discord`, `env`, `wizard`, `drift`, `diagnostics`, `audit`, `iac`, `cloudHealth`, and `window` namespaces
 - **AND** `window.gsd` is `undefined`
 
 ### Requirement: Bridge TypeScript types are named `Hyveon*`
@@ -22,8 +22,9 @@ The TypeScript types describing the preload bridge and its test-mock surface (th
 
 #### Scenario: Web package imports the bridge type
 
-- **WHEN** `@hyveon/web`'s `globals.d.ts` augments the `Window` interface for the preload bridge
-- **THEN** it declares `interface Window { hyveon?: HyveonApi }`, importing `HyveonApi` from `@hyveon/desktop-preload`
+- **WHEN** `@hyveon/web` needs the `Window.hyveon` augmentation
+- **THEN** its `globals.d.ts` is a bare side-effect import (`import '@hyveon/desktop-preload'`) that pulls in the augmentation, and does not hand-declare `interface Window { hyveon: ... }` itself
+- **AND** the single source of truth for `declare global { interface Window { hyveon?: HyveonApi } }` lives in `@hyveon/desktop-preload`'s `src/index.ts`
 
 ### Requirement: Test-mode mock seam uses the same bridge name
 
