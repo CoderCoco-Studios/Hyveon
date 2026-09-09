@@ -70,8 +70,10 @@ write. It ties an audit entry to an exact file state, and it is what the
 It requires the S3 configuration bucket to have versioning enabled, which
 `BootstrapService` turns on by default when it provisions the bucket.
 
-`approve` entries never carry a version. `plan` and `apply` carry one only if
-the run recorded it. `rollback` always carries the version it restored.
+`approve` and `apply` entries never carry a version — `apply`'s audit write
+doesn't look up the plan record, so it has nothing to attach. `plan` carries
+one only if the request supplied a `configVersionId`. `rollback` always
+carries the version it restored.
 
 ## The before/after diff
 
