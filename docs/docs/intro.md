@@ -27,11 +27,12 @@ is silent except for a handful of near-free Lambdas.
   renderer talks to the backend over Electron IPC.
 - **Serverless Discord bot** — two Node.js Lambdas plus DynamoDB and Secrets
   Manager handle every slash command; no 24/7 bot process.
-- **Five Lambda packages, four always running.** `interactions`, `followup`,
-  `update-dns`, and `watchdog` are always deployed; a fifth,
-  `@hyveon/lambda-efs-seeder`, is deployed **once per game that declares
-  `file_seeds`** — zero, one, or many instances, never a fixed fifth
-  function.
+- **Six Lambda packages, four always running.** `interactions`, `followup`,
+  `update-dns`, and `watchdog` are always deployed. Two are conditional:
+  `health-check` is provisioned once, shared across games, when at least one
+  game declares a `healthCheck`; `@hyveon/lambda-efs-seeder` is deployed
+  **once per game that declares `file_seeds`** — zero, one, or many
+  instances, never a fixed count.
 
 ## Choose your path
 
@@ -57,9 +58,9 @@ Deep-dives on each piece, for when the guides hand-wave past something:
   Automation API program: every file, resource, and AWS service touched.
 - [Management app](/components/management-app) — the
   Nest.js API, React dashboard, and `@hyveon/shared` library.
-- [Lambdas](/components/lambdas) — the five Node.js
-  Lambda packages (interactions, followup, update-dns, watchdog, efs-seeder —
-  the last is conditional, per game).
+- [Lambdas](/components/lambdas) — the six Node.js
+  Lambda packages (interactions, followup, update-dns, watchdog, health-check,
+  efs-seeder — the last two are conditional).
 
 ## High-level architecture
 
@@ -95,7 +96,8 @@ Hyveon/
 │           ├── followup/       # async ECS work + Discord PATCH
 │           ├── update-dns/     # Route 53 on task state change
 │           ├── watchdog/       # idle detection + auto-stop
-│           └── efs-seeder/     # writes declarative file_seeds to a game's EFS volume
+│           ├── health-check/   # conditional, shared — provisioned when any game declares healthCheck
+│           └── efs-seeder/     # conditional, per game — writes declarative file_seeds to a game's EFS volume
 ├── build/                      # icon source art + generator for packaging
 ├── docs/                       # this site
 ├── openspec/                   # OpenSpec change proposals/specs for this repo

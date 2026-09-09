@@ -21,11 +21,12 @@ workspace package, `@hyveon/shared`:
    against the S3 state backend — no local state file) to discover what the
    infra looks like, and drives AWS via the cloud-provider abstraction (SDK
    v3 under the hood).
-3. Five **Lambda packages** run the control flow: two for Discord, one for
-   DNS, one for the idle watchdog — all four always deployed — and one
-   conditional per-game `efs-seeder` Lambda, deployed once per game that
-   declares `file_seeds` (zero, one, or many instances, never a fixed fifth
-   function).
+3. Six **Lambda packages** run the control flow: two for Discord, one for
+   DNS, one for the idle watchdog — all four always deployed — plus two
+   conditional Lambdas: a shared `health-check` function, provisioned once
+   when at least one game declares a `healthCheck`, and a per-game
+   `efs-seeder` Lambda, deployed once per game that declares `file_seeds`
+   (zero, one, or many instances, never a fixed count).
 
 ## Why Pulumi
 
@@ -130,9 +131,10 @@ design.
 
 3. **Lambdas use `AWS_REGION_` (trailing underscore).** The standard
    `AWS_REGION` name is reserved by the Lambda runtime and cannot be
-   overridden. The infra program sets `AWS_REGION_` on all five Lambda
-   functions; the four core Lambdas read `process.env.AWS_REGION_` (the
-   fifth, `efs-seeder`, makes no AWS SDK calls and never reads it).
+   overridden. The infra program sets `AWS_REGION_` on all six Lambda
+   functions; five of them read `process.env.AWS_REGION_` — the four core
+   Lambdas plus `health-check` (`efs-seeder` makes no AWS SDK calls and
+   never reads it).
 
 4. **Secrets never leave AWS.** The bot token and the Discord public key
    live in Secrets Manager. The management app can write them and

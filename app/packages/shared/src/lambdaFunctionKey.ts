@@ -1,7 +1,9 @@
 /**
- * The 5 Lambda functions the app provisions (`app/packages/infra/src/lambdas.ts`),
- * identified by the exact suffix each one's log group is named with:
- * `/aws/lambda/${projectName}-${functionKey}`.
+ * The 5 log-tailable Lambda functions of the 6 the app can provision
+ * (`app/packages/infra/src/lambdas.ts`), identified by the exact suffix each
+ * one's log group is named with: `/aws/lambda/${projectName}-${functionKey}`.
+ * `efs-seeder` is excluded — it's per-game (zero, one, or many instances),
+ * not a single fixed function this key type can address.
  */
 export type LambdaFunctionKey =
   | 'watchdog'

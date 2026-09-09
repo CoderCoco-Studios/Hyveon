@@ -39,6 +39,7 @@ Hyveon/
 │           ├── followup/
 │           ├── update-dns/
 │           ├── watchdog/
+│           ├── health-check/            # conditional, shared — provisioned when any game declares healthCheck
 │           └── efs-seeder/              # conditional, one function per game with file_seeds
 ├── docs/                                # this site
 └── .github/workflows/                   # lint.yml, test.yml, e2e.yml, integration.yml,
@@ -72,7 +73,7 @@ including the exact resource each file declares, is in the
 | `efs.ts` | EFS filesystem + access points |
 | `ecs.ts` | ECS cluster + per-game task definitions (never a Service) |
 | `iam.ts` | IAM roles + policies |
-| `lambdas.ts` | The five Lambda functions, their log groups, EventBridge |
+| `lambdas.ts` | The six Lambda functions, their log groups, EventBridge |
 | `dynamodb.ts` | The three DynamoDB tables |
 | `secrets.ts` | The two Discord secrets |
 | `route53.ts` | Hosted-zone lookup only — **no DNS records** |
@@ -234,8 +235,9 @@ persistent storage.
 ### 5. `AWS_REGION_` has a trailing underscore
 
 Lambda reserves `AWS_REGION`. The infra program's `lambdas.ts` sets
-`AWS_REGION_` on all five Lambda functions' env vars; the four core Lambdas
-(interactions, followup, update-dns, watchdog) read `process.env.AWS_REGION_`.
+`AWS_REGION_` on all six Lambda functions' env vars; five read
+`process.env.AWS_REGION_` — the four core Lambdas (interactions, followup,
+update-dns, watchdog) plus `health-check`.
 `efs-seeder` has the same env var set for consistency but never reads it —
 it makes no AWS SDK calls at all (see [Lambdas](/components/lambdas#efs-seeder)).
 Check `lambdas.ts` and every Lambda handler. The
@@ -299,12 +301,13 @@ If you tighten the policy later, keep those three actions.
 Every time:
 
 1. `npm run app:build:lambdas` (from the repo root) — esbuild emits
-   `app/packages/lambda/*/dist/handler.cjs` for all five Lambda packages.
+   `app/packages/lambda/*/dist/handler.cjs` for all six Lambda packages.
 2. Apply from the app's Infrastructure page — `lambdas.ts` reads each CJS
    bundle as a `pulumi.asset.FileAsset`, and Pulumi uploads it to the
    matching `aws.lambda.Function` (or, for `efs-seeder`, one per game with
-   `file_seeds`). The function URL (where applicable), IAM role, env vars,
-   and EventBridge rule are all declared in the same file.
+   `file_seeds`; or, for `health-check`, one shared function when any game
+   declares `healthCheck`). The function URL (where applicable), IAM role,
+   env vars, and EventBridge rule are all declared in the same file.
 
 Because the asset hash is derived from the file content, the plan will only
 report a Lambda change when the bundle bytes actually change. You can

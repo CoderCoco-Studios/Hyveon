@@ -1,6 +1,7 @@
 /**
- * The five shared Lambda functions (interactions, followup, watchdog,
- * dns-updater, health-check) plus one EFS-seeder function per configured
+ * The five fixed Lambda functions (interactions, followup, watchdog,
+ * dns-updater, health-check — the last conditional, existing only when a
+ * game declares `healthCheck`) plus one EFS-seeder function per configured
  * game, their log groups, permissions, the interactions Function URL, and
  * the watchdog/dns-updater EventBridge rule/target pairs. See
  * `docs/docs/components/infra.md` for the full resource inventory.
@@ -47,10 +48,10 @@ import { stripTrailingDots } from './hostedZoneName.js';
 import type { IamRoleResources } from './iam.js';
 import { lambdaLogGroup } from './logGroups.js';
 
-/** Node.js Lambda runtime every one of the five functions declares. */
+/** Node.js Lambda runtime every one of the six functions declares. */
 const LAMBDA_RUNTIME = 'nodejs24.x';
 
-/** Handler string every one of the five functions declares — module `handler.cjs`, exported function `handler`. */
+/** Handler string every one of the six functions declares — module `handler.cjs`, exported function `handler`. */
 const LAMBDA_HANDLER = 'handler.handler';
 
 /** Every resource {@link defineLambdas} declares, keyed by role — see this file's doc for the full HCL→Pulumi address table. */

@@ -10,10 +10,11 @@ builds via esbuild to a single CJS file at `dist/handler.cjs`; the Pulumi
 infra program's `lambdaCode()` helper (`app/packages/infra/src/lambdas.ts`)
 wraps that file in an `AssetArchive`/`FileAsset` pair at deploy time —
 functionally equivalent to the directory-archiving data source other IaC
-tools provide, which has no direct Pulumi resource counterpart. One of the
-six — `health-check` — is conditionally provisioned, existing only when at
-least one game declares a `healthCheck` (see that section below); the other
-five are always deployed.
+tools provide, which has no direct Pulumi resource counterpart. Two of the
+six are conditionally provisioned: `health-check`, existing only when at
+least one game declares a `healthCheck` (see that section below), and
+`efs-seeder`, one instance per game that declares `file_seeds` (see the
+efs-seeder section below); the other four are always deployed.
 
 ```bash
 npm run app:build:lambdas        # produces every dist/handler.cjs
