@@ -314,6 +314,8 @@ captured log — and it **never offers Approve or Apply**. Every record in
 history describes a run that has already finished, so there is nothing to
 approve.
 
+![The Run detail page for a single historical apply, showing its status badge, start/completion times, approver, and change summary above a read-only log viewer](/img/app/iac-history-detail.png)
+
 The log is resolved from whichever source still has it: the run's log file on
 this machine, an inline copy stored on the run record, or a link to an
 offloaded copy in S3. If none of those exist you see:
