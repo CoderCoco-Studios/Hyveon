@@ -419,9 +419,10 @@ public subnets, an ECS cluster, one task definition + EFS access point +
 CloudWatch log group **per game** (HTTPS games get a second, Caddy sidecar
 container plus a dedicated cert-storage EFS access point in the same task
 definition — no separate load balancer or ACM certificate resource), the
-four always-on Lambdas (interactions, followup, update-dns, watchdog) plus a
-conditional per-game `efs-seeder` Lambda for any game with `file_seeds`,
-three DynamoDB tables (Discord config/state, the audit log, and the
+four always-on Lambdas (interactions, followup, update-dns, watchdog) plus
+two conditional Lambdas — a shared `health-check` function for any game with
+a `healthCheck` and a per-game `efs-seeder` Lambda for any game with
+`file_seeds` — three DynamoDB tables (Discord config/state, the audit log, and the
 plan/apply run history), two Secrets Manager secrets, and the EventBridge
 rule + schedule. The deploy IAM policy's existing `dynamodb:*` statement
 (see [step 1](#1-create-and-authorise-an-iam-user)) already covers all
