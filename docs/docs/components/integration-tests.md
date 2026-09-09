@@ -89,17 +89,26 @@ await serverMocks.pushRunTask({
 
 ## Spec Inventory
 
+`app/packages/web/e2e/integration-specs/` currently holds:
+
 | Spec | What it tests |
 |------|---------------|
+| `can-run.spec.ts` | `canRun()` (`@hyveon/shared`) enforces guild allowlisting, admin bypass, and per-game action grants, against config seeded through `DiscordController`'s real IPC channels. |
 | `config-service.spec.ts` | `EnvController.getEnv` returns region + domain, and `GamesController.listGames`/`listStatus` return the game list, once `ipc.mocks.pulumi` is scripted with `DEFAULT_STACK_OUTPUTS`. |
+| `diagnostics-export.spec.ts` | Sets `HYVEON_CONFIG_BUCKET` itself (see [Configuration-Bucket S3 Mock](#configuration-bucket-s3-mock)) and exercises the diagnostics-export path against the S3-backed configuration store. |
 | `discord-config.spec.ts` | `DiscordController.getConfig` never echoes the raw bot token or public key — only the redacted `botTokenSet`/`publicKeySet` booleans. |
+| `error-propagation.spec.ts` | `AccessDeniedException` from `RunTaskCommand` surfaces as `{ success: false, message: '…' }` from `GamesController.start`. |
+| `guided-iam.spec.ts` | Dispatches the five `wizard.guidedIam.*` channels through the real, DI-resolved `WizardController` → `GuidedIamService`, covering template rendering, console-URL fallback, bootstrap-key intake, the full mint→verify→revoke rotation, and the `delete-failed` manual-revoke retry. |
+| `iac-apply-gates.spec.ts` | 9 scenarios covering `PulumiService.apply`'s gate stack (unapproved/expired/mismatched-hash/engine-version-mismatch/fresh-approved/missing-record/stale-artifact/config-moved/competing-applies), scripted via `PulumiServiceStub.scriptApply({ failure: <real gate-error class> })` and asserted against `IacController.apply`'s ack-shaping. |
+| `iac-destroy-token.spec.ts` | 6 scenarios covering `IacController.destroy`'s confirmation-token gate (no-token/consumed/fresh/wrong-target/expired-or-superseded/concurrent). |
+| `iac-plan.spec.ts` | 3 scenarios: plan artifact/planHash persistence, the structured change summary, and the failed-preview-no-hash path. |
+| `iac-run-records.spec.ts` | 4 scenarios exercising `RunRecordService` directly via `ipc.get(RunRecordService)` — planHash-on-success, failed-still-persisted, inline-log, and retrievable-via-runs-list. This is the spec that actually drives the DynamoDB run-record mock (see [DynamoDB Run-Record Mock](#dynamodb-run-record-mock)). |
+| `iac-streaming-ansi.spec.ts` | ANSI escape sequences are preserved in both the live stream and a directly-persisted run log. |
+| `pulumi-di-seam.spec.ts` | Proves the DI substitution itself: a scripted, non-UUID-shaped `mintDestroyConfirmationToken()` value round-trips through `IacController.mintDestroyToken`, and `ipc.get(PulumiService)` is reference-equal to `ipc.mocks.pulumi`. |
+| `stack-outputs.spec.ts` | `IacController.output` (the `iac.output` channel) returns the scripted `PulumiService.getStackOutputs()` value verbatim, and degrades to `null` — not a throw — for a never-deployed stack. |
 | `start-stop.spec.ts` | `GamesController.listGames`/`listStatus` report STOPPED games on initial load; a game seeded as RUNNING via mocked ECS responses can be stopped. |
 | `status-polling.spec.ts` | Pushing RUNNING mock responses causes the next `GamesController.listStatus` dispatch to reflect the state change (the in-process analogue of the dashboard's poller). |
-| `error-propagation.spec.ts` | `AccessDeniedException` from `RunTaskCommand` surfaces as `{ success: false, message: '…' }` from `GamesController.start`. |
-| `can-run.spec.ts` | `canRun()` (`@hyveon/shared`) enforces guild allowlisting, admin bypass, and per-game action grants, against config seeded through `DiscordController`'s real IPC channels. |
-| `stack-outputs.spec.ts` | `IacController.output` (the `iac.output` channel) returns the scripted `PulumiService.getStackOutputs()` value verbatim, and degrades to `null` — not a throw — for a never-deployed stack. |
-| `pulumi-di-seam.spec.ts` | Proves the DI substitution itself: a scripted, non-UUID-shaped `mintDestroyConfirmationToken()` value round-trips through `IacController.mintDestroyToken`, and `ipc.get(PulumiService)` is reference-equal to `ipc.mocks.pulumi`. |
-| `guided-iam.spec.ts` | Dispatches the five `wizard.guidedIam.*` channels through the real, DI-resolved `WizardController` → `GuidedIamService`, covering template rendering, console-URL fallback, bootstrap-key intake, the full mint→verify→revoke rotation, and the `delete-failed` manual-revoke retry. |
+| `support/iac-ctx.ts` | Not a spec — `makeFakeIacCtx()`, a Playwright-appropriate reimplementation of `iac.controller.test.ts`'s vitest-only `makeCtx()` (plain call-tracking arrays instead of `vi.fn()`, since these specs are typechecked and the vitest test file is not). Shared by the `iac-*` specs above. |
 
 ## PulumiService DI-Seam Stub
 
@@ -129,7 +138,7 @@ Scripting surface (see the class's own TSDoc for the full contract):
 | `scriptPreview(run)` / `scriptApply(run)` / `scriptDestroy(run)` | The `{ chunks?, result? }` or `{ chunks?, failure? }` an operation's async generator plays back — yields `chunks` in order, then either returns `result` or throws `failure`, mirroring how a real `PulumiService` operation settles. Takes effect for every subsequent call until re-scripted (not a one-shot FIFO queue). |
 | `reset()` | Restores every scripted response to its never-deployed/workspace-free/empty-run default. |
 
-**Un-scripted surface.** `initializeStack`/`resolveRollbackTarget`/`computeRollbackDiff`/`confirmRollback`/`clearStaleLock`/`computePlanHash`/`readRunRecord`/`hasPlanArtifact`/`streamRunOutput` have no `script*` setter yet — nothing in the current spec set (tasks 11.1/11.2) drives them, so they resolve fixed, harmless placeholder values. Adding `script*` setters for these, to back Plan/Apply/Destroy gating, ANSI-preservation, and run-record-persistence integration coverage, is tracked as follow-up work under task 7.11 in `openspec/changes/migrate-iac-to-pulumi/tasks.md`.
+**Un-scripted surface.** `initializeStack`/`resolveRollbackTarget`/`computeRollbackDiff`/`confirmRollback`/`clearStaleLock` have no `script*` setter — rollback stayed explicitly out of scope for the Plan/Apply/Destroy/run-record coverage below (per the `orchestrator-integration-coverage` delta spec's own scenario list), so they resolve fixed, harmless placeholder values. Plan/Apply/Destroy gating, ANSI-preservation, and run-record-persistence coverage — once tracked as follow-up under task 7.11 — is now built: see `iac-plan.spec.ts`, `iac-apply-gates.spec.ts`, `iac-destroy-token.spec.ts`, `iac-streaming-ansi.spec.ts`, and `iac-run-records.spec.ts` above. Task 7.11 is closed (`openspec/changes/archive/2026-08-10-migrate-iac-to-pulumi/tasks.md`); those gate errors (`PulumiPlanNotApprovedError`, `RunLockHeldError`, `DestroyNotConfirmedError`, etc.) are scripted straight onto `PulumiServiceStub` via `{ failure: <real gate-error class instance> }` rather than needing dedicated setters, since the gate math itself is already unit-tested in `PulumiService.apply.test.ts`/`.destroy.test.ts` and is not re-derived at this tier.
 
 `createIpcHarness()` builds a fresh `PulumiServiceStub` per harness (per Playwright test) — unlike `mockStore`/`runRecordMockStore`/`remoteFileStoreMockStore`, which are process-wide singletons reset between harnesses because `aws-sdk-client-mock` patches a shared client prototype, a fresh stub instance needs no cross-test reset.
 
@@ -137,7 +146,7 @@ Scripting surface (see the class's own TSDoc for the full contract):
 
 ## DynamoDB Run-Record Mock
 
-`app/packages/desktop-main/src/test-mocks/run-record-mock.ts` installs `aws-sdk-client-mock` interceptors on the `DynamoDBDocumentClient` prototype (`installRunRecordDynamoMock()`, wired into `createIpcHarness()` alongside `installEcsMock()`), backed by the exported `runRecordMockStore` singleton. Unlike `MockStore`'s FIFO queues, this is a genuinely **stateful** table: a run persisted through the real `RunRecordService` is retrievable by a later call in the same spec, exactly like production. No spec in the current set (tasks 11.1/11.2) drives a real plan/apply run far enough to write one — that requires the real `PulumiService`, which every current harness replaces with the stub above — so this mock is installed and reset but currently inert; it exists for the `IacController.approve` path (which calls `RunRecordService` directly, independent of `PulumiService`) and for the task-7.11 follow-up specs that will drive real persistence.
+`app/packages/desktop-main/src/test-mocks/run-record-mock.ts` installs `aws-sdk-client-mock` interceptors on the `DynamoDBDocumentClient` prototype (`installRunRecordDynamoMock()`, wired into `createIpcHarness()` alongside `installEcsMock()`), backed by the exported `runRecordMockStore` singleton. Unlike `MockStore`'s FIFO queues, this is a genuinely **stateful** table: a run persisted through the real `RunRecordService` is retrievable by a later call in the same spec, exactly like production. `iac-run-records.spec.ts` drives this directly — it calls `ipc.get(RunRecordService).persist(...)` and `.getByRunId(...)` against the real, DI-resolved `RunRecordService` (bypassing `PulumiService` entirely, the same pattern `pulumi-di-seam.spec.ts` uses for `PulumiService` itself), so the mock is exercised, not inert.
 
 - **`pk = RUN` items** — `PutCommand`/`QueryCommand` mirror `AwsRunRecordStore`'s `putRecord`/`getRecordByRunId`/`listRuns` request shapes (upsert-by-`sk`, filter by `runId`/`before`/`status`, `Limit`).
 - **`pk = LOCK` / `sk = CURRENT` item** — the single apply-lock item `RunService.createRun`/`releaseRun` acquire/release via `acquireRunLock`/`releaseRunLock`. `PutCommand`'s conditional-put semantics (`attribute_not_exists(pk) OR expiresAt < :now`) are reproduced, throwing `ConditionalCheckFailedException` when another unexpired lock is held — the same exception `AwsRunRecordStore.acquireRunLock` catches and converts to `RunLockHeldError`.
@@ -154,7 +163,7 @@ Since the mock patches `DynamoDBDocumentClient`'s prototype globally, it also in
 - **Seeded with a placeholder `DeploymentConfig`** on install/reset, so any spec that ends up on this path still gets a valid `get()` without individually stubbing anything.
 - **`remoteFileStoreMockStore.seed(config)`** — replaces the object's entire history with a fresh single version containing `config`, for specs (e.g. future `DeploymentConfigService`/rollback specs) that need specific configuration content.
 - **Reset per harness** — `createIpcHarness()` calls `remoteFileStoreMockStore.reset()` before installing the mock, so no configuration content or version history leaks from one spec's `AppModule` context into the next.
-- **Currently inert for every spec in the set (tasks 11.1/11.2)** — `GamesController.listGames`/`listStatus` (dispatched by `config-service.spec.ts`/`start-stop.spec.ts`) do call into `DeploymentConfigService`, but none of the specs in this set set `HYVEON_CONFIG_BUCKET`, so `DeploymentConfigService.getGameServers()` catches its own `ConfigurationNotConfiguredError` and returns an empty list before ever reaching `RemoteFileStore`/`S3Client.send()`. Installing the mock unconditionally in `createIpcHarness()` is forward-looking — it exists for `DeploymentConfigService`-content/rollback specs that haven't landed yet.
+- **Driven by `diagnostics-export.spec.ts`** — that spec sets `process.env['HYVEON_CONFIG_BUCKET']` itself before dispatching (restoring the previous value in its `finally`/teardown), so its calls reach `DeploymentConfigService` → `RemoteFileStore` → this mock for real. Most other specs in the set (e.g. `GamesController.listGames`/`listStatus`, dispatched by `config-service.spec.ts`/`start-stop.spec.ts`) do call into `DeploymentConfigService`, but don't set `HYVEON_CONFIG_BUCKET`, so `DeploymentConfigService.getGameServers()` catches its own `ConfigurationNotConfiguredError` and returns an empty list before ever reaching `RemoteFileStore`/`S3Client.send()` — for those specs this mock is installed and reset but not exercised.
 
 ## Guided-IAM STS/IAM Mock
 
@@ -183,6 +192,17 @@ state `GuidedIamService.test.ts`'s unit tests target, scoped to the fresh
 - **No HTTP server, no Vite build/preview, no `BrowserWindow`** — every integration spec dispatches directly to the `AppModule` DI container via the `ipc` fixture (`ipc-harness.ts`) and pushes mock ECS responses straight into the in-process `MockStore` singleton via the `serverMocks` fixture (`server-mocks.ts`), so there is no test-only route surface and nothing for Playwright to boot as a `webServer`.
 - **No real Pulumi engine, ever** — `createIpcHarness()` substitutes `PulumiServiceStub` for `PulumiService` at the DI seam (see [PulumiService DI-Seam Stub](#pulumiservice-di-seam-stub) above), so no integration spec can spawn the Pulumi CLI, download the engine binary, or reach real AWS through it — structurally, not just by convention.
 
+## Three Playwright configs
+
+`@hyveon/web` has three separate Playwright configs — each scoped to a different
+`testDir` so the three suites never cross-pick-up each other's specs:
+
+| Config | `testDir` | Purpose |
+|--------|-----------|---------|
+| `playwright.integration.config.ts` | `e2e/integration-specs` | The tier-2 suite documented above. No `webServer`, no `projects` — see [How to Run](#how-to-run). |
+| `playwright.config.ts` | `e2e/specs` | The tier-1 suite (`npm run app:test:e2e`). Two projects run side by side: `electron` (`ELECTRON_SPECS`, ~line 50 — `electron-smoke.spec.ts`, `electron-clean-quit.spec.ts`, `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`, `streaming-handle-roundtrip.spec.ts`, `dashboard.spec.ts`, `costs.spec.ts`, `logs.spec.ts`, `discord.spec.ts`, `iac.spec.ts`, `guided-iam-wizard.spec.ts`) launches the packaged main bundle via `_electron.launch()`; every other spec runs under `chromium` against the Vite dev/preview server. `npm run app:test:e2e` (root `package.json`) builds `@hyveon/shared`, `@hyveon/cloud-aws`, `@hyveon/infra`, and `@hyveon/desktop-preload` first, then the workspace's own `test:e2e` script additionally runs `desktop:build` (electron-vite) before invoking `playwright test` — so the `electron` project always launches an up-to-date `out/main`/`out/preload`/`out/renderer`. |
+| `playwright.screenshots.config.ts` | `e2e/screenshots` | Standalone docs-screenshot harness (`docs:screenshots` in the root `package.json`) — deliberately separate from `playwright.config.ts` so neither suite picks up the other's specs. No `projects`/`webServer`; the one spec (`e2e/screenshots/capture.spec.ts`) manages its own `_electron.launch()` calls, same pattern as the `electron` project above. `workers: 1`/`fullyParallel: false` because output file paths are fixed (`docs/static/img/app/*.png`) and concurrent writers would race. |
+
 ## Related: the tier-1 Electron e2e IPC mock seam
 
 The seam below belongs to the **tier-1** Playwright suite (`npm run app:test:e2e`),
@@ -195,9 +215,15 @@ The `electron` Playwright project launches the packaged app via
 `app/packages/web/playwright.config.ts`). That env var gates two things:
 
 1. **Main process** (`desktop-main/src/electron-entry.ts`) logs
-   `[desktop-main] HYVEON_TEST_MODE active — test seam enabled` at startup. The
-   window still opens normally — the flag is informational, not a behaviour
-   switch, so `_electron.launch()` can drive the real UI.
+   `[desktop-main] HYVEON_TEST_MODE active — test seam enabled` at startup, and
+   it is a real behaviour switch, not merely informational: `!isTestMode()` gates
+   the Pulumi spike (`if (isPulumiSpikeEnabled() && !isTestMode())`, ~line 239) —
+   without it, a `HYVEON_PULUMI_SPIKE=1` leaking in from the inherited shell
+   environment (which `_electron.launch()` spreads into every launch) would make
+   each spec download a 344 MB Pulumi engine and run a real `up`. The e2e config's
+   `electronEnv` also strips `HYVEON_PULUMI_SPIKE*` from the inherited environment
+   as the other half of that belt. Aside from this gate the window still opens
+   normally, so `_electron.launch()` can drive the real UI.
 2. **Preload script** (`desktop-preload/src/preload.ts`) checks
    `process.env.HYVEON_TEST_MODE === '1'` before attaching the `__test` namespace
    to the `hyveon` bridge. When the flag is set, the bridge gains:
@@ -234,7 +260,10 @@ production code; it exists only for jsdom-environment test helpers.
 
 The shared-app + `clearMocks()` pattern above assumes there's a remount lever
 — routed-page specs like `discord.spec.ts` get per-test isolation from
-`DiscordPage.goto()`'s `pushState`/`popstate` dance forcing a fresh mount, not
+`DiscordPage.goto()`'s two-step `window.location.hash` assignment (set to `'/'`
+to unmount any previously mounted Discord page, then to `'/discord'` to force a
+fresh mount) forcing a `hashchange` — a same-value `location.hash` set fires no
+`hashchange`, so `HashRouter` would not re-render on a single assignment — not
 from clearing mocks alone. A component that mounts once and never remounts
 has no such lever: `guided-iam-wizard.spec.ts` covers the first-run wizard
 shell, which mounts once outside the router on app boot, so `clearMocks()`
@@ -290,7 +319,8 @@ jsdom, `node` collects everything else under `node`.
   not in a separate `__tests__` directory.
 - Mock the API client and any module-level singleton with `vi.mock`.
 - For a component driven by a streaming channel (`logs.stream`,
-  `iac.stack.initialize`, `iac.runs.streamLogs`), back the mock with
+  `iac.stack.initialize`, `iac.runs.logs` — bridged over `iac.runs.logs.chunk`/
+  `iac.runs.logs.end`), back the mock with
   `toStreamHandleMock()` from `src/test-utils/stream-handle.test-utils.ts`. It
   wraps an ordinary async generator body in the `HyveonStreamHandle` shape the
   real preload bridge returns — including the `cancel()` method components call
@@ -316,9 +346,12 @@ Mock `../api.js` with `vi.mock` + `vi.hoisted` so the page runs off canned data,
 and **stub every method the provider stack calls, not just the ones the page
 calls** — at minimum `api.status` *and* `api.costsEstimate`. `GameStatusProvider`
 invokes `api.costsEstimate()` unconditionally on mount
-(`src/polling/game-status-provider.component.tsx:72`), above every page mounted
-this way, so leaving it unstubbed hangs the test on a promise that never settles
-rather than failing with a useful message.
+(`src/polling/game-status-provider.component.tsx`, in a bare `useEffect`), above
+every page mounted this way. That call's rejection is swallowed
+(`.catch(() => undefined)`), so leaving `api.costsEstimate` unstubbed does not
+hang the test — it silently leaves `estimates` at its initial `null` instead,
+which can mask a real assertion failure with a confusing symptom rather than a
+useful message, so stub it anyway.
 
 Keep the scope tight: smoke-render each header section, exercise controls not
 already covered by a child component's own spec, and verify the polling-indicator
