@@ -61,8 +61,11 @@ route through neighbouring subgraphs and produce unreadable overlap.
 The Electron app's Nest.js backend is the local control plane, driven by
 its React/Vite renderer over Electron IPC (`window.hyveon`) rather than HTTP.
 It reads the deployed Pulumi stack's outputs to discover infrastructure IDs,
-then drives ECS / DynamoDB / Secrets Manager / CloudWatch via the
-cloud-provider abstraction (SDK v3 under the hood). Players reach the game directly at the
+then drives AWS through a mix of abstraction and direct SDK v3 calls: ECS
+start/stop/status/logs/cost go through the `CloudProvider` abstraction
+(`@hyveon/cloud-aws` underneath), secrets go through a separate `SecretsStore`
+abstraction, and DynamoDB reads/writes go straight through the AWS SDK v3
+client with no abstraction layer. Players reach the game directly at the
 task's public IP either way — UDP/TCP games connect straight to the game
 port, and HTTPS games terminate TLS in-task via a Caddy sidecar that shares
 the same public IP. There is no load balancer anywhere in the path.
@@ -86,11 +89,14 @@ shutdown in sync with actual task state. `update-dns` fires on every
 ECS task state change, UPSERTing the Route 53 A record on `RUNNING` and
 deleting it on `STOPPED`. It reconciles the pending-interaction row in
 DynamoDB on the `RUNNING` path only, where it patches the deferred Discord
-reply with the resolved address. `watchdog` fires on a schedule and
-stops tasks whose `NetworkPacketsIn` has stayed below the threshold for
+reply with the resolved address. `watchdog` fires on a schedule and stops a task once it's looked idle for
 `IDLE_CHECKS` consecutive intervals — it issues `StopTask` only; it never
 touches Route 53 itself, `update-dns` reacts to the resulting `STOPPED`
-event.
+event. How "idle" is decided is per-game: a game with no declared
+`healthCheck` falls back to the `NetworkPacketsIn`-below-threshold check;
+a game that declares one delegates the verdict to the health-check Lambda
+instead, invoked over the network via the IAM identity-policy grant described
+in [Infra program](/components/infra#health-check-network-confinement-is-port-level-not-game-level).
 
 ![Control loops](/diagrams/control-loops.svg)
 
@@ -103,9 +109,11 @@ ever letting the interaction time out.
 ![/server-start sequence](/diagrams/server-start.svg)
 
 After the session: either the user types `/server-stop palworld` (same flow
-but `stopTask` + `DELETE` A record), or the Watchdog Lambda notices
-`NetworkPacketsIn < min_packets` for four consecutive 15-minute windows and
-stops the task itself.
+but `stopTask` + `DELETE` A record), or the Watchdog Lambda decides the task
+has been idle for four consecutive 15-minute windows and stops it itself —
+`NetworkPacketsIn < min_packets` for a game with no declared `healthCheck`,
+or a negative verdict from the health-check Lambda for a game that declares
+one.
 
 ## Invariants
 
