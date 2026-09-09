@@ -119,7 +119,11 @@ in order, that:
    hash — this hash covers **both** the plan artifact's bytes **and** the
    configuration object's version id at plan time, so a game edit landing
    between plan and apply invalidates the plan rather than silently applying
-   against stale config.
+   against stale config,
+6. the currently-resolved Pulumi engine version still matches the engine
+   version stamped into the plan record — a mismatch (e.g. the app updated
+   its bundled engine between plan and apply) refuses the apply outright
+   rather than risk running an approved plan against a different engine.
 
 That last check is the important one: it means the exact plan you looked at
 and approved is the exact plan that gets applied. If the artifact were
@@ -139,37 +143,41 @@ dashboard** link, plus a toast.
 An ordinary apply failure or abort shows a red banner: `Apply failed — see
 the log above for details.` (or `was aborted` for an abort).
 
-If the run leaves any uncertainty about whether resources were already
-mutated before it failed or was aborted — Pulumi's engine reports this as
-`partialApply` on the run record, and the field is set proactively, before
-`stack.up()` is ever called, so a failure can't hide it — you get a
-different, more specific banner instead: **Apply stopped partway through.**
-Its point is that the deployed infrastructure might no longer match the plan
-you approved, so retrying that same apply is unsafe. The `planHash` check
-only proves the plan artifact and configuration are unchanged since
-approval — it says nothing about whether resources were already mutated by
-a prior attempt. The banner deliberately offers no retry action, only a
-**Start over** button, guiding you to run a fresh plan against current
-state instead. The same `partial` badge appears next to the run's status in
-[run history](#run-history) — including for a run that aborted before any
-resource step actually ran, since the marker is written before that risk is
-known one way or the other, and the record stays non-retryable (`kind:
-'apply'`) either way.
+If the failed or aborted run actually mutated one or more resources before it
+stopped — tracked from the engine's own step events, not just its exit
+status — you get a different, more specific banner instead: **Apply stopped
+partway through.** Its point is that the deployed infrastructure might no
+longer match the plan you approved, so retrying that same apply is unsafe.
+The `planHash` check only proves the plan artifact and configuration are
+unchanged since approval — it says nothing about whether resources were
+already mutated by a prior attempt. The banner deliberately offers no retry
+action, only a **Start over** button, guiding you to run a fresh plan against
+current state instead. The same `partial` badge appears next to the run's
+status in [run history](#run-history) once the run settles with that flag
+set. A run that aborted before any resource step actually ran settles
+*without* the flag, and gets **no** `partial` badge — see below for why that
+run is still not retryable.
 
 This isn't only a UI nicety — the backend refuses the retry too, even if
-someone tried to replay the same plan run's id directly. Before `stack.up()`
+someone tried to replay the same plan run's id directly, and it does so
+regardless of whether any resource was actually touched. Before `stack.up()`
 is ever called, `PulumiService.apply` writes a durable, in-doubt marker
-record for the attempt (`kind: apply`, `partialApply: true`), so an apply
-attempt for that plan is on record from the moment the durable lock is
-acquired, not only once the run settles. If the attempt finishes cleanly,
-the settlement write overwrites the marker in place; if it doesn't — a
-partial apply, or even the settlement write itself failing to persist — the
-marker (or whatever the settlement did record) is what's left, and it always
-carries `partialApply: true` for the id in question. The apply gate checks
-that flag on every submission and refuses a second `apply()` call against the
-same plan run's id outright, before touching Pulumi again — a fresh
-`preview()` against current state is the only way forward from there,
-matching what the banner already tells you to do.
+record for the attempt (`kind: 'apply'`, `partialApply: true` unconditionally),
+so an apply attempt for that plan is on record from the moment the durable
+lock is acquired, not only once the run settles. If `stack.up()` finishes,
+the settlement write overwrites the marker in place with the run's real
+outcome — and only sets `partialApply: true` there if the engine actually
+completed at least one resource step; an abort or failure before any step ran
+settles with that field simply omitted. Either way, the apply gate's very
+first check on a resubmission is that the plan run's record still has
+`kind: 'plan'` — once any apply attempt has run, the record's `kind` is
+`'apply'`, so that check alone refuses a second `apply()` call against the
+same plan run's id outright, before touching Pulumi again. (If the settled
+or marker record does carry `partialApply: true`, the gate reports the more
+specific "partial apply" error; otherwise it reports a generic wrong-kind
+error — but either way the retry is blocked.) A fresh `preview()` against
+current state is the only way forward from there, matching what the banner
+already tells you to do.
 
 ## The workspace-busy banner
 
@@ -281,7 +289,11 @@ The **View history** link in the page header opens `/iac/history`.
 
 `Aborted` means the run was cancelled or never reported an exit code;
 `Failed` means it exited non-zero. There is no `Running` status in history —
-records are only written once a run has finished.
+for `apply`, a durable placeholder record (`status: 'aborted'`) is written
+*before* the run even starts, precisely so a crash mid-run still leaves a
+non-retryable record behind; that placeholder is overwritten in place once
+the run actually settles. Either way, by the time a row is visible in history
+it always shows a terminal status, never an in-progress one.
 
 Two filters:
 

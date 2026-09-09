@@ -208,7 +208,7 @@ Both pages are thin wrappers around the same `useLogTail` hook, so tail/pause, A
 
 What's different is where the logs come from and how you pick a target:
 
-- Instead of a game combobox, a row of 5 buttons picks the function: `watchdog`, `health-check`, `dns-updater`, `interactions`, `followup`. `watchdog` is selected by default. Like the game combobox on this page, this picker stays visible at every width — it is not one of the controls that collapses behind the narrow-window **Filters** button.
+- Instead of a game combobox, a row of 5 buttons picks the function: `watchdog`, `health-check`, `dns-updater`, `interactions`, `followup`. `watchdog` is selected by default. Unlike the game-logs page, this page doesn't opt into the shared `LogTailView`'s mobile filter drawer at all — there is no narrow-window **Filters** button here, and the search box stays visible at every width.
 - Each function's logs come from the CloudWatch log group `/aws/lambda/{projectName}-{functionKey}`, where `projectName` is the operator's configured project name (falling back to `hyveon` if it can't be read). For the default project name, that means log groups like `/aws/lambda/hyveon-watchdog`.
 - As on this page, opening it fetches a snapshot of the most recent lines and then opens a live tail; the Lambda tail polls every two seconds, same as the game-logs tail.
 - `health-check` is conditionally provisioned: its CloudWatch log group only exists once at least one game in the deployment declares a `healthCheck`. Picking it before that's configured shows an informational "no log group yet" message instead of an error, and the live tail stops after that single message rather than polling forever.

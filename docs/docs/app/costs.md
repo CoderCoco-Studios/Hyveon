@@ -5,7 +5,7 @@ sidebar_position: 8
 
 # Costs
 
-The Costs screen (route `/costs`) shows what each declared game costs to run,
+The Costs screen (route `/costs`) shows what each deployed game costs to run,
 estimated from its declared Fargate CPU and memory against published
 on-demand rates. **The app makes no AWS Cost Explorer API calls, ever** — no
 automatic fetch, no manual "fetch actuals" button. For real billed spend, use
@@ -41,8 +41,11 @@ workloads in the same account.
 
 ## Per-game estimates
 
-A table of what each game costs to run, computed from its declared Fargate
-CPU and memory.
+A table of what each deployed game costs to run, computed from its declared
+Fargate CPU and memory. Rows come from the deployed stack's outputs
+(`gameNames`), not from `deployment-config.json` directly — if the stack has
+never been applied there are no outputs yet, so the table is empty even when
+games are configured.
 
 | Column | Contents |
 |---|---|
