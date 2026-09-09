@@ -131,10 +131,10 @@ design.
 
 3. **Lambdas use `AWS_REGION_` (trailing underscore).** The standard
    `AWS_REGION` name is reserved by the Lambda runtime and cannot be
-   overridden. The infra program sets `AWS_REGION_` on all six Lambda
-   functions; five of them read `process.env.AWS_REGION_` — the four core
-   Lambdas plus `health-check` (`efs-seeder` makes no AWS SDK calls and
-   never reads it).
+   overridden. The infra program sets `AWS_REGION_` on every provisioned
+   Lambda function. The four always-deployed packages and the conditional
+   `health-check` package read `process.env.AWS_REGION_` when provisioned
+   (`efs-seeder` makes no AWS SDK calls and never reads it).
 
 4. **Secrets never leave AWS.** The bot token and the Discord public key
    live in Secrets Manager. The management app can write them and

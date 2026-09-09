@@ -1,7 +1,7 @@
 /**
- * The five fixed Lambda functions (interactions, followup, watchdog,
- * dns-updater, health-check — the last conditional, existing only when a
- * game declares `healthCheck`) plus one EFS-seeder function per configured
+ * The four always-on Lambda functions (interactions, followup, watchdog,
+ * dns-updater) plus the shared conditional health-check function, existing
+ * only when a game declares `healthCheck`, and one EFS-seeder function per configured
  * game, their log groups, permissions, the interactions Function URL, and
  * the watchdog/dns-updater EventBridge rule/target pairs. See
  * `docs/docs/components/infra.md` for the full resource inventory.

@@ -27,7 +27,7 @@ is silent except for a handful of near-free Lambdas.
   renderer talks to the backend over Electron IPC.
 - **Serverless Discord bot** — two Node.js Lambdas plus DynamoDB and Secrets
   Manager handle every slash command; no 24/7 bot process.
-- **Six Lambda packages, four always running.** `interactions`, `followup`,
+- **Six Lambda packages, four always deployed.** `interactions`, `followup`,
   `update-dns`, and `watchdog` are always deployed. Two are conditional:
   `health-check` is provisioned once, shared across games, when at least one
   game declares a `healthCheck`; `@hyveon/lambda-efs-seeder` is deployed
