@@ -97,9 +97,11 @@ registrar, which fetches it itself when it calls Discord.
 
 ### The Interactions Endpoint URL
 
-This is the HTTPS endpoint Discord will send every interaction to. It is a
-Lambda Function URL provisioned by the infra program, so before your first
-apply the field reads:
+This is the HTTPS endpoint Discord will send every interaction to. It is
+**not** the raw interactions Lambda Function URL — it's the CloudFront-fronted
+custom domain `https://discord.{hostedZoneName}/` the infra program
+provisions (see [What the Discord domain provisions](#what-the-discord-domain-provisions)
+below). Before your first apply the field reads:
 
 > Run a plan and apply from the [Infrastructure](/app/iac) page to provision the Lambda and surface this URL.
 
@@ -115,6 +117,27 @@ URL into Discord**, or the verification will fail.
 Nothing in the app can tell whether you completed this step. Step 3 of the Get
 started checklist ticks green because the URL *exists*, not because Discord
 accepted it.
+
+### What the Discord domain provisions
+
+Route 53 ALIAS targets can't point at a Lambda Function URL directly, so
+every apply provisions a small, fixed resource set — unconditional, no
+`DeploymentConfig` field disables it — to front the interactions Lambda with
+a stable custom domain (`app/packages/infra/src/discordDomain.ts`):
+
+- An **ACM certificate** for `discord.{hostedZoneName}`, always created in
+  `us-east-1` regardless of your stack's deployment region (a CloudFront
+  requirement) — validated via a Route 53 DNS record.
+- A **CloudFront distribution**, caching disabled, whose origin is the
+  interactions Lambda's Function URL.
+- An **`A` and an `AAAA` Route 53 ALIAS record**, both named
+  `discord.{hostedZoneName}` and pointed at the CloudFront distribution.
+
+Together these are what `https://discord.{hostedZoneName}/` resolves to —
+the value shown above as the Interactions Endpoint URL. Two prerequisites
+this depends on: your hosted zone must already exist (see
+[Setup](/setup)), and the deploying credentials need ACM permissions in
+`us-east-1` specifically, not just your stack's home region.
 
 ### Saving
 

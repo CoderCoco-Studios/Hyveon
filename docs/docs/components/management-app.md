@@ -363,6 +363,48 @@ Two services, both provided by `ElectronStoreModule`:
   autosave) ever writes the unredacted values; no read path echoes them
   back.
 
+### AWS credential precedence for Pulumi operations
+
+`PulumiCredentialResolver.ts`'s `resolveCredentialEnvVars()` turns the
+wizard-selected credential source (`awsCredentialSource.ts`'s
+`resolveAwsCredentialSource()`) into the `envVars` overlay
+`PulumiWorkspaceService.getOrCreateStack()` merges into the Pulumi engine's
+process environment. Getting this precedence wrong is the classic "why did
+my apply just touch the wrong AWS account" footgun, so the rules are:
+
+- **A named `~/.aws` profile wins over ambient pasted-key env vars, and vice
+  versa.** Whichever source the wizard's credentials step selected sets its
+  own variables (`AWS_PROFILE` for a profile, `AWS_ACCESS_KEY_ID` /
+  `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for pasted keys) — and
+  **explicitly clears the other source's variables to `''`** in the same
+  overlay, rather than merely omitting them.
+- **Clearing, not omitting, is what makes the precedence hold.** The
+  `envVars` overlay becomes an `execa` `env` option with `extendEnv: true`,
+  which spreads `process.env` first and the overlay second. Omitting a key
+  would leave whatever ambient value `process.env` happened to hold (an
+  operator's shell `AWS_PROFILE`, a launcher's stray `AWS_ACCESS_KEY_ID`)
+  completely untouched — silently outranking the wizard's selection. Setting
+  the key to `''` instead means the overlay always wins for that key,
+  because both the AWS SDK for Go (used by the `pulumi` CLI binary and its
+  provider plugins) and the AWS SDK for JavaScript treat an empty string the
+  same as "not set" for `AWS_PROFILE` / `AWS_ACCESS_KEY_ID` /
+  `AWS_SECRET_ACCESS_KEY`.
+- **The pasted-keys path also clears `AWS_SESSION_TOKEN`.** The paste flow
+  never has a session token of its own to set, but an ambient one (e.g. from
+  an `aws sso` / assume-role shell the app was launched from) must still be
+  cleared — otherwise the final environment pairs the wizard's long-term
+  pasted keys with a temporary session token for a different identity, which
+  AWS rejects outright ("security token included in the request is
+  invalid").
+- **No credential source configured at all is a hard failure, never a
+  silent fallback.** If the wizard's credentials step has never selected
+  a profile, `resolveCredentialEnvVars()` throws
+  `PulumiCredentialsNotConfiguredError` rather than returning an empty
+  `envVars` object. An empty overlay would let the Pulumi engine fall
+  through to its own default AWS credential chain — exactly the "operator's
+  choice gets silently ignored" failure mode this resolver exists to
+  prevent.
+
 ### `DeploymentConfigModule` / `DeploymentConfigService`
 
 `DeploymentConfigService` is the S3-backed deployment-config JSON reader/parser

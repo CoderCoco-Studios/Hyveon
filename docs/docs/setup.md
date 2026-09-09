@@ -320,7 +320,13 @@ steps, none of them a CLI command:
    change your mind. Otherwise, pick an existing AWS CLI profile, or paste
    the access key you created under [Manual fallback](#manual-fallback)
    directly; either way pasted keys are encrypted with your OS keychain,
-   never stored in plaintext.
+   never stored in plaintext. Whichever source you pick, it fully overrides
+   the other for every Pulumi plan/apply — a selected profile clears any
+   ambient pasted-key env vars and vice versa, and if neither is configured
+   the app refuses to run infrastructure operations rather than silently
+   falling through to a different AWS identity; see
+   [AWS credential precedence for Pulumi operations](/components/management-app#aws-credential-precedence-for-pulumi-operations)
+   for the mechanism.
 4. **Bootstrap AWS resources** — creates the state bucket, the
    configuration bucket, and the run-history table directly via the AWS SDK
    (no CLI, and none of the three is Pulumi-managed): a
@@ -423,7 +429,11 @@ four always-on Lambdas (interactions, followup, update-dns, watchdog) plus a
 conditional per-game `efs-seeder` Lambda for any game with `file_seeds`,
 three DynamoDB tables (Discord config/state, the audit log, and the
 plan/apply run history), two Secrets Manager secrets, and the EventBridge
-rule + schedule. The deploy IAM policy's existing `dynamodb:*` statement
+rule + schedule. It also always provisions the Discord custom domain — a
+`us-east-1` ACM certificate, a CloudFront distribution, and A/AAAA Route 53
+ALIAS records for `discord.{hostedZoneName}` — see
+[What the Discord domain provisions](/app/discord#what-the-discord-domain-provisions).
+The deploy IAM policy's existing `dynamodb:*` statement
 (see [step 1](#1-create-and-authorise-an-iam-user)) already covers all
 three tables — no policy change is needed.
 
