@@ -86,9 +86,10 @@ the root npm script table.
 
 - **WHEN** `docs/docs/intro.md`, `architecture.md`, `components/index.md`, `components/lambdas.md`,
   `components/infra.md`, and `guides/maintainer.md` describe the Lambda packages
-- **THEN** they state five packages — four always-on Lambdas plus an optional, per-game
-  `@hyveon/lambda-efs-seeder` — rather than implying five functions are always deployed, and
-  `components/lambdas.md` documents `@hyveon/lambda-efs-seeder` alongside the other four
+- **THEN** they state six packages — four always-on Lambdas plus two conditional ones, the
+  per-game `@hyveon/lambda-efs-seeder` and the shared `@hyveon/lambda-health-check` — rather
+  than implying six functions are always deployed, and `components/lambdas.md` documents both
+  conditional packages alongside the other four
 
 #### Scenario: Repo maps are complete
 
