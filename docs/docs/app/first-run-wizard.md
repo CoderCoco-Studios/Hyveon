@@ -264,11 +264,12 @@ on every run.
 | `The bucket name "…" is already taken by another AWS account. Choose a different name.` | S3 bucket names are globally unique. Edit the name (failed rows stay editable) and re-run |
 | `Cannot bootstrap AWS resources: no region is configured. Complete the credentials step of the wizard first.` | Go **Back** and finish step 3 |
 
-**What blocks Next:** only the two S3 buckets must be **Created** or
-**Already exists** — the run-history table's status is informational and
-never gates progression (its own bootstrap failure is still surfaced, and is
-worth resolving before configuring game servers, since `plan`/`approve`
-against that table depend on it existing).
+**What blocks Next:** all four resources must reach **Created** or **Already
+exists** — the two S3 buckets, the run-history table, and the initial
+`deployment-config.json` seed. Any one of them still `Pending`, `Creating…`,
+or `Failed` keeps Next disabled; there is no "informational only" resource
+here, since `plan`/`approve` against the run-history table and the seeded
+configuration object both depend on their targets already existing.
 
 ### The IAM permission check is advisory
 

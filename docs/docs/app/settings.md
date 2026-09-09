@@ -50,7 +50,12 @@ An always-visible checklist of AWS-account prerequisites the deployed
 infrastructure depends on but Pulumi itself won't surface as a plan/apply
 error — things IAM or another service rejects at runtime instead, with no
 in-app way to discover why. It runs once on mount and again only when you
-press **Refresh**; there is no polling.
+press **Refresh**; there is no polling. **Refresh** is disabled while a
+fetch is already in flight, including the initial mount fetch.
+
+If the list itself fails to load (an IPC-bridge-level failure, as opposed to
+an individual check reporting `error`), the checklist is replaced by
+`Unable to load Cloud Health checks: <error>` and no rows render at all.
 
 It ships with one check:
 
