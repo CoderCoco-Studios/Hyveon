@@ -204,6 +204,8 @@ line* rather than in the banner, prefixed `[stream error]`.
 
 The **Infra Logs** page (route `/logs/infrastructure`) is this page's sibling: it tails one of the app's 5 Lambda functions instead of a game server.
 
+![The Infrastructure logs screen with the watchdog function selected, a row of 5 function-picker buttons, and a stream of log lines](/img/app/logs-infrastructure.png)
+
 Both pages are thin wrappers around the same `useLogTail` hook, so tail/pause, ANSI colour rendering, search highlighting, autoscroll, and the 300-line window with scroll-up history backfill all behave exactly as described above in [ANSI colour rendering](#ansi-colour-rendering), [Search highlights, it does not filter](#search-highlights-it-does-not-filter), [Autoscroll](#autoscroll), [Pause and Resume](#pause-and-resume) and [The 300-line window, and scrolling up for history](#the-300-line-window-and-scrolling-up-for-history) — nothing about that behaviour differs between the two pages.
 
 What's different is where the logs come from and how you pick a target:

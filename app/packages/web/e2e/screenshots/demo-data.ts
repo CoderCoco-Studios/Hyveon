@@ -37,6 +37,7 @@ import type {
 } from '@hyveon/shared';
 import type { WizardStep } from '@hyveon/shared';
 import type {
+  LogEventLine,
   RunHistoryPageResult,
   RunHistoryRecord,
   StackInitPhaseEvent,
@@ -47,6 +48,7 @@ import type {
   IacRunsGetResult,
   WizardState,
 } from '@hyveon/desktop-preload';
+import type { LambdaFunctionKey } from '@hyveon/shared';
 import type {
   CostEstimates,
   DiscordConfigRedacted,
@@ -99,7 +101,7 @@ export interface WizardProgress {
 /** Mirrors `GameLogs` in `hyveon-api.ts` — the response shape of the `logs.get` IPC channel. */
 export interface GameLogs {
   game: string;
-  lines: string[];
+  lines: LogEventLine[];
 }
 
 // Fixed clock — every timestamp-bearing fixture below is anchored to this
@@ -321,6 +323,48 @@ export const DEMO_LOG_STREAM_LINES: string[] = [
   '2026-07-26T12:15:12Z INFO Autosave finished in 2984 ms',
 ];
 
+/** Leading `YYYY-MM-DDTHH:mm:ssZ` timestamp prefix shared by every demo log line string. */
+const LOG_LINE_TIMESTAMP_PATTERN = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)/;
+
+/**
+ * Converts the flat demo log-line strings above into the `LogEventLine[]`
+ * shape the real `logs.get`/`logs.lambda.get` IPC channels return — each
+ * line's own leading ISO timestamp becomes its CloudWatch `timestamp`, and a
+ * synthesized `${timestamp}:${index}` becomes its `eventId`, matching
+ * `LogsService`'s convention (`hyveon-api.ts`'s `LogEventLine` doc comment).
+ */
+function toLogEventLines(lines: string[]): LogEventLine[] {
+  return lines.map((message, index) => {
+    const match = LOG_LINE_TIMESTAMP_PATTERN.exec(message);
+    const timestamp = match ? new Date(match[1]!).getTime() : new Date(DEMO_NOW).getTime() + index;
+    return { message, timestamp, eventId: `${timestamp}:${index}` };
+  });
+}
+
+// Infrastructure (Lambda) logs — one short, function-flavoured line per
+// `LambdaFunctionKey` so the `/logs/infrastructure` picker has something
+// distinct to show for each button.
+
+export const DEMO_LAMBDA_LOG_LINES: Record<LambdaFunctionKey, string[]> = {
+  watchdog: [
+    '2026-07-26T11:55:02Z INFO watchdog: minecraft idle check 1/4',
+    '2026-07-26T11:58:20Z INFO watchdog: palworld idle check reset (player activity)',
+  ],
+  'health-check': [
+    '2026-07-26T11:56:10Z INFO health-check: minecraft TLS handshake ok',
+    '2026-07-26T11:56:10Z INFO health-check: palworld TLS handshake ok',
+  ],
+  'dns-updater': [
+    '2026-07-26T11:58:21Z INFO dns-updater: UPSERT minecraft.hyveon.example.com -> 203.0.113.42',
+  ],
+  interactions: [
+    '2026-07-26T12:00:41Z INFO interactions: /status minecraft from chris',
+  ],
+  followup: [
+    '2026-07-26T12:00:42Z INFO followup: delivered deferred response for /status',
+  ],
+};
+
 // Diagnostics tail (Settings page)
 
 export const DEMO_DIAGNOSTICS_TAIL: string[] = [
@@ -485,8 +529,11 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     discord: overrides.discord ?? DEMO_DISCORD_CONFIG,
     drift: overrides.drift ?? DEMO_DRIFT_REPORT,
     audit: overrides.audit ?? DEMO_AUDIT,
-    logLines: overrides.logLines ?? DEMO_LOG_LINES,
+    logLines: toLogEventLines(overrides.logLines ?? DEMO_LOG_LINES),
     logStreamLines: overrides.logStreamLines ?? DEMO_LOG_STREAM_LINES,
+    lambdaLogLines: Object.fromEntries(
+      Object.entries(DEMO_LAMBDA_LOG_LINES).map(([key, lines]) => [key, toLogEventLines(lines)]),
+    ) as Record<LambdaFunctionKey, LogEventLine[]>,
     iacHistory: overrides.iacHistory ?? DEMO_IAC_HISTORY,
     iacPlanChunks: overrides.iacPlanChunks ?? DEMO_IAC_PLAN_CHUNKS,
     iacApplyChunks: overrides.iacApplyChunks ?? DEMO_IAC_APPLY_CHUNKS,
@@ -556,6 +603,16 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     // snapshot above is already rendered — see `toIterable`'s TSDoc for why
     // this is a plain-object iterable rather than a real `async function*`.
     mock('logs.stream', () => toIterable(d.logStreamLines));
+
+    // Infrastructure (Lambda) logs — `/logs/infrastructure`'s function picker
+    // starts on `'watchdog'`; each button switch re-fetches `logs.lambda.get`
+    // for the newly-selected function key.
+    mock('logs.lambda.get', (arg: unknown) => {
+      const opts = (arg ?? {}) as { functionKey?: LambdaFunctionKey; limit?: number };
+      const functionKey = opts.functionKey ?? 'watchdog';
+      return Promise.resolve({ functionKey, lines: d.lambdaLogLines[functionKey] ?? [] });
+    });
+    mock('logs.lambda.stream', () => toIterable([]));
 
     mock('diagnostics.tail', () => Promise.resolve({ lines: d.diagnosticsLines }));
     mock('diagnostics.path', () => Promise.resolve({ path: d.diagnosticsPath }));
@@ -694,6 +751,11 @@ export async function seedWizard(win: Page, resumeStep: WizardStep = 'pick-cloud
     );
     mock('wizard.bootstrap.stateBucket', () => Promise.resolve(d.bootstrapCreated));
     mock('wizard.bootstrap.configurationBucket', () => Promise.resolve(d.bootstrapExists));
+    // Both gate `useBootstrapResources`'s `complete` flag (which enables the
+    // step's "Next" button) alongside the two buckets above — see that
+    // hook's TSDoc for why they're tracked as separate resources.
+    mock('wizard.bootstrap.runsTable', () => Promise.resolve(d.bootstrapCreated));
+    mock('wizard.bootstrap.deploymentConfig', () => Promise.resolve(d.bootstrapCreated));
     mock('wizard.iam.simulate', () => Promise.resolve(d.iamPassed));
     mock('wizard.complete', () => Promise.resolve({ wizardCompleted: true }));
     // `GuidedIamStep`'s template screen — mocked so the harness never shells

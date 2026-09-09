@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright-core';
 import { launchElectron } from '../fixtures/index.js';
-import { GamesPage, IacHistoryPage, IacPage } from '../pages/index.js';
+import { GamesPage, GuidedIamWizardPage, IacHistoryPage, IacPage, InfrastructureLogsPage } from '../pages/index.js';
 import { DEMO_LOG_STREAM_LINES, DEMO_NOW, seedDemo, seedWizard } from './demo-data.js';
 
 /** Repo root, five directories above this file (`app/packages/web/e2e/screenshots/`). */
@@ -192,6 +192,22 @@ test('logs.png', async () => {
   }
 });
 
+test('logs-infrastructure.png', async () => {
+  const { app, win } = await launchSeeded((w) => seedDemo(w));
+  try {
+    const infraLogs = new InfrastructureLogsPage(win);
+    await gotoRoute(win, '/logs/infrastructure');
+    await disableMotion(win);
+    await expect(infraLogs.heading()).toBeVisible();
+    // Function picker defaults to `'watchdog'` (`InfrastructureLogsPage.tsx`) — its seeded
+    // `logs.lambda.get` snapshot line proves both the picker and the fetch wired correctly.
+    await expect(win.getByText('watchdog: minecraft idle check 1/4')).toBeVisible();
+    await shot(win, 'logs-infrastructure.png');
+  } finally {
+    await app.close();
+  }
+});
+
 test('costs.png', async () => {
   const { app, win } = await launchSeeded((w) => seedDemo(w));
   try {
@@ -267,8 +283,13 @@ test('iac-awaiting-approval.png', async () => {
     // renders a badge for counts > 0).
     await iac.runPlanButton().click();
     await expect(iac.approveButton()).toBeVisible();
-    await expect(iac.summaryBadge('1 to create')).toBeVisible();
-    await expect(iac.summaryBadge('1 to update')).toBeVisible();
+    // `.first()`: `DEMO_IAC_PLAN_CHUNKS`'s streamed log text below the badges
+    // also contains the literal string "1 to create"/"1 to update" once
+    // ANSI codes are stripped, so an unqualified `summaryBadge` locator
+    // matches both the `ChangeSummaryStatus` badge and the log line — the
+    // badge is the first match, since it renders above the log viewer.
+    await expect(iac.summaryBadge('1 to create').first()).toBeVisible();
+    await expect(iac.summaryBadge('1 to update').first()).toBeVisible();
     await disableMotion(win);
     await shot(win, 'iac-awaiting-approval.png');
   } finally {
@@ -326,6 +347,26 @@ test('iac-history.png', async () => {
   }
 });
 
+test('iac-history-detail.png', async () => {
+  const { app, win } = await launchSeeded((w) => seedDemo(w));
+  try {
+    const history = new IacHistoryPage(win);
+    // `run-9` is `DEMO_IAC_HISTORY`'s most recent record (`demo-data.ts`) — a
+    // completed, approved apply, the most illustrative single record for a
+    // read-only run-detail screenshot. Uses `gotoRoute` (hash assignment),
+    // not `history.gotoDetail` (`page.goto`) — the packaged app loads from a
+    // `file://` origin, so `page.goto('/#/...')` never resolves; see this
+    // file's `gotoRoute` doc comment.
+    await gotoRoute(win, '/iac/history/run-9');
+    await disableMotion(win);
+    await expect(history.detailHeading()).toBeVisible();
+    await expect(win.getByText('chris@hyveon.example.com')).toBeVisible();
+    await shot(win, 'iac-history-detail.png');
+  } finally {
+    await app.close();
+  }
+});
+
 // First-run wizard
 
 test('wizard-pick-cloud.png', async () => {
@@ -343,7 +384,10 @@ test('wizard-pick-cloud.png', async () => {
 test('wizard-guided-iam.png', async () => {
   const { app, win } = await launchSeeded((w) => seedWizard(w, 'guided-iam'));
   try {
-    await win.locator('#wizard-guided-iam-region').fill('us-east-1');
+    // The region/choice screen's region field is a continent-grouped Radix
+    // `Select`, not a plain text input — `GuidedIamWizardPage.selectRegion`
+    // opens it and picks the option by its accessible label.
+    await new GuidedIamWizardPage(win).selectRegion('US East (N. Virginia) — us-east-1');
     await win.getByRole('button', { name: 'Continue with guided setup' }).click();
     // `GuidedIamStep` moves `region` -> `template` and fires
     // `wizard.guidedIam.prepareTemplate()` (mocked in `demo-data.ts`'s
