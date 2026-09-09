@@ -45,7 +45,7 @@ const DEFAULT_PROGRESS: WizardProgress = { step: 'pick-cloud' };
 
 /**
  * Owns the first-run wizard's resumable step-progress file
- * (`userData/state.json`; corrupt or missing state starts at step 1). Durable
+ * (`userData/wizard-state.json`; corrupt or missing state starts at step 1). Durable
  * *answers* (`activeCloud`, `aws`, `wizardCompleted`) live in
  * `ElectronStoreService`; this service only tracks *which step* the
  * operator was on, so a wizard interrupted mid-flow resumes there instead of

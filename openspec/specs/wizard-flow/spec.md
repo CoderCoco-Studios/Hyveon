@@ -22,7 +22,7 @@ The app SHALL open into the first-run wizard when `wizardCompleted` in electron-
 
 ### Requirement: FirstRunWizardService with resumable state
 
-A `FirstRunWizardService` in the desktop main process SHALL own wizard progress, persisting per-step completion and answers to `userData/state.json` after each step so a partial run resumes at the first incomplete step on next launch. State reads/writes go through the service (no raw `process.env` or ad-hoc file access in business logic), and the file path is resolved through an Electron seam that degrades gracefully outside Electron for tests.
+A `FirstRunWizardService` in the desktop main process SHALL own wizard progress, persisting per-step completion and answers to `userData/wizard-state.json` after each step so a partial run resumes at the first incomplete step on next launch. State reads/writes go through the service (no raw `process.env` or ad-hoc file access in business logic), and the file path is resolved through an Electron seam that degrades gracefully outside Electron for tests.
 
 #### Scenario: Resume after interrupted run
 
@@ -149,15 +149,17 @@ When the wizard is shown in first-run mode (the full-window mandatory
 first-launch experience), it SHALL render a two-region layout at the `md:`
 breakpoint (768px) and above: a fixed-width step-progress sidebar alongside
 the active step's content, with the content column's maximum width
-increased from 576px to 672px. Below the `md:` breakpoint, the wizard SHALL
-render as a single centered column matching its current (pre-change)
-layout, with the sidebar not shown.
+increased from a 576px cap to a responsive clamp between 672px and 1500px
+(`clamp(672px, 55vw, 1500px)`) that grows with viewport width. Below the
+`md:` breakpoint, the wizard SHALL render as a single centered column
+matching its current (pre-change) layout, with the sidebar not shown.
 
 #### Scenario: Wide viewport shows sidebar and wider content
 
 - **WHEN** the wizard renders in a window at least 768px wide
 - **THEN** a step-progress sidebar is visible alongside the step content,
-  and the step content's container is wider than the pre-change 576px cap
+  and the step content's container is at least 672px wide, scaling further
+  with viewport width up to a 1500px cap
 
 #### Scenario: Narrow viewport falls back to single column
 

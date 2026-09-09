@@ -189,22 +189,22 @@ The absence of an in-flight operation within this app instance MUST NOT be treat
 
 ### Requirement: Engine process lifecycle
 
-Engine invocations SHALL be terminated deterministically. Every operation MUST be cancellable, and cancellation MUST release the workspace and any durable lock the operation holds. Because a graceful interrupt is not guaranteed to stop a wedged engine process, cancellation MUST escalate to a forceful termination after a bounded timeout rather than waiting indefinitely. When the Electron app quits, no engine process or listener may remain that prevents the process from exiting.
+Engine invocations SHALL be cancelled deterministically from the app's point of view. Every operation MUST be cancellable, and cancellation MUST release the workspace and any durable lock the operation holds. The Automation API exposes no PID or process handle for a running engine invocation, so cancellation sends a single `SIGINT` via the SDK's own `AbortSignal` wiring and, if the operation does not settle within a bounded escalation timeout, the app stops waiting on it and abandons the promise — a logical escalation, not a literal forced kill of the underlying process. When the Electron app quits, no listener may remain that prevents the process from exiting.
 
 #### Scenario: Operation is cancelled
 
 - **WHEN** the operator cancels an in-flight operation
-- **THEN** the engine invocation is terminated, the run is recorded as aborted, and the workspace and apply lock are released
+- **THEN** a `SIGINT` is sent to the engine invocation via the SDK's cancellation signal, the run is recorded as aborted, and the workspace and apply lock are released
 
-#### Scenario: Unresponsive engine is force-terminated
+#### Scenario: Unresponsive engine is abandoned
 
-- **WHEN** a cancelled engine invocation does not exit within the bounded escalation timeout
-- **THEN** it is forcefully terminated so the app does not wait on it indefinitely, and the run still settles as aborted
+- **WHEN** a cancelled engine invocation does not settle within the bounded escalation timeout
+- **THEN** the app stops waiting on it and rejects with an escalation error rather than waiting indefinitely, and the run still settles as aborted — no further signal is sent, since the Automation API exposes no handle to forcibly kill the underlying process
 
 #### Scenario: App quits cleanly during idle
 
 - **WHEN** the app is quit after at least one infrastructure operation has completed
-- **THEN** the Electron process exits without hanging and no orphaned engine process remains
+- **THEN** the Electron process exits without hanging and no listener keeps the event loop alive
 
 #### Scenario: App quits with an operation in flight
 

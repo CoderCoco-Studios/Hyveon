@@ -1,7 +1,14 @@
 # game-resource-picker Specification
 
 ## Purpose
-TBD - created by archiving change game-server-resource-sliders. Update Purpose to describe the actual capability.
+Defines the shared vCPU/memory resource-selection control used by both the
+add-game wizard and the edit-game form's Resources step. Presents vCPU and
+memory as constrained sliders — rather than free-form dropdowns — that can
+only land on valid AWS Fargate (vCPU, memory) pairs: the vCPU slider stops
+only at the 7 real Fargate vCPU tiers, and the memory slider's reachable
+values re-range to match whichever vCPU tier is currently selected,
+resetting to unset (never silently re-clamped) when a vCPU change
+invalidates the previously selected memory value.
 
 ## Requirements
 ### Requirement: vCPU and memory selected via constrained sliders
