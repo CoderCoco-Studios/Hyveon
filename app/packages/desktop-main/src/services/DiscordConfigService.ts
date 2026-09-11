@@ -152,7 +152,11 @@ export class DiscordConfigService {
     logger.debug('DiscordConfigService.loadBase: reading base Discord config from DynamoDB');
     this.baseInflight = (async () => {
       try {
-        if (!(await this.tableName())) return { allowedGuilds: [], admins: { userIds: [], roleIds: [] } };
+        if (!(await this.tableName())) {
+          const empty = { allowedGuilds: [], admins: { userIds: [], roleIds: [] } };
+          this.baseCache = empty;
+          return empty;
+        }
         const base = await this.discordStore.getBaseConfig();
         this.baseCache = base;
         return base;
