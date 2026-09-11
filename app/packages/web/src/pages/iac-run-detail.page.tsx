@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type { RunHistoryRecord } from '@hyveon/desktop-preload';
+import type { HyveonStreamHandle, IacRunChunk, RunHistoryRecord } from '@hyveon/desktop-preload';
 import type { AnsiLogChunk } from '../components/ansi-log-viewer.component.js';
 import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { RunStatusBadge } from '../components/run-status-badge.component.js';
@@ -107,6 +107,7 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
     if (!runId || !window.hyveon) return;
     if (!record) return;
     let cancelled = false;
+    let handle: HyveonStreamHandle<IacRunChunk> | null = null;
 
     /** Publish a ladder result, tagged with the run it belongs to. */
     const publish = (next: { chunks?: AnsiLogChunk[]; source: LogSource }) => {
@@ -116,7 +117,8 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
     void (async () => {
       try {
         const streamed: AnsiLogChunk[] = [];
-        for await (const chunk of window.hyveon!.iac.runs.streamLogs(runId)) {
+        handle = window.hyveon!.iac.runs.streamLogs(runId);
+        for await (const chunk of handle) {
           if (cancelled) return;
           streamed.push(chunk);
         }
@@ -155,6 +157,10 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
 
     return () => {
       cancelled = true;
+      // Optional chaining guards against a test double that stubbed
+      // `iac.runs.streamLogs` without configuring a return value
+      // (`undefined`) — the real bridge always returns a handle.
+      handle?.cancel();
     };
   }, [runId, record]);
 
