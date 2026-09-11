@@ -159,7 +159,9 @@ export class DiscordConfigService {
       } catch (err) {
         const message = errMessage(err);
         logger.error('Failed to load base Discord config from DynamoDB', { error: message });
-        return { allowedGuilds: [], admins: { userIds: [], roleIds: [] } };
+        const empty = { allowedGuilds: [], admins: { userIds: [], roleIds: [] } };
+        this.baseCache = empty;
+        return empty;
       } finally {
         this.baseInflight = null;
       }
