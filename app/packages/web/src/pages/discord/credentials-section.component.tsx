@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Eye, EyeOff, Check, AlertCircle, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button.component';
@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input.component';
 import { Label } from '@/components/ui/label.component';
 import type { DiscordConfigRedacted } from '../../api.service.js';
 import { isSnowflake } from './snowflake.utils.js';
+import { useCopiedReset } from '../../hooks/use-copied-reset.hook.js';
 
 /**
  * Credentials editor — Application (Client) ID, Bot Token, Public Key, plus the
@@ -27,12 +28,7 @@ export function CredentialsSection({
   const [clientIdError, setClientIdError] = useState<string | null>(null);
   const [token, setToken] = useState('');
   const [publicKey, setPublicKey] = useState('');
-  const [copied, setCopied] = useState(false);
-  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Clear the "Copied" reset timer on unmount so switching tabs within 1.5s of
-  // a copy doesn't call setCopied on an unmounted component.
-  useEffect(() => () => { if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current); }, []);
+  const [copied, markCopied] = useCopiedReset();
 
   /**
    * Validate Client ID as a Discord snowflake before submit. Empty is allowed
@@ -60,9 +56,7 @@ export function CredentialsSection({
   function handleCopyUrl() {
     if (!cfg.interactionsEndpointUrl) return;
     void navigator.clipboard.writeText(cfg.interactionsEndpointUrl);
-    setCopied(true);
-    if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
-    copiedTimeoutRef.current = setTimeout(() => setCopied(false), 1500);
+    markCopied();
   }
 
   return (
