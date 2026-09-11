@@ -169,24 +169,26 @@ async function deleteDns(dnsName: string): Promise<void> {
 }
 
 /**
- * If a Discord interaction is pending for this task, PATCH it with the
- * resolved hostname/IP and delete the pending row.
+ * If a Discord interaction is pending for this task, PATCH it with the resolved
+ * hostname/IP (or an error message when `publicIp` is `null`) and delete the pending row.
  */
 async function notifyDiscordIfPending(
   taskArn: string,
   game: string,
-  publicIp: string,
+  publicIp: string | null,
 ): Promise<void> {
   if (!TABLE_NAME) return;
   try {
     const pending = await getPending(TABLE_NAME, taskArn);
     if (!pending) return;
-    const hostname = `${game}.${DOMAIN_NAME}`;
-    const message = formatGameStatus(
-      { game, state: 'running', publicIp, hostname, taskArn },
-      CONNECT_MESSAGES[game],
-      GAME_PORTS[game],
-    );
+    const message =
+      publicIp !== null
+        ? formatGameStatus(
+            { game, state: 'running', publicIp, hostname: `${game}.${DOMAIN_NAME}`, taskArn },
+            CONNECT_MESSAGES[game],
+            GAME_PORTS[game],
+          )
+        : formatGameStatus({ game, state: 'error', message: 'Could not resolve a public IP for this task.', taskArn });
     await patchInteractionOriginal(pending.applicationId, pending.interactionToken, message);
     await deletePending(TABLE_NAME, taskArn);
   } catch (err) {
@@ -222,6 +224,7 @@ async function handleDirect(
     const ip = await resolvePublicIp(taskArn, clusterArn);
     if (!ip) {
       console.warn(`Could not resolve public IP for ${taskArn}`);
+      await notifyDiscordIfPending(taskArn, game, null);
       return { status: 'error', reason: 'no_ip' };
     }
     await upsertDns(dnsName, ip);
