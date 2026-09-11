@@ -371,6 +371,12 @@ describe('AddGameWizard — resuming from a saved draft', () => {
     );
 
     await screen.findByText('Step 2 of 6: Resources');
+    expect(screen.getByText('0.25 vCPU', { selector: 'p' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await screen.findByText('Step 1 of 6: Identity');
+    expect(screen.getByLabelText('Name')).toHaveValue('resumed');
+    expect(screen.getByLabelText('Image')).toHaveValue('some/image');
   });
 
   it('should persist the new step index via updateGameDraftStepIndex after navigating steps, without re-saving the (redacted) draft', async () => {
