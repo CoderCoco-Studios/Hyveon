@@ -109,6 +109,15 @@ describe('InteractionsLambda: signature verification', () => {
     expect(parsed(res).statusCode).toBe(401);
   });
 
+  it('should return 401 when the signature hex contains a non-hex digit', async () => {
+    // 'parseInt("0g", 16)' returns 0 rather than NaN — without pair-validation this would
+    // silently decode as a valid byte and let a malformed signature reach verifyAsync.
+    verifyAsyncMock.mockResolvedValue(true);
+    const res = await handler(makeEvent({ type: 1 }, '0g' + 'aa'.repeat(31)));
+    expect(parsed(res).statusCode).toBe(401);
+    expect(verifyAsyncMock).not.toHaveBeenCalled();
+  });
+
   it('should verify against timestamp + raw body concatenation', async () => {
     verifyAsyncMock.mockResolvedValueOnce(true);
     await handler(makeEvent({ type: 1 }, 'aa', '1234567890'));
