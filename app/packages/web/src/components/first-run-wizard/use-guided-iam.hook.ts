@@ -129,6 +129,12 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
   const [templatePath, setTemplatePath] = useState<string | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
   const [pathCopied, setPathCopied] = useState(false);
+  const pathCopiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear the "Copied" reset timer on unmount, matching `CredentialsSection`'s pattern.
+  useEffect(() => () => {
+    if (pathCopiedTimeoutRef.current) clearTimeout(pathCopiedTimeoutRef.current);
+  }, []);
   /**
    * Derived, not stored: true exactly while the template render is owed and
    * hasn't settled either way. Deriving this (rather than a separate
@@ -453,7 +459,9 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
   }
 
   /**
-   * Copies `templatePath` to the clipboard; a denied/unavailable clipboard is non-critical since the path is already visible on screen.
+   * Copies `templatePath` to the clipboard, showing a brief "Copied" state that resets after 1.5s
+   * (matching `CredentialsSection.handleCopyUrl`'s pattern); a denied/unavailable clipboard is
+   * non-critical since the path is already visible on screen.
    *
    * @remarks
    * Disclosed scope reduction: the `template` screen this backs ships a
@@ -473,7 +481,11 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     if (!templatePath || !navigator.clipboard) return;
     void navigator.clipboard
       .writeText(templatePath)
-      .then(() => setPathCopied(true))
+      .then(() => {
+        setPathCopied(true);
+        if (pathCopiedTimeoutRef.current) clearTimeout(pathCopiedTimeoutRef.current);
+        pathCopiedTimeoutRef.current = setTimeout(() => setPathCopied(false), 1500);
+      })
       .catch(() => {
         /* clipboard denial is non-critical; the path is still visible above */
       });
