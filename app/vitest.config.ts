@@ -107,9 +107,6 @@ export default defineConfig({
         'packages/desktop-main/src/modules/**',
         // Test-only infrastructure — not production code.
         'packages/desktop-main/src/test-mocks/**',
-        // Spike scaffolding gated behind HYVEON_PULUMI_SPIKE — exercised
-        // manually against a packaged build, not by unit tests.
-        'packages/desktop-main/src/spike/**',
         // Pure type declarations — no executable statements.
         'packages/shared/src/types.ts',
       ],
