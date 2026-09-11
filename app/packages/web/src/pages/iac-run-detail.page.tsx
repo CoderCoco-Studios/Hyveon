@@ -157,9 +157,7 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
 
     return () => {
       cancelled = true;
-      // Optional chaining guards against a test double that stubbed
-      // `iac.runs.streamLogs` without configuring a return value
-      // (`undefined`) — the real bridge always returns a handle.
+      // Optional chaining guards a test double that stubs streamLogs with no return value.
       handle?.cancel();
     };
   }, [runId, record]);
