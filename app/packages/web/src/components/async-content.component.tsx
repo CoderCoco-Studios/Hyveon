@@ -48,7 +48,7 @@ export function AsyncContent({
 
   if (error && isEmpty) {
     return (
-      <div className={cn('flex min-h-32 items-center justify-center text-sm text-[var(--color-red)]', className)}>
+      <div role="alert" className={cn('flex min-h-32 items-center justify-center text-sm text-[var(--color-red)]', className)}>
         {errorMessage ?? error}
       </div>
     );
