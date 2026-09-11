@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { WizardProgress } from '@hyveon/desktop-preload';
 import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
+import { useCopiedReset } from '../../hooks/use-copied-reset.hook.js';
 
 /**
  * Screen this step renders. Unlike `stack-init-step.component.tsx`'s
@@ -128,7 +129,7 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
 
   const [templatePath, setTemplatePath] = useState<string | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
-  const [pathCopied, setPathCopied] = useState(false);
+  const [pathCopied, markPathCopied] = useCopiedReset();
   /**
    * Derived, not stored: true exactly while the template render is owed and
    * hasn't settled either way. Deriving this (rather than a separate
@@ -453,7 +454,9 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
   }
 
   /**
-   * Copies `templatePath` to the clipboard; a denied/unavailable clipboard is non-critical since the path is already visible on screen.
+   * Copies `templatePath` to the clipboard, showing a brief "Copied" state via
+   * {@link useCopiedReset} (shared with `CredentialsSection.handleCopyUrl`); a
+   * denied/unavailable clipboard is non-critical since the path is already visible on screen.
    *
    * @remarks
    * Disclosed scope reduction: the `template` screen this backs ships a
@@ -473,7 +476,7 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     if (!templatePath || !navigator.clipboard) return;
     void navigator.clipboard
       .writeText(templatePath)
-      .then(() => setPathCopied(true))
+      .then(markPathCopied)
       .catch(() => {
         /* clipboard denial is non-critical; the path is still visible above */
       });
