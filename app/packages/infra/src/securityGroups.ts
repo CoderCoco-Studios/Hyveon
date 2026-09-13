@@ -40,7 +40,7 @@
 
 import * as aws from '@pulumi/aws';
 import type * as pulumi from '@pulumi/pulumi';
-import type { GameServerConfig } from '@hyveon/shared';
+import { isIcmpProtocol, type GameServerConfig } from '@hyveon/shared';
 import { gamesWithFileSeeds, gamesWithHealthChecks } from './iam.js';
 
 /** Every resource {@link defineSecurityGroups} declares, keyed by role. */
@@ -219,7 +219,7 @@ function ingressRule(
   cidrBlocks: pulumi.Input<string>[],
   suffix = '',
 ): pulumi.Input<aws.types.input.ec2.SecurityGroupIngress> {
-  return port.protocol === 'icmp'
+  return isIcmpProtocol(port.protocol)
     ? { description: `ICMP type ${port.port}${suffix}`, fromPort: port.port, toPort: -1, protocol: 'icmp', cidrBlocks }
     : { description: `Game port ${port.port}/${port.protocol}${suffix}`, fromPort: port.port, toPort: port.port, protocol: port.protocol, cidrBlocks };
 }

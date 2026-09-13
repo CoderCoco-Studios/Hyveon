@@ -42,7 +42,7 @@
 import path from 'node:path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import type { GameServerConfig, GameServerHealthCheck } from '@hyveon/shared';
+import { isIcmpProtocol, type GameServerConfig, type GameServerHealthCheck } from '@hyveon/shared';
 import type { EfsResources } from './efs.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 import type { IamRoleResources } from './iam.js';
@@ -298,7 +298,7 @@ function connectMessagesByGame(gameServers: Record<string, GameServerConfig>): R
 function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<string, number> {
   const result: Record<string, number> = {};
   for (const game of Object.keys(gameServers).sort()) {
-    const connectablePorts = gameServers[game].ports.filter((port) => port.protocol !== 'icmp');
+    const connectablePorts = gameServers[game].ports.filter((port) => !isIcmpProtocol(port.protocol));
     if (connectablePorts.length === 0) {
       continue;
     }

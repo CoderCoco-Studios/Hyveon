@@ -14,7 +14,7 @@
  */
 
 import { z } from 'zod';
-import type { GameServer, GameServerPort } from './gameServerConfig.js';
+import { isIcmpProtocol, type GameServer, type GameServerPort } from './gameServerConfig.js';
 
 /**
  * Matches a game name that's safe to use both as a `DeploymentConfig.gameServers`
@@ -575,7 +575,7 @@ function checkPortCollisions(
 
   ports.forEach((port, index) => {
     const key = portKey(port);
-    const isIcmp = port.protocol.toLowerCase() === 'icmp';
+    const isIcmp = isIcmpProtocol(port.protocol);
 
     const firstIndex = seenWithinEntry.get(key);
     if (firstIndex !== undefined) {
@@ -602,7 +602,7 @@ function checkPortCollisions(
         if (existingVisibility !== proposedVisibility) {
           issues.push({
             path: `ports[${index}]`,
-            message: `Port ${port.container}/icmp on game "${name}" conflicts with existing game "${existing.name}": effective visibility must match across games for icmp entries (one is "${existingVisibility}", the other "${proposedVisibility}").`,
+            message: `Port ${port.container}/icmp on game "${name}" conflicts with existing game "${existing.name}": effective visibility must match across games for icmp entries (one is "${existingVisibility}", the other "${proposedVisibility}"). To move both games to the same visibility, remove this icmp port from one game, update the other's visibility, then re-add it matching.`,
           });
         }
         continue;
@@ -701,7 +701,7 @@ function checkIcmpPortRules(ports: GameServerPort[]): GameServerValidationIssue[
   const issues: GameServerValidationIssue[] = [];
 
   ports.forEach((port, index) => {
-    if (port.protocol.toLowerCase() === 'icmp' && !isValidIcmpType(port.container)) {
+    if (isIcmpProtocol(port.protocol) && !isValidIcmpType(port.container)) {
       issues.push({
         path: `ports[${index}].container`,
         message: `ports[${index}].container is the ICMP type when protocol is "icmp" and must be an integer between 0 and 255, got ${port.container}.`,

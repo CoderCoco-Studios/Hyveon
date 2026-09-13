@@ -26,7 +26,7 @@
 
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import type { GameServerConfig } from '@hyveon/shared';
+import { isIcmpProtocol, type GameServerConfig } from '@hyveon/shared';
 import type { EfsResources } from './efs.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 import { LOG_RETENTION_DAYS } from './logGroups.js';
@@ -172,7 +172,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
       essential: true,
       // icmp has no transport port; ECS's portMappings rejects non-tcp/udp, so only the SG rule represents it.
       portMappings: config.ports
-        .filter((port) => port.protocol !== 'icmp')
+        .filter((port) => !isIcmpProtocol(port.protocol))
         .map((port) => ({
           containerPort: port.container,
           hostPort: port.container,

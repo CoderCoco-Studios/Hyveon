@@ -368,6 +368,20 @@ describe('validateGameServer', () => {
       }
     });
 
+    it('should name the remove-then-re-add workaround in the visibility-conflict message', () => {
+      const existing = makeExisting({
+        name: 'minecraft',
+        ports: [{ container: 8, protocol: 'icmp', visibility: 'internal' }],
+      });
+      const result = validateGameServer('valheim', makeProposed({ ports: [{ container: 8, protocol: 'icmp' }] }), [
+        existing,
+      ]);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.message.includes('remove this icmp port from one game'))).toBe(true);
+      }
+    });
+
     it('should still reject a duplicate icmp entry declared twice within a single game', () => {
       const result = validateGameServer(
         'game',

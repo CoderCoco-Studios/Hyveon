@@ -51,6 +51,18 @@ export interface GameServerPort {
   visibility?: 'public' | 'internal';
 }
 
+/**
+ * `true` when `protocol` is `"icmp"`, matched case-insensitively so a
+ * hand-edited `deployment-config.json` entry with `protocol: 'ICMP'` is still
+ * recognized everywhere an icmp port needs different handling (ECS
+ * `portMappings` exclusion, security-group rule shape, the Discord
+ * connect-port pick) — the validator accepts that case variant, so every
+ * consumer of a persisted {@link GameServerPort} must too.
+ */
+export function isIcmpProtocol(protocol: string): boolean {
+  return protocol.toLowerCase() === 'icmp';
+}
+
 /** Environment variable injected into the game server container. */
 export interface GameServerEnvironmentVariable {
   /** Environment variable name (e.g. `"EULA"`). */

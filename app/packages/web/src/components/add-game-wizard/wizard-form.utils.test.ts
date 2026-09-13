@@ -239,10 +239,7 @@ describe('validateNetworkingStep', () => {
   });
 
   it('should flag an icmp row with container 300 as outside the 0-255 ICMP type range, with no duplicate issue at that path', () => {
-    // Regression: the shared validateGameServer call (checkIcmpPortRules)
-    // fires the same range rule at the identical path under a different,
-    // API-oriented message; validateWizardDraft must drop that duplicate so
-    // only this wizard-sized message reaches the operator.
+    // Regression: validateWizardDraft must drop the shared validator's duplicate range issue at this path.
     const issues = validateNetworkingStep(
       makeValidDraft({ ports: [{ container: 300, protocol: 'icmp', visibility: 'public' }] }),
       [],
@@ -319,9 +316,7 @@ describe('validateReviewStep', () => {
   });
 
   it('should surface exactly one issue for an out-of-range icmp container, not a duplicate from the shared validator', () => {
-    // review-step.component.tsx renders this full, unfiltered list as-is
-    // (one bullet per issue) — a second issue at the same path with
-    // near-identical wording would read as a duplicated error to the operator.
+    // review-step.component.tsx renders this list as one bullet per issue, so a duplicate would show twice.
     const issues = validateReviewStep(
       makeValidDraft({ ports: [{ container: 300, protocol: 'icmp', visibility: 'public' }] }),
       [],

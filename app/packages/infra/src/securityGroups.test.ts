@@ -506,6 +506,25 @@ describe('defineSecurityGroups', () => {
     ]);
   });
 
+  it('should build the icmp ingress shape for a case-variant "ICMP" protocol too', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      echo: {
+        image: 'example/echo:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 8, protocol: 'ICMP' }],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+      },
+    };
+    await runDefineSecurityGroups({ projectName: 'hyveon', gameServers, vpcId: 'vpc-mock', provider });
+
+    const sg = findByName(mocks.resources, 'hyveon-sg');
+    expect(sg.inputs.ingress).toEqual([
+      { description: 'ICMP type 8', fromPort: 8, toPort: -1, protocol: 'icmp', cidrBlocks: ['0.0.0.0/0'] },
+    ]);
+  });
+
   it('should declare no health-check security group or egress rules when no game declares healthCheck', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineSecurityGroups({

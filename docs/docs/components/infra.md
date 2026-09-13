@@ -274,39 +274,16 @@ by hand outside it.
 
 ### ICMP port declarations — pings, not connections
 
-Some games' community server browsers (Palworld's, for one) send an ICMP echo
-request to a server before offering to join it — a plain TCP/UDP port doesn't
-answer that. A `ports` entry with `protocol: 'icmp'` models this: `container`
-is read as the ICMP type rather than a port number (`8` = echo request/ping),
-mirroring how EC2 security-group rules themselves encode an ICMP type in
-`FromPort` and use `ToPort: -1` for "all codes." `ingressRule()`
-(`securityGroups.ts`) branches on `protocol === 'icmp'` to build exactly that
-shape: `{ protocol: 'icmp', fromPort: <type>, toPort: -1 }`, with description
-`ICMP type <n>` (` (internal)` appended for a `visibility: 'internal'` entry,
-same suffix convention as the tcp/udp rules above). An `icmp` entry follows the
-same public/internal, `!config.https` filtering as every other port — a
-`https: true` game still can't declare one, per the existing HTTPS
-tcp/udp-only rule.
+Some games' community server browsers (Palworld's, for one) send an ICMP echo request to a server before offering to join it — a plain TCP/UDP port doesn't answer that. A `ports` entry with `protocol: 'icmp'` models this: `container` is read as the ICMP type rather than a port number (`8` = echo request/ping), mirroring how EC2 security-group rules themselves encode an ICMP type in `FromPort` and use `ToPort: -1` for "all codes." `ingressRule()` (`securityGroups.ts`) branches on `isIcmpProtocol(protocol)` (case-insensitively, matching how the validator accepts a hand-edited `protocol: 'ICMP'`) to build exactly that shape: `{ protocol: 'icmp', fromPort: <type>, toPort: -1 }`, with description `ICMP type <n>` (` (internal)` appended for a `visibility: 'internal'` entry, same suffix convention as the tcp/udp rules above). An `icmp` entry follows the same public/internal, `!config.https` filtering as every other port — a `https: true` game still can't declare one, per the existing HTTPS tcp/udp-only rule.
 
 `icmp` entries never reach two places a normal port does:
 
-- **ECS `portMappings`** (`ecs.ts`) — ECS rejects any protocol other than
-  `tcp`/`udp` there, so `defineEcs` filters `icmp` ports out before mapping
-  `config.ports` to `portMappings`. The security-group ingress rule is the
-  only resource an `icmp` entry produces.
-- **The Discord connect-port hint** (`lambdas.ts`'s `firstPortByGame()`) — it
-  filters out `icmp` ports before picking the game's first port for the
-  `GAME_PORTS` map shared by the followup and dns-updater Lambdas, so a game that declares `icmp`
-  before its real port still advertises the real port in the `/start` reply,
-  and a game with only an `icmp` port is omitted from `GAME_PORTS` entirely.
+- **ECS `portMappings`** (`ecs.ts`) — ECS rejects any protocol other than `tcp`/`udp` there, so `defineEcs` filters `icmp` ports out before mapping `config.ports` to `portMappings`. The security-group ingress rule is the only resource an `icmp` entry produces.
+- **The Discord connect-port hint** (`lambdas.ts`'s `firstPortByGame()`) — it filters out `icmp` ports before picking the game's first port for the `GAME_PORTS` map shared by the followup and dns-updater Lambdas, so a game that declares `icmp` before its real port still advertises the real port in the `/start` reply, and a game with only an `icmp` port is omitted from `GAME_PORTS` entirely.
 
-Unlike `tcp`/`udp` ports, the same `(container, protocol)` `icmp` pair is
-allowed to repeat across different games — `checkPortCollisions` exempts
-`icmp` from its cross-game collision rule — as long as every declaration
-shares the same effective visibility; `dedupedDirectGamePorts` /
-`dedupedInternalGamePorts` (both `securityGroups.ts`) key their dedup `Map` on
-`container-protocol`, so two games both declaring `{ container: 8, protocol:
-'icmp' }` still produce exactly one ingress rule.
+Unlike `tcp`/`udp` ports, the same `(container, protocol)` `icmp` pair is allowed to repeat across different games — `checkPortCollisions` exempts `icmp` from its cross-game collision rule — as long as every declaration shares the same effective visibility; `dedupedDirectGamePorts` / `dedupedInternalGamePorts` (both `securityGroups.ts`) key their dedup `Map` on `container-protocol`, so two games both declaring `{ container: 8, protocol: 'icmp' }` still produce exactly one ingress rule. When an operator does need to move two such games to different visibility, the validator rejects a one-at-a-time edit (each single edit conflicts with the not-yet-updated sibling) — the error message names the workaround: remove the `icmp` entry from one game, change the other's visibility, then re-add it matching.
+
+**Operator migration note:** if a game already has an unmanaged, manually-added ICMP security-group rule (added outside Pulumi before this feature existed), the next `pulumi up` removes it unless that game's configuration also declares the matching `{ container: <type>, protocol: 'icmp' }` port entry — Pulumi owns the security group's ingress list wholly, so an entry it doesn't know about doesn't survive an apply.
 
 Container port 443/80 on `tcp` is reserved for the Caddy sidecar
 deployment-wide, not just within the game that declares `https: true`:
