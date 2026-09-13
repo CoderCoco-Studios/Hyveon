@@ -705,7 +705,7 @@ export class GuidedIamService {
    * call-time (keyed on `process.versions['electron']` being truthy) so that
    * importing this module in a plain Node/test context never triggers an
    * unresolved-module error. Extracted as a protected method so tests can stub
-   * it via `vi.spyOn`. Mirrors `ConfigService.readUserDataPath` exactly.
+   * it via `vi.spyOn`. Mirrors `CloudHealthService.readUserDataPath` exactly.
    */
   protected readUserDataPath(): string | null {
     if (!process.versions['electron']) return null;
