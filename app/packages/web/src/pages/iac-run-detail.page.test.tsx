@@ -33,6 +33,7 @@ vi.stubGlobal('fetch', fetchMock);
 
 import { IacRunDetailPage } from './iac-run-detail.page.js';
 import { renderPage } from '../test-utils/render-page.utils.js';
+import { toStreamHandleMock } from '../test-utils/stream-handle.test-utils.js';
 
 /** Builds a sample `RunHistoryRecord`, overridable per-test. */
 function makeRecord(overrides: Record<string, unknown> = {}) {
@@ -65,9 +66,11 @@ describe('IacRunDetailPage', () => {
     hyveonMock.iac.runs.list.mockReset();
     hyveonMock.iac.runs.streamLogs.mockReset();
     hyveonMock.iac.runs.logUrl.mockReset();
-    hyveonMock.iac.runs.streamLogs.mockImplementation(async function* () {
-      /* no local artifacts by default — subclasses override per test */
-    });
+    hyveonMock.iac.runs.streamLogs.mockImplementation(
+      toStreamHandleMock(async function* () {
+        /* no local artifacts by default — subclasses override per test */
+      }),
+    );
     fetchMock.mockReset();
     fetchMock.mockResolvedValue({
       ok: true,
@@ -97,9 +100,11 @@ describe('IacRunDetailPage', () => {
 
   it('should replay the log via streamLogs when local run artifacts exist', async () => {
     hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord()] });
-    hyveonMock.iac.runs.streamLogs.mockImplementation(async function* () {
-      yield { stream: 'stdout', line: 'replayed line' };
-    });
+    hyveonMock.iac.runs.streamLogs.mockImplementation(
+      toStreamHandleMock(async function* () {
+        yield { stream: 'stdout', line: 'replayed line' };
+      }),
+    );
     renderDetailPage('run-1');
 
     expect(await screen.findByText('replayed line')).toBeInTheDocument();
@@ -120,10 +125,12 @@ describe('IacRunDetailPage', () => {
     hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ logS3Key: 'runs/run-1.log' })],
     });
-    // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate missing local run artifacts
-    hyveonMock.iac.runs.streamLogs.mockImplementation(async function* () {
-      throw new Error('no run found for runId "run-1"');
-    });
+    hyveonMock.iac.runs.streamLogs.mockImplementation(
+      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate missing local run artifacts
+      toStreamHandleMock(async function* () {
+        throw new Error('no run found for runId "run-1"');
+      }),
+    );
     hyveonMock.iac.runs.logUrl.mockResolvedValue('https://example.com/signed-log');
     renderDetailPage('run-1');
 
@@ -136,10 +143,12 @@ describe('IacRunDetailPage', () => {
     hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ logS3Key: 'runs/run-1.log' })],
     });
-    // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate missing local run artifacts
-    hyveonMock.iac.runs.streamLogs.mockImplementation(async function* () {
-      throw new Error('no run found for runId "run-1"');
-    });
+    hyveonMock.iac.runs.streamLogs.mockImplementation(
+      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate missing local run artifacts
+      toStreamHandleMock(async function* () {
+        throw new Error('no run found for runId "run-1"');
+      }),
+    );
     hyveonMock.iac.runs.logUrl.mockResolvedValue('https://example.com/expired-log');
     fetchMock.mockResolvedValue({
       ok: false,
