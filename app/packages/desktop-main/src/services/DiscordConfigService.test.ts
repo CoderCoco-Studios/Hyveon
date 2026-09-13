@@ -194,6 +194,39 @@ describe('DiscordConfigService.getRedacted', () => {
     expect(redacted.baseAdmins).toEqual({ userIds: [], roleIds: [] });
   });
 
+  it('should cache the empty fallback and not re-check stack outputs when the stack is not deployed', async () => {
+    // Same symmetry gap as the DynamoDB-read-failure test above, but for
+    // `loadBase()`'s other early-return path: an undeployed stack (no
+    // `discordTableName`) must also populate `this.baseCache`, or every
+    // subsequent call re-checks stack outputs instead of using the cache.
+    const getStackOutputsMock = vi.fn(async () => null);
+    const config = { getStackOutputs: getStackOutputsMock, getRegion: () => 'us-east-1' } as Partial<ConfigService> as ConfigService;
+    const svc = new DiscordConfigService(config, makeSecretsStore(), makeDiscordStore());
+
+    const first = await svc.getBaseConfig();
+    const second = await svc.getBaseConfig();
+
+    expect(first).toEqual({ allowedGuilds: [], admins: { userIds: [], roleIds: [] } });
+    expect(second).toEqual({ allowedGuilds: [], admins: { userIds: [], roleIds: [] } });
+    expect(getBaseConfigMock).not.toHaveBeenCalled();
+    expect(getStackOutputsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('should cache the empty fallback and not re-query DynamoDB when the base config read fails', async () => {
+    // Mirrors `load()`'s error-path caching (see the "degrade to an empty
+    // config" test above) — `loadBase()`'s catch block must set
+    // `this.baseCache` too, or every subsequent call re-hits DynamoDB.
+    getBaseConfigMock.mockRejectedValueOnce(new Error('ResourceNotFoundException'));
+    const svc = makeService();
+
+    const first = await svc.getRedacted();
+    const second = await svc.getRedacted();
+
+    expect(first.baseAllowedGuilds).toEqual([]);
+    expect(second.baseAllowedGuilds).toEqual([]);
+    expect(getBaseConfigMock).toHaveBeenCalledTimes(1);
+  });
+
   it('should resolve with both secrets unset instead of throwing when Pulumi stack outputs are missing', async () => {
     // Regression test: `botTokenSecretArn`/`publicKeySecretArn` throw when
     // the stack hasn't been deployed yet. That throw used to happen before
