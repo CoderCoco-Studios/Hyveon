@@ -61,14 +61,17 @@ function getLambdaClient(): LambdaClient {
   return lambdaClient;
 }
 
+/** Matches exactly two hex digits — validated before `parseInt` since `parseInt('0g', 16)` returns `0`, not `NaN`. */
+const HEX_PAIR = /^[0-9a-fA-F]{2}$/;
+
 /** Convert a hex string to a Uint8Array. Throws on odd length / non-hex chars. */
 function hexToBytes(hex: string): Uint8Array {
   if (hex.length % 2 !== 0) throw new Error('odd-length hex string');
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) {
-    const byte = parseInt(hex.substr(i * 2, 2), 16);
-    if (Number.isNaN(byte)) throw new Error('invalid hex');
-    out[i] = byte;
+    const pair = hex.substr(i * 2, 2);
+    if (!HEX_PAIR.test(pair)) throw new Error('invalid hex');
+    out[i] = parseInt(pair, 16);
   }
   return out;
 }
