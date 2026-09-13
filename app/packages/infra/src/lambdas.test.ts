@@ -537,6 +537,27 @@ describe('defineLambdas', () => {
       expect(JSON.parse(variables.GAME_PORTS as string)).toEqual({ typoVisibility: 8211 });
     });
 
+    it('should exclude an icmp port from GAME_PORTS, advertising the first connectable port instead', async () => {
+      const gameServers: Record<string, GameServerConfig> = {
+        echo: {
+          image: 'example/echo:latest',
+          cpu: 1024,
+          memory: 2048,
+          ports: [
+            { container: 8, protocol: 'icmp' },
+            { container: 8211, protocol: 'udp' },
+          ],
+          volumes: [{ name: 'saves', container_path: '/data' }],
+        },
+      };
+      const { provider, roles, efs } = await arrangeDependencies(gameServers);
+      await runDefineLambdas(buildArgs({ gameServers, roles, efs, provider }));
+
+      const fn = findByName(mocks.resources, 'hyveon-followup');
+      const variables = (fn.inputs.environment as { variables: Record<string, unknown> }).variables;
+      expect(JSON.parse(variables.GAME_PORTS as string)).toEqual({ echo: 8211 });
+    });
+
     it('should fall back to the first port when every declared port is internal-visibility', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         allInternal: {

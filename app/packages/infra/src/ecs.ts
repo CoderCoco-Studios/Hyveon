@@ -170,11 +170,14 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
       name: game,
       image: config.image,
       essential: true,
-      portMappings: config.ports.map((port) => ({
-        containerPort: port.container,
-        hostPort: port.container,
-        protocol: port.protocol,
-      })),
+      // icmp has no transport port; ECS's portMappings rejects non-tcp/udp, so only the SG rule represents it.
+      portMappings: config.ports
+        .filter((port) => port.protocol !== 'icmp')
+        .map((port) => ({
+          containerPort: port.container,
+          hostPort: port.container,
+          protocol: port.protocol,
+        })),
       environment: config.environment ?? [],
       mountPoints: config.volumes.map((volume) => ({
         sourceVolume: `${game}-${volume.name}`,

@@ -88,7 +88,8 @@ is no configuration file to hand-edit.
       "memory": 8192,
       "ports": [
         { "container": 8211, "protocol": "udp" },
-        { "container": 27015, "protocol": "udp" }
+        { "container": 27015, "protocol": "udp" },
+        { "container": 8, "protocol": "icmp" }
       ],
       "environment": [
         { "name": "PLAYERS", "value": "8" },
@@ -100,6 +101,8 @@ is no configuration file to hand-edit.
   }
 }
 ```
+
+The `{ "container": 8, "protocol": "icmp" }` entry isn't a listening port: for `protocol: "icmp"`, `container` carries the ICMP type (`8` = echo request) instead of a port number, and it only shapes the security group ingress — it's never an ECS port mapping. Palworld's community server browser pings the server before showing it as joinable, so without this entry browser joins time out even though a direct connect (which skips the ping) still works.
 
 Cost ballpark: **Fargate 2 vCPU / 8 GB ≈ $0.12/hr** while running; EFS is
 pennies/month. Playing 4 hours/day, 5 days/week ≈ **$10–12/month**, vs.
