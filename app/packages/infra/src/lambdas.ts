@@ -42,7 +42,7 @@
 import path from 'node:path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import type { GameServerConfig, GameServerHealthCheck } from '@hyveon/shared';
+import { isIcmpProtocol, type GameServerConfig, type GameServerHealthCheck } from '@hyveon/shared';
 import type { EfsResources } from './efs.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 import type { IamRoleResources } from './iam.js';
@@ -286,18 +286,24 @@ function connectMessagesByGame(gameServers: Record<string, GameServerConfig>): R
  * the game entirely, since some port is a better guess than none. Same
  * sorted-key iteration as {@link connectMessagesByGame}.
  *
+ * `icmp` entries are excluded before this selection runs — a player cannot
+ * "connect" to an ICMP type, so an icmp-only game contributes nothing here,
+ * and a game with both icmp and connectable ports never advertises the icmp
+ * entry even if it's declared first (spec: "Connect-port surfaces exclude
+ * ICMP entries").
+ *
  * @param gameServers - The configured game-server map.
- * @returns A game name → first-public-container-port record, omitting games with no ports.
+ * @returns A game name → first-public-container-port record, omitting games with no connectable ports.
  */
 function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<string, number> {
   const result: Record<string, number> = {};
   for (const game of Object.keys(gameServers).sort()) {
-    const ports = gameServers[game].ports;
-    if (ports.length === 0) {
+    const connectablePorts = gameServers[game].ports.filter((port) => !isIcmpProtocol(port.protocol));
+    if (connectablePorts.length === 0) {
       continue;
     }
-    const publicPort = ports.find((port) => port.visibility === undefined || port.visibility === 'public');
-    result[game] = (publicPort ?? ports[0]).container;
+    const publicPort = connectablePorts.find((port) => port.visibility === undefined || port.visibility === 'public');
+    result[game] = (publicPort ?? connectablePorts[0]).container;
   }
   return result;
 }

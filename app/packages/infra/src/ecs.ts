@@ -26,7 +26,7 @@
 
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import type { GameServerConfig } from '@hyveon/shared';
+import { isIcmpProtocol, type GameServerConfig } from '@hyveon/shared';
 import type { EfsResources } from './efs.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 import { LOG_RETENTION_DAYS } from './logGroups.js';
@@ -170,11 +170,14 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
       name: game,
       image: config.image,
       essential: true,
-      portMappings: config.ports.map((port) => ({
-        containerPort: port.container,
-        hostPort: port.container,
-        protocol: port.protocol,
-      })),
+      // icmp has no transport port; ECS's portMappings rejects non-tcp/udp, so only the SG rule represents it.
+      portMappings: config.ports
+        .filter((port) => !isIcmpProtocol(port.protocol))
+        .map((port) => ({
+          containerPort: port.container,
+          hostPort: port.container,
+          protocol: port.protocol,
+        })),
       environment: config.environment ?? [],
       mountPoints: config.volumes.map((volume) => ({
         sourceVolume: `${game}-${volume.name}`,
