@@ -1237,17 +1237,20 @@ export class IacController implements OnModuleInit {
       const stream = this.pulumi.confirmRollback(payload.applyRunId, ac.signal);
       let next = await stream.next();
       while (!next.done) {
-        if (!sender.isDestroyed()) {
-          const chunkMessage: IacRollbackConfirmChunkMessage = {
-            applyRunId: payload.applyRunId,
-            chunk: next.value,
-          };
-          sender.send(ROLLBACK_CONFIRM_CHUNK_CHANNEL, chunkMessage);
+        if (sender.isDestroyed()) {
+          ac.abort();
+          await stream.return(undefined);
+          break;
         }
+        const chunkMessage: IacRollbackConfirmChunkMessage = {
+          applyRunId: payload.applyRunId,
+          chunk: next.value,
+        };
+        sender.send(ROLLBACK_CONFIRM_CHUNK_CHANNEL, chunkMessage);
         next = await stream.next();
       }
 
-      const result = next.value;
+      const result = next.done ? next.value : undefined;
       if (!result) {
         // The generator settled without a result and without throwing —
         // only reachable if `signal` aborted mid-run. The only abort source
