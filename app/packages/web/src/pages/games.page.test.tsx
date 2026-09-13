@@ -258,6 +258,15 @@ describe('GamesPage', () => {
     await user.click(screen.getByRole('button', { name: 'Resume' }));
 
     await screen.findByText('Step 3 of 6: Networking');
+
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    await screen.findByText('Step 2 of 6: Resources');
+    expect(screen.getByText('0.25 vCPU', { selector: 'p' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    await screen.findByText('Step 1 of 6: Identity');
+    expect(screen.getByLabelText('Name')).toHaveValue('unfinished-game');
+    expect(screen.getByLabelText('Image')).toHaveValue('some/image');
   });
 
   it('should not leave a stray "Add game" trigger behind after resuming a draft and closing the dialog', async () => {
