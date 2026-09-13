@@ -3,11 +3,10 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Injectable } from '@nestjs/common';
-// The explicit `/index.js` is required, not cosmetic — see `spike/pulumiSpike.ts`'s
-// comment on this same import: the main bundle is ESM, `@pulumi/pulumi` is
-// externalized, and `@pulumi/pulumi` is CommonJS with no `exports` map, so the
-// bare directory specifier `@pulumi/pulumi/automation` fails with
-// `ERR_UNSUPPORTED_DIR_IMPORT` in the packaged app.
+// The explicit `/index.js` is required, not cosmetic: the main bundle is ESM,
+// `@pulumi/pulumi` is externalized, and `@pulumi/pulumi` is CommonJS with no
+// `exports` map, so the bare directory specifier `@pulumi/pulumi/automation`
+// fails with `ERR_UNSUPPORTED_DIR_IMPORT` in the packaged app.
 import { PulumiCommand } from '@pulumi/pulumi/automation/index.js';
 import { PULUMI_ENGINE_VERSION, errMessage } from '@hyveon/shared';
 import { SemVer } from 'semver';
