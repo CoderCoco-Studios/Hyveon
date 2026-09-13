@@ -323,4 +323,102 @@ describe('defineEcs', () => {
     const types = mocks.resources.map((resource) => resource.type);
     expect(types).not.toContain('aws:ecs/service:Service');
   });
+
+  it('should substitute the public-address token with the game hostname at build time', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      ...FIXTURE_GAME_SERVERS,
+      alpha: {
+        ...FIXTURE_GAME_SERVERS.alpha,
+        environment: [{ name: 'PUBLIC_HOST', value: '${hyveon.network.public-address}' }],
+      },
+    };
+    const efs = await arrangeEfs(gameServers, provider);
+    await runDefineEcs({
+      projectName: 'hyveon',
+      awsRegion: 'us-east-1',
+      hostedZoneName: 'example.com',
+      gameServers,
+      efs,
+      executionRoleArn: 'arn:aws:iam::123456789012:role/hyveon-task-execution',
+      provider,
+    });
+
+    const containers = parsedContainerDefinitions(findByName(mocks.resources, 'alpha-server'));
+    expect(containers[0].environment).toEqual([{ name: 'PUBLIC_HOST', value: 'alpha.example.com' }]);
+    expect(containers[0]).not.toHaveProperty('entryPoint');
+  });
+
+  it('should inject the wrapper entryPoint and command for an ipv4-token game', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      ...FIXTURE_GAME_SERVERS,
+      alpha: {
+        ...FIXTURE_GAME_SERVERS.alpha,
+        environment: [{ name: 'SERVER_IP', value: '${hyveon.network.public-ipv4}' }],
+        command: ['/start.sh'],
+      },
+    };
+    const efs = await arrangeEfs(gameServers, provider);
+    await runDefineEcs({
+      projectName: 'hyveon',
+      awsRegion: 'us-east-1',
+      hostedZoneName: 'example.com',
+      gameServers,
+      efs,
+      executionRoleArn: 'arn:aws:iam::123456789012:role/hyveon-task-execution',
+      provider,
+    });
+
+    const containers = parsedContainerDefinitions(findByName(mocks.resources, 'alpha-server'));
+    expect(containers[0].command).toEqual(['/start.sh']);
+    expect(containers[0].entryPoint).toEqual(['/bin/sh', '-c', expect.stringContaining('checkip.amazonaws.com')]);
+    // the raw token stays in the task definition for the wrapper to substitute at boot
+    expect(containers[0].environment).toEqual([{ name: 'SERVER_IP', value: '${hyveon.network.public-ipv4}' }]);
+  });
+
+  it('should pass command through without tokens and without a wrapper', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      ...FIXTURE_GAME_SERVERS,
+      alpha: { ...FIXTURE_GAME_SERVERS.alpha, command: ['/opt/server/start.sh', '--port', '8211'] },
+    };
+    const efs = await arrangeEfs(gameServers, provider);
+    await runDefineEcs({
+      projectName: 'hyveon',
+      awsRegion: 'us-east-1',
+      hostedZoneName: 'example.com',
+      gameServers,
+      efs,
+      executionRoleArn: 'arn:aws:iam::123456789012:role/hyveon-task-execution',
+      provider,
+    });
+
+    const containers = parsedContainerDefinitions(findByName(mocks.resources, 'alpha-server'));
+    expect(containers[0].command).toEqual(['/opt/server/start.sh', '--port', '8211']);
+    expect(containers[0]).not.toHaveProperty('entryPoint');
+  });
+
+  it('should throw naming the game and token when a public-address token is used but the hosted zone is empty', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      alpha: {
+        ...FIXTURE_GAME_SERVERS.alpha,
+        environment: [{ name: 'PUBLIC_HOST', value: '${hyveon.network.public-address}' }],
+      },
+    };
+    const efs = await arrangeEfs(gameServers, provider);
+
+    expect(() =>
+      defineEcs({
+        projectName: 'hyveon',
+        awsRegion: 'us-east-1',
+        hostedZoneName: '',
+        gameServers,
+        efs,
+        executionRoleArn: 'arn:aws:iam::123456789012:role/hyveon-task-execution',
+        provider,
+      }),
+    ).toThrow(/alpha.*\$\{hyveon\.network\.public-address\}/);
+  });
 });

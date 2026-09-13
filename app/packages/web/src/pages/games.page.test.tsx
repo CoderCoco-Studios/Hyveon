@@ -82,6 +82,7 @@ const sampleDraft = {
   volumes: [],
   file_seeds: [],
   environment: [],
+  command: [],
   https: false,
   healthCheck: {
     enabled: false,

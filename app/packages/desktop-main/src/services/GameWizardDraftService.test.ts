@@ -34,6 +34,7 @@ const sampleDraft: GameWizardDraft = {
   file_seeds: [],
   environment: [],
   https: false,
+  command: [],
   healthCheck: {
     enabled: false,
     scheme: 'http',
@@ -187,6 +188,18 @@ describe('GameWizardDraftService', () => {
 
       expect(result?.draft.file_seeds).toEqual([{ path: '/data/config.yml', content: '', content_base64: '', mode: '0644' }]);
       expect(result?.draft.environment).toEqual([{ name: 'DB_PASSWORD', value: '' }]);
+    });
+
+    it('should backfill an empty command array on a draft autosaved before that field existed', () => {
+      const { command: _omitted, ...draftWithoutCommand } = sampleDraft;
+      const stored = {
+        draft: draftWithoutCommand,
+        stepIndex: 1,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      } as StoredGameWizardDraft;
+      const service = new GameWizardDraftService(makeStore(stored));
+
+      expect(service.get()?.draft.command).toEqual([]);
     });
 
     it('should blank out healthCheck.secretArn while preserving secretSet before returning the draft', () => {
