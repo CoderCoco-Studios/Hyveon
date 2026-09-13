@@ -6,11 +6,11 @@
  */
 export function WatchdogPanel() {
   return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
-      <p style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', marginBottom: '0.6rem' }}>
+    <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+      <p className="mb-2 text-xs uppercase tracking-wider text-[var(--color-muted-foreground)]">
         Watchdog Settings
       </p>
-      <p style={{ fontSize: '0.82rem', color: 'var(--text)' }}>
+      <p className="text-sm text-[var(--color-foreground)]">
         Check interval, idle checks, and the min-packets activity threshold are configured in the{' '}
         <strong>General</strong> section below (&ldquo;Watchdog tuning&rdquo;) and take effect on the
         next apply from the Infrastructure page.
