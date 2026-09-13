@@ -20,8 +20,8 @@ export type HyveonEnvToken = (typeof HYVEON_ENV_TOKENS)[keyof typeof HYVEON_ENV_
 /** Every legal token, for membership checks in the validator. */
 export const ALLOWED_HYVEON_ENV_TOKENS: ReadonlySet<string> = new Set(Object.values(HYVEON_ENV_TOKENS));
 
-/** Matches every `${hyveon....}` candidate sequence, legal or not. */
-export const HYVEON_TOKEN_CANDIDATE_PATTERN = /\$\{hyveon\.[^}]*\}/g;
+/** Matches every `${hyveon....}` candidate sequence, legal or not — including one left unclosed. */
+export const HYVEON_TOKEN_CANDIDATE_PATTERN = /\$\{hyveon\.[^}]*(?:\}|$)/g;
 
 /** Returns every `${hyveon....}` sequence in `value`, in order, including unknown ones. */
 export function findHyveonTokenCandidates(value: string): string[] {

@@ -22,6 +22,10 @@ export default defineConfig({
         replacement: fileURLToPath(new URL('../shared/src/gameServerValidator.ts', import.meta.url)),
       },
       {
+        find: '@hyveon/shared/envTokens',
+        replacement: fileURLToPath(new URL('../shared/src/envTokens.ts', import.meta.url)),
+      },
+      {
         find: '@hyveon/shared/secrets/secretsStore',
         replacement: fileURLToPath(new URL('../shared/src/secrets/secretsStore.ts', import.meta.url)),
       },

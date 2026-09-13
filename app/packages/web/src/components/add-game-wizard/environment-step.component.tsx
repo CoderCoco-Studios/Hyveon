@@ -153,30 +153,39 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
         )}
 
         <div className="space-y-2">
-          {command.map((arg, index) => (
-            <div key={index} data-testid={`command-arg-${index}`} className="flex items-end gap-3">
-              <FormField id={`command-arg-input-${index}`} label={`Argument ${index + 1}`} className="flex-1">
-                {(fieldProps) => (
-                  <Input
-                    {...fieldProps}
-                    value={arg}
-                    aria-label={`Command argument ${index + 1}`}
-                    onChange={(event) => updateCommandArgument(index, event.target.value)}
-                  />
-                )}
-              </FormField>
+          {command.map((arg, index) => {
+            const argError = messageFor(issues, `command[${index}]`);
 
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label={`Remove command argument ${index + 1}`}
-                onClick={() => removeCommandArgument(index)}
-              >
-                Remove
-              </Button>
-            </div>
-          ))}
+            return (
+              <div key={index} data-testid={`command-arg-${index}`} className="flex items-end gap-3">
+                <FormField
+                  id={`command-arg-input-${index}`}
+                  label={`Argument ${index + 1}`}
+                  errors={argError}
+                  className="flex-1"
+                >
+                  {(fieldProps) => (
+                    <Input
+                      {...fieldProps}
+                      value={arg}
+                      aria-label={`Command argument ${index + 1}`}
+                      onChange={(event) => updateCommandArgument(index, event.target.value)}
+                    />
+                  )}
+                </FormField>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Remove command argument ${index + 1}`}
+                  onClick={() => removeCommandArgument(index)}
+                >
+                  Remove
+                </Button>
+              </div>
+            );
+          })}
         </div>
 
         {commandError && (

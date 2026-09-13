@@ -123,4 +123,17 @@ describe('EnvironmentStep', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('command is required');
   });
+
+  it('should render an indexed command-argument error next to the offending row', () => {
+    render(
+      <EnvironmentStep
+        draft={makeDraft({ command: ['/start.sh', ''] })}
+        issues={[{ path: 'command[1]', message: 'command[1] must not be empty.' }]}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('command[1] must not be empty.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Command argument 2')).toHaveAttribute('aria-invalid', 'true');
+  });
 });
