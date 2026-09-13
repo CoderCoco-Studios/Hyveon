@@ -140,26 +140,28 @@ export function useReconfigureAnswers({
       .then((state) => {
         if (state.activeCloud) setSelectedCloud(state.activeCloud);
         if (state.aws?.profile) {
-          const knownProfile = profiles?.some((p) => p.profileName === state.aws!.profile);
-          if (knownProfile) {
-            credentials.setCredentialMode('profile');
-            credentials.setSelectedProfileName(state.aws.profile);
-            credentials.setRegion(state.aws.region ?? '');
-          } else {
-            // Not in `~/.aws` — must be a `creds.aws.<profile>` pasted-key
-            // entry from a prior paste-flow save (see `AwsProfileService`).
-            credentials.setCredentialMode('paste');
-            credentials.setPastedProfileName(state.aws.profile);
-            credentials.setPasteRegion(state.aws.region ?? '');
-          }
-          // Conditional pre-completion (unlike `pick-cloud`/`credentials`/
-          // `bootstrap`'s unconditional entries in
-          // `RECONFIGURE_PRE_COMPLETED_STEPS`): guided-iam only renders
-          // pre-completed when this exact profile name is real evidence
-          // guided provisioning actually ran — see `isGuidedProfile`'s own
-          // doc comment.
+          // `hyveon-guided` is never a real `~/.aws` profile, so the
+          // `knownProfile` check below would always miss it and misroute it
+          // into the pasted-key branch — the shell's own
+          // `satisfiedByGuidedProvisioning` derivation (see
+          // `first-run-wizard.component.tsx`'s `guidedCredentials`) is what
+          // actually renders this case, so this form's profile/paste fields
+          // are deliberately left untouched here.
           if (isGuidedProfile(state.aws.profile)) {
             markCompleted('guided-iam');
+          } else {
+            const knownProfile = profiles?.some((p) => p.profileName === state.aws!.profile);
+            if (knownProfile) {
+              credentials.setCredentialMode('profile');
+              credentials.setSelectedProfileName(state.aws.profile);
+              credentials.setRegion(state.aws.region ?? '');
+            } else {
+              // Not in `~/.aws` — must be a `creds.aws.<profile>` pasted-key
+              // entry from a prior paste-flow save (see `AwsProfileService`).
+              credentials.setCredentialMode('paste');
+              credentials.setPastedProfileName(state.aws.profile);
+              credentials.setPasteRegion(state.aws.region ?? '');
+            }
           }
         }
         if (state.bootstrap) setResourceNames(state.bootstrap);
