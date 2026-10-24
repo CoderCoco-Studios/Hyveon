@@ -134,6 +134,7 @@ export interface GameWizardDraft {
   volumes: { name: string; container_path: string }[];
   file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
   environment: { name: string; value: string }[];
+  command: string[];
   https: boolean;
   healthCheck: {
     enabled: boolean;

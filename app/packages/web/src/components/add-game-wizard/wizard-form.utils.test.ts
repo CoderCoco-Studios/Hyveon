@@ -10,6 +10,7 @@ import {
   validateNetworkingStep,
   validateStorageStep,
   validateReviewStep,
+  validateEnvironmentStep,
   canAdvance,
   type WizardDraft,
   type WizardDraftHealthCheck,
@@ -55,6 +56,7 @@ describe('createEmptyWizardDraft', () => {
       volumes: [],
       file_seeds: [],
       environment: [],
+      command: [],
       https: false,
       healthCheck: {
         enabled: false,
@@ -102,6 +104,11 @@ describe('stepForIssuePath', () => {
 
   it('should route an environment[0].name issue to the environment step', () => {
     expect(stepForIssuePath('environment[0].name')).toBe('environment');
+  });
+
+  it('should map command issues to the environment step', () => {
+    expect(stepForIssuePath('command')).toBe('environment');
+    expect(stepForIssuePath('command[0]')).toBe('environment');
   });
 });
 
@@ -369,6 +376,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
       volumes: game.volumes,
       file_seeds: [],
       environment: [],
+      command: [],
       https: false,
       healthCheck: {
         enabled: false,
@@ -470,6 +478,17 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
   it('should omit environment from the create payload when empty', () => {
     const draft = createEmptyWizardDraft();
     expect(draftToPayload(draft).config.environment).toBeUndefined();
+  });
+
+  it('should round-trip command through draftFromGameServer and draftToPayload', () => {
+    const draft = draftFromGameServer(makeExistingGame({ command: ['/start.sh', '--port', '8211'] }));
+    expect(draft.command).toEqual(['/start.sh', '--port', '8211']);
+    expect(draftToPayload(draft).config.command).toEqual(['/start.sh', '--port', '8211']);
+  });
+
+  it('should omit an empty command from the proposed entry and payload', () => {
+    const draft = createEmptyWizardDraft();
+    expect(draftToPayload({ ...draft, name: 'g', image: 'img', cpu: 1024, memory: 2048 }).config.command).toBeUndefined();
   });
 
   it('should default https to false when the declared GameServer omits the flag', () => {
@@ -621,6 +640,42 @@ describe('health-check auth draft conversion', () => {
     // validateGameServer's schema (auth as an optional object) rejects —
     // silently blocking the wizard's Next/Submit button for this case.
     const issues = validateNetworkingStep(draftWithHealthCheck({ authType: 'none', secretSet: true }), []);
+    expect(issues).toEqual([]);
+  });
+});
+
+describe('validateEnvironmentStep — token validation', () => {
+  it('should block the environment step on an unknown ${hyveon.*} token in a value', () => {
+    const issues = validateEnvironmentStep(
+      makeValidDraft({ environment: [{ name: 'HOST', value: '${hyveon.network.public-adress}' }] }),
+      [],
+    );
+    expect(issues.some((issue) => issue.path === 'environment[0].value' && issue.message.startsWith('Unknown token'))).toBe(
+      true,
+    );
+    expect(canAdvance('environment', makeValidDraft({ environment: [{ name: 'HOST', value: '${hyveon.network.public-adress}' }] }), [])).toBe(
+      false,
+    );
+  });
+
+  it('should block the environment step when the public-ipv4 token is used without a command', () => {
+    const issues = validateEnvironmentStep(
+      makeValidDraft({ environment: [{ name: 'SERVER_IP', value: '${hyveon.network.public-ipv4}' }], command: [] }),
+      [],
+    );
+    expect(issues.some((issue) => issue.path === 'command' && issue.message.startsWith('command is required'))).toBe(
+      true,
+    );
+  });
+
+  it('should pass the environment step when the public-ipv4 token is paired with a command', () => {
+    const issues = validateEnvironmentStep(
+      makeValidDraft({
+        environment: [{ name: 'SERVER_IP', value: '${hyveon.network.public-ipv4}' }],
+        command: ['/start.sh'],
+      }),
+      [],
+    );
     expect(issues).toEqual([]);
   });
 });
