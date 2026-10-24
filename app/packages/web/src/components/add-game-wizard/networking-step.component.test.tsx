@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NetworkingStep } from './networking-step.component.js';
 import { createEmptyWizardDraft, type WizardDraftPort } from './wizard-form.utils.js';
@@ -275,6 +275,101 @@ describe('NetworkingStep', () => {
       expect(toggle).toHaveAttribute('aria-invalid', 'true');
       expect(toggle).toHaveAttribute('aria-describedby', expect.stringContaining('https-error'));
       expect(screen.getByText('An https = true game server must declare at least one port.')).toBeInTheDocument();
+    });
+  });
+
+  describe('icmp protocol option', () => {
+    it('should offer icmp in the protocol dropdown', () => {
+      render(
+        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()}
+          healthCheck={DISABLED_HEALTH_CHECK}
+          onHealthCheckChange={vi.fn()} />,
+      );
+
+      const protocolSelect = screen.getByLabelText('Protocol', { selector: '#port-protocol-0' });
+      expect(within(protocolSelect).getByRole('option', { name: 'ICMP' })).toBeInTheDocument();
+    });
+
+    it('should prefill the container value with 8 when a blank row is switched to icmp', async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <NetworkingStep
+          ports={[{ container: null, protocol: 'tcp', visibility: 'public' }]}
+          issues={[]}
+          onChange={onChange}
+          https={false}
+          onHttpsChange={vi.fn()}
+          healthCheck={DISABLED_HEALTH_CHECK}
+          onHealthCheckChange={vi.fn()}
+        />,
+      );
+
+      await user.selectOptions(screen.getByLabelText('Protocol', { selector: '#port-protocol-0' }), 'icmp');
+
+      expect(onChange).toHaveBeenCalledWith([{ container: 8, protocol: 'icmp', visibility: 'public' }]);
+    });
+
+    it('should not overwrite an already-set container value when switching to icmp', async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <NetworkingStep
+          ports={[{ container: 25565, protocol: 'tcp', visibility: 'public' }]}
+          issues={[]}
+          onChange={onChange}
+          https={false}
+          onHttpsChange={vi.fn()}
+          healthCheck={DISABLED_HEALTH_CHECK}
+          onHealthCheckChange={vi.fn()}
+        />,
+      );
+
+      await user.selectOptions(screen.getByLabelText('Protocol', { selector: '#port-protocol-0' }), 'icmp');
+
+      expect(onChange).toHaveBeenCalledWith([{ container: 25565, protocol: 'icmp', visibility: 'public' }]);
+    });
+
+    it('should render the "8 = echo request (ping)" hint for an icmp row', () => {
+      render(
+        <NetworkingStep
+          ports={[{ container: 8, protocol: 'icmp', visibility: 'public' }]}
+          issues={[]}
+          onChange={vi.fn()}
+          https={false}
+          onHttpsChange={vi.fn()}
+          healthCheck={DISABLED_HEALTH_CHECK}
+          onHealthCheckChange={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByText('8 = echo request (ping)')).toBeInTheDocument();
+    });
+
+    it('should not render the icmp hint for a tcp/udp row', () => {
+      render(
+        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()}
+          healthCheck={DISABLED_HEALTH_CHECK}
+          onHealthCheckChange={vi.fn()} />,
+      );
+
+      expect(screen.queryByText('8 = echo request (ping)')).not.toBeInTheDocument();
+    });
+
+    it('should relabel the container-port field as "ICMP type" for an icmp row', () => {
+      render(
+        <NetworkingStep
+          ports={[{ container: 8, protocol: 'icmp', visibility: 'public' }]}
+          issues={[]}
+          onChange={vi.fn()}
+          https={false}
+          onHttpsChange={vi.fn()}
+          healthCheck={DISABLED_HEALTH_CHECK}
+          onHealthCheckChange={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByText('ICMP type')).toBeInTheDocument();
     });
   });
 

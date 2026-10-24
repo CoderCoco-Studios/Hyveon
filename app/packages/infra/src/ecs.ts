@@ -26,7 +26,7 @@
 
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import type { GameServerConfig, GameServerEnvironmentVariable } from '@hyveon/shared';
+import { isIcmpProtocol, type GameServerConfig, type GameServerEnvironmentVariable } from '@hyveon/shared';
 import { HYVEON_ENV_TOKENS, substituteHyveonToken, valueUsesToken } from '@hyveon/shared/envTokens';
 import type { EfsResources } from './efs.js';
 import { buildIpv4WrapperScript } from './envTokenWrapper.js';
@@ -209,11 +209,14 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
       name: game,
       image: config.image,
       essential: true,
-      portMappings: config.ports.map((port) => ({
-        containerPort: port.container,
-        hostPort: port.container,
-        protocol: port.protocol,
-      })),
+      // icmp has no transport port; ECS's portMappings rejects non-tcp/udp, so only the SG rule represents it.
+      portMappings: config.ports
+        .filter((port) => !isIcmpProtocol(port.protocol))
+        .map((port) => ({
+          containerPort: port.container,
+          hostPort: port.container,
+          protocol: port.protocol,
+        })),
       environment: resolvedEnvironment,
       ...(usesIpv4Token
         ? {
