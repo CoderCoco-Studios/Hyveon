@@ -259,7 +259,7 @@ app will fail with `AccessDenied`.
 ## 2. Clone, install, and launch the wizard
 
 ```bash
-git clone https://github.com/CoderCoco/Hyveon.git
+git clone https://github.com/CoderCoco-Studios/Hyveon.git
 cd Hyveon
 npm install
 npm run desktop:run

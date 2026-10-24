@@ -5,10 +5,10 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'Hyveon',
   tagline: 'Cost-efficient multi-game dedicated server platform on AWS Fargate',
-  url: 'https://codercoco.github.io',
+  url: 'https://codercoco-studios.github.io',
   baseUrl: '/Hyveon/',
 
-  organizationName: 'CoderCoco',
+  organizationName: 'CoderCoco-Studios',
   projectName: 'Hyveon',
 
   favicon: 'img/favicon.ico',
@@ -35,7 +35,7 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           routeBasePath: '/',
           editUrl:
-            'https://github.com/CoderCoco/Hyveon/tree/main/docs/',
+            'https://github.com/CoderCoco-Studios/Hyveon/tree/main/docs/',
         },
         blog: false,
         theme: {
@@ -71,7 +71,7 @@ const config: Config = {
           label: 'Using the App',
         },
         {
-          href: 'https://github.com/CoderCoco/Hyveon',
+          href: 'https://github.com/CoderCoco-Studios/Hyveon',
           label: 'GitHub',
           position: 'right',
         },
@@ -94,7 +94,7 @@ const config: Config = {
           items: [
             {
               label: 'GitHub',
-              href: 'https://github.com/CoderCoco/Hyveon',
+              href: 'https://github.com/CoderCoco-Studios/Hyveon',
             },
           ],
         },
