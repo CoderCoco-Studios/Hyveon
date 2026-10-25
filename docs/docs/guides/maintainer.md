@@ -42,8 +42,9 @@ Hyveon/
 │           ├── health-check/            # conditional, shared — provisioned when any game declares healthCheck
 │           └── efs-seeder/              # conditional, one function per game with file_seeds
 ├── docs/                                # this site
-└── .github/workflows/                   # lint.yml, test.yml, e2e.yml, integration.yml,
-                                          # package.yml, docs-build.yml, docusaurus-gh-pages.yml
+├── .github/workflows/                   # lint.yml, test.yml, e2e.yml, integration.yml, package.yml,
+│                                        # release.yml, docs-build.yml, docusaurus-gh-pages.yml
+└── .github/actions/                     # composite actions: setup-app, build-package, publish-release
 ```
 
 The repository **root** `package.json` is the npm-workspaces root — its
@@ -172,9 +173,9 @@ Eight workflows live in `.github/workflows/`:
   Runs on every push/PR. Node 24.
 - **`package.yml`** — builds the packaged Electron installer
   (`npm run app:build && npm run desktop:package`) on a Linux/macOS/Windows
-  matrix; runs on every PR, and is called by `release.yml` for each release.
-  On a release run, a second job creates the **draft** GitHub Release from
-  the built artifacts and the release notes. Node 24.
+  matrix; runs on every PR. Release builds live in `release.yml`, which shares
+  the build steps with this workflow through the composite actions in
+  `.github/actions/` (`setup-app`, `build-package`, `publish-release`). Node 24.
 - **`docs-build.yml`** — a docs-only build check (`docs/**` paths, PR only);
   renders the D2 diagrams then runs `docusaurus build`, catching broken
   builds before merge. Node 24.
@@ -440,16 +441,16 @@ is a one-click `workflow_dispatch` run of `.github/workflows/release.yml`:
    Electron installer), commits and tags that bump on `main`, and pushes
    both using a dedicated GitHub App installation token (not `GITHUB_TOKEN`,
    which can't push to the protected branch, and not a personal PAT).
-4. The same run then calls `package.yml` with the new tag. It builds
-   installers for all three platforms, and only once every build has
-   succeeded does its `release` job create the GitHub Release with the
+4. The same run then builds the tagged commit: `release.yml`'s `package`
+   job builds installers for all three platforms, and only once every build
+   has succeeded does its `publish` job create the GitHub Release with the
    installers and the release notes attached. No release exists while
    builds are still running, so a draft you can see is a complete one.
 5. An `anthropics/claude-code-action` step (authenticated with a
    `CLAUDE_CODE_OAUTH_TOKEN`, which bills against the Claude subscription
    that generated it rather than metered API usage) turns the structured
    changelog into a user-facing "what's new" summary, used as the release
-   body (handed to `package.yml` as a `release-notes` artifact within the
+   body (handed to the `publish` job as a `release-notes` artifact within the
    same run); if that step fails or produces no output, the raw grouped changelog
    is published as the body instead so the run never fails solely on the AI
    step.

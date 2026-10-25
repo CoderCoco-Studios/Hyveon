@@ -27,8 +27,8 @@ All GitHub Actions workflows that set up Node SHALL request the supported major 
 - **AND** `npm ci && npm run build` in `docs/` completes successfully on that version
 
 #### Scenario: Application workflows run tests and packaging
-- **WHEN** `test.yml`, `lint.yml`, `e2e.yml`, `integration.yml`, or `package.yml` runs
-- **THEN** its `actions/setup-node` step requests `node-version: '24'`
+- **WHEN** `test.yml`, `lint.yml`, `e2e.yml`, `integration.yml`, `package.yml`, or `release.yml` runs
+- **THEN** its `actions/setup-node` step (shared via the `setup-app` composite action) requests `node-version: '24'`
 
 ### Requirement: Documentation states the supported Node major
 Every document that tells a reader which Node version to install, or which version a CI workflow runs on, SHALL state the supported major. A document SHALL NOT name a Node version that no manifest or workflow enforces.

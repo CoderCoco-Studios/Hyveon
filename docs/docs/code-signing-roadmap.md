@@ -74,8 +74,8 @@ electron-store flag, specifically because an unsigned updater would fail
 Gatekeeper checks on macOS regardless of what the update feed says. Once
 signing is in place:
 
-1. Confirm the release feed is actually reachable: `.github/workflows/package.yml`'s
-   `package` job uploads each platform's `latest*.yml` manifest (`latest.yml`
+1. Confirm the release feed is actually reachable: `.github/actions/build-package`
+   uploads each platform's `latest*.yml` manifest (`latest.yml`
    for Windows, `latest-mac.yml` for macOS, `latest-linux.yml` for Linux)
    alongside the installer, and the macOS build produces a `zip` target
    in addition to the `dmg` — `electron-updater`'s `MacUpdater` only ever
