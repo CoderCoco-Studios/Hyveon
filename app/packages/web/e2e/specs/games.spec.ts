@@ -192,6 +192,38 @@ test.describe('game detail page: seed from folder', () => {
     await expect(games.uploadVerifiedMessage()).toBeVisible();
   });
 
+  test('should warn before overwriting existing volume files and continue only after confirmation', async ({ games }) => {
+    await stubApis(games.page, { games: [declaredDeployed] });
+    await games.page.addInitScript(() => {
+      (window as unknown as { __e2eFolderConflicts: boolean }).__e2eFolderConflicts = true;
+    });
+    await games.gotoDetail('minecraft');
+    await games.chooseFolderButton().click();
+    await games.uploadFolderButton().click();
+
+    await expect(games.overwriteWarning()).toContainText('2 files on the volume would be overwritten');
+    await expect(games.overwriteWarning()).toContainText('Data/w.db');
+    await expect(games.uploadVerifiedMessage()).toBeHidden();
+
+    await games.overwriteWarning().getByRole('button', { name: 'Overwrite and upload' }).click();
+    await expect(games.uploadVerifiedMessage()).toBeVisible();
+  });
+
+  test('should cancel the run when the operator declines the overwrite warning', async ({ games }) => {
+    await stubApis(games.page, { games: [declaredDeployed] });
+    await games.page.addInitScript(() => {
+      (window as unknown as { __e2eFolderConflicts: boolean }).__e2eFolderConflicts = true;
+    });
+    await games.gotoDetail('minecraft');
+    await games.chooseFolderButton().click();
+    await games.uploadFolderButton().click();
+
+    await games.overwriteWarning().getByRole('button', { name: 'Cancel' }).click();
+
+    await expect(games.page.getByText(/Cancelled\./)).toBeVisible();
+    await expect(games.overwriteWarning()).toBeHidden();
+  });
+
   test('should keep Upload disabled when the destination is outside every volume', async ({ games }) => {
     await stubApis(games.page, { games: [declaredDeployed] });
     await games.gotoDetail('minecraft');

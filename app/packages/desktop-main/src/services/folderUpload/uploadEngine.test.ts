@@ -7,8 +7,11 @@ import { fakeClient } from '../../testing/fake-filebrowser-client.js';
 import { ProgressAggregator } from './ProgressAggregator.js';
 import {
   ancestorDirs,
+  classifyUpload,
   ensureDirs,
+  listPlannedDirs,
   listRemoteSizes,
+  remoteSizesOf,
   uploadAll,
   UploadCancelledError,
   UploadFileError,
@@ -192,5 +195,60 @@ describe('listRemoteSizes', () => {
     const client = fakeClient();
     await listRemoteSizes(client, items);
     expect(client.list).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('listPlannedDirs', () => {
+  it('should omit directories the volume does not have yet', async () => {
+    const items = [await makeItem('a.txt', 1, '/Data/a.txt'), await makeItem('b.txt', 1, '/New/b.txt')];
+    const client = fakeClient();
+    client.sizes.set('/Data/a.txt', 1);
+    const listings = await listPlannedDirs(client, items);
+    expect([...listings.keys()]).toEqual(['/Data']);
+    expect(remoteSizesOf(listings)).toEqual(new Map([['/Data/a.txt', 1]]));
+  });
+
+  it('should stop listing once the signal aborts', async () => {
+    const items = [await makeItem('a.txt', 1)];
+    const ctl = new AbortController();
+    ctl.abort();
+    await expect(listPlannedDirs(fakeClient(), items, ctl.signal)).rejects.toBeInstanceOf(UploadCancelledError);
+  });
+});
+
+describe('classifyUpload', () => {
+  const item = (relPath: string, size: number, remotePath = `/Data/${relPath}`) => ({ relPath, size, remotePath }) as UploadItem;
+
+  it('should split planned files into new, identical and conflicting and count unrelated files as context only', () => {
+    const items = [item('new.txt', 5), item('same.txt', 5), item('diff.txt', 9)];
+    const remote = new Map([
+      ['/Data/same.txt', 5],
+      ['/Data/diff.txt', 2],
+      ['/Data/unrelated.txt', 100],
+    ]);
+    expect(classifyUpload(items, remote)).toEqual({
+      conflictCount: 1,
+      identicalCount: 1,
+      newCount: 1,
+      otherExistingCount: 1,
+      samples: [{ relPath: 'diff.txt', existingSize: 2, newSize: 9 }],
+    });
+  });
+
+  it('should treat a zero-byte mismatch as a conflict', () => {
+    expect(classifyUpload([item('a', 0)], new Map([['/Data/a', 3]])).conflictCount).toBe(1);
+  });
+
+  it('should cap the samples at 20 while still counting every conflict', () => {
+    const items = Array.from({ length: 25 }, (_, i) => item(`f${i}`, 10));
+    const remote = new Map(items.map((i) => [i.remotePath, 1] as [string, number]));
+    const summary = classifyUpload(items, remote);
+    expect(summary.conflictCount).toBe(25);
+    expect(summary.samples).toHaveLength(20);
+    expect(summary.samples[0]).toEqual({ relPath: 'f0', existingSize: 1, newSize: 10 });
+  });
+
+  it('should report an empty volume as all new', () => {
+    expect(classifyUpload([item('a', 1), item('b', 2)], new Map())).toMatchObject({ conflictCount: 0, newCount: 2, identicalCount: 0, otherExistingCount: 0 });
   });
 });

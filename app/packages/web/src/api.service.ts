@@ -41,11 +41,13 @@ import type {
   AuditPageResult,
 } from '@hyveon/shared';
 import type {
+  FolderOverwriteDecisionResult,
   FolderScanResult,
   FolderUploadProgress,
   FolderUploadRequest,
   FolderUploadStartResult,
   FolderUploadStoredState,
+  OverwriteSummary,
   StrayHelperReport,
 } from '@hyveon/shared/folderUpload';
 import type {
@@ -91,11 +93,13 @@ export type {
   CloudHealthFixOutcome,
   CloudHealthFixResult,
   OpenConsoleResult,
+  FolderOverwriteDecisionResult,
   FolderScanResult,
   FolderUploadProgress,
   FolderUploadRequest,
   FolderUploadStartResult,
   FolderUploadStoredState,
+  OverwriteSummary,
   StrayHelperReport,
 };
 
@@ -291,6 +295,8 @@ export const api = {
   folderStartUpload: async (request: FolderUploadRequest): Promise<FolderUploadStartResult> =>
     hyveon().folderUpload.startUpload(request),
   folderCancelUpload: async (game: string): Promise<{ cancelled: boolean }> => hyveon().folderUpload.cancelUpload(game),
+  folderConfirmOverwrite: async (game: string, proceed: boolean): Promise<FolderOverwriteDecisionResult> =>
+    hyveon().folderUpload.confirmOverwrite(game, proceed),
   folderGetProgress: async (game: string): Promise<FolderUploadProgress | null> =>
     hyveon().folderUpload.getProgress(game),
   folderCleanupStrayHelpers: async (): Promise<StrayHelperReport> => hyveon().folderUpload.cleanupStrayHelpers(),

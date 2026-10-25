@@ -1,4 +1,4 @@
-import type { FolderUploadPhase, FolderUploadProgress } from '@hyveon/shared/folderUpload';
+import type { FolderUploadPhase, FolderUploadProgress, OverwriteSummary } from '@hyveon/shared/folderUpload';
 
 /** How often a snapshot is emitted while a run is active. */
 export const PROGRESS_INTERVAL_MS = 500;
@@ -26,6 +26,7 @@ export class ProgressAggregator {
   private lastTickAt: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private error: string | undefined;
+  private overwrite: OverwriteSummary | undefined;
 
   constructor(
     private readonly game: string,
@@ -56,7 +57,13 @@ export class ProgressAggregator {
     this.phase = phase;
     this.error = error;
     if (phase !== 'uploading') this.currentPath = undefined;
+    if (phase !== 'awaiting-confirmation') this.overwrite = undefined;
     this.emit(this.snapshot());
+  }
+
+  /** Attaches the overwrite summary the next `awaiting-confirmation` snapshot carries; cleared on any other phase. */
+  setOverwrite(summary: OverwriteSummary): void {
+    this.overwrite = summary;
   }
 
   /** Adds (or, on a failed attempt, removes with a negative value) uploaded bytes. */
@@ -89,6 +96,7 @@ export class ProgressAggregator {
       bytesPerSecond: Math.round(this.rate),
       etaSeconds,
       error: this.error,
+      overwrite: this.overwrite,
     };
   }
 

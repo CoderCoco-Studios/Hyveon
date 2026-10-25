@@ -110,7 +110,7 @@ export function FolderUploadCard({ game, volumes, deployed }: FolderUploadCardPr
     void refreshServer();
   }, [reloadLastRun, refreshServer]);
 
-  const running = progress?.phase === 'starting-helper' || progress?.phase === 'uploading' || progress?.phase === 'verifying';
+  const running = progress?.phase === 'starting-helper' || progress?.phase === 'awaiting-confirmation' || progress?.phase === 'uploading' || progress?.phase === 'verifying';
   const destinationOk = seed.destination !== '' && validateDestination(seed.destination, volumes).ok;
   const selected = seed.scan ? summarizeSelection(seed.scan.tree, seed.include).files : 0;
   const ready = seed.scan !== null && destinationOk && selected > 0;

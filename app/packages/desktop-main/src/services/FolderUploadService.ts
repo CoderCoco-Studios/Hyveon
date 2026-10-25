@@ -12,6 +12,7 @@ import {
   type FolderUploadRequest,
   type FolderUploadStartResult,
   type FolderUploadStoredState,
+  type FolderOverwriteDecisionResult,
   type StrayHelperReport,
 } from '@hyveon/shared/folderUpload';
 import { logger } from '../logger.js';
@@ -25,9 +26,12 @@ import { FileBrowserClientFactory, PinMismatchError, type FileBrowserApi } from 
 import { ProgressAggregator } from './folderUpload/ProgressAggregator.js';
 import {
   abortableSleep,
+  classifyUpload,
+  ConfirmationTimeoutError,
   DEFAULT_ENGINE_OPTIONS,
   ensureDirs,
-  listRemoteSizes,
+  listPlannedDirs,
+  remoteSizesOf,
   uploadAll,
   UploadCancelledError,
   verifyUpload,
@@ -50,6 +54,8 @@ export interface FolderUploadTimings {
   helperIpTimeoutMs: number;
   /** Give up waiting for FileBrowser to accept a login after this long. */
   loginTimeoutMs: number;
+  /** Cancel the run when the operator has not answered the overwrite warning after this long. */
+  confirmationTimeoutMs: number;
 }
 
 /** A run in flight in this process. */
@@ -65,6 +71,8 @@ interface PreparedRun {
   request: FolderUploadRequest;
   items: UploadItem[];
   bytesTotal: number;
+  /** The previous run for this same selection was cut short, so a few existing files are our own partial uploads. */
+  resumesOwnRun: boolean;
 }
 
 /**
@@ -79,12 +87,13 @@ interface PreparedRun {
 @Injectable()
 export class FolderUploadService implements OnApplicationBootstrap {
   /** Overridable by tests. */
-  readonly timings: FolderUploadTimings = { helperPort: 8080, pollMs: 3000, helperIpTimeoutMs: 3 * 60 * 1000, loginTimeoutMs: 2 * 60 * 1000 };
+  readonly timings: FolderUploadTimings = { helperPort: 8080, pollMs: 3000, helperIpTimeoutMs: 3 * 60 * 1000, loginTimeoutMs: 2 * 60 * 1000, confirmationTimeoutMs: 10 * 60 * 1000 };
 
   /** Concurrency/retry tunables; overridable by tests. */
   readonly engine: UploadEngineOptions = { ...DEFAULT_ENGINE_OPTIONS };
 
   private readonly active = new Map<string, ActiveRun>();
+  private readonly confirmations = new Map<string, (proceed: boolean) => void>();
   private readonly latest = new Map<string, FolderUploadProgress>();
   private readonly listeners = new Set<(progress: FolderUploadProgress) => void>();
 
@@ -147,6 +156,18 @@ export class FolderUploadService implements OnApplicationBootstrap {
     const run = this.active.get(game);
     run?.controller.abort();
     return { cancelled: !!run };
+  }
+
+  /**
+   * Answers the overwrite warning for `game`'s run: `proceed` lets the upload continue, otherwise the run is cancelled
+   * (helper stopped, IP rule revoked) before any file is written.
+   *
+   * @returns `{ resolved: false }` when the run is not awaiting confirmation.
+   */
+  confirmOverwrite(game: string, proceed: boolean): FolderOverwriteDecisionResult {
+    const answer = this.confirmations.get(game);
+    answer?.(proceed);
+    return { resolved: !!answer };
   }
 
   /** Operator-requested cleanup: stops every file-manager helper no active run here owns, regardless of age. */
@@ -223,8 +244,30 @@ export class FolderUploadService implements OnApplicationBootstrap {
       throw new Error(`A file manager session is already open for '${game}'. Stop it first, then retry.`);
     }
 
-    return { game, scan, request, items, bytesTotal: items.reduce((sum, i) => sum + i.size, 0) };
+    return {
+      game,
+      scan,
+      request,
+      items,
+      bytesTotal: items.reduce((sum, i) => sum + i.size, 0),
+      resumesOwnRun: this.isOwnPartialRun(this.store.getFolderUploadState(game), scan.rootPath, request),
+    };
+  }
 
+  /**
+   * True when `previous` is a cut-short run (failed or cancelled after copying something) of the same folder, includes
+   * and destination, i.e. a few files on the volume are this app's own partial uploads.
+   */
+  private isOwnPartialRun(previous: FolderUploadStoredState | undefined, localPath: string, request: FolderUploadRequest): boolean {
+    const last = previous?.lastRun;
+    if (!previous || !last || last.status === 'done' || last.files === 0) return false;
+    const included = new Set(previous.include);
+    return (
+      previous.localPath === localPath &&
+      previous.destination === request.destination &&
+      included.size === new Set(request.include).size &&
+      request.include.every((p) => included.has(p))
+    );
   }
 
   /** Emits a progress snapshot to listeners and remembers it as `game`'s latest. */
@@ -259,9 +302,11 @@ export class FolderUploadService implements OnApplicationBootstrap {
       });
       await this.waitForLogin(client, signal);
 
+      const existing = remoteSizesOf(await listPlannedDirs(client, items, signal, this.engine.concurrency));
+      await this.confirmOverwrites(prepared, runId, existing, progress, signal);
+
       progress.setPhase('uploading');
       await ensureDirs(client, items, signal);
-      const existing = await listRemoteSizes(client, items, signal);
       await uploadAll(client, items, existing, progress, signal, this.engine);
 
       progress.setPhase('verifying');
@@ -274,13 +319,76 @@ export class FolderUploadService implements OnApplicationBootstrap {
       }
     } catch (err) {
       terminal = err instanceof UploadCancelledError || signal.aborted
-        ? { phase: 'cancelled' }
+        ? { phase: 'cancelled', error: err instanceof ConfirmationTimeoutError ? err.message : undefined }
         : { phase: 'failed', error: errMessage(err) };
       if (terminal.phase === 'failed') logger.warn('FolderUploadService: upload failed', { game, runId, error: terminal.error });
     } finally {
       await this.releaseHelper(game, runId, client, session !== undefined);
       this.finish(game, runId, progress, terminal);
     }
+  }
+
+  /**
+   * Preflight: when the plan would overwrite files already on the volume, publishes an `awaiting-confirmation` snapshot
+   * and waits for {@link FolderUploadService.confirmOverwrite}. Nothing has been written at this point.
+   *
+   * @remarks
+   * A resume of this app's own cut-short run is not prompted unless conflicts exceed the files that could have been
+   * mid-flight when it stopped (the engine's concurrency).
+   * @throws UploadCancelledError when the operator declines or the run is cancelled; ConfirmationTimeoutError when
+   * no answer arrives within {@link FolderUploadTimings.confirmationTimeoutMs}.
+   */
+  private async confirmOverwrites(
+    prepared: PreparedRun,
+    runId: string,
+    existing: Map<string, number>,
+    progress: ProgressAggregator,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const { game } = prepared;
+    const summary = classifyUpload(prepared.items, existing);
+    const ownPartials = prepared.resumesOwnRun && summary.conflictCount <= this.engine.concurrency;
+    if (summary.conflictCount === 0 || ownPartials) return;
+
+    logger.info('FolderUploadService: awaiting overwrite confirmation', {
+      game,
+      runId,
+      conflicts: summary.conflictCount,
+      identical: summary.identicalCount,
+      added: summary.newCount,
+    });
+    progress.setOverwrite(summary);
+    progress.setPhase('awaiting-confirmation');
+    const proceed = await this.waitForDecision(game, signal);
+    if (!proceed) {
+      logger.info('FolderUploadService: overwrite declined', { game, runId });
+      throw new UploadCancelledError();
+    }
+  }
+
+  /** Resolves with the operator's answer; rejects on cancel (abort) or timeout. Always clears the pending answer. */
+  private waitForDecision(game: string, signal: AbortSignal): Promise<boolean> {
+    return new Promise<boolean>((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        this.confirmations.delete(game);
+      };
+      const onAbort = () => {
+        cleanup();
+        reject(new UploadCancelledError());
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new ConfirmationTimeoutError());
+      }, this.timings.confirmationTimeoutMs);
+      this.confirmations.set(game, (proceed) => {
+        cleanup();
+        resolve(proceed);
+      });
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   /** Records the run's outcome, emits the terminal snapshot, and frees the game for a new run. */

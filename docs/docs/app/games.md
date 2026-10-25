@@ -511,14 +511,33 @@ While a run is active the card shows a meter and locks the folder controls.
 | Phase | Meaning |
 |---|---|
 | **Starting helper** | Launching the helper task. No percentage yet |
+| **Waiting for confirmation** | Some files you are uploading already exist on the volume with a different size. Nothing has been written yet; the meter shows the warning described below and waits for your answer |
 | **Uploading** | Copying files, up to four at a time. Shows percent, bytes done of total, files done of total, the current file, the transfer rate and the time left |
 | **Verifying** | Comparing the volume against your selection. The bar holds at 99% until this passes |
 | **Done** | Every selected file is on the volume with the expected size. Shows the file count and total size |
 | **Failed** | The error message, plus **Resume upload** |
 | **Cancelled** | Files already copied are kept. **Resume upload** continues |
 
-**Cancel** is available while the run is starting, uploading or verifying.
+**Cancel** is available while the run is starting, uploading or verifying; while it waits for confirmation, the warning's own **Cancel** does the same job.
 A failed verification lists up to five missing or size-mismatched paths, then "and N more", and offers **Retry upload** instead.
+
+#### Overwrite warning
+
+After the helper is up and before any file is written, the app lists the destination folders on the volume and compares them with your selection.
+Each selected file is counted as new, identical (already there with the same size, so the run skips it) or a conflict (already there with a different size, so the run would overwrite it).
+Other files already in those folders are only counted for context and are never touched.
+
+If there are no conflicts, the upload starts without a prompt.
+If there are, the meter shows "N files on the volume would be overwritten (M identical files will be skipped, K new)", lists up to 20 conflicting paths with their size on the volume and their new size, and offers two buttons:
+
+- **Overwrite and upload** continues the run and replaces those files.
+- **Cancel** ends the run as **Cancelled** with nothing written; the helper is stopped and its IP rule revoked.
+
+The helper stays up while the warning is open, but only for 10 minutes.
+If you do not answer in that time, the run is cancelled, the meter says so, and the helper is stopped.
+
+Resuming your own interrupted run does not prompt: when the last run for the same folder, includes and destination failed or was cancelled after copying files, up to four conflicts (the number of files that can be in flight) are treated as that run's partial files.
+More conflicts than that, a different selection or destination, or a previous run that finished all prompt as usual.
 
 Resuming skips files already on the volume with the right size and overwrites partial ones, so an interrupted 1,033-file upload that reached file 600 uploads only the rest.
 If the helper's 2-hour auto-stop elapses mid-upload or your public IP changes, the helper becomes unreachable.

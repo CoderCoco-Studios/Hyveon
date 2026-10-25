@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const apiMock = vi.hoisted(() => ({ folderCancelUpload: vi.fn() }));
+const apiMock = vi.hoisted(() => ({ folderCancelUpload: vi.fn(), folderConfirmOverwrite: vi.fn() }));
 vi.mock('../../api.service.js', () => ({ api: apiMock }));
 
 import { FolderUploadProgressMeter } from './folder-upload-progress-meter.component.js';
@@ -12,6 +12,7 @@ describe('FolderUploadProgressMeter', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     apiMock.folderCancelUpload.mockResolvedValue({ cancelled: true });
+    apiMock.folderConfirmOverwrite.mockResolvedValue({ resolved: true });
   });
 
   it('should render nothing without a snapshot or a last run', () => {
@@ -121,5 +122,44 @@ describe('FolderUploadProgressMeter', () => {
     );
     expect(screen.getByTestId('folder-upload-last-run')).toHaveTextContent('completed');
     expect(screen.queryByRole('button', { name: 'Resume upload' })).not.toBeInTheDocument();
+  });
+
+  describe('awaiting confirmation', () => {
+    const overwrite = {
+      conflictCount: 1,
+      identicalCount: 2,
+      newCount: 3,
+      otherExistingCount: 0,
+      samples: [{ relPath: 'Data/w.db', existingSize: 1, newSize: 1000 }],
+    };
+
+    it('should show the overwrite warning with a single Cancel that declines instead of the plain cancel', async () => {
+      render(
+        <FolderUploadProgressMeter game="minecraft" progress={makeProgress({ phase: 'awaiting-confirmation', bytesDone: 0, overwrite })} onRestart={vi.fn()} />,
+      );
+      expect(screen.getByText('Waiting for confirmation')).toBeInTheDocument();
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('1 file on the volume would be overwritten');
+      expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(apiMock.folderConfirmOverwrite).toHaveBeenCalledWith('minecraft', false);
+      expect(apiMock.folderCancelUpload).not.toHaveBeenCalled();
+    });
+
+    it('should fall back to the plain Cancel when the snapshot carries no summary', () => {
+      render(<FolderUploadProgressMeter game="minecraft" progress={makeProgress({ phase: 'awaiting-confirmation', bytesDone: 0 })} onRestart={vi.fn()} />);
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    });
+
+    it('should explain a confirmation timeout in the cancelled state', () => {
+      render(
+        <FolderUploadProgressMeter
+          game="minecraft"
+          progress={makeProgress({ phase: 'cancelled', error: 'Timed out waiting for overwrite confirmation' })}
+          onRestart={vi.fn()}
+        />,
+      );
+      expect(screen.getByRole('status')).toHaveTextContent('Timed out waiting for overwrite confirmation. Cancelled.');
+    });
   });
 });

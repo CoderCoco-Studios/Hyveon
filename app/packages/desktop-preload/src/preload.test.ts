@@ -231,6 +231,7 @@ describe('preload dispatcher', () => {
         ['setSelection', [{ game: 'g' }], 'folderUpload.setSelection', [{ game: 'g' }]],
         ['startUpload', [{ game: 'g' }], 'folderUpload.startUpload', [{ game: 'g' }]],
         ['cancelUpload', ['g'], 'folderUpload.cancelUpload', ['g']],
+        ['confirmOverwrite', ['g', true], 'folderUpload.confirmOverwrite', [{ game: 'g', proceed: true }]],
         ['getProgress', ['g'], 'folderUpload.getProgress', ['g']],
         ['cleanupStrayHelpers', [], 'folderUpload.cleanupStrayHelpers', []],
       ])('should forward %s to ipcRenderer.invoke on its channel', async (method, args, channel, payload) => {

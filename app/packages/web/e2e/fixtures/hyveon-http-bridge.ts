@@ -61,6 +61,7 @@ export function installHyveonHttpBridge(): void {
     folderUpload: (() => {
       const listeners = new Set<(progress: unknown) => void>();
       let last: unknown = null;
+      let resume: ((proceed: boolean) => void) | null = null;
       const emit = (progress: unknown): void => {
         last = progress;
         listeners.forEach((cb) => cb(progress));
@@ -101,10 +102,37 @@ export function installHyveonHttpBridge(): void {
         setSelection: async () => ({ saved: true }),
         startUpload: async (request: { game: string }) => {
           const steps: [string, number][] = [['starting-helper', 0], ['uploading', 515], ['verifying', 1030], ['done', 1030]];
-          steps.forEach(([phase, bytes], i) => setTimeout(() => emit(snapshot(request.game, phase, bytes)), 100 * (i + 1)));
+          const play = (from: number): void => {
+            steps.slice(from).forEach(([phase, bytes], i) => setTimeout(() => emit(snapshot(request.game, phase, bytes)), 100 * (i + 1)));
+          };
+          // A spec sets this flag before starting to simulate files already on the volume: the run pauses for an answer.
+          if ((window as unknown as { __e2eFolderConflicts?: boolean }).__e2eFolderConflicts) {
+            const overwrite = {
+              conflictCount: 2,
+              identicalCount: 1,
+              newCount: 0,
+              otherExistingCount: 4,
+              samples: [
+                { relPath: 'Config/a.json', existingSize: 5, newSize: 10 },
+                { relPath: 'Data/w.db', existingSize: 900, newSize: 1000 },
+              ],
+            };
+            setTimeout(() => emit({ ...snapshot(request.game, 'awaiting-confirmation', 0), overwrite }), 100);
+            resume = (proceed: boolean) => {
+              if (proceed) play(1);
+              else emit(snapshot(request.game, 'cancelled', 0));
+            };
+          } else {
+            play(0);
+          }
           return { started: true, runId: 'e2e-run' };
         },
         cancelUpload: async () => ({ cancelled: true }),
+        confirmOverwrite: async (_game: string, proceed: boolean) => {
+          resume?.(proceed);
+          resume = null;
+          return { resolved: true };
+        },
         getProgress: async () => last,
         cleanupStrayHelpers: async () => ({ stopped: [], skipped: 0, revokedRules: 0, errors: [] }),
         onProgress: (cb: (progress: unknown) => void) => {

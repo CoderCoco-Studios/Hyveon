@@ -310,6 +310,153 @@ describe('FolderUploadService runs', () => {
   });
 });
 
+/** Waits until a snapshot in the given phase has been published. */
+async function reached(h: Harness, phase: FolderUploadProgress['phase']): Promise<FolderUploadProgress> {
+  await vi.waitFor(() => expect(h.progress.some((p) => p.phase === phase)).toBe(true));
+  return h.progress.find((p) => p.phase === phase)!;
+}
+
+describe('FolderUploadService overwrite confirmation', () => {
+  /** A volume already holding a different-size `a.json`, an identical `b.db`, and an unrelated file in `Config`. */
+  function conflictedClient(): FakeClient {
+    const client = fakeClient();
+    client.sizes.set('/Config/a.json', 1);
+    client.sizes.set('/Config/old.cfg', 7);
+    client.sizes.set('/Data/b.db', 8);
+    return client;
+  }
+
+  it('should pause with a summary before writing anything and upload only after the operator confirms', async () => {
+    const client = conflictedClient();
+    const h = await harness({ client });
+    await h.svc.startUpload(await request(['Config', 'Data']));
+
+    const waiting = await reached(h, 'awaiting-confirmation');
+    expect(waiting.overwrite).toEqual({
+      conflictCount: 1,
+      identicalCount: 1,
+      newCount: 0,
+      otherExistingCount: 1,
+      samples: [{ relPath: 'Config/a.json', existingSize: 1, newSize: 4 }],
+    });
+    expect(client.mkdir).not.toHaveBeenCalled();
+    expect(client.uploadFile).not.toHaveBeenCalled();
+    expect(h.fm.stop).not.toHaveBeenCalled();
+    expect(h.svc.getProgress('minecraft')?.phase).toBe('awaiting-confirmation');
+
+    expect(h.svc.confirmOverwrite('minecraft', true)).toEqual({ resolved: true });
+    const last = await settled(h);
+    expect(last).toMatchObject({ phase: 'done' });
+    expect(client.uploads).toEqual(['/Config/a.json']);
+    expect(h.progress.find((p) => p.phase === 'uploading')?.overwrite).toBeUndefined();
+  });
+
+  it('should cancel cleanly with nothing written and the helper stopped when the operator declines', async () => {
+    const client = conflictedClient();
+    const h = await harness({ client });
+    await h.svc.startUpload(await request(['Config', 'Data']));
+    await reached(h, 'awaiting-confirmation');
+
+    expect(h.svc.confirmOverwrite('minecraft', false)).toEqual({ resolved: true });
+    const last = await settled(h);
+    expect(last.phase).toBe('cancelled');
+    expect(last.error).toBeUndefined();
+    expect(client.mkdir).not.toHaveBeenCalled();
+    expect(client.uploadFile).not.toHaveBeenCalled();
+    expect(h.fm.stop).toHaveBeenCalledTimes(1);
+    expect(h.svc.getSelection('minecraft')?.lastRun?.status).toBe('cancelled');
+  });
+
+  it('should treat Cancel while waiting as a decline', async () => {
+    const h = await harness({ client: conflictedClient() });
+    await h.svc.startUpload(await request(['Config']));
+    await reached(h, 'awaiting-confirmation');
+    h.svc.cancel('minecraft');
+    expect((await settled(h)).phase).toBe('cancelled');
+    expect(h.fm.stop).toHaveBeenCalledTimes(1);
+    expect(h.svc.confirmOverwrite('minecraft', true)).toEqual({ resolved: false });
+  });
+
+  it('should cancel with a reason and stop the helper when nobody answers before the timeout', async () => {
+    const client = conflictedClient();
+    const h = await harness({ client });
+    h.svc.timings.confirmationTimeoutMs = 20;
+    await h.svc.startUpload(await request(['Config']));
+    const last = await settled(h);
+    expect(last).toMatchObject({ phase: 'cancelled', error: expect.stringMatching(/Timed out/) });
+    expect(client.uploadFile).not.toHaveBeenCalled();
+    expect(h.fm.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not prompt when nothing on the volume would be overwritten', async () => {
+    const client = fakeClient();
+    client.sizes.set('/Config/a.json', 4);
+    client.sizes.set('/Config/other.cfg', 9);
+    const h = await harness({ client });
+    await h.svc.startUpload(await request(['Config']));
+    expect((await settled(h)).phase).toBe('done');
+    expect(h.progress.some((p) => p.phase === 'awaiting-confirmation')).toBe(false);
+  });
+
+  it('should resolve nothing when no run is awaiting an answer', async () => {
+    const h = await harness();
+    expect(h.svc.confirmOverwrite('minecraft', true)).toEqual({ resolved: false });
+  });
+
+  describe('resuming this app\'s own cut-short run', () => {
+    /** Persists the selection and a failed last run that had copied one file. */
+    async function afterFailedRun(h: Harness, include: string[]) {
+      h.svc.setSelection(await request(include));
+      h.store.setFolderUploadLastRun('minecraft', { status: 'failed', completedAt: '2026-01-01T00:00:00.000Z', files: 1, bytes: 4 });
+    }
+
+    it('should not prompt for a few partial files from the previous run of the same selection', async () => {
+      const client = conflictedClient();
+      const h = await harness({ client });
+      await afterFailedRun(h, ['Config', 'Data']);
+      await h.svc.startUpload(await request(['Config', 'Data']));
+      expect((await settled(h)).phase).toBe('done');
+      expect(h.progress.some((p) => p.phase === 'awaiting-confirmation')).toBe(false);
+    });
+
+    it('should prompt when conflicts exceed the files that could have been mid-flight', async () => {
+      const client = conflictedClient();
+      client.sizes.set('/Data/b.db', 3);
+      const h = await harness({ client });
+      h.svc.engine.concurrency = 1;
+      await afterFailedRun(h, ['Config', 'Data']);
+      await h.svc.startUpload(await request(['Config', 'Data']));
+      expect((await reached(h, 'awaiting-confirmation')).overwrite?.conflictCount).toBe(2);
+      h.svc.cancel('minecraft');
+      await settled(h);
+    });
+
+    it.each([
+      ['a different selection', ['Config'], '/data'],
+      ['a different destination', ['Config', 'Data'], '/data/sub'],
+    ])('should still prompt for %s', async (_label, include, destination) => {
+      const client = fakeClient();
+      client.sizes.set(destination === '/data' ? '/Config/a.json' : '/sub/Config/a.json', 1);
+      const h = await harness({ client });
+      await afterFailedRun(h, ['Config', 'Data']);
+      await h.svc.startUpload(await request(include, destination));
+      await reached(h, 'awaiting-confirmation');
+      h.svc.cancel('minecraft');
+      await settled(h);
+    });
+
+    it('should prompt after a completed run since the existing files are not partial uploads', async () => {
+      const h = await harness({ client: conflictedClient() });
+      h.svc.setSelection(await request(['Config', 'Data']));
+      h.store.setFolderUploadLastRun('minecraft', { status: 'done', completedAt: '2026-01-01T00:00:00.000Z', files: 2, bytes: 12 });
+      await h.svc.startUpload(await request(['Config', 'Data']));
+      await reached(h, 'awaiting-confirmation');
+      h.svc.cancel('minecraft');
+      await settled(h);
+    });
+  });
+});
+
 describe('FolderUploadService selection and cleanup', () => {
   it('should persist a selection and rescan its folder for a live scan id', async () => {
     const h = await harness();

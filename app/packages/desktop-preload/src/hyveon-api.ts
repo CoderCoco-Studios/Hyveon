@@ -31,6 +31,7 @@ import type {
   UpdateDeploymentSettingsPayload,
 } from '@hyveon/shared';
 import type {
+  FolderOverwriteDecisionResult,
   FolderScanResult,
   FolderUploadProgress,
   FolderUploadRequest,
@@ -1569,6 +1570,8 @@ export interface HyveonFolderUploadApi {
   startUpload: (request: FolderUploadRequest) => Promise<FolderUploadStartResult>;
   /** Cancels the upload running for `game`, if any. */
   cancelUpload: (game: string) => Promise<{ cancelled: boolean }>;
+  /** Answers the overwrite warning of a run in the `awaiting-confirmation` phase; `proceed: false` cancels the run. */
+  confirmOverwrite: (game: string, proceed: boolean) => Promise<FolderOverwriteDecisionResult>;
   /** Latest progress snapshot for `game`'s run in this session, or `null`. */
   getProgress: (game: string) => Promise<FolderUploadProgress | null>;
   /** Stops every file-manager helper no active run owns and reports what was stopped. */

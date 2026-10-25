@@ -136,6 +136,11 @@ export class GamesPage {
     return this.page.getByRole('button', { name: 'Upload folder' });
   }
 
+  /** The overwrite warning shown while an upload awaits confirmation. */
+  overwriteWarning(): Locator {
+    return this.page.getByRole('alertdialog');
+  }
+
   /** The upload progress meter's determinate bar. */
   uploadProgressBar(): Locator {
     return this.page.getByRole('progressbar', { name: 'Upload progress' });

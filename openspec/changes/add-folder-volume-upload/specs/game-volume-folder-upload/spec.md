@@ -109,6 +109,33 @@ After uploading, the system SHALL compare the volume's listing against the selec
 - **WHEN** a selected file is missing or has a different size on the volume
 - **THEN** the run is reported failed listing those paths, with a Retry action
 
+### Requirement: Warn before overwriting existing volume files
+After the helper is running and authenticated and before any file or directory is written, the system SHALL list the destination directories the plan touches and classify each planned file as new, identical (present with the same size) or conflicting (present with a different size). When there is at least one conflict, the system SHALL pause in an `awaiting-confirmation` phase, SHALL present the conflict, identical and new counts with up to 20 sample conflicting paths (existing size and new size), and SHALL write nothing until the operator explicitly confirms. Declining SHALL cancel the run cleanly (helper stopped, IP rule revoked). An unanswered warning SHALL cancel the run after a confirmation timeout. Existing files the plan does not include SHALL only be counted as context and SHALL never be a conflict.
+
+#### Scenario: Conflicts require confirmation
+- **WHEN** the volume already holds a planned file at a different size
+- **THEN** the run enters `awaiting-confirmation` with the summary, the helper stays up, and no directory is created and no file is written until the operator confirms
+
+#### Scenario: Operator confirms
+- **WHEN** the operator chooses "Overwrite and upload"
+- **THEN** the run continues to upload, replacing the conflicting files, and skips the identical ones
+
+#### Scenario: Operator cancels
+- **WHEN** the operator declines the warning
+- **THEN** the run ends as cancelled with nothing written, the helper is stopped and the operator-IP rule is revoked
+
+#### Scenario: Warning goes unanswered
+- **WHEN** the operator does not answer within the confirmation timeout
+- **THEN** the run is cancelled with a timeout message and the helper is stopped
+
+#### Scenario: No conflicts
+- **WHEN** every planned file is new or identical to what the volume holds
+- **THEN** the upload starts without a prompt
+
+#### Scenario: Resume of the app's own partial run
+- **WHEN** the previous run for the same folder, selection and destination failed or was cancelled after copying files, and the conflicts do not exceed the number of files that can be in flight
+- **THEN** those conflicts are treated as that run's partial files and no prompt is shown
+
 ### Requirement: Safety limits and scope of state
 The system SHALL skip symbolic links (noting how many were skipped), SHALL reject any entry whose destination would escape the destination directory, and SHALL persist the folder selection and last-upload state per game in application-local state, not in `deployment-config.json`. Existing inline `file_seeds` SHALL be unaffected.
 

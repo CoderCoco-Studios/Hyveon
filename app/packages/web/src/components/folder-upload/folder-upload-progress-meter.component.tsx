@@ -4,6 +4,7 @@ import type { FolderUploadLastRun, FolderUploadPhase, FolderUploadProgress } fro
 import { Button } from '@/components/ui/button.component';
 import { api } from '../../api.service.js';
 import { ErrorBanner } from '../error-banner.component.js';
+import { OverwriteConfirmation } from './overwrite-confirmation.component.js';
 import { formatBytes, formatDuration, formatTimestamp } from '../../lib/format.utils.js';
 
 /** Props for {@link FolderUploadProgressMeter}. */
@@ -25,6 +26,7 @@ export interface FolderUploadProgressMeterProps {
 /** Operator-facing label for each phase. */
 const PHASE_LABELS: Record<FolderUploadPhase, string> = {
   'starting-helper': 'Starting helper',
+  'awaiting-confirmation': 'Waiting for confirmation',
   uploading: 'Uploading',
   verifying: 'Verifying',
   done: 'Done',
@@ -61,7 +63,7 @@ export function FolderUploadProgressMeter({ game, progress, lastRun, onRestart, 
       setCancelling(false);
       onSettled?.(phase);
     }
-    if (phase === 'starting-helper' || phase === 'uploading') settledFor.current = null;
+    if (phase === 'starting-helper' || phase === 'awaiting-confirmation' || phase === 'uploading') settledFor.current = null;
   }, [progress, phase, onSettled]);
 
   async function handleCancel() {
@@ -91,7 +93,8 @@ export function FolderUploadProgressMeter({ game, progress, lastRun, onRestart, 
     );
   }
 
-  const active = progress.phase === 'starting-helper' || progress.phase === 'uploading' || progress.phase === 'verifying';
+  const awaiting = progress.phase === 'awaiting-confirmation';
+  const active = progress.phase === 'starting-helper' || awaiting || progress.phase === 'uploading' || progress.phase === 'verifying';
   const raw = progress.bytesTotal > 0 ? (progress.bytesDone / progress.bytesTotal) * 100 : 0;
   const percent = progress.phase === 'done' ? 100 : Math.min(99, Math.floor(raw));
   const paths = progress.error ? verificationPaths(progress.error) : null;
@@ -155,7 +158,9 @@ export function FolderUploadProgressMeter({ game, progress, lastRun, onRestart, 
         </p>
       )}
 
-      {active && (
+      {awaiting && progress.overwrite && <OverwriteConfirmation game={game} summary={progress.overwrite} />}
+
+      {active && !(awaiting && progress.overwrite) && (
         <Button type="button" variant="outline" size="sm" disabled={cancelling} onClick={() => void handleCancel()}>
           {cancelling ? 'Cancelling…' : 'Cancel'}
         </Button>
@@ -169,7 +174,9 @@ export function FolderUploadProgressMeter({ game, progress, lastRun, onRestart, 
 
       {progress.phase === 'cancelled' && (
         <div className="space-y-2">
-          <p role="status" className="text-sm">Cancelled. Files already copied are kept; resume to upload the rest.</p>
+          <p role="status" className="text-sm">
+            {progress.error ? `${progress.error}. ` : ''}Cancelled. Files already copied are kept; resume to upload the rest.
+          </p>
           <Button type="button" size="sm" disabled={restartDisabled} onClick={onRestart}>
             Resume upload
           </Button>

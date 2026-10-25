@@ -19,6 +19,7 @@ function make() {
     setSelection: vi.fn(),
     startUpload: vi.fn().mockResolvedValue({ started: true, runId: 'r' }),
     cancel: vi.fn().mockReturnValue({ cancelled: true }),
+    confirmOverwrite: vi.fn().mockReturnValue({ resolved: true }),
     getProgress: vi.fn().mockReturnValue(null),
     cleanupStrayHelpers: vi.fn().mockResolvedValue({ stopped: [], skipped: 0, revokedRules: 0, errors: [] }),
     onProgress: vi.fn(),
@@ -36,6 +37,7 @@ describe('FolderUploadController', () => {
       ['setSelection', 'folderUpload.setSelection'],
       ['startUpload', 'folderUpload.startUpload'],
       ['cancelUpload', 'folderUpload.cancelUpload'],
+      ['confirmOverwrite', 'folderUpload.confirmOverwrite'],
       ['getProgress', 'folderUpload.getProgress'],
       ['cleanupStrayHelpers', 'folderUpload.cleanupStrayHelpers'],
     ] as const);
@@ -64,6 +66,21 @@ describe('FolderUploadController', () => {
     expect(() => controller.cancelUpload('')).toThrow(BadRequestException);
     expect(() => controller.getSelection(undefined as never)).toThrow(BadRequestException);
   });
+
+  it('should pass a valid overwrite decision to the service', () => {
+    const { controller, uploads } = make();
+    expect(controller.confirmOverwrite({ game: 'g', proceed: false })).toEqual({ resolved: true });
+    expect(uploads.confirmOverwrite).toHaveBeenCalledWith('g', false);
+  });
+
+  it.each([[undefined], [{ game: '', proceed: true }], [{ game: 'g', proceed: 'yes' }], [{ game: 'g' }]])(
+    'should reject a malformed overwrite decision %j',
+    (decision) => {
+      const { controller, uploads } = make();
+      expect(() => controller.confirmOverwrite(decision as never)).toThrow(BadRequestException);
+      expect(uploads.confirmOverwrite).not.toHaveBeenCalled();
+    },
+  );
 
   it('should persist selections and report saved', () => {
     const { controller, uploads } = make();

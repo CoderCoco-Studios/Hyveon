@@ -35,3 +35,12 @@
 - [ ] 4.2 Manual run against a real deployment with `/mnt/d/Desktop/gameserver_files/FoundryVTT` (`Config` + `Data` only): watch the meter, interrupt and resume, confirm counts/sizes on the volume, record total time
 - [x] 4.3 Update docs via `write-docs` (`components/management-app.md`, games/dashboard app pages, `architecture.md`; note the HTTP-helper security posture)
 - [ ] 4.4 Sync specs (`/opsx:sync`) once implemented
+
+## 5. Overwrite confirmation
+
+- [x] 5.1 Shared `awaiting-confirmation` phase, `OverwriteSummary` and `confirmOverwrite` decision types in `@hyveon/shared/folderUpload`
+- [x] 5.2 Engine preflight: list only touched directories before creating any, `classifyUpload` (new / identical / conflict, sample cap, unrelated files as context) with unit tests
+- [x] 5.3 `FolderUploadService` confirmation wait (confirm, decline, cancel, 10-minute timeout), own-partial-run exemption, helper stopped on every non-proceed path
+- [x] 5.4 `folderUpload.confirmOverwrite` controller channel, preload bridge, `api.service` wrapper and e2e in-page fake
+- [x] 5.5 Renderer overwrite warning in the progress meter (counts, sample paths with sizes, Overwrite and upload / Cancel) with jsdom and e2e tests
+- [x] 5.6 Extend the HTTP-seam integration test (confirm, decline, no prompt) and update `games.md`, `management-app.md` and `integration-tests.md`

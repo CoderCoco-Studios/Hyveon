@@ -121,6 +121,7 @@ import type {
 } from './hyveon-api.js';
 import type { StackOutputs } from '@hyveon/shared';
 import type {
+  FolderOverwriteDecisionResult,
   FolderScanResult,
   FolderUploadProgress,
   FolderUploadRequest,
@@ -410,6 +411,8 @@ const api: HyveonApi = {
     setSelection: (request: FolderUploadRequest) => invoke<{ saved: true }>('folderUpload.setSelection', request),
     startUpload: (request: FolderUploadRequest) => invoke<FolderUploadStartResult>('folderUpload.startUpload', request),
     cancelUpload: (game: string) => invoke<{ cancelled: boolean }>('folderUpload.cancelUpload', game),
+    confirmOverwrite: (game: string, proceed: boolean) =>
+      invoke<FolderOverwriteDecisionResult>('folderUpload.confirmOverwrite', { game, proceed }),
     getProgress: (game: string) => invoke<FolderUploadProgress | null>('folderUpload.getProgress', game),
     cleanupStrayHelpers: () => invoke<StrayHelperReport>('folderUpload.cleanupStrayHelpers'),
     onProgress: (cb: (progress: FolderUploadProgress) => void) => {

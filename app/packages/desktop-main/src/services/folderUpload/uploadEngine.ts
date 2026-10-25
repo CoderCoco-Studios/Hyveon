@@ -1,6 +1,7 @@
 import { stat } from 'node:fs/promises';
 import { errMessage } from '@hyveon/shared';
-import { FileBrowserHttpError, PinMismatchError, type FileBrowserApi } from './FileBrowserClient.js';
+import { MAX_OVERWRITE_SAMPLES, type OverwriteSummary } from '@hyveon/shared/folderUpload';
+import { FileBrowserHttpError, PinMismatchError, type FileBrowserApi, type RemoteEntry } from './FileBrowserClient.js';
 import type { ProgressAggregator } from './ProgressAggregator.js';
 
 /** A file resolved for upload: where it is locally, where it lands on the helper, and what the scan recorded. */
@@ -34,6 +35,14 @@ export class UploadCancelledError extends Error {
   constructor() {
     super('Upload cancelled');
     this.name = 'UploadCancelledError';
+  }
+}
+
+/** Thrown when the operator never answered the overwrite warning in time; the run ends as cancelled. */
+export class ConfirmationTimeoutError extends UploadCancelledError {
+  constructor() {
+    super();
+    this.message = 'Timed out waiting for overwrite confirmation';
   }
 }
 
@@ -120,6 +129,34 @@ export async function ensureDirs(client: FileBrowserApi, items: UploadItem[], si
   }
 }
 
+/** Lists the parent directory of every planned file; missing directories are absent from the result. */
+export async function listPlannedDirs(
+  client: FileBrowserApi,
+  items: UploadItem[],
+  signal?: AbortSignal,
+  concurrency = DEFAULT_ENGINE_OPTIONS.concurrency,
+): Promise<Map<string, RemoteEntry[]>> {
+  const parents = [...new Set(items.map((i) => i.remotePath.slice(0, i.remotePath.lastIndexOf('/')) || '/'))];
+  const listings = new Map<string, RemoteEntry[]>();
+  await mapPool(parents, concurrency, async (dir) => {
+    throwIfAborted(signal);
+    const entries = await client.list(dir, signal);
+    if (entries) listings.set(dir, entries);
+  });
+  return listings;
+}
+
+const joinRemote = (dir: string, name: string): string => `${dir === '/' ? '' : dir}/${name}`;
+
+/** Flattens directory listings into `remotePath -> size` for the files that exist. */
+export function remoteSizesOf(listings: Map<string, RemoteEntry[]>): Map<string, number> {
+  const sizes = new Map<string, number>();
+  for (const [dir, entries] of listings) {
+    for (const e of entries) if (!e.isDir) sizes.set(joinRemote(dir, e.name), e.size);
+  }
+  return sizes;
+}
+
 /** Lists the parent directory of every planned file and returns `remotePath -> size` for the files that exist. */
 export async function listRemoteSizes(
   client: FileBrowserApi,
@@ -127,16 +164,30 @@ export async function listRemoteSizes(
   signal?: AbortSignal,
   concurrency = DEFAULT_ENGINE_OPTIONS.concurrency,
 ): Promise<Map<string, number>> {
-  const parents = [...new Set(items.map((i) => i.remotePath.slice(0, i.remotePath.lastIndexOf('/')) || '/'))];
-  const sizes = new Map<string, number>();
-  await mapPool(parents, concurrency, async (dir) => {
-    throwIfAborted(signal);
-    const entries = await client.list(dir, signal);
-    for (const e of entries ?? []) {
-      if (!e.isDir) sizes.set(`${dir === '/' ? '' : dir}/${e.name}`, e.size);
+  return remoteSizesOf(await listPlannedDirs(client, items, signal, concurrency));
+}
+
+/**
+ * Classifies each planned file against the volume: new, identical (same size; resume skips it) or a conflict (exists
+ * with a different size and would be overwritten). Existing files the plan does not include are only counted.
+ *
+ * @param remoteSizes - `remotePath -> size` from {@link remoteSizesOf}.
+ */
+export function classifyUpload(items: UploadItem[], remoteSizes: Map<string, number>): OverwriteSummary {
+  const summary: OverwriteSummary = { conflictCount: 0, identicalCount: 0, newCount: 0, otherExistingCount: 0, samples: [] };
+  for (const item of items) {
+    const existing = remoteSizes.get(item.remotePath);
+    if (existing === undefined) summary.newCount += 1;
+    else if (existing === item.size) summary.identicalCount += 1;
+    else {
+      summary.conflictCount += 1;
+      if (summary.samples.length < MAX_OVERWRITE_SAMPLES) {
+        summary.samples.push({ relPath: item.relPath, existingSize: existing, newSize: item.size });
+      }
     }
-  });
-  return sizes;
+  }
+  summary.otherExistingCount = remoteSizes.size - summary.conflictCount - summary.identicalCount;
+  return summary;
 }
 
 /** Compares the volume's listing against the plan (count and per-file size). */

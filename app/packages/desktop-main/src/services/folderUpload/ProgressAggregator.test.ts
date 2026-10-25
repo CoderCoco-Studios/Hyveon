@@ -62,4 +62,14 @@ describe('ProgressAggregator', () => {
     agg.setPhase('failed', 'boom');
     expect(emitted.at(-1)).toMatchObject({ phase: 'failed', error: 'boom', currentPath: undefined });
   });
+
+  it('should carry the overwrite summary only while awaiting confirmation', () => {
+    const { agg } = make();
+    const overwrite = { conflictCount: 1, identicalCount: 0, newCount: 2, otherExistingCount: 0, samples: [{ relPath: 'a', existingSize: 1, newSize: 2 }] };
+    agg.setOverwrite(overwrite);
+    agg.setPhase('awaiting-confirmation');
+    expect(agg.snapshot()).toMatchObject({ phase: 'awaiting-confirmation', overwrite });
+    agg.setPhase('uploading');
+    expect(agg.snapshot().overwrite).toBeUndefined();
+  });
 });

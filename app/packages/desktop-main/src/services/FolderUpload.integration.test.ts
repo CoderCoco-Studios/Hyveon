@@ -42,7 +42,13 @@ afterEach(async () => {
 });
 
 /** Wires the service to the fake helper, presenting `presentedCert` while the session pins `pinnedCert`. */
-async function run(options: { presentedCert?: EphemeralCert; seed?: Record<string, number>; onUpload?: Parameters<typeof startFakeFileBrowser>[0]['onUpload'] }) {
+async function run(options: {
+  presentedCert?: EphemeralCert;
+  seed?: Record<string, number>;
+  onUpload?: Parameters<typeof startFakeFileBrowser>[0]['onUpload'];
+  /** Answer given to the overwrite warning when one appears; omit to leave the run waiting. */
+  answer?: boolean;
+}) {
   const pinned = await generateEphemeralCert();
   server = await startFakeFileBrowser({ cert: options.presentedCert ?? pinned, onUpload: options.onUpload, seed: options.seed });
   const fm = {
@@ -68,7 +74,10 @@ async function run(options: { presentedCert?: EphemeralCert; seed?: Record<strin
   svc.timings.pollMs = 1;
   svc.engine.sleep = async () => undefined;
   const progress: FolderUploadProgress[] = [];
-  svc.onProgress((p) => progress.push(p));
+  svc.onProgress((p) => {
+    progress.push(p);
+    if (p.phase === 'awaiting-confirmation' && options.answer !== undefined) svc.confirmOverwrite('minecraft', options.answer);
+  });
   const scan = await scans.scan(root);
   const res = await svc.startUpload({ game: 'minecraft', scanId: scan.scanId, include: ['Data'], destination: '/data' });
   expect(res.started).toBe(true);
@@ -85,8 +94,9 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(r.fm.stop).toHaveBeenCalledWith('minecraft');
   });
 
-  it('should resume by skipping files the volume already holds and re-sending partial ones', async () => {
-    const r = await run({ seed: { '/Data/worlds/a.db': 200_000, '/Data/b.txt': 2 } });
+  it('should resume by skipping files the volume already holds and re-sending partial ones once overwriting is confirmed', async () => {
+    const r = await run({ seed: { '/Data/worlds/a.db': 200_000, '/Data/b.txt': 2 }, answer: true });
+    expect(r.progress.find((p) => p.phase === 'awaiting-confirmation')?.overwrite).toMatchObject({ conflictCount: 1, identicalCount: 1, newCount: 0 });
     expect(r.last.phase).toBe('done');
     const posts = r.server.requests.filter((q) => q.method === 'POST' && !q.url.endsWith('/') && q.url.startsWith('/api/resources'));
     expect(posts.map((q) => q.url)).toEqual(['/api/resources/Data/b.txt?override=true']);
@@ -111,5 +121,19 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(r.last.phase).toBe('failed');
     expect(r.server.requests).toHaveLength(0);
     expect(r.fm.stop).toHaveBeenCalled();
+  });
+
+  it('should write nothing and stop the helper when the operator declines to overwrite', async () => {
+    const r = await run({ seed: { '/Data/b.txt': 2 }, answer: false });
+    expect(r.last.phase).toBe('cancelled');
+    expect(r.server.requests.filter((q) => q.method === 'POST' && q.url.startsWith('/api/resources'))).toEqual([]);
+    expect(r.server.files.get('/Data/b.txt')).toBe(2);
+    expect(r.fm.stop).toHaveBeenCalledWith('minecraft');
+  });
+
+  it('should not prompt when the volume has no differing files', async () => {
+    const r = await run({ seed: { '/Data/worlds/a.db': 200_000, '/Data/unrelated.txt': 1 } });
+    expect(r.last.phase).toBe('done');
+    expect(r.progress.some((p) => p.phase === 'awaiting-confirmation')).toBe(false);
   });
 });

@@ -1,5 +1,36 @@
 /** Lifecycle phase of a folder-to-volume upload run. */
-export type FolderUploadPhase = 'starting-helper' | 'uploading' | 'verifying' | 'done' | 'failed' | 'cancelled';
+export type FolderUploadPhase =
+  | 'starting-helper'
+  | 'awaiting-confirmation'
+  | 'uploading'
+  | 'verifying'
+  | 'done'
+  | 'failed'
+  | 'cancelled';
+
+/** Most conflicting paths carried in an {@link OverwriteSummary}. */
+export const MAX_OVERWRITE_SAMPLES = 20;
+
+/** One planned file whose volume copy has a different size and would be overwritten. */
+export interface OverwriteConflict {
+  relPath: string;
+  existingSize: number;
+  newSize: number;
+}
+
+/** What the pre-upload check found on the volume; sent to the renderer while the run awaits confirmation. */
+export interface OverwriteSummary {
+  /** Planned files that exist on the volume with a different size and would be overwritten. */
+  conflictCount: number;
+  /** Planned files already on the volume at the expected size; resume skips them. */
+  identicalCount: number;
+  /** Planned files not on the volume yet. */
+  newCount: number;
+  /** Existing files in the touched directories that the plan does not include; context only, never overwritten. */
+  otherExistingCount: number;
+  /** Up to {@link MAX_OVERWRITE_SAMPLES} of the conflicts. */
+  samples: OverwriteConflict[];
+}
 
 /** Progress snapshot streamed from desktop-main to the renderer roughly every 500 ms. */
 export interface FolderUploadProgress {
@@ -15,8 +46,10 @@ export interface FolderUploadProgress {
   bytesPerSecond: number;
   /** Estimated seconds remaining; absent until the rate is stable. */
   etaSeconds?: number;
-  /** Normalized failure message when `phase` is `failed`. */
+  /** Normalized failure message when `phase` is `failed`, or the reason a run was cancelled by the app. */
   error?: string;
+  /** Present while `phase` is `awaiting-confirmation`: the files the upload would overwrite. */
+  overwrite?: OverwriteSummary;
 }
 
 /** One node of a scanned local directory tree. `relPath` is POSIX-style and relative to the scan root. */
@@ -100,4 +133,15 @@ export interface StrayHelperReport {
   /** App-created security-group rules revoked. */
   revokedRules: number;
   errors: string[];
+}
+
+/** Operator's answer to the overwrite warning; `proceed: false` cancels the run. */
+export interface FolderOverwriteDecision {
+  game: string;
+  proceed: boolean;
+}
+
+/** Whether a confirmation was waiting for the answer. */
+export interface FolderOverwriteDecisionResult {
+  resolved: boolean;
 }

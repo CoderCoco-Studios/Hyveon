@@ -2,6 +2,8 @@ import { BadRequestException, Controller, type OnModuleDestroy, type OnModuleIni
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { BrowserWindow } from 'electron';
 import type {
+  FolderOverwriteDecision,
+  FolderOverwriteDecisionResult,
   FolderScanResult,
   FolderUploadProgress,
   FolderUploadRequest,
@@ -93,6 +95,19 @@ export class FolderUploadController implements OnModuleInit, OnModuleDestroy {
   cancelUpload(@Payload() game: string): { cancelled: boolean } {
     logger.debug('FolderUploadController: folderUpload.cancelUpload invoked', { game });
     return this.uploads.cancel(this.requireGame(game, 'folderUpload.cancelUpload'));
+  }
+
+  /** Answers the overwrite warning: `proceed` continues the awaiting run, otherwise it is cancelled. */
+  @MessagePattern('folderUpload.confirmOverwrite')
+  confirmOverwrite(@Payload() decision: FolderOverwriteDecision): FolderOverwriteDecisionResult {
+    logger.debug('FolderUploadController: folderUpload.confirmOverwrite invoked', {
+      game: decision?.game,
+      proceed: decision?.proceed,
+    });
+    if (!decision || !isNonEmptyString(decision.game) || typeof decision.proceed !== 'boolean') {
+      throw new BadRequestException({ success: false, error: 'folderUpload.confirmOverwrite requires game and proceed' });
+    }
+    return this.uploads.confirmOverwrite(decision.game, decision.proceed);
   }
 
   /** Latest progress snapshot for `game`'s run in this session, so a reopened page can resume the meter. */
