@@ -245,8 +245,7 @@ export function installHyveonHttpBridge(): void {
           ok: false,
           message: 'iac.settings.autoUpdate.check has no HTTP route in the chromium e2e tier.',
         }),
-        // Same click-triggered, parity-only rationale as `autoUpdateCheck`. The download stub rejects on
-        // first `next()` (an empty generator would look like a successful download).
+        // Click-triggered, parity-only. Rejects on first `next()` so an empty generator can't look like success.
         autoUpdateDownload: () => {
           const handle = {
             next: () => Promise.reject(new Error('iac.settings.autoUpdate.download has no HTTP route in the chromium e2e tier.')),
