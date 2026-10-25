@@ -26,13 +26,13 @@
  * channel below is therefore split into two layers:
  *
  * - A **preload-internal** `async function*` (`streamLogs`, `streamLambdaLogs`,
- *   `streamStackInitialize`, `streamIacRunLogs`) — each built by
+ *   `streamStackInitialize`, `streamIacRunLogs`, `streamUpdateDownload`) — each built by
  *   {@link createBufferedStream} in `stream-bridge.ts`, which does the real
  *   IPC listener wiring and still accepts a real `AbortSignal` — this signal
  *   is always minted *inside* preload by a `bridgeStream` wrapper, so it
  *   never itself crosses the bridge.
  * - A thin **bridge-facing wrapper** (`openLogsStream`, `openLambdaLogsStream`,
- *   `openStackInitializeStream`, `openIacRunLogsStream`) that mints an
+ *   `openStackInitializeStream`, `openIacRunLogsStream`, `openUpdateDownloadStream`) that mints an
  *   `AbortController`, calls the internal generator with its signal, and
  *   hands the renderer a {@link HyveonStreamHandle} — a plain object with an
  *   own `next()`, an own `cancel()`, and an own `[Symbol.asyncIterator]`
@@ -42,7 +42,7 @@
  *   internal controller, driving the same cancellation path the internal
  *   generator already had.
  *
- * `createBufferedStream` is called four times, here, to produce those four separately-named
+ * `createBufferedStream` is called five times, here, to produce those five separately-named
  * generators — it is never used to build the exposed `window.hyveon` object itself, which stays a
  * plain object literal of statically named, own-enumerable properties (see `hyveon-api.ts`'s
  * {@link HyveonStreamHandle} doc for why a Proxy/generated surface can't cross the bridge either).
@@ -69,6 +69,8 @@ import type {
   HyveonTestApi,
   LogChunk,
   ManualUpdateCheckResult,
+  UpdateDownloadProgress,
+  UpdateInstallResult,
   PulumiEngineVersionResult,
   IacApplyPayload,
   IacApproveAck,
@@ -135,6 +137,12 @@ const STACK_INIT_CHUNK_CHANNEL = 'iac.stack.initialize.chunk';
 
 /** Fixed side-channel `IacController.initializeStack` sends its terminal message on. */
 const STACK_INIT_END_CHANNEL = 'iac.stack.initialize.end';
+
+/** Fixed side-channel `IacSettingsController.downloadAutoUpdate` pushes download progress on. */
+const UPDATE_DOWNLOAD_CHUNK_CHANNEL = 'iac.settings.autoUpdate.download.chunk';
+
+/** Fixed side-channel `IacSettingsController.downloadAutoUpdate` sends its terminal message on. */
+const UPDATE_DOWNLOAD_END_CHANNEL = 'iac.settings.autoUpdate.download.end';
 
 /** Fixed side-channel `IacRunsController.logs` pushes streamed run output on. */
 const IAC_RUNS_LOGS_CHUNK_CHANNEL = 'iac.runs.logs.chunk';
@@ -254,6 +262,36 @@ const streamStackInitialize = createBufferedStream<undefined, StackInitWireChunk
   { invoke, mockRegistry },
 );
 
+/** Raw `iac.settings.autoUpdate.download` chunk payload, tagged with the `streamId` it belongs to. */
+interface UpdateDownloadWireChunk extends UpdateDownloadProgress {
+  streamId: string;
+}
+
+/**
+ * Preload-internal — never exposed to the renderer directly (see {@link openUpdateDownloadStream}).
+ * Bridges `IacSettingsController.downloadAutoUpdate`'s fixed `iac.settings.autoUpdate.download.chunk` /
+ * `.end` side channels into an {@link AsyncIterable} of {@link UpdateDownloadProgress}, via
+ * {@link createBufferedStream}'s shared-side-channel style. A failed download surfaces as the end
+ * message's `error`, which makes the iteration throw. When a mock is registered for
+ * `'iac.settings.autoUpdate.download'` (test mode only), it is called with just `(signal)`.
+ */
+const streamUpdateDownload = createBufferedStream<undefined, UpdateDownloadWireChunk, UpdateDownloadProgress>(
+  {
+    invokeChannel: 'iac.settings.autoUpdate.download',
+    chunkChannel: UPDATE_DOWNLOAD_CHUNK_CHANNEL,
+    endChannel: UPDATE_DOWNLOAD_END_CHANNEL,
+    mapChunk: (data) => ({
+      percent: data.percent,
+      transferred: data.transferred,
+      total: data.total,
+      bytesPerSecond: data.bytesPerSecond,
+    }),
+    getStreamId: (data) => data.streamId,
+    checkAck: (ack) => (ack as { streamId: string }).streamId,
+  },
+  { invoke, mockRegistry },
+);
+
 /** Raw `iac.runs.logs` chunk payload, tagged with the `streamId` it belongs to. */
 interface IacRunLogsWireChunk {
   streamId: string;
@@ -337,6 +375,11 @@ function openLambdaLogsStream(functionKey: LambdaFunctionKey): HyveonStreamHandl
 /** Bridge-facing wrapper for {@link streamStackInitialize} — see {@link openBufferedStream}. */
 function openStackInitializeStream(): HyveonStreamHandle<StackInitPhaseEvent> {
   return openBufferedStream(streamStackInitialize, undefined);
+}
+
+/** Bridge-facing wrapper for {@link streamUpdateDownload} — see {@link openBufferedStream}. */
+function openUpdateDownloadStream(): HyveonStreamHandle<UpdateDownloadProgress> {
+  return openBufferedStream(streamUpdateDownload, undefined);
 }
 
 /** Bridge-facing wrapper for {@link streamIacRunLogs} — see {@link openBufferedStream}. */
@@ -534,6 +577,8 @@ const api: HyveonApi = {
       autoUpdateUpdate: (payload: AutoUpdateSettingUpdatePayload) =>
         invoke<AutoUpdateSettingWriteResult>('iac.settings.autoUpdate.update', payload),
       autoUpdateCheck: () => invoke<ManualUpdateCheckResult>('iac.settings.autoUpdate.check'),
+      autoUpdateDownload: openUpdateDownloadStream,
+      autoUpdateInstall: () => invoke<UpdateInstallResult>('iac.settings.autoUpdate.install'),
     },
   },
 

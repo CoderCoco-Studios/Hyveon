@@ -6,8 +6,10 @@ import type { ElectronStoreService } from './services/ElectronStoreService.js';
  * `updater.ts` touches: `logger` (assignable), `on` (event registration),
  * and `checkForUpdates` (the one call that must stay gated behind the flag).
  */
-const { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMock, setFeedURLMock, resolveFallbackMock } = vi.hoisted(() => {
+const { mockAutoUpdater, checkForUpdatesMock, downloadUpdateMock, quitAndInstallMock, onMock, onceMock, removeListenerMock, setFeedURLMock, resolveFallbackMock } = vi.hoisted(() => {
   const checkForUpdatesMock = vi.fn().mockResolvedValue(null);
+  const downloadUpdateMock = vi.fn().mockResolvedValue([]);
+  const quitAndInstallMock = vi.fn();
   const onMock = vi.fn();
   const listeners = new Map<string, (...args: unknown[]) => void>();
   const onceMock = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
@@ -25,12 +27,14 @@ const { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMo
     once: onceMock,
     removeListener: removeListenerMock,
     checkForUpdates: checkForUpdatesMock,
+    downloadUpdate: downloadUpdateMock,
+    quitAndInstall: quitAndInstallMock,
     autoDownload: true,
     autoInstallOnAppQuit: true,
     /** Test helper — invokes the handler registered via `once(event, ...)`, mirroring a real event emit. */
     emit: (event: string, ...args: unknown[]) => listeners.get(event)?.(...args),
   };
-  return { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMock, setFeedURLMock, resolveFallbackMock };
+  return { mockAutoUpdater, checkForUpdatesMock, downloadUpdateMock, quitAndInstallMock, onMock, onceMock, removeListenerMock, setFeedURLMock, resolveFallbackMock };
 });
 
 /**
@@ -52,7 +56,7 @@ vi.mock('./updater-fallback.js', () => ({
 }));
 
 import { logger } from './logger.js';
-import { initUpdater, checkForUpdatesNow } from './updater.js';
+import { initUpdater, checkForUpdatesNow, downloadUpdateNow, installDownloadedUpdate } from './updater.js';
 
 /** Builds a minimal `ElectronStoreService`-shaped stub for `initUpdater`'s single `get` call. */
 function makeStore(enableAutoUpdate: boolean | undefined): ElectronStoreService {
@@ -317,5 +321,118 @@ describe('checkForUpdatesNow', () => {
 
       expect(result).toEqual({ ok: false, message: '404 latest.yml' });
     });
+  });
+});
+
+describe('downloadUpdateNow / installDownloadedUpdate', () => {
+  const realElectronVersion = process.versions.electron;
+  const setElectron = (value: string | undefined): void => {
+    if (value === undefined) {
+      delete (process.versions as { electron?: string }).electron;
+    } else {
+      Object.defineProperty(process.versions, 'electron', { value, configurable: true });
+    }
+  };
+
+  beforeEach(() => {
+    setElectron('36.0.0');
+    onMock.mockClear();
+    removeListenerMock.mockClear();
+    checkForUpdatesMock.mockReset().mockResolvedValue(null);
+    downloadUpdateMock.mockReset().mockResolvedValue([]);
+    quitAndInstallMock.mockReset();
+    resolveFallbackMock.mockReset().mockResolvedValue(null);
+  });
+  afterEach(() => setElectron(realElectronVersion));
+
+  /** Returns the handler registered via `autoUpdater.on(event, ...)`. */
+  function handlerFor(event: string): (...args: unknown[]) => void {
+    const call = onMock.mock.calls.find(([name]) => name === event);
+    if (!call) throw new Error(`no ${event} listener registered`);
+    return call[1] as (...args: unknown[]) => void;
+  }
+
+  it('should report unavailable outside Electron without touching electron-updater', async () => {
+    setElectron(undefined);
+
+    expect(await downloadUpdateNow(vi.fn())).toEqual({
+      ok: false,
+      message: 'Update downloads are only available in the packaged app.',
+    });
+    expect(downloadUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('should forward download-progress events and resolve with the downloaded version', async () => {
+    const onProgress = vi.fn();
+    downloadUpdateMock.mockImplementationOnce(async () => {
+      handlerFor('download-progress')({ percent: 50, transferred: 5, total: 10, bytesPerSecond: 3, delta: 1 });
+      handlerFor('update-downloaded')({ version: '1.2.3' });
+      return [];
+    });
+
+    const result = await downloadUpdateNow(onProgress);
+
+    expect(result).toEqual({ ok: true, version: '1.2.3' });
+    expect(onProgress).toHaveBeenCalledWith({ percent: 50, transferred: 5, total: 10, bytesPerSecond: 3 });
+  });
+
+  it('should keep autoDownload and autoInstallOnAppQuit off', async () => {
+    await downloadUpdateNow(vi.fn());
+
+    expect(mockAutoUpdater.autoDownload).toBe(false);
+    expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false);
+  });
+
+  it('should remove every listener it added after settling', async () => {
+    await downloadUpdateNow(vi.fn());
+
+    for (const event of ['download-progress', 'update-downloaded', 'error']) {
+      expect(removeListenerMock).toHaveBeenCalledWith(event, expect.any(Function));
+    }
+  });
+
+  it('should re-run the check once and retry when no check has populated electron-updater yet', async () => {
+    downloadUpdateMock
+      .mockRejectedValueOnce(new Error('Please check update first'))
+      .mockResolvedValueOnce([]);
+
+    const result = await downloadUpdateNow(vi.fn());
+
+    expect(checkForUpdatesMock).toHaveBeenCalledOnce();
+    expect(downloadUpdateMock).toHaveBeenCalledTimes(2);
+    expect(result.ok).toBe(true);
+  });
+
+  it('should resolve ok: false with the message when the download rejects, and remove listeners', async () => {
+    downloadUpdateMock.mockRejectedValueOnce(new Error('code signature invalid'));
+
+    const result = await downloadUpdateNow(vi.fn());
+
+    expect(result).toEqual({ ok: false, message: 'code signature invalid' });
+    expect(checkForUpdatesMock).not.toHaveBeenCalled();
+    expect(removeListenerMock).toHaveBeenCalledWith('error', expect.any(Function));
+  });
+
+  it('should quit and install with relaunch on installDownloadedUpdate', async () => {
+    expect(await installDownloadedUpdate()).toEqual({ ok: true });
+    expect(quitAndInstallMock).toHaveBeenCalledWith(false, true);
+  });
+
+  it('should report ok: false when quitAndInstall throws', async () => {
+    quitAndInstallMock.mockImplementationOnce(() => {
+      throw new Error('no update downloaded');
+    });
+
+    expect(await installDownloadedUpdate()).toEqual({ ok: false, message: 'no update downloaded' });
+  });
+
+  it('should report unavailable outside Electron on installDownloadedUpdate', async () => {
+    setElectron(undefined);
+
+    expect(await installDownloadedUpdate()).toEqual({
+      ok: false,
+      message: 'Update installs are only available in the packaged app.',
+    });
+    expect(quitAndInstallMock).not.toHaveBeenCalled();
   });
 });

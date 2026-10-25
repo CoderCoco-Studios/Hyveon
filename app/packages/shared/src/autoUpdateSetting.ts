@@ -51,9 +51,42 @@ export type AutoUpdateSettingWriteResult = AutoUpdateSettingWriteSuccess | AutoU
 /**
  * Discriminated union returned by the `iac.settings.autoUpdate.check` handler —
  * the result of an on-demand update check, independent of the
- * `enableAutoUpdate` flag. Never implies a download or install occurred.
+ * `enableAutoUpdate` flag. Never implies a download or install occurred; those
+ * only happen through the separate, explicitly user-initiated
+ * `iac.settings.autoUpdate.download` / `iac.settings.autoUpdate.install` channels.
  */
 export type ManualUpdateCheckResult =
   | { ok: true; updateAvailable: true; version: string }
   | { ok: true; updateAvailable: false }
   | { ok: false; message: string };
+
+/**
+ * One progress sample from a user-initiated update download, pushed over the
+ * `iac.settings.autoUpdate.download` stream. Mirrors the fields of
+ * `electron-updater`'s `ProgressInfo` the renderer needs.
+ */
+export interface UpdateDownloadProgress {
+  /** Download completion, `0`–`100`. */
+  percent: number;
+  /** Bytes downloaded so far. */
+  transferred: number;
+  /** Total bytes to download. */
+  total: number;
+  /** Current transfer rate in bytes per second. */
+  bytesPerSecond: number;
+}
+
+/**
+ * Terminal outcome of a user-initiated update download. `ok: true` means the
+ * update is fully downloaded and ready for {@link UpdateInstallResult}'s
+ * install step; the app has NOT restarted yet.
+ */
+export type UpdateDownloadResult = { ok: true; version: string } | { ok: false; message: string };
+
+/**
+ * Result of the `iac.settings.autoUpdate.install` handler. `ok: true` means
+ * `quitAndInstall` was invoked and the app is about to quit; `ok: false`
+ * carries the reason it could not (e.g. outside the packaged app, or no
+ * update has been downloaded).
+ */
+export type UpdateInstallResult = { ok: true } | { ok: false; message: string };

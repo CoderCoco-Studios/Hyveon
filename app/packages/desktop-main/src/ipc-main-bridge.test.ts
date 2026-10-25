@@ -182,6 +182,22 @@ describe('registerIpcMainBridges', () => {
     expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
   });
 
+  it('should skip "iac.settings.autoUpdate.download" entirely, leaving it to bridge itself', async () => {
+    // IacSettingsController.downloadAutoUpdate streams download progress over its own
+    // side channels, like `iac.stack.initialize`, so it must self-bridge too.
+    expect(SELF_BRIDGED_PATTERNS.has('iac.settings.autoUpdate.download')).toBe(true);
+
+    const { transport } = makeTransport(['iac.settings.autoUpdate.download', 'games.list']);
+
+    await registerIpcMainBridges(transport);
+
+    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('iac.settings.autoUpdate.download');
+    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('iac.settings.autoUpdate.download', expect.any(Function));
+    // The sibling pattern on the same map is still bridged normally.
+    expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('games.list');
+    expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
+  });
+
   it('should be a no-op when the transport has no registered handlers', async () => {
     const { transport } = makeTransport([]);
 

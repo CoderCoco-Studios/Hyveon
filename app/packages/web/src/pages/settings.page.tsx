@@ -57,18 +57,39 @@ type AutoUpdateState =
   | 'error';
 
 /**
- * Client-side state for the Updates section's on-demand "Check for Updates"
- * button — independent of {@link AutoUpdateState}, since the manual check
- * works regardless of the `enableAutoUpdate` flag's value.
+ * Client-side state for the Updates section's on-demand check and the explicit download/install flow that follows
+ * it — independent of {@link AutoUpdateState}, since none of it depends on the `enableAutoUpdate` flag's value.
+ *
+ *  - `'idle'` / `'checking'`: before / during the check.
+ *  - `{ status: 'done', result }`: the check settled; `updateAvailable: true` offers "Download & Install".
+ *  - `{ status: 'downloading', version, percent }`: the operator started the download; `percent` is `0`–`100`.
+ *  - `{ status: 'downloaded', version }`: fully downloaded; "Restart & Install" applies it.
+ *  - `{ status: 'download-failed', version, message }`: the download or the install step failed; offers a retry
+ *    and the manual-download link.
  */
-type ManualCheckState = 'idle' | 'checking' | { status: 'done'; result: ManualUpdateCheckResult };
+type ManualCheckState =
+  | 'idle'
+  | 'checking'
+  | { status: 'done'; result: ManualUpdateCheckResult }
+  | { status: 'downloading'; version: string; percent: number }
+  | { status: 'downloaded'; version: string }
+  | { status: 'download-failed'; version: string; message: string };
 
 /** GitHub Releases page offered as a manual-download escape hatch when an update check fails. */
 const RELEASES_URL = 'https://github.com/CoderCoco-Studios/Hyveon/releases';
 
-/** True once a manual check finished with `ok: false` (including the IPC-reject fallback message). */
+/** True once a manual check, download, or install failed (including the IPC-reject fallback message). */
 function manualCheckFailed(state: ManualCheckState): boolean {
-  return typeof state === 'object' && !state.result.ok;
+  if (typeof state !== 'object') return false;
+  if (state.status === 'download-failed') return true;
+  return state.status === 'done' && !state.result.ok;
+}
+
+/** The version a "Download & Install" click targets, or `null` when no update is on offer in `state`. */
+function downloadableVersion(state: ManualCheckState): string | null {
+  if (typeof state !== 'object') return null;
+  if (state.status === 'done') return state.result.ok && state.result.updateAvailable ? state.result.version : null;
+  return state.status === 'download-failed' ? state.version : null;
 }
 
 /**
@@ -93,6 +114,9 @@ function appVersionLabel(state: AutoUpdateState): string {
 function manualCheckLabel(state: ManualCheckState, appVersion: string | null): string | null {
   if (state === 'idle') return null;
   if (state === 'checking') return 'Checking for updates…';
+  if (state.status === 'downloading') return `Downloading v${state.version}… ${Math.round(state.percent)}%`;
+  if (state.status === 'downloaded') return `v${state.version} downloaded. Restart to install.`;
+  if (state.status === 'download-failed') return state.message;
   const result = state.result;
   if (!result.ok) return result.message;
   return result.updateAvailable ? `Update available: v${result.version}` : appVersion && appVersion !== 'unknown'
@@ -187,6 +211,42 @@ export function SettingsPage() {
       );
   }
 
+  /**
+   * Downloads the available update via the streaming `autoUpdateDownload` bridge, mirroring progress into
+   * {@link ManualCheckState}. The stream completing normally means the download finished; it throwing carries the
+   * failure message. Explicit operator action only — the automatic check never downloads.
+   */
+  async function handleDownload(version: string) {
+    setManualCheck({ status: 'downloading', version, percent: 0 });
+    try {
+      const settings = window.hyveon?.iac?.settings;
+      if (!settings) throw new Error(SETTINGS_BRIDGE_UNAVAILABLE);
+      for await (const progress of settings.autoUpdateDownload()) {
+        setManualCheck({ status: 'downloading', version, percent: progress.percent });
+      }
+      setManualCheck({ status: 'downloaded', version });
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : 'Unable to download the update.';
+      setManualCheck({ status: 'download-failed', version, message });
+    }
+  }
+
+  /** Quits and installs the downloaded update via `autoUpdateInstall`; a failure is surfaced like a failed download. */
+  async function handleInstall(version: string) {
+    try {
+      const settings = window.hyveon?.iac?.settings;
+      if (!settings) throw new Error(SETTINGS_BRIDGE_UNAVAILABLE);
+      const result = await settings.autoUpdateInstall();
+      if (!result.ok) setManualCheck({ status: 'download-failed', version, message: result.message });
+    } catch {
+      setManualCheck({ status: 'download-failed', version, message: 'Unable to reach the update service.' });
+    }
+  }
+
+  const downloading = typeof manualCheck === 'object' && manualCheck.status === 'downloading';
+  const busy = manualCheck === 'checking' || downloading;
+  const offeredVersion = downloadableVersion(manualCheck);
+
   if (reconfiguring) {
     return (
       <FirstRunWizard
@@ -270,7 +330,9 @@ export function SettingsPage() {
         {/*
           Manual check row: triggers `iac.settings.autoUpdate.check`
           independent of the `enableAutoUpdate` toggle above — the flag only
-          gates the automatic boot-time check.
+          gates the automatic boot-time check. When an update is on offer it
+          also hosts the explicit Download & Install / Restart & Install
+          buttons — the only path that ever downloads or installs.
         */}
         <div className="mt-3">
           <SettingsRow
@@ -289,9 +351,21 @@ export function SettingsPage() {
               </>
             }
           >
-            <Button type="button" variant="outline" onClick={handleManualCheck} disabled={manualCheck === 'checking'}>
-              Check for Updates
-            </Button>
+            <div className="flex gap-2">
+              {(offeredVersion !== null || downloading) && (
+                <Button type="button" onClick={() => offeredVersion !== null && void handleDownload(offeredVersion)} disabled={downloading}>
+                  Download &amp; Install
+                </Button>
+              )}
+              {typeof manualCheck === 'object' && manualCheck.status === 'downloaded' && (
+                <Button type="button" onClick={() => void handleInstall(manualCheck.version)}>
+                  Restart &amp; Install
+                </Button>
+              )}
+              <Button type="button" variant="outline" onClick={handleManualCheck} disabled={busy}>
+                Check for Updates
+              </Button>
+            </div>
           </SettingsRow>
         </div>
       </div>
