@@ -446,6 +446,11 @@ is a one-click `workflow_dispatch` run of `.github/workflows/release.yml`:
    has succeeded does its `publish` job create the GitHub Release with the
    installers and the release notes attached. No release exists while
    builds are still running, so a draft you can see is a complete one.
+   The last step of that job checks the new release's asset list and fails
+   the run if any of `latest.yml`, `latest-mac.yml`, `latest-linux.yml`, or at
+   least one each of `.exe`, `.dmg`, `.zip`, `.AppImage` is missing (the
+   in-app updater needs the `latest*.yml` feeds). The release stays a draft
+   when that check fails, so nothing broken becomes public.
 5. An `anthropics/claude-code-action` step (authenticated with a
    `CLAUDE_CODE_OAUTH_TOKEN`, which bills against the Claude subscription
    that generated it rather than metered API usage) turns the structured

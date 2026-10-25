@@ -22,6 +22,7 @@ runs:
     # The release only comes into existence here, after every platform
     # build succeeded, so a draft that exists always has all its assets.
     - name: Create GitHub Release and attach artifacts
+      id: release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ inputs.tag }}
@@ -29,3 +30,32 @@ runs:
         body_path: notes/release-notes.md
         files: dist/**/*
         draft: true
+
+    # electron-updater needs the latest*.yml feeds, and users need installers.
+    # Fail the run (leaving the draft unpublished) if any are missing.
+    # Looked up by release id because `gh release view <tag>` does not resolve drafts.
+    - name: Verify feed and installer assets
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RELEASE_ID: ${{ steps.release.outputs.id }}
+      run: |
+        set -euo pipefail
+
+        names=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --jq '.assets[].name')
+        echo "Release assets:"
+        echo "$names" | sed 's/^/  /'
+
+        missing=()
+        for feed in latest.yml latest-mac.yml latest-linux.yml; do
+          echo "$names" | grep -Fxq "$feed" || missing+=("$feed")
+        done
+        for ext in exe dmg zip AppImage; do
+          echo "$names" | grep -Eq "\.${ext}$" || missing+=("*.${ext}")
+        done
+
+        if [ "${#missing[@]}" -gt 0 ]; then
+          echo "::error::Release is missing required assets: ${missing[*]}" >&2
+          exit 1
+        fi
+        echo "All required feed and installer assets are present."
