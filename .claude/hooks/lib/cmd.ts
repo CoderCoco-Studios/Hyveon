@@ -23,6 +23,20 @@ export function cmd(bin: string, args: string[], options: CmdOptions): string {
   }).trim();
 }
 
+/** Result of {@link runCmd}. */
+export type CmdResult = { ok: true; stdout: string } | { ok: false; stderr: string };
+
+/** Same as {@link cmd}, but never throws; a failure carries the captured stderr, or the error message when there is none (timeout, missing binary). */
+export function runCmd(bin: string, args: string[], options: CmdOptions): CmdResult {
+  try {
+    return { ok: true, stdout: cmd(bin, args, options) };
+  } catch (err) {
+    const e = err as { stderr?: unknown; message?: unknown };
+    const stderr = typeof e.stderr === 'string' && e.stderr ? e.stderr : String(e.message ?? err);
+    return { ok: false, stderr: stderr.trim() };
+  }
+}
+
 /** Same as {@link cmd}, but returns null instead of throwing on failure (non-zero exit, timeout, missing binary). */
 export function tryCmd(bin: string, args: string[], options: CmdOptions): string | null {
   try {

@@ -8,7 +8,7 @@
 import { getInput, deny, allow, isRecord } from './lib/hook-io.js';
 import { PANE_GUIDANCE } from './lib/pane-guidance.js';
 
-const WORKTREE_ADD = /(^|[;&|]\s*)git\b[^;&|]*?\bworktree\s+add\b/;
+const WORKTREE_ADD = /(^|[;&|])\s*git\b[^;&|]*?\bworktree\s+add\b/;
 
 const input = await getInput(
   (v): v is { tool_name: string; tool_input?: unknown } => isRecord(v) && typeof v.tool_name === 'string',

@@ -40,6 +40,8 @@ function run(hook: string, payload: object): { decision: string; reason: string 
     encoding: 'utf8',
     env: { ...process.env, CI: '', GITHUB_ACTIONS: '' },
   });
+  expect(res.error).toBeUndefined();
+  expect(res.status).toBe(0);
   const out = res.stdout ? JSON.parse(res.stdout) : {};
   const h = out.hookSpecificOutput ?? {};
   return { decision: h.permissionDecision ?? 'allow', reason: h.permissionDecisionReason ?? '' };
@@ -54,6 +56,13 @@ describe('isMainCheckout', () => {
     expect(isMainCheckout(wt)).toBe(false);
     expect(isMainCheckout(outside)).toBe(false);
     expect(isMainCheckout(path.join(main, 'new', 'deep', 'f.ts'))).toBe(true);
+  });
+  test('throws on a git failure that is not "not a repository"', () => {
+    const broken = path.join(root, 'broken');
+    mkdirSync(broken);
+    git(broken, 'init', '-q');
+    writeFileSync(path.join(broken, '.git', 'config'), '[core\n garbage');
+    expect(() => isMainCheckout(broken)).toThrow();
   });
 });
 
@@ -85,6 +94,31 @@ describe('guard-main-checkout', () => {
     expect(run(hook, bash(wt, `git -C ${main} add .`)).decision).toBe('deny');
     expect(run(hook, bash(main, `git -C ${wt} add .`)).decision).toBe('allow');
   });
+  test('bash git with leading whitespace and global options', () => {
+    expect(run(hook, bash(main, ' git add .')).decision).toBe('deny');
+    expect(run(hook, bash(main, 'git -c core.quotePath=false add .')).decision).toBe('deny');
+    expect(run(hook, bash(wt, `git -c a=b -C "${main}" commit -m x`)).decision).toBe('deny');
+  });
+  test('bash quoted -C path with spaces', () => {
+    const spaced = path.join(root, 'with space');
+    mkdirSync(spaced);
+    git(spaced, 'init', '-q');
+    expect(run(hook, bash(wt, `git -C "${spaced}" add .`)).decision).toBe('deny');
+    expect(run(hook, bash(main, `git -C '${wt}' add .`)).decision).toBe('allow');
+  });
+  test('bash cd/pushd target is the effective dir', () => {
+    expect(run(hook, bash(wt, `cd ${main} && git commit -m x`)).decision).toBe('deny');
+    expect(run(hook, bash(wt, `pushd ${main}; git add .`)).decision).toBe('deny');
+    expect(run(hook, bash(main, `cd ${wt} && git commit -m x`)).decision).toBe('allow');
+    expect(run(hook, bash(main, 'cd ../main/worktrees/feat && git add .')).decision).toBe('allow');
+  });
+  test('bash undeterminable dir is denied with Pane guidance', () => {
+    const r = run(hook, bash(wt, 'cd $SOMEWHERE && git commit -m x'));
+    expect(r.decision).toBe('deny');
+    expect(r.reason).toContain('Pane');
+    expect(run(hook, bash(wt, 'cd - && git add .')).decision).toBe('deny');
+    expect(run(hook, bash(wt, 'cd $(pwd)/x && git add .')).decision).toBe('deny');
+  });
   test('bash non-mutating git and non-git commands allowed in main', () => {
     expect(run(hook, bash(main, 'git status && ls')).decision).toBe('allow');
   });
@@ -108,6 +142,7 @@ describe('guard-redirect-to-pane', () => {
   test('denies git worktree add', () => {
     expect(run(hook, bash(main, 'git worktree add -b x ../x')).decision).toBe('deny');
     expect(run(hook, bash(main, 'cd a && git -C b worktree add x')).decision).toBe('deny');
+    expect(run(hook, bash(main, ' git worktree add -b feat ../feat')).decision).toBe('deny');
   });
   test('allows other bash, incl. worktree list', () => {
     expect(run(hook, bash(main, 'git worktree list')).decision).toBe('allow');

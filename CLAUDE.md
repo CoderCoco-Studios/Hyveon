@@ -154,7 +154,9 @@ Then confirm documentation is current **in the same PR**:
 trivial chores. Tracked-file changes require a worktree created through Pane (`runpane` / the
 `pane` skill) — never edit the main checkout. A hook (`guard-main-checkout`) blocks edits and
 `git add|commit|merge|rebase|reset` there, and `guard-redirect-to-pane` blocks `EnterWorktree`
-and raw `git worktree add`; see `.claude/rules/worktree.md`.
+and raw `git worktree add`; see `.claude/rules/worktree.md`. Exception: isolated subagents may
+use the harness-managed `Agent({ isolation: "worktree" })` (per `.claude/rules/worktree.md`);
+the main-checkout restriction still applies.
 
 - **Always use `/pr`** to open pull requests — it validates the title before calling the API.
 - **PR titles MUST be Conventional Commits.** We squash-merge, so the title becomes the commit

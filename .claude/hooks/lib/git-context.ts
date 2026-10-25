@@ -4,7 +4,7 @@
 
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { tryCmd } from './cmd.js';
+import { runCmd } from './cmd.js';
 
 /** Nearest existing ancestor directory of `target` (itself, if it is a directory that exists). */
 function nearestExistingDir(target: string): string {
@@ -25,12 +25,16 @@ function nearestExistingDir(target: string): string {
  *
  * @param target - Absolute path to classify.
  * @returns `true` for a main checkout; `false` for a linked worktree or a path outside any git repo.
+ * @throws When git fails for any reason other than "not a git repository" (missing binary, timeout, unsafe ownership, corruption), so callers can fail closed.
  */
 export function isMainCheckout(target: string): boolean {
-  const out = tryCmd('git', ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'], {
+  const res = runCmd('git', ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'], {
     cwd: nearestExistingDir(target),
   });
-  if (out === null) return false;
-  const [gitDir, commonDir] = out.split('\n');
+  if (!res.ok) {
+    if (/not a git repository/i.test(res.stderr)) return false;
+    throw new Error(`git rev-parse failed: ${res.stderr}`);
+  }
+  const [gitDir, commonDir] = res.stdout.split('\n');
   return gitDir !== undefined && gitDir === commonDir;
 }

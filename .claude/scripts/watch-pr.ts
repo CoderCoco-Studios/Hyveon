@@ -8,8 +8,10 @@
 export interface Snapshot {
   state: string;
   mergedAt: string | null;
-  /** check name -> conclusion, or status/state when not yet concluded */
+  /** check key (type + workflow + name) -> conclusion, or status/state when not yet concluded */
   checks: Record<string, string>;
+  /** check key -> readable `workflow/name` label */
+  checkLabels: Record<string, string>;
   /** dedupe key -> printable line */
   items: Record<string, string>;
 }
@@ -29,7 +31,7 @@ interface Author { login?: string }
 interface PrView {
   state?: string;
   mergedAt?: string | null;
-  statusCheckRollup?: Array<{ name?: string; context?: string; status?: string; conclusion?: string; state?: string }>;
+  statusCheckRollup?: Array<{ __typename?: string; workflowName?: string; name?: string; context?: string; status?: string; conclusion?: string; state?: string }>;
   comments?: Array<{ id?: string; author?: Author; body?: string }>;
   reviews?: Array<{ id?: string; author?: Author; body?: string; state?: string }>;
 }
@@ -38,9 +40,14 @@ export interface InlineComment { id?: number; user?: Author; body?: string; path
 /** Builds a snapshot from raw gh output. Pure. */
 export function buildSnapshot(view: PrView, inline: InlineComment[]): Snapshot {
   const checks: Record<string, string> = {};
+  const checkLabels: Record<string, string> = {};
   for (const c of view.statusCheckRollup ?? []) {
     const name = snippet(c.name ?? c.context ?? 'unknown');
-    checks[name] = c.conclusion || c.state || c.status || 'PENDING';
+    const workflow = snippet(c.workflowName);
+    const key =
+      c.__typename === 'StatusContext' ? `StatusContext:${name}` : `${c.__typename ?? 'Check'}:${workflow}:${name}`;
+    checks[key] = c.conclusion || c.state || c.status || 'PENDING';
+    checkLabels[key] = workflow ? `${workflow}/${name}` : name;
   }
   const items: Record<string, string> = {};
   for (const c of view.comments ?? []) {
@@ -52,7 +59,7 @@ export function buildSnapshot(view: PrView, inline: InlineComment[]): Snapshot {
   for (const c of inline) {
     items[`i:${c.id}`] = `inline comment by ${snippet(c.user?.login)} on ${snippet(c.path)}: ${snippet(c.body)}`;
   }
-  return { state: view.state ?? 'UNKNOWN', mergedAt: view.mergedAt ?? null, checks, items };
+  return { state: view.state ?? 'UNKNOWN', mergedAt: view.mergedAt ?? null, checks, checkLabels, items };
 }
 
 const PENDING = new Set(['PENDING', 'IN_PROGRESS', 'QUEUED', 'WAITING', 'EXPECTED', '']);
@@ -63,13 +70,24 @@ export function diffSnapshots(prev: Snapshot, next: Snapshot): string[] {
   for (const [key, line] of Object.entries(next.items)) {
     if (!(key in prev.items)) lines.push(line);
   }
-  for (const [name, result] of Object.entries(next.checks)) {
-    if (prev.checks[name] !== result && !PENDING.has(result)) lines.push(`check ${name} -> ${result}`);
+  for (const [key, result] of Object.entries(next.checks)) {
+    if (prev.checks[key] !== result && !PENDING.has(result)) lines.push(`check ${next.checkLabels[key] ?? key} -> ${result}`);
   }
   if (next.state !== prev.state) {
     lines.push(next.mergedAt ? 'PR merged' : `PR ${next.state.toLowerCase()}`);
   }
   return lines;
+}
+
+/** Consecutive fetch failures after which the watcher repeats its warning, and after which it gives up. */
+export const WARN_AFTER = 5;
+export const GIVE_UP_AFTER = 10;
+
+/** Decides what to print and whether to exit after the `failures`-th consecutive fetch failure. Pure. */
+export function failureAction(failures: number, err: unknown): { message: string | null; exit: boolean } {
+  const report = failures === 1 || failures === WARN_AFTER || failures >= GIVE_UP_AFTER;
+  const message = report ? `watcher error: ${snippet(err instanceof Error ? err.message : err)}` : null;
+  return { message, exit: failures >= GIVE_UP_AFTER };
 }
 
 export const isDone = (s: Snapshot): boolean => s.state === 'MERGED' || s.state === 'CLOSED';
@@ -111,8 +129,11 @@ async function main(): Promise<void> {
       }
       prev = next;
       if (isDone(next)) process.exit(0);
-    } catch {
+    } catch (err) {
       failures++;
+      const { message, exit } = failureAction(failures, err);
+      if (message) console.log(message);
+      if (exit) process.exit(1);
       delay = Math.min(POLL_MS * 2 ** failures, MAX_BACKOFF_MS);
     }
     await Bun.sleep(delay);
