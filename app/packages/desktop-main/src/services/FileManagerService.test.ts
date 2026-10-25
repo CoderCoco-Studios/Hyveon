@@ -12,6 +12,7 @@ import type { ConfigService } from './ConfigService.js';
 import type { EcsService } from './EcsService.js';
 import type { Ec2Service } from './Ec2Service.js';
 import type { SchedulerService } from './SchedulerService.js';
+import type { PublicIpService } from './PublicIpService.js';
 import type { StackOutputs } from '@hyveon/shared';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
@@ -56,6 +57,8 @@ type EcsStub = Pick<
   | 'registerTaskDefinition'
   | 'runTask'
   | 'stopTask'
+  | 'deregisterTaskDefinition'
+  | 'listTasksByStartedByPrefix'
 >;
 
 /**
@@ -84,19 +87,40 @@ function makeEcs(overrides: Partial<EcsStub> = {}): { stub: EcsStub; service: Ec
     registerTaskDefinition: vi.fn().mockResolvedValue('arn:aws:ecs:::task-definition/filebrowser-minecraft:1'),
     runTask: vi.fn().mockResolvedValue({ taskArn: 'arn-fm' }),
     stopTask: vi.fn().mockResolvedValue(undefined),
+    deregisterTaskDefinition: vi.fn().mockResolvedValue(true),
+    listTasksByStartedByPrefix: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
   return { stub, service: stub as EcsService };
 }
 
+/** Subset of Ec2Service that FileManagerService calls. */
+type Ec2Stub = Pick<
+  Ec2Service,
+  'getPublicIp' | 'authorizeIngress' | 'listIngressRulesByDescriptionPrefix' | 'revokeIngressRules'
+>;
+
 /**
- * Build an Ec2Service stub whose `getPublicIp` resolves to the given value.
+ * Build an Ec2Service stub whose `getPublicIp` resolves to the given value and whose security-group calls succeed.
+ * Returns the stub alongside the typed service so tests can assert on the `vi.fn()` handles.
  */
-function makeEc2(ip: string | null = '1.2.3.4'): Ec2Service {
-  const stub: Partial<Ec2Service> = {
+function makeEc2(ip: string | null = '1.2.3.4', overrides: Partial<Ec2Stub> = {}): Ec2Service & Ec2Stub {
+  const stub: Ec2Stub = {
     getPublicIp: vi.fn().mockResolvedValue(ip),
+    authorizeIngress: vi.fn().mockResolvedValue(undefined),
+    listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([]),
+    revokeIngressRules: vi.fn().mockResolvedValue(true),
+    ...overrides,
   };
-  return stub as Ec2Service;
+  return stub as Ec2Service & Ec2Stub;
+}
+
+/** Build a PublicIpService stub resolving to the operator IP (or rejecting when `ip` is null). */
+function makePublicIp(ip: string | null = '203.0.113.7'): PublicIpService {
+  const stub: Partial<PublicIpService> = {
+    detect: ip ? vi.fn().mockResolvedValue(ip) : vi.fn().mockRejectedValue(new Error('Could not detect your public IP address: offline')),
+  };
+  return stub as PublicIpService;
 }
 
 /**
@@ -139,6 +163,7 @@ function buildService(options: {
   ec2?: Ec2Service;
   scheduler?: SchedulerService;
   secrets?: SecretsStore;
+  publicIp?: PublicIpService;
 } = {}): FileManagerService {
   return new FileManagerService(
     options.config ?? makeConfig(),
@@ -146,7 +171,24 @@ function buildService(options: {
     options.ec2 ?? makeEc2(),
     options.scheduler ?? makeScheduler().service,
     options.secrets ?? makeSecrets().service,
+    options.publicIp ?? makePublicIp(),
   );
+}
+
+/** A running helper task tagged with the operator IP it was launched for. */
+function helperTask(game: string, operatorIp: string | null, extra: Partial<Task> = {}): Task {
+  return {
+    taskArn: `arn-${game}`,
+    startedBy: `filemgr-${game}`,
+    lastStatus: 'RUNNING',
+    ...(operatorIp ? { tags: [{ key: 'OperatorIp', value: operatorIp }] } : {}),
+    ...extra,
+  };
+}
+
+/** An app-created security-group rule for `game` opened to `ip`. */
+function sgRule(game: string, ip: string, runId = 'browse') {
+  return { ruleId: `sgr-${game}-${ip}`, description: `hyveon-filemgr:${game}:${runId}`, cidr: `${ip}/32` };
 }
 
 describe('FileManagerService', () => {
@@ -445,6 +487,68 @@ describe('FileManagerService', () => {
       expect(schedulerStub.deleteSchedule).toHaveBeenCalledWith('filemgr-stop-minecraft');
     });
 
+    it('should keep a shared rule when stopping the game whose description it carries while another helper uses the same IP', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([helperTask('minecraft', '1.1.1.1'), helperTask('palworld', '1.1.1.1')]),
+      });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([sgRule('minecraft', '1.1.1.1')]) });
+      await buildService({ ecs, ec2 }).stop('minecraft');
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', []);
+    });
+
+    it('should revoke the shared rule once the last helper using it stops, even when it carries another game\'s description', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-2' }]),
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([helperTask('palworld', '1.1.1.1')]),
+      });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([sgRule('minecraft', '1.1.1.1')]) });
+      await buildService({ ecs, ec2 }).stop('palworld');
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-minecraft-1.1.1.1']);
+    });
+
+    it('should revoke the stopped game\'s old-IP rule while keeping the running helper\'s newer-IP rule', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([helperTask('minecraft', '1.1.1.1'), helperTask('palworld', '2.2.2.2')]),
+      });
+      const ec2 = makeEc2('1.2.3.4', {
+        listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([sgRule('minecraft', '1.1.1.1'), sgRule('palworld', '2.2.2.2')]),
+      });
+      await buildService({ ecs, ec2 }).stop('minecraft');
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-minecraft-1.1.1.1']);
+    });
+
+    it('should revoke the rule when no other helper is running', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([helperTask('minecraft', '1.1.1.1')]),
+      });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([sgRule('minecraft', '1.1.1.1')]) });
+      await buildService({ ecs, ec2 }).stop('minecraft');
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-minecraft-1.1.1.1']);
+    });
+
+    it('should keep every rule when another helper has no recorded operator IP', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([helperTask('palworld', null)]),
+      });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([sgRule('minecraft', '1.1.1.1')]) });
+      await buildService({ ecs, ec2 }).stop('minecraft');
+      expect(ec2.revokeIngressRules).not.toHaveBeenCalled();
+    });
+
+    it('should keep the rule when the other-helpers lookup fails', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
+        listTasksByStartedByPrefix: vi.fn().mockRejectedValue(new Error('throttled')),
+      });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([sgRule('minecraft', '1.1.1.1')]) });
+      await buildService({ ecs, ec2 }).stop('minecraft');
+      expect(ec2.revokeIngressRules).not.toHaveBeenCalled();
+    });
+
     it('should return failure when stopTask throws', async () => {
       const { service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
@@ -454,6 +558,287 @@ describe('FileManagerService', () => {
       const result = await svc.stop('minecraft');
       expect(result.success).toBe(false);
       expect(result.message).toContain('nope');
+    });
+  });
+
+  describe('operator IP rule', () => {
+    it('should authorize the detected public IP as a /32 on port 8080 with a description naming game and run', async () => {
+      const ec2 = makeEc2();
+      await buildService({ ec2 }).start('minecraft');
+      expect(ec2.authorizeIngress).toHaveBeenCalledWith('sg-files', '203.0.113.7/32', 8080, 'hyveon-filemgr:minecraft:browse');
+    });
+
+    it('should fail before registering anything when the public IP cannot be detected', async () => {
+      const { stub, service: ecs } = makeEcs();
+      const result = await buildService({ ecs, publicIp: makePublicIp(null) }).start('minecraft');
+      expect(result.success).toBe(false);
+      expect(result.message).toMatch(/public IP/);
+      expect(stub.registerTaskDefinition).not.toHaveBeenCalled();
+    });
+
+    it('should fail without launching when the rule cannot be authorized', async () => {
+      const { stub, service: ecs } = makeEcs();
+      const ec2 = makeEc2('1.2.3.4', { authorizeIngress: vi.fn().mockRejectedValue(new Error('denied')) });
+      const result = await buildService({ ecs, ec2 }).start('minecraft');
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('denied');
+      expect(stub.runTask).not.toHaveBeenCalled();
+    });
+
+    it('should revoke the rule and deregister the task definition when RunTask fails', async () => {
+      const { stub, service: ecs } = makeEcs({ runTask: vi.fn().mockResolvedValue(null) });
+      const ec2 = makeEc2('1.2.3.4', {
+        listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([{ ruleId: 'sgr-1', description: 'hyveon-filemgr:minecraft:browse', cidr: '203.0.113.7/32' }]),
+      });
+      const result = await buildService({ ecs, ec2 }).start('minecraft');
+      expect(result.success).toBe(false);
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-1']);
+      expect(stub.deregisterTaskDefinition).toHaveBeenCalledWith('arn:aws:ecs:::task-definition/filebrowser-minecraft:1');
+    });
+
+    it('should revoke the rule when task-definition registration fails', async () => {
+      const { service: ecs } = makeEcs({ registerTaskDefinition: vi.fn().mockResolvedValue(null) });
+      const ec2 = makeEc2('1.2.3.4', {
+        listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([{ ruleId: 'sgr-1', description: 'hyveon-filemgr:minecraft:browse', cidr: 'x' }]),
+      });
+      await buildService({ ecs, ec2 }).start('minecraft');
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-1']);
+    });
+
+    it('should not touch the rule of a game whose helper refused to start because one is open', async () => {
+      const { service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'existing' }]) });
+      const ec2 = makeEc2();
+      await buildService({ ecs, ec2 }).start('minecraft');
+      expect(ec2.authorizeIngress).not.toHaveBeenCalled();
+      expect(ec2.revokeIngressRules).not.toHaveBeenCalled();
+    });
+
+    const ruleFor = (game: string) => ({ ruleId: `sgr-${game}`, description: `hyveon-filemgr:${game}:r1`, cidr: 'x' });
+
+    it('should keep rules a still-running helper needs when another helper is stopped', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([helperTask('palworld', '203.0.113.7')]),
+      });
+      const ec2 = makeEc2('1.2.3.4', {
+        listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([sgRule('minecraft', '198.51.100.1'), sgRule('palworld', '203.0.113.7')]),
+      });
+      await buildService({ ecs, ec2 }).stop('minecraft');
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-minecraft-198.51.100.1']);
+    });
+
+    it('should still revoke the rule when stopTask throws', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
+        stopTask: vi.fn().mockRejectedValue(new Error('nope')),
+      });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([ruleFor('minecraft')]) });
+      await buildService({ ecs, ec2 }).stop('minecraft');
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-minecraft']);
+    });
+
+    it('should still revoke the rule when no helper task is found', async () => {
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([ruleFor('minecraft')]) });
+      const result = await buildService({ ec2 }).stop('minecraft');
+      expect(result.success).toBe(false);
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-minecraft']);
+    });
+
+    it('should deregister the helper\'s task definition on stop', async () => {
+      const { stub, service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1', taskDefinitionArn: 'arn:td/filebrowser-minecraft:3' }]),
+      });
+      await buildService({ ecs }).stop('minecraft');
+      expect(stub.deregisterTaskDefinition).toHaveBeenCalledWith('arn:td/filebrowser-minecraft:3');
+    });
+  });
+
+  describe('startForUpload', () => {
+    it('should return the credential and certificate in-process and tag the task as a seed-upload session', async () => {
+      const { stub, service: ecs } = makeEcs();
+      const result = await buildService({ ecs }).startForUpload('minecraft', 'run-1');
+      if (!result.ok) throw new Error('expected launch to succeed');
+      expect(result.session.credentials.username).toBe('admin');
+      expect(result.session.credentials.password.length).toBeGreaterThan(10);
+      expect(result.session.cert.fingerprint256).toMatch(/^[0-9A-F:]+$/);
+      const runArgs = vi.mocked(stub.runTask).mock.calls[0]![0];
+      expect(runArgs.startedBy).toBe('filemgr-minecraft');
+      expect(runArgs.tags).toEqual([
+        { key: 'Purpose', value: 'seed-upload' },
+        { key: 'Project', value: 'hyveon' },
+        { key: 'OperatorIp', value: '203.0.113.7' },
+      ]);
+    });
+
+    it('should serve over TLS through a sh -c wrapper that writes the env-provided certificate and key', async () => {
+      const { stub, service: ecs } = makeEcs();
+      const result = await buildService({ ecs }).startForUpload('minecraft', 'run-1');
+      if (!result.ok) throw new Error('expected launch to succeed');
+      const container = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0].containerDefinitions![0]!;
+      expect(container.entryPoint).toEqual(['sh', '-c']);
+      expect(container.command![0]).toContain('exec filebrowser --cert /tmp/tls.crt --key /tmp/tls.key "$@"');
+      const env = Object.fromEntries(container.environment!.map((e) => [e.name, e.value]));
+      expect(Buffer.from(env['FB_TLS_CERT_B64']!, 'base64').toString()).toBe(result.session.cert.certPem);
+      expect(Buffer.from(env['FB_TLS_KEY_B64']!, 'base64').toString()).toBe(result.session.cert.keyPem);
+      expect(container.command).toContain('--username');
+    });
+
+    it('should name the run in the security-group rule description', async () => {
+      const ec2 = makeEc2();
+      await buildService({ ec2 }).startForUpload('minecraft', 'run-1');
+      expect(ec2.authorizeIngress).toHaveBeenCalledWith('sg-files', '203.0.113.7/32', 8080, 'hyveon-filemgr:minecraft:run-1');
+    });
+
+    it('should refuse with helper-open when a session is already running, without launching', async () => {
+      const { stub, service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'existing' }]) });
+      const result = await buildService({ ecs }).startForUpload('minecraft', 'run-1');
+      expect(result).toMatchObject({ ok: false, code: 'helper-open' });
+      expect(stub.runTask).not.toHaveBeenCalled();
+    });
+
+    it('should never put the plaintext password in the task definition', async () => {
+      const { stub, service: ecs } = makeEcs();
+      const result = await buildService({ ecs }).startForUpload('minecraft', 'run-1');
+      if (!result.ok) throw new Error('expected launch to succeed');
+      expect(JSON.stringify(vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0])).not.toContain(result.session.credentials.password);
+    });
+
+    it('should only record the operator IP on, and not wrap, ordinary browse launches', async () => {
+      const { stub, service: ecs } = makeEcs();
+      await buildService({ ecs }).start('minecraft');
+      expect(vi.mocked(stub.runTask).mock.calls[0]![0].tags).toEqual([{ key: 'OperatorIp', value: '203.0.113.7' }]);
+      const container = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0].containerDefinitions![0]!;
+      expect(container.entryPoint).toBeUndefined();
+      expect(container.environment).toBeUndefined();
+    });
+  });
+
+  describe('getHelperPublicIp', () => {
+    it('should return the IP once the task is running', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'a', lastStatus: 'RUNNING' }]),
+        extractEniId: vi.fn().mockReturnValue('eni-1'),
+      });
+      expect(await buildService({ ecs, ec2: makeEc2('5.6.7.8') }).getHelperPublicIp('minecraft')).toBe('5.6.7.8');
+    });
+
+    it('should return null while the task is still provisioning', async () => {
+      const { service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'a', lastStatus: 'PROVISIONING' }]) });
+      expect(await buildService({ ecs }).getHelperPublicIp('minecraft')).toBeNull();
+    });
+  });
+
+  describe('sweepStrayHelpers', () => {
+    const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
+    const task = (game: string, ageMin: number, extra: Partial<Task> = {}): Task => ({
+      taskArn: `arn-${game}`,
+      startedBy: `filemgr-${game}`,
+      startedAt: minutesAgo(ageMin),
+      taskDefinitionArn: `arn:td/filebrowser-${game}:1`,
+      lastStatus: 'RUNNING',
+      ...extra,
+    });
+
+    it('should stop old un-owned helpers, deregister their task definitions, and report them', async () => {
+      const { stub, service: ecs } = makeEcs({ listTasksByStartedByPrefix: vi.fn().mockResolvedValue([task('minecraft', 30)]) });
+      const report = await buildService({ ecs }).sweepStrayHelpers({ activeGames: new Set(), minAgeMs: 15 * 60_000 });
+      expect(stub.stopTask).toHaveBeenCalledWith('game-cluster', 'arn-minecraft', expect.any(String));
+      expect(stub.deregisterTaskDefinition).toHaveBeenCalledWith('arn:td/filebrowser-minecraft:1');
+      expect(report.stopped).toEqual([{ game: 'minecraft', taskArn: 'arn-minecraft', ageMinutes: 30 }]);
+      expect(stub.listTasksByStartedByPrefix).toHaveBeenCalledWith('game-cluster', 'filemgr-');
+    });
+
+    it('should leave helpers younger than the threshold and helpers owned by an active run', async () => {
+      const { stub, service: ecs } = makeEcs({
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([task('minecraft', 5), task('palworld', 60)]),
+      });
+      const report = await buildService({ ecs }).sweepStrayHelpers({ activeGames: new Set(['palworld']), minAgeMs: 15 * 60_000 });
+      expect(stub.stopTask).not.toHaveBeenCalled();
+      expect(report).toMatchObject({ stopped: [], skipped: 2 });
+    });
+
+    it('should stop everything regardless of age on an explicit operator action (minAgeMs 0)', async () => {
+      const { stub, service: ecs } = makeEcs({ listTasksByStartedByPrefix: vi.fn().mockResolvedValue([task('minecraft', 1)]) });
+      const report = await buildService({ ecs }).sweepStrayHelpers({ activeGames: new Set(), minAgeMs: 0 });
+      expect(stub.stopTask).toHaveBeenCalledTimes(1);
+      expect(report.stopped).toHaveLength(1);
+    });
+
+    it('should revoke stale app rules but keep rules of active games when no helper remains', async () => {
+      const rules = ['stale', 'active'].map((g) => sgRule(g, '9.9.9.9'));
+      const { service: ecs } = makeEcs({ listTasksByStartedByPrefix: vi.fn().mockResolvedValue([]) });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue(rules) });
+      const report = await buildService({ ecs, ec2 }).sweepStrayHelpers({ activeGames: new Set(['active']), minAgeMs: 15 * 60_000 });
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-stale-9.9.9.9']);
+      expect(report.revokedRules).toBe(1);
+    });
+
+    it('should record a failed stop as an error and keep that game\'s rule', async () => {
+      const rule = { ruleId: 'sgr-m', description: 'hyveon-filemgr:minecraft:r', cidr: 'x' };
+      const { service: ecs } = makeEcs({
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([task('minecraft', 60)]),
+        stopTask: vi.fn().mockRejectedValue(new Error('throttled')),
+      });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([rule]) });
+      const report = await buildService({ ecs, ec2 }).sweepStrayHelpers({ activeGames: new Set(), minAgeMs: 0 });
+      expect(report.errors).toEqual(['minecraft: throttled']);
+      expect(report.stopped).toEqual([]);
+      expect(ec2.revokeIngressRules).not.toHaveBeenCalled();
+    });
+
+    it('should record the error and revoke nothing when the helper listing fails', async () => {
+      const rules = [{ ruleId: 'sgr-g', description: 'hyveon-filemgr:minecraft:r', cidr: 'x' }];
+      const { stub, service: ecs } = makeEcs({ listTasksByStartedByPrefix: vi.fn().mockRejectedValue(new Error('throttled')) });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue(rules) });
+      const report = await buildService({ ecs, ec2 }).sweepStrayHelpers({ activeGames: new Set(), minAgeMs: 0 });
+      expect(report.errors).toEqual([expect.stringContaining('throttled')]);
+      expect(report.revokedRules).toBe(0);
+      expect(ec2.revokeIngressRules).not.toHaveBeenCalled();
+      expect(stub.stopTask).not.toHaveBeenCalled();
+    });
+
+    it('should keep a shared rule described after a swept game while a remaining helper uses the same IP', async () => {
+      const rules = [sgRule('minecraft', '1.1.1.1')];
+      const { service: ecs } = makeEcs({
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([
+          task('minecraft', 60, helperTask('minecraft', '1.1.1.1')),
+          task('palworld', 1, helperTask('palworld', '1.1.1.1')),
+        ]),
+      });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue(rules) });
+      const report = await buildService({ ecs, ec2 }).sweepStrayHelpers({ activeGames: new Set(), minAgeMs: 15 * 60_000 });
+      expect(report.stopped).toHaveLength(1);
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', []);
+      expect(report.revokedRules).toBe(0);
+    });
+
+    it('should revoke a swept game\'s old-IP rule while a remaining helper keeps its own IP rule', async () => {
+      const rules = [sgRule('minecraft', '1.1.1.1'), sgRule('palworld', '2.2.2.2')];
+      const { service: ecs } = makeEcs({
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([
+          task('minecraft', 60, helperTask('minecraft', '1.1.1.1')),
+          task('palworld', 1, helperTask('palworld', '2.2.2.2')),
+        ]),
+      });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue(rules) });
+      const report = await buildService({ ecs, ec2 }).sweepStrayHelpers({ activeGames: new Set(), minAgeMs: 15 * 60_000 });
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-minecraft-1.1.1.1']);
+      expect(report.revokedRules).toBe(1);
+    });
+
+    it('should revoke an orphaned rule carrying another game\'s description', async () => {
+      const rules = [sgRule('ghost', '3.3.3.3'), sgRule('palworld', '2.2.2.2')];
+      const { service: ecs } = makeEcs({
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([task('palworld', 1, helperTask('palworld', '2.2.2.2'))]),
+      });
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue(rules) });
+      await buildService({ ecs, ec2 }).sweepStrayHelpers({ activeGames: new Set(), minAgeMs: 15 * 60_000 });
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-ghost-3.3.3.3']);
+    });
+
+    it('should return an empty report when nothing is deployed', async () => {
+      const report = await buildService({ config: makeConfig(null) }).sweepStrayHelpers({ activeGames: new Set(), minAgeMs: 0 });
+      expect(report).toEqual({ stopped: [], skipped: 0, revokedRules: 0, errors: [] });
     });
   });
 });

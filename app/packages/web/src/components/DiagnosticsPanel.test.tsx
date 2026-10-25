@@ -68,6 +68,13 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByText(/Log file:/)).toBeInTheDocument();
   });
 
+  it('should offer the stray-helper cleanup action alongside the bundle export', async () => {
+    render(<DiagnosticsPanel />);
+
+    expect(await screen.findByRole('button', { name: 'Clean up stray helpers' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export diagnostics bundle' })).toBeInTheDocument();
+  });
+
   it('should show an error message when api.diagnosticsTail rejects', async () => {
     apiMock.diagnosticsTail.mockRejectedValue(new Error('Network error'));
 

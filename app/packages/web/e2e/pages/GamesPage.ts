@@ -108,4 +108,46 @@ export class GamesPage {
   connectMessage(text: string): Locator {
     return this.page.getByText(text);
   }
+
+  // ── Seed from folder (`/games/:name`) ────────────────────────────────
+
+  /** "Choose folder" / "Change folder" button of the seed section. */
+  chooseFolderButton(): Locator {
+    return this.page.getByRole('button', { name: /^(Choose|Change) folder$/ });
+  }
+
+  /** Include checkbox for a scanned entry, by its folder-relative path. */
+  includeCheckbox(relPath: string): Locator {
+    return this.page.getByRole('checkbox', { name: `Include ${relPath}` });
+  }
+
+  /** Destination-in-container input of the seed section. */
+  destinationInput(): Locator {
+    return this.page.getByLabel('Destination in container');
+  }
+
+  /** Selection summary line (file count, size, skipped links). */
+  seedSummary(): Locator {
+    return this.page.getByTestId('game-folder-seed-summary');
+  }
+
+  /** "Upload folder" action button. */
+  uploadFolderButton(): Locator {
+    return this.page.getByRole('button', { name: 'Upload folder' });
+  }
+
+  /** The overwrite warning shown while an upload awaits confirmation. */
+  overwriteWarning(): Locator {
+    return this.page.getByRole('alertdialog');
+  }
+
+  /** The upload progress meter's determinate bar. */
+  uploadProgressBar(): Locator {
+    return this.page.getByRole('progressbar', { name: 'Upload progress' });
+  }
+
+  /** Verified-success message shown when the run is done. */
+  uploadVerifiedMessage(): Locator {
+    return this.page.getByText(/Upload verified/);
+  }
 }

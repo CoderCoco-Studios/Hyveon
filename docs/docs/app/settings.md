@@ -426,3 +426,16 @@ in folder** action that reveals it in your OS's file manager. If writing the
 completed archive to disk fails (disk full, permission denied), the panel
 shows an error message instead — no partial, half-written `.zip` is left
 behind at that path.
+
+### Clean up stray helpers
+
+The **Clean up stray helpers** button, beside the export button, stops any file manager helper task that no upload in this app owns.
+Use it if the app closed during a folder upload and you want to be sure nothing is still running.
+
+It stops every such helper regardless of age, deregisters its throwaway task definition and revokes the security-group access rule the app added for your IP.
+Helpers owned by a run in progress are left alone.
+The automatic sweep at app start is more cautious and only touches helpers older than 15 minutes.
+
+The result panel lists each helper it stopped by game and age, then shows how many it skipped and how many access rules it revoked.
+Any per-item failures are listed below in red.
+When nothing needed cleaning it says `No stray helpers found.`

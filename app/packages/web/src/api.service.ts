@@ -41,6 +41,16 @@ import type {
   AuditPageResult,
 } from '@hyveon/shared';
 import type {
+  FolderOverwriteDecisionResult,
+  FolderScanResult,
+  FolderUploadProgress,
+  FolderUploadRequest,
+  FolderUploadStartResult,
+  FolderUploadStoredState,
+  OverwriteSummary,
+  StrayHelperReport,
+} from '@hyveon/shared/folderUpload';
+import type {
   CloudHealthCheckStatus,
   CloudHealthCheckSummary,
   CloudHealthFixOutcome,
@@ -83,6 +93,14 @@ export type {
   CloudHealthFixOutcome,
   CloudHealthFixResult,
   OpenConsoleResult,
+  FolderOverwriteDecisionResult,
+  FolderScanResult,
+  FolderUploadProgress,
+  FolderUploadRequest,
+  FolderUploadStartResult,
+  FolderUploadStoredState,
+  OverwriteSummary,
+  StrayHelperReport,
 };
 
 /** Live status for a single game, as returned by the `games.status` and `games.getStatus` IPC channels. */
@@ -268,6 +286,24 @@ export const api = {
   filesMgrStatus: async (game: string): Promise<FileMgrStatus> => hyveon().files.list(game),
   filesMgrStart: async (game: string): Promise<FileMgrResult> => hyveon().files.start(game),
   filesMgrStop: async (game: string): Promise<FileMgrResult> => hyveon().files.stop(game),
+  folderPick: async (): Promise<FolderScanResult | null> => hyveon().folderUpload.pickFolder(),
+  folderRescan: async (game: string): Promise<FolderScanResult | null> => hyveon().folderUpload.rescanSelection(game),
+  folderGetSelection: async (game: string): Promise<FolderUploadStoredState | null> =>
+    hyveon().folderUpload.getSelection(game),
+  folderSetSelection: async (request: FolderUploadRequest): Promise<{ saved: true }> =>
+    hyveon().folderUpload.setSelection(request),
+  folderClearSelection: async (game: string): Promise<{ cleared: true }> => hyveon().folderUpload.clearSelection(game),
+  folderStartUpload: async (request: FolderUploadRequest): Promise<FolderUploadStartResult> =>
+    hyveon().folderUpload.startUpload(request),
+  folderCancelUpload: async (game: string): Promise<{ cancelled: boolean }> => hyveon().folderUpload.cancelUpload(game),
+  folderConfirmOverwrite: async (game: string, proceed: boolean): Promise<FolderOverwriteDecisionResult> =>
+    hyveon().folderUpload.confirmOverwrite(game, proceed),
+  folderGetProgress: async (game: string): Promise<FolderUploadProgress | null> =>
+    hyveon().folderUpload.getProgress(game),
+  folderCleanupStrayHelpers: async (): Promise<StrayHelperReport> => hyveon().folderUpload.cleanupStrayHelpers(),
+  /** Subscribes to upload progress snapshots; synchronous (not an `async` wrapper) so the unsubscribe handle is returned directly. */
+  folderOnProgress: (cb: (progress: FolderUploadProgress) => void): (() => void) =>
+    hyveon().folderUpload.onProgress(cb),
   createGame: async (payload: CreateGamePayload): Promise<GameWriteResult> => hyveon().games.create(payload),
   updateGame: async (payload: UpdateGamePayload): Promise<GameWriteResult> => hyveon().games.update(payload),
   deleteGame: async (payload: DeleteGamePayload): Promise<GameWriteResult> => hyveon().games.delete(payload),

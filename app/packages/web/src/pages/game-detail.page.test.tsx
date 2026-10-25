@@ -9,6 +9,11 @@ const apiMock = vi.hoisted(() => ({
   games: vi.fn(),
   updateGame: vi.fn(),
   deleteGame: vi.fn(),
+  statusGame: vi.fn(),
+  folderGetSelection: vi.fn(),
+  folderRescan: vi.fn(),
+  folderGetProgress: vi.fn(),
+  folderOnProgress: vi.fn(),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 
@@ -76,11 +81,24 @@ describe('GameDetailPage', () => {
     apiMock.deleteGame.mockReset();
     toastMock.success.mockClear();
     toastMock.error.mockClear();
+    apiMock.statusGame.mockResolvedValue({ game: 'minecraft', state: 'stopped' });
+    apiMock.folderGetSelection.mockResolvedValue(null);
+    apiMock.folderRescan.mockResolvedValue(null);
+    apiMock.folderGetProgress.mockResolvedValue(null);
+    apiMock.folderOnProgress.mockReturnValue(() => undefined);
   });
 
   describe('a fully-declared game', () => {
     beforeEach(() => {
       apiMock.games.mockResolvedValue({ games: [DECLARED_GAME, GHOST_GAME] });
+    });
+
+    it('should offer the Seed from folder card with Upload disabled until a folder is chosen', async () => {
+      renderDetailPage('minecraft');
+
+      expect(await screen.findByRole('heading', { name: 'Seed from folder' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Choose folder' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Upload folder' })).toBeDisabled();
     });
 
     it('should render the game name and the "In sync" drift chip', async () => {

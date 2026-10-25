@@ -34,6 +34,8 @@ import { api, type GameServer } from '../../api.service.js';
 import { IdentityStep } from './identity-step.component.js';
 import { ResourcesStep } from './resources-step.component.js';
 import { NetworkingStep } from './networking-step.component.js';
+import { FolderSeedSection } from '../folder-upload/folder-seed-section.component.js';
+import { useFolderSeed } from '../folder-upload/use-folder-seed.hook.js';
 import { StorageStep } from './storage-step.component.js';
 import { EnvironmentStep } from './environment-step.component.js';
 import { ReviewStep } from './review-step.component.js';
@@ -128,6 +130,10 @@ export function AddGameWizard({
 
   const step = WIZARD_STEPS[stepIndex];
 
+  // Lives here, not in the Storage step, so the picked folder survives moving between steps.
+  const folderSeed = useFolderSeed({ game: draft.name.trim(), volumes: draft.volumes });
+  const { reset: resetFolderSeed, persistAs: persistFolderSeed, discardPersisted: discardFolderSeed } = folderSeed;
+
   // The step body's scroll container is a single persistent DOM node whose
   // children swap as `stepIndex` changes, so a scroll offset left over from
   // one step would otherwise carry over to the next.
@@ -164,10 +170,19 @@ export function AddGameWizard({
     setServerIssues(null);
     setSubmitting(false);
     resetAutosave();
+    resetFolderSeed();
   }
 
   /** Handles the dialog's own open/close, flushing any pending autosave and resetting the draft on close. */
   function handleOpenChange(next: boolean) {
+    // A dialog-initiated close (Cancel/Escape/overlay) discards the draft, so its persisted folder selection goes too;
+    // `handleSubmit` closes through `closeWizard()` directly so a created game keeps its selection.
+    if (!next) void discardFolderSeed();
+    applyOpen(next);
+  }
+
+  /** Opens or closes the dialog without touching persisted folder selections. */
+  function applyOpen(next: boolean) {
     openRef.current = next;
     setOpen(next);
     if (!next) {
@@ -243,8 +258,11 @@ export function AddGameWizard({
       if (!openRef.current) return;
 
       if (result.ok) {
+        await persistFolderSeed(payload.name);
         toast.success(`${payload.name} created`, {
-          description: 'Run plan and apply on the Infrastructure page to deploy it.',
+          description: folderSeed.scan
+            ? 'Run plan and apply on the Infrastructure page, then upload your folder from the game page.'
+            : 'Run plan and apply on the Infrastructure page to deploy it.',
         });
         // Awaited (not fire-and-forget) so the IPC clear has actually landed
         // before the dialog closes and the caller navigates away — otherwise
@@ -252,7 +270,7 @@ export function AddGameWizard({
         // `getGameDraft()` effect) could race the clear and briefly still
         // see the just-submitted draft as "unfinished".
         await api.clearGameDraft();
-        handleOpenChange(false);
+        applyOpen(false);
         navigate(`/games/${payload.name}`);
         return;
       }
@@ -316,7 +334,12 @@ export function AddGameWizard({
               onHealthCheckChange={patchHealthCheck}
             />
           )}
-          {step === 'storage' && <StorageStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
+          {step === 'storage' && (
+            <div className="space-y-6">
+              <StorageStep draft={draft} issues={stepIssues} onChange={patchDraft} />
+              <FolderSeedSection seed={folderSeed} volumes={draft.volumes} idPrefix="wizard-folder-seed" />
+            </div>
+          )}
           {step === 'environment' && <EnvironmentStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
           {step === 'review' && <ReviewStep draft={draft} issues={stepIssues} submitError={submitError} />}
         </div>

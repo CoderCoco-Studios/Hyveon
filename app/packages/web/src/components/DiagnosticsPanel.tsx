@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pause, Play, Search } from 'lucide-react';
 import { ErrorBanner } from './error-banner.component.js';
 import { ExportBundleButton } from './export-bundle-button.component.js';
+import { StrayHelpersButton } from './stray-helpers-button.component.js';
 import { Button } from './ui/button.component.js';
 import { Input } from './ui/input.component.js';
 import { LogLineList } from './log-line-display.component.js';
@@ -71,6 +72,8 @@ export function DiagnosticsPanel() {
       </div>
 
       <ExportBundleButton />
+
+      <StrayHelpersButton />
 
       <LogLineList
         ref={scrollRef}

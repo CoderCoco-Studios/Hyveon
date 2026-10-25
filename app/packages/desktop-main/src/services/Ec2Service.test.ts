@@ -4,6 +4,9 @@ import { mockClient } from 'aws-sdk-client-mock';
 import {
   EC2Client,
   DescribeNetworkInterfacesCommand,
+  AuthorizeSecurityGroupIngressCommand,
+  DescribeSecurityGroupRulesCommand,
+  RevokeSecurityGroupIngressCommand,
 } from '@aws-sdk/client-ec2';
 
 vi.mock('../logger.js', () => ({
@@ -105,6 +108,67 @@ describe('Ec2Service', () => {
       await credentialedService.getPublicIp('eni-abc');
 
       expect(observedCredentials).toMatchObject({ accessKeyId: 'AKIA-test', secretAccessKey: 'secret-test' });
+    });
+  });
+
+  describe('authorizeIngress', () => {
+    it('should open the cidr on the tcp port with the description', async () => {
+      ec2Mock.on(AuthorizeSecurityGroupIngressCommand).resolves({});
+      await service.authorizeIngress('sg-1', '1.2.3.4/32', 8080, 'hyveon-filemgr:g:r');
+      const input = ec2Mock.commandCalls(AuthorizeSecurityGroupIngressCommand)[0]!.args[0].input;
+      expect(input.GroupId).toBe('sg-1');
+      expect(input.IpPermissions).toEqual([
+        { IpProtocol: 'tcp', FromPort: 8080, ToPort: 8080, IpRanges: [{ CidrIp: '1.2.3.4/32', Description: 'hyveon-filemgr:g:r' }] },
+      ]);
+    });
+
+    it('should treat a duplicate rule as success', async () => {
+      const dup = Object.assign(new Error('exists'), { name: 'InvalidPermission.Duplicate' });
+      ec2Mock.on(AuthorizeSecurityGroupIngressCommand).rejects(dup);
+      await expect(service.authorizeIngress('sg-1', '1.2.3.4/32', 8080, 'd')).resolves.toBeUndefined();
+    });
+
+    it('should throw a plain Error with the normalized message on other failures', async () => {
+      ec2Mock.on(AuthorizeSecurityGroupIngressCommand).rejects(new Error('UnauthorizedOperation'));
+      await expect(service.authorizeIngress('sg-1', '1.2.3.4/32', 8080, 'd')).rejects.toThrow('UnauthorizedOperation');
+    });
+  });
+
+  describe('listIngressRulesByDescriptionPrefix', () => {
+    it('should return only ingress rules whose description has the prefix', async () => {
+      ec2Mock.on(DescribeSecurityGroupRulesCommand).resolves({
+        SecurityGroupRules: [
+          { SecurityGroupRuleId: 'sgr-1', Description: 'hyveon-filemgr:g:r', CidrIpv4: '1.2.3.4/32', IsEgress: false },
+          { SecurityGroupRuleId: 'sgr-2', Description: 'other', IsEgress: false },
+          { SecurityGroupRuleId: 'sgr-3', Description: 'hyveon-filemgr:g:r', IsEgress: true },
+        ],
+      });
+      expect(await service.listIngressRulesByDescriptionPrefix('sg-1', 'hyveon-filemgr:')).toEqual([
+        { ruleId: 'sgr-1', description: 'hyveon-filemgr:g:r', cidr: '1.2.3.4/32' },
+      ]);
+    });
+
+    it('should return [] on API error', async () => {
+      ec2Mock.on(DescribeSecurityGroupRulesCommand).rejects(new Error('boom'));
+      expect(await service.listIngressRulesByDescriptionPrefix('sg-1', 'p')).toEqual([]);
+    });
+  });
+
+  describe('revokeIngressRules', () => {
+    it('should revoke by rule id', async () => {
+      ec2Mock.on(RevokeSecurityGroupIngressCommand).resolves({});
+      expect(await service.revokeIngressRules('sg-1', ['sgr-1'])).toBe(true);
+      expect(ec2Mock.commandCalls(RevokeSecurityGroupIngressCommand)[0]!.args[0].input.SecurityGroupRuleIds).toEqual(['sgr-1']);
+    });
+
+    it('should make no call for an empty list', async () => {
+      expect(await service.revokeIngressRules('sg-1', [])).toBe(true);
+      expect(ec2Mock.commandCalls(RevokeSecurityGroupIngressCommand)).toHaveLength(0);
+    });
+
+    it('should return false on API error', async () => {
+      ec2Mock.on(RevokeSecurityGroupIngressCommand).rejects(new Error('nope'));
+      expect(await service.revokeIngressRules('sg-1', ['sgr-1'])).toBe(false);
     });
   });
 });

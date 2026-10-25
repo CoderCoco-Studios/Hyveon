@@ -163,5 +163,12 @@ design.
    the idle counter — it is an `idle_checks` tag on each running task.
    Counter resets when a task stops, which is free.
 
+8. **The file-manager security group has no default ingress.**
+   `securityGroups.ts` declares it with an empty `ingress` array.
+   When the desktop app launches a FileBrowser helper it detects the operator's current public IP and authorizes only `<ip>/32` on port 8080, then revokes that rule when the helper stops.
+   Folder-upload helpers are served over HTTPS with a per-launch self-signed certificate; the app pins that certificate's SHA-256 fingerprint rather than trusting a CA, and the one-time credential never leaves the main process.
+   Interactive Files sessions are still plain `http://` ([Dashboard](/app/dashboard)).
+   Leftovers are cleaned up two ways: the app sweeps for stray upload helpers (tagged `Purpose=seed-upload`) older than 15 minutes at startup, and the EventBridge Scheduler auto-stop ends any helper after 2 hours.
+
 See the [maintainer guide](/guides/maintainer) for
 what tends to break these and what the failure modes look like.

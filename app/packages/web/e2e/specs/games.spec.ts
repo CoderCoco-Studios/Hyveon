@@ -173,3 +173,74 @@ test.describe('game detail page', () => {
     await expect(games.notFoundMessage('unknown-game')).toBeVisible();
   });
 });
+
+test.describe('game detail page: seed from folder', () => {
+  test('should pick a folder, deselect a directory, and run the upload to a verified result', async ({ games }) => {
+    await stubApis(games.page, { games: [declaredDeployed] });
+    await games.gotoDetail('minecraft');
+
+    await games.chooseFolderButton().click();
+    await expect(games.destinationInput()).toHaveValue('/data');
+    await expect(games.seedSummary()).toContainText('3 files selected');
+    await expect(games.seedSummary()).toContainText('1 symbolic link will be skipped');
+
+    await games.includeCheckbox('Config').uncheck();
+    await expect(games.seedSummary()).toContainText('1 file selected');
+
+    await games.uploadFolderButton().click();
+    await expect(games.uploadProgressBar()).toBeVisible();
+    await expect(games.uploadVerifiedMessage()).toBeVisible();
+  });
+
+  test('should warn before overwriting existing volume files and continue only after confirmation', async ({ games }) => {
+    await stubApis(games.page, { games: [declaredDeployed] });
+    await games.page.addInitScript(() => {
+      (window as unknown as { __e2eFolderConflicts: boolean }).__e2eFolderConflicts = true;
+    });
+    await games.gotoDetail('minecraft');
+    await games.chooseFolderButton().click();
+    await games.uploadFolderButton().click();
+
+    await expect(games.overwriteWarning()).toContainText('2 files on the volume would be overwritten');
+    await expect(games.overwriteWarning()).toContainText('Data/w.db');
+    await expect(games.uploadVerifiedMessage()).toBeHidden();
+
+    await games.overwriteWarning().getByRole('button', { name: 'Overwrite and upload' }).click();
+    await expect(games.uploadVerifiedMessage()).toBeVisible();
+  });
+
+  test('should cancel the run when the operator declines the overwrite warning', async ({ games }) => {
+    await stubApis(games.page, { games: [declaredDeployed] });
+    await games.page.addInitScript(() => {
+      (window as unknown as { __e2eFolderConflicts: boolean }).__e2eFolderConflicts = true;
+    });
+    await games.gotoDetail('minecraft');
+    await games.chooseFolderButton().click();
+    await games.uploadFolderButton().click();
+
+    await games.overwriteWarning().getByRole('button', { name: 'Cancel' }).click();
+
+    await expect(games.page.getByText(/Cancelled\./)).toBeVisible();
+    await expect(games.overwriteWarning()).toBeHidden();
+  });
+
+  test('should keep Upload disabled when the destination is outside every volume', async ({ games }) => {
+    await stubApis(games.page, { games: [declaredDeployed] });
+    await games.gotoDetail('minecraft');
+
+    await games.chooseFolderButton().click();
+    await games.destinationInput().fill('/etc');
+
+    await expect(games.uploadFolderButton()).toBeDisabled();
+  });
+
+  test('should explain why Upload is disabled for a game that is not deployed', async ({ games }) => {
+    await stubApis(games.page, { games: [{ ...declaredDeployed, deployed: false }] });
+    await games.gotoDetail('minecraft');
+
+    await games.chooseFolderButton().click();
+
+    await expect(games.uploadFolderButton()).toBeDisabled();
+    await expect(games.page.getByText(/has not been deployed yet/)).toBeVisible();
+  });
+});

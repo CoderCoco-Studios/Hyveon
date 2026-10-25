@@ -120,6 +120,15 @@ import type {
   RendererLogEntry,
 } from './hyveon-api.js';
 import type { StackOutputs } from '@hyveon/shared';
+import type {
+  FolderOverwriteDecisionResult,
+  FolderScanResult,
+  FolderUploadProgress,
+  FolderUploadRequest,
+  FolderUploadStartResult,
+  FolderUploadStoredState,
+  StrayHelperReport,
+} from '@hyveon/shared/folderUpload';
 
 /** Fixed side-channel `IacController.initializeStack` pushes streamed phase events on. */
 const STACK_INIT_CHUNK_CHANNEL = 'iac.stack.initialize.chunk';
@@ -393,6 +402,25 @@ const api: HyveonApi = {
     list: (game: string) => invoke('files.list', game),
     start: (game: string) => invoke('files.start', game),
     stop: (game: string) => invoke('files.stop', game),
+  },
+
+  folderUpload: {
+    pickFolder: () => invoke<FolderScanResult | null>('folderUpload.pickFolder'),
+    rescanSelection: (game: string) => invoke<FolderScanResult | null>('folderUpload.rescanSelection', game),
+    getSelection: (game: string) => invoke<FolderUploadStoredState | null>('folderUpload.getSelection', game),
+    setSelection: (request: FolderUploadRequest) => invoke<{ saved: true }>('folderUpload.setSelection', request),
+    clearSelection: (game: string) => invoke<{ cleared: true }>('folderUpload.clearSelection', game),
+    startUpload: (request: FolderUploadRequest) => invoke<FolderUploadStartResult>('folderUpload.startUpload', request),
+    cancelUpload: (game: string) => invoke<{ cancelled: boolean }>('folderUpload.cancelUpload', game),
+    confirmOverwrite: (game: string, proceed: boolean) =>
+      invoke<FolderOverwriteDecisionResult>('folderUpload.confirmOverwrite', { game, proceed }),
+    getProgress: (game: string) => invoke<FolderUploadProgress | null>('folderUpload.getProgress', game),
+    cleanupStrayHelpers: () => invoke<StrayHelperReport>('folderUpload.cleanupStrayHelpers'),
+    onProgress: (cb: (progress: FolderUploadProgress) => void) => {
+      const listener = (_event: IpcRendererEvent, progress: FolderUploadProgress) => cb(progress);
+      ipcRenderer.on('folderUpload.progress', listener);
+      return () => ipcRenderer.removeListener('folderUpload.progress', listener);
+    },
   },
 
   discord: {

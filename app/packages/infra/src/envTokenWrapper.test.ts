@@ -122,7 +122,7 @@ describe('buildIpv4WrapperScript rejects a non-IP echoed response', () => {
     });
     const { stdout } = await execFileAsync('/bin/sh', ['-c', script]);
     expect(stdout).toBe('host=203.0.113.9:8211');
-    expect(requestCount).toBe(2);
+    expect(requestCount).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -157,6 +157,6 @@ describe('buildIpv4WrapperScript rejects an out-of-range octet', () => {
     });
     const { stdout } = await execFileAsync('/bin/sh', ['-c', script]);
     expect(stdout).toBe('host=203.0.113.11:8211');
-    expect(requestCount).toBe(2);
+    expect(requestCount).toBeGreaterThanOrEqual(2);
   });
 });

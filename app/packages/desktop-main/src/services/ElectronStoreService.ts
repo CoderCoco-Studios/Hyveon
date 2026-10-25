@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { FolderUploadLastRun, FolderUploadStoredState } from '@hyveon/shared/folderUpload';
 import { hostname as osHostname, userInfo } from 'node:os';
 import { Injectable } from '@nestjs/common';
 import type Store from 'electron-store';
@@ -274,6 +275,11 @@ export interface AppStoreSchema {
    * wizard can be open in the UI at a time.
    */
   addGameWizardDraft?: StoredGameWizardDraft;
+  /**
+   * Per-game folder-to-volume upload selection and last-run status, keyed by game name. Machine-local by design;
+   * nothing here is written to `deployment-config.json`. Contains local paths only, no secrets.
+   */
+  folderUpload?: Record<string, FolderUploadStoredState>;
 }
 
 /**
@@ -634,6 +640,37 @@ export class ElectronStoreService {
     if (!current.orphanedRollback) return;
     const { orphanedRollback: _orphanedRollback, ...rest } = current;
     this.set('pulumi', rest);
+  }
+
+  /** Reads the persisted folder-upload state for `game`, if any. */
+  getFolderUploadState(game: string): FolderUploadStoredState | undefined {
+    return this.get('folderUpload')?.[game];
+  }
+
+  /**
+   * Persists the operator's folder selection for `game`, preserving its `lastRun`.
+   *
+   * @param selection - `localPath`, `include` and `destination` to remember.
+   */
+  setFolderUploadSelection(game: string, selection: Omit<FolderUploadStoredState, 'lastRun'>): void {
+    const all = this.get('folderUpload') ?? {};
+    this.set('folderUpload', { ...all, [game]: { ...all[game], ...selection } });
+  }
+
+  /** Forgets the persisted folder selection and last-run record for `game`; a no-op when none is stored. */
+  clearFolderUploadState(game: string): void {
+    const all = this.get('folderUpload');
+    if (!all || !(game in all)) return;
+    const { [game]: _removed, ...rest } = all;
+    this.set('folderUpload', rest);
+  }
+
+  /** Records the outcome of the most recent upload run for `game`; a no-op when no selection was ever stored. */
+  setFolderUploadLastRun(game: string, lastRun: FolderUploadLastRun): void {
+    const all = this.get('folderUpload') ?? {};
+    const current = all[game];
+    if (!current) return;
+    this.set('folderUpload', { ...all, [game]: { ...current, lastRun } });
   }
 
   /**

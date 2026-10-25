@@ -283,7 +283,7 @@ describe('defineSecurityGroups', () => {
     expect(ingress.some((rule) => rule.description.includes('Caddy sidecar'))).toBe(false);
   });
 
-  it('should declare the file-manager security group with its fixed port-8080 ingress rule', async () => {
+  it('should declare the file-manager security group with no ingress rules', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineSecurityGroups({
       projectName: 'hyveon',
@@ -295,9 +295,9 @@ describe('defineSecurityGroups', () => {
     const sg = findByName(mocks.resources, 'hyveon-filemgr-sg');
     expect(sg.type).toBe('aws:ec2/securityGroup:SecurityGroup');
     expect(sg.inputs.namePrefix).toBe('hyveon-filemgr-sg-');
-    expect(sg.inputs.ingress).toEqual([
-      { description: 'FileBrowser web UI', fromPort: 8080, toPort: 8080, protocol: 'tcp', cidrBlocks: ['0.0.0.0/0'] },
-    ]);
+    expect(sg.inputs.description).toContain('operator IP only');
+    expect(sg.inputs.vpcId).toBe('vpc-mock');
+    expect(sg.inputs.ingress).toEqual([]);
     expect(sg.inputs.egress).toEqual([{ fromPort: 0, toPort: 0, protocol: '-1', cidrBlocks: ['0.0.0.0/0'] }]);
     expect(sg.inputs.tags).toEqual({ Name: 'hyveon-filemgr-sg' });
   });

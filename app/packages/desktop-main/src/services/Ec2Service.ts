@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
-import { resolveEniPublicIp } from '@hyveon/shared';
+import {
+  EC2Client,
+  DescribeNetworkInterfacesCommand,
+  AuthorizeSecurityGroupIngressCommand,
+  DescribeSecurityGroupRulesCommand,
+  RevokeSecurityGroupIngressCommand,
+} from '@aws-sdk/client-ec2';
+import { errMessage, resolveEniPublicIp } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
@@ -72,6 +78,90 @@ export class Ec2Service {
     } catch (err) {
       logger.error('Failed to resolve private IP', { err, eniId });
       return null;
+    }
+  }
+
+  /**
+   * Opens `cidr` on `port` (tcp) of `securityGroupId`, tagging the rule with `description` so it can be found again
+   * by {@link Ec2Service.listIngressRulesByDescriptionPrefix}. An identical rule that already exists counts as success.
+   *
+   * @throws Error carrying only the normalized message when EC2 rejects the call.
+   */
+  async authorizeIngress(securityGroupId: string, cidr: string, port: number, description: string): Promise<void> {
+    logger.debug('Ec2Service.authorizeIngress: authorizing rule', { securityGroupId, cidr, port, description });
+    try {
+      await this.getClient().send(
+        new AuthorizeSecurityGroupIngressCommand({
+          GroupId: securityGroupId,
+          IpPermissions: [
+            {
+              IpProtocol: 'tcp',
+              FromPort: port,
+              ToPort: port,
+              IpRanges: [{ CidrIp: cidr, Description: description }],
+            },
+          ],
+        }),
+      );
+    } catch (err) {
+      const message = errMessage(err);
+      if (err instanceof Error && err.name === 'InvalidPermission.Duplicate') {
+        logger.warn('Ec2Service.authorizeIngress: rule already present', { securityGroupId, cidr, port });
+        return;
+      }
+      logger.error('Ec2Service.authorizeIngress: failed', { securityGroupId, cidr, port, error: message });
+      throw new Error(message);
+    }
+  }
+
+  /**
+   * Lists the ingress rules of `securityGroupId` whose description starts with `prefix` — how the app finds rules it
+   * added itself (outside Pulumi's inline set). Returns `[]` when the lookup fails, so cleanup stays best-effort.
+   */
+  async listIngressRulesByDescriptionPrefix(
+    securityGroupId: string,
+    prefix: string,
+  ): Promise<{ ruleId: string; description: string; cidr: string }[]> {
+    logger.debug('Ec2Service.listIngressRulesByDescriptionPrefix: listing rules', { securityGroupId, prefix });
+    try {
+      const rules: { ruleId: string; description: string; cidr: string }[] = [];
+      let nextToken: string | undefined;
+      do {
+        const resp = await this.getClient().send(
+          new DescribeSecurityGroupRulesCommand({
+            Filters: [{ Name: 'group-id', Values: [securityGroupId] }],
+            NextToken: nextToken,
+          }),
+        );
+        for (const rule of resp.SecurityGroupRules ?? []) {
+          if (rule.IsEgress || !rule.SecurityGroupRuleId || !rule.Description?.startsWith(prefix)) continue;
+          rules.push({ ruleId: rule.SecurityGroupRuleId, description: rule.Description, cidr: rule.CidrIpv4 ?? '' });
+        }
+        nextToken = resp.NextToken;
+      } while (nextToken);
+      return rules;
+    } catch (err) {
+      logger.warn('Ec2Service.listIngressRulesByDescriptionPrefix: failed', {
+        securityGroupId,
+        prefix,
+        error: errMessage(err),
+      });
+      return [];
+    }
+  }
+
+  /** Revokes the given ingress rule ids from `securityGroupId`. Best-effort: returns `false` (after logging) on failure. */
+  async revokeIngressRules(securityGroupId: string, ruleIds: string[]): Promise<boolean> {
+    if (ruleIds.length === 0) return true;
+    logger.debug('Ec2Service.revokeIngressRules: revoking rules', { securityGroupId, count: ruleIds.length });
+    try {
+      await this.getClient().send(
+        new RevokeSecurityGroupIngressCommand({ GroupId: securityGroupId, SecurityGroupRuleIds: ruleIds }),
+      );
+      return true;
+    } catch (err) {
+      logger.warn('Ec2Service.revokeIngressRules: failed', { securityGroupId, ruleIds, error: errMessage(err) });
+      return false;
     }
   }
 }

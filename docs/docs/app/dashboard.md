@@ -178,15 +178,12 @@ Things worth knowing:
   the watchdog Lambda's idle-shutdown logic only ever looks at `{game}-server`
   tasks, never the FileBrowser helper's `filemgr-*` ones — a forgotten session
   used to run (and bill) indefinitely.
-- The helper's port is still reachable from the whole internet while it is
-  up — only the auth gap is closed here, not the exposure. Narrowing the
-  security group to the operator's own IP is a known, separately-tracked
-  follow-up.
-- The connection is plain `http://`, not `https://` — there is no TLS in
+- The file manager's security group declares no ingress rules; the desktop app opens port 8080 at runtime for your public IP only (`<ip>/32`), so the helper is reachable only from the operator's own address.
+- Interactive Files sessions use plain `http://`, not `https://` — there is no TLS in
   front of the helper task, so the one-time password (and the FileBrowser
   session it starts) travels in cleartext. Treat the link as you would any
   unencrypted admin panel: fine for a quick trusted-network session, not for
-  browsing it over an untrusted network.
+  browsing it over an untrusted network. (The helpers the app launches for [folder uploads](/app/games#seeding-a-volume-from-a-folder) are different: they are served over HTTPS with a per-launch certificate the app pins, and you never open them in a browser.)
 - Startup takes roughly 30 seconds; the modal polls every 5 seconds while the
   task is transitioning and stops polling once it settles.
 - If infrastructure has not been deployed you get `Infrastructure not

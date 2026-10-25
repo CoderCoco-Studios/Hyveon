@@ -31,6 +31,19 @@ function makeHyveonMock() {
       start: vi.fn().mockResolvedValue({ success: true, message: 'ok' }),
       stop: vi.fn().mockResolvedValue({ success: true, message: 'ok' }),
     },
+    folderUpload: {
+      pickFolder: vi.fn().mockResolvedValue(null),
+      rescanSelection: vi.fn().mockResolvedValue(null),
+      getSelection: vi.fn().mockResolvedValue(null),
+      setSelection: vi.fn().mockResolvedValue({ saved: true }),
+      clearSelection: vi.fn().mockResolvedValue({ cleared: true }),
+      startUpload: vi.fn().mockResolvedValue({ started: true, runId: 'r' }),
+      cancelUpload: vi.fn().mockResolvedValue({ cancelled: true }),
+      confirmOverwrite: vi.fn().mockResolvedValue({ resolved: true }),
+      getProgress: vi.fn().mockResolvedValue(null),
+      cleanupStrayHelpers: vi.fn().mockResolvedValue({ stopped: [], skipped: 0, revokedRules: 0, errors: [] }),
+      onProgress: vi.fn().mockReturnValue(() => undefined),
+    },
     discord: {
       getConfig: vi.fn().mockResolvedValue({ clientId: '', allowedGuilds: [], gamePermissions: {} }),
       putConfig: vi.fn().mockResolvedValue({ success: true, config: {} }),
@@ -125,6 +138,38 @@ describe('IPC bridge delegation', () => {
   it('should delegate api.filesMgrStop() to window.hyveon.files.stop() with the game id', async () => {
     await api.filesMgrStop('minecraft');
     expect(hyveon.files.stop).toHaveBeenCalledWith('minecraft');
+  });
+
+  it('should delegate the folder upload wrappers to window.hyveon.folderUpload', async () => {
+    const request = { game: 'minecraft', scanId: 's', include: ['Data'], destination: '/data' };
+    await api.folderPick();
+    await api.folderRescan('minecraft');
+    await api.folderGetSelection('minecraft');
+    await api.folderSetSelection(request);
+    await api.folderClearSelection('minecraft');
+    await api.folderStartUpload(request);
+    await api.folderCancelUpload('minecraft');
+    await api.folderConfirmOverwrite('minecraft', true);
+    await api.folderGetProgress('minecraft');
+    await api.folderCleanupStrayHelpers();
+    expect(hyveon.folderUpload.pickFolder).toHaveBeenCalledOnce();
+    expect(hyveon.folderUpload.rescanSelection).toHaveBeenCalledWith('minecraft');
+    expect(hyveon.folderUpload.getSelection).toHaveBeenCalledWith('minecraft');
+    expect(hyveon.folderUpload.setSelection).toHaveBeenCalledWith(request);
+    expect(hyveon.folderUpload.clearSelection).toHaveBeenCalledWith('minecraft');
+    expect(hyveon.folderUpload.startUpload).toHaveBeenCalledWith(request);
+    expect(hyveon.folderUpload.cancelUpload).toHaveBeenCalledWith('minecraft');
+    expect(hyveon.folderUpload.confirmOverwrite).toHaveBeenCalledWith('minecraft', true);
+    expect(hyveon.folderUpload.getProgress).toHaveBeenCalledWith('minecraft');
+    expect(hyveon.folderUpload.cleanupStrayHelpers).toHaveBeenCalledOnce();
+  });
+
+  it('should return the unsubscribe function from api.folderOnProgress() synchronously', () => {
+    const unsubscribe = vi.fn();
+    hyveon.folderUpload.onProgress.mockReturnValue(unsubscribe);
+    const cb = vi.fn();
+    expect(api.folderOnProgress(cb)).toBe(unsubscribe);
+    expect(hyveon.folderUpload.onProgress).toHaveBeenCalledWith(cb);
   });
 
   it('should delegate api.createGame() to window.hyveon.games.create() with the exact payload', async () => {
