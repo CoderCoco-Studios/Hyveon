@@ -248,6 +248,10 @@ server starts." Each row has:
 File seeds can be removed down to zero. Blank fields are dropped entirely
 rather than written as empty strings.
 
+**Seed from folder** — "Optional — copy a local folder into a volume after the game is deployed." This is a separate section below the file seeds, and it does not touch them.
+Use it when the data is too big to inline, such as a 1.2 GB `Config` and `Data` tree.
+See [Seeding a volume from a folder](#seeding-a-volume-from-a-folder).
+
 ### Step 5 — Environment
 
 > Optional — environment variables injected into the container (e.g.
@@ -339,6 +343,8 @@ The footer button reads **Submit**.
 On success you get a `minecraft created` toast and are taken straight to the
 new game's detail page. The game appears in the table as **Pending deploy**
 until you apply.
+If you chose a folder to seed, the toast also reminds you to upload it from the game page after the apply.
+The wizard never runs plan or apply, and it never uploads anything itself.
 
 ### How validation behaves
 
@@ -434,6 +440,7 @@ without prompting for confirmation. Below that:
 | **Environment variables** | Name/value pairs | Only if any are declared |
 | **File seeds** | A collapsed `3 files seeded at task start` summary; expand for the paths (and modes). Contents are never shown | Only if any are declared |
 | **Connect message** | The raw message template | Only if set |
+| **Seed from folder** | The folder picker, include tree, destination, **Upload folder** action and progress meter — see [Seeding a volume from a folder](#seeding-a-volume-from-a-folder) | Declared games only |
 
 ### The ghost-entry variant
 
@@ -450,6 +457,81 @@ AWS resources.
 
 If you navigate to a name that exists in neither place you get
 `No game named "foo" was found.`
+
+## Seeding a volume from a folder
+
+**Seed from folder** copies a directory tree from your computer onto one of the game's EFS volumes.
+It appears in two places: the wizard's Storage step (to choose what to upload) and the game detail page (to choose, upload and watch progress).
+Inline [file seeds](#step-4--storage) are unchanged and still run at first server start.
+
+### Choosing the folder
+
+1. Click **Choose folder**.
+   The native folder dialog opens, and the app scans your choice.
+   Symbolic links are skipped, and the summary says how many.
+2. The scan appears as a tree.
+   Everything is included by default.
+   Each directory shows the total size of its files; each file shows its own size.
+3. Tick or untick entries.
+   Unticking a directory excludes everything under it.
+   A directory with only some children included shows the mixed state, and clicking it includes all of them.
+4. Set **Destination in container**.
+   It defaults to the first volume's path.
+   It must be an absolute path inside one of the game's volume paths, with no `.` or `..` segments, or the field shows an error and **Upload folder** stays disabled.
+5. The summary line reads like `3 files selected, 1.0 KB of 3 files (1.0 KB) in the folder.`
+
+The layout beneath the chosen folder is kept beneath the destination: with `/data` as the destination, `Config/a.json` lands at `/data/Config/a.json`.
+
+The selection (folder path, included entries and destination) is saved per game on this computer, not in `deployment-config.json`.
+It survives closing the app: reopening the game page re-scans the folder and restores the ticks and destination.
+Choosing it on another computer means choosing it again.
+In the wizard the selection is saved under the game's name as you go, so resuming a draft restores it.
+If you rename the game before submitting, the selection is saved again under the final name on submit.
+
+### Uploading
+
+Upload is a separate step from the wizard, because the volume does not exist until the infrastructure is applied.
+After you run plan and apply from [Infrastructure](/app/iac), open the game page and click **Upload folder**.
+
+| Situation | What you see |
+|---|---|
+| The game is not deployed yet | **Upload folder** is disabled with "This game has not been deployed yet. Apply the infrastructure first; your selection is kept." |
+| The game server is running or starting | Disabled with "The game server is running. Stop it before uploading." |
+| No folder chosen, nothing included, or an invalid destination | Disabled |
+| A file manager session is already open for the game | A prompt asks you to stop it. **Stop session and upload** stops it and starts the upload; **Keep it open** cancels. The app cannot reuse an existing session because it does not hold that session's credential |
+
+The app launches its own file manager helper task for the upload and stops it when the run finishes, fails or is cancelled.
+The helper accepts connections only from your current public IP, over TLS with a certificate created for that one launch.
+Neither the helper's password nor any file contents reach the page.
+
+### The progress meter
+
+While a run is active the card shows a meter and locks the folder controls.
+
+| Phase | Meaning |
+|---|---|
+| **Starting helper** | Launching the helper task. No percentage yet |
+| **Uploading** | Copying files, up to four at a time. Shows percent, bytes done of total, files done of total, the current file, the transfer rate and the time left |
+| **Verifying** | Comparing the volume against your selection. The bar holds at 99% until this passes |
+| **Done** | Every selected file is on the volume with the expected size. Shows the file count and total size |
+| **Failed** | The error message, plus **Resume upload** |
+| **Cancelled** | Files already copied are kept. **Resume upload** continues |
+
+**Cancel** is available while the run is starting, uploading or verifying.
+A failed verification lists up to five missing or size-mismatched paths, then "and N more", and offers **Retry upload** instead.
+
+Resuming skips files already on the volume with the right size and overwrites partial ones, so an interrupted 1,033-file upload that reached file 600 uploads only the rest.
+If the helper's 2-hour auto-stop elapses mid-upload or your public IP changes, the helper becomes unreachable.
+Each file is retried up to three times on transport errors, and then the run fails; use **Resume upload** to continue.
+
+The meter picks up where it was if you leave the game page and come back.
+After you restart the app, the card shows the last run's outcome (for example "Last upload failed ... 600 files, 2.0 KB") with **Resume upload** for a failed or cancelled run, once the saved folder has been re-scanned.
+If the folder can no longer be read, choose it again.
+
+### Cleaning up stray helpers
+
+If the app exits mid-upload, the helper's own auto-stop is the backstop, and the app also sweeps for helpers older than 15 minutes when it starts.
+You can run the sweep yourself from [Settings → Diagnostics](/app/settings#clean-up-stray-helpers).
 
 ## Editing a game
 

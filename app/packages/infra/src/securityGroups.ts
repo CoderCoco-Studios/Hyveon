@@ -338,17 +338,10 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     `${projectName}-filemgr-sg`,
     {
       namePrefix: `${projectName}-filemgr-sg-`,
-      description: 'FileBrowser tasks - allows port 8080 inbound',
+      description: 'FileBrowser tasks - rules added at runtime by the desktop app for the operator IP only',
       vpcId,
-      ingress: [
-        {
-          description: 'FileBrowser web UI',
-          fromPort: 8080,
-          toPort: 8080,
-          protocol: 'tcp',
-          cidrBlocks: ['0.0.0.0/0'],
-        },
-      ],
+      // Explicit empty array (not omitted) so an apply also revokes the legacy 0.0.0.0/0:8080 rule on existing groups.
+      ingress: [],
       egress: [openEgress],
       tags: { Name: `${projectName}-filemgr-sg` },
     },

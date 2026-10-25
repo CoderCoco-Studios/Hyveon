@@ -9,6 +9,7 @@ import { LogsService } from '../services/LogsService.js';
 import { CostService } from '../services/CostService.js';
 import { FileManagerService } from '../services/FileManagerService.js';
 import { SchedulerService } from '../services/SchedulerService.js';
+import { PublicIpService } from '../services/PublicIpService.js';
 
 /**
  * Feature module grouping every AWS-facing service (ECS, EC2, CloudWatch
@@ -44,7 +45,7 @@ import { SchedulerService } from '../services/SchedulerService.js';
  */
 @Module({
   imports: [ConfigModule, CloudProviderModule, ElectronStoreModule, DeploymentConfigModule],
-  providers: [Ec2Service, EcsService, LogsService, CostService, SchedulerService, FileManagerService],
+  providers: [Ec2Service, EcsService, LogsService, CostService, SchedulerService, PublicIpService, FileManagerService],
   exports: [
     ConfigModule,
     CloudProviderModule,

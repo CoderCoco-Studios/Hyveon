@@ -15,6 +15,10 @@
       "types": "./dist/envTokens.d.ts",
       "default": "./dist/envTokens.js"
     },
+    "./folderUpload": {
+      "types": "./dist/folderUpload/index.d.ts",
+      "default": "./dist/folderUpload/index.js"
+    },
     "./secrets/secretsStore": {
       "types": "./dist/secrets/secretsStore.d.ts",
       "default": "./dist/secrets/secretsStore.js"

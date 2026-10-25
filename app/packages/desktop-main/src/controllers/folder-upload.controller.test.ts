@@ -1,0 +1,79 @@
+import 'reflect-metadata';
+import { describe, it, expect, vi } from 'vitest';
+import { BadRequestException } from '@nestjs/common';
+
+vi.mock('../logger.js', () => ({
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+import { FolderUploadController } from './folder-upload.controller.js';
+import type { FolderScanService } from '../services/FolderScanService.js';
+import type { FolderUploadService } from '../services/FolderUploadService.js';
+import { expectChannels } from '../testing/message-pattern.test-utils.js';
+
+/** Builds a controller over stubbed services. */
+function make() {
+  const uploads: Partial<FolderUploadService> = {
+    rescanSelection: vi.fn().mockResolvedValue(null),
+    getSelection: vi.fn().mockReturnValue(null),
+    setSelection: vi.fn(),
+    startUpload: vi.fn().mockResolvedValue({ started: true, runId: 'r' }),
+    cancel: vi.fn().mockReturnValue({ cancelled: true }),
+    getProgress: vi.fn().mockReturnValue(null),
+    cleanupStrayHelpers: vi.fn().mockResolvedValue({ stopped: [], skipped: 0, revokedRules: 0, errors: [] }),
+    onProgress: vi.fn(),
+  };
+  const scans: Partial<FolderScanService> = { pickAndScan: vi.fn().mockResolvedValue(null) };
+  return { uploads, scans, controller: new FolderUploadController(uploads as FolderUploadService, scans as FolderScanService) };
+}
+
+describe('FolderUploadController', () => {
+  it('should register every channel', () => {
+    expectChannels(FolderUploadController.prototype, [
+      ['pickFolder', 'folderUpload.pickFolder'],
+      ['rescanSelection', 'folderUpload.rescanSelection'],
+      ['getSelection', 'folderUpload.getSelection'],
+      ['setSelection', 'folderUpload.setSelection'],
+      ['startUpload', 'folderUpload.startUpload'],
+      ['cancelUpload', 'folderUpload.cancelUpload'],
+      ['getProgress', 'folderUpload.getProgress'],
+      ['cleanupStrayHelpers', 'folderUpload.cleanupStrayHelpers'],
+    ] as const);
+  });
+
+  it('should delegate pickFolder to the scan service', async () => {
+    const { controller, scans } = make();
+    await controller.pickFolder();
+    expect(scans.pickAndScan).toHaveBeenCalled();
+  });
+
+  it('should pass a valid start request through and default a missing include list to empty', async () => {
+    const { controller, uploads } = make();
+    await controller.startUpload({ game: 'g', scanId: 's', destination: '/data' } as never);
+    expect(uploads.startUpload).toHaveBeenCalledWith({ game: 'g', scanId: 's', destination: '/data', include: [] });
+  });
+
+  it('should reject a start request with no scan id or a non-array include', () => {
+    const { controller } = make();
+    expect(() => controller.startUpload({ game: 'g', destination: '/d', include: [] } as never)).toThrow(BadRequestException);
+    expect(() => controller.startUpload({ game: 'g', scanId: 's', destination: '/d', include: 'x' } as never)).toThrow(BadRequestException);
+  });
+
+  it('should reject an empty game on the per-game channels', () => {
+    const { controller } = make();
+    expect(() => controller.cancelUpload('')).toThrow(BadRequestException);
+    expect(() => controller.getSelection(undefined as never)).toThrow(BadRequestException);
+  });
+
+  it('should persist selections and report saved', () => {
+    const { controller, uploads } = make();
+    expect(controller.setSelection({ game: 'g', scanId: 's', include: ['a'], destination: '/d' })).toEqual({ saved: true });
+    expect(uploads.setSelection).toHaveBeenCalled();
+  });
+
+  it('should not subscribe to progress outside Electron', async () => {
+    const { controller, uploads } = make();
+    await controller.onModuleInit();
+    expect(uploads.onProgress).not.toHaveBeenCalled();
+  });
+});

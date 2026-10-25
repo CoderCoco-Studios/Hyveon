@@ -1,0 +1,52 @@
+## Context
+
+`FileManagerService` already launches an on-demand FileBrowser Fargate task per game that mounts that game's EFS access point, registers a throwaway task definition, protects it with a random per-launch admin password (returned once from `start()`), exposes it at `http://<publicIp>:8080`, and auto-stops after 2 hours via EventBridge Scheduler. That is "something that can read (and write) the volume directly". Existing `file_seeds` are inline in `deployment-config.json` and seeded through a Pulumi Lambda invocation; they cannot carry a 1.2 GB tree and give no progress. See proposal.md.
+
+Who reads what, and when: the wizard (Storage step) only records the folder selection; the helper cannot exist before the game's EFS access point does, and Pulumi creates that on apply. Upload is therefore a separate app-driven stage after apply, independent of Pulumi (Pulumi never sees the folder paths), with its meter shown on the wizard's completion step and on the game page.
+
+## Goals / Non-Goals
+
+**Goals:**
+- One gesture to copy a chosen directory tree (e.g. FoundryVTT `Config` + `Data`) onto a game's volume.
+- A live, accurate, determinate progress meter, resumable and verified.
+- Only the operator can upload: IP-scoped, authenticated, TLS with a pinned certificate.
+- No new AWS resources (no S3 staging, Lambda changes, VPC endpoint, IAM or config-schema changes); the only infra edit is removing the helper security group's world-open ingress.
+
+**Non-Goals:**
+- A single wizard step that also runs plan/apply (apply stays on the IaC page; too confusing a flow change).
+- Two-way sync, deleting files from the volume, permission/ownership management beyond what the access point enforces.
+- Replacing inline `file_seeds`.
+- Gating Discord `/server-start` during an upload (the app disables Start; upload requires the server stopped).
+- A generic in-app file browser (the existing helper modal remains).
+
+## Decisions
+
+1. **Reuse the FileBrowser helper as the write path.** The app starts the helper, then drives FileBrowser's REST API from desktop-main: `POST /api/login` → JWT, directory creation via `POST /api/resources/<dir>/`, file upload via `POST /api/resources/<path>?override=true` with a streamed body, listing via `GET /api/resources/<dir>` for resume and verification. Alternatives: (a) S3 staging + seeder Lambda — extra infra, 15-minute ceiling, progress only via polling a side channel; (b) ECS init container — progress only in logs, delays first `/server-start`; (c) SFTP/NFS from the operator machine — EFS is not reachable from outside the VPC. The helper approach needs no new infrastructure and its upload bytes are directly observable.
+2. **Progress from the byte stream.** Each file is read with `fs.createReadStream` through a counting `Transform` into the request body (Node `fetch` with `duplex: 'half'`, or `undici`); the total is `sum(sizes)` from the scan. A single aggregator emits `{ phase, bytes_done, bytes_total, files_done, files_total, current_path, rate, eta }` about every 500 ms over an IPC event channel; rate is a smoothed moving average. Bytes count as done when the socket accepts them, and the verification phase confirms what actually landed, so 100% is only declared after verification.
+3. **Concurrency.** Up to 4 files in flight; large files are not split. FileBrowser's default POST upload is a single streamed request; its TUS endpoint (`/api/tus`) is not used initially. Resume is per file (skip when listing shows matching size; overwrite partials).
+4. **Session lifecycle.** The upload service launches its own helper session (`FileManagerService` gets an internal start that returns the credential in-process, never over IPC), waits for RUNNING + URL (with the existing provisioning status feeding the meter's "starting helper" phase), runs the upload, and always stops the helper in a `finally` (including cancel/failure). If a helper session is already open for the game the app asks the operator to stop it, because its credential is unknown to the service. Auto-stop (2 h) is the backstop; if it elapses mid-upload the run fails with Resume (see Risks).
+5. **Folder pick and scan live in main.** IPC `dialog.showOpenDialog({ properties: ['openDirectory'] })` returns a scan id plus a `{name, kind, size}` tree; the renderer sends back relative include paths and never receives file contents. Symlinks are skipped and counted. Windows paths (`D:\...`) work natively. A total-size and file-count sanity cap with a confirmation (not a hard block) guards accidents (e.g. choosing a drive root).
+6. **Destination mapping.** The destination must be an absolute container path under a volume's `container_path`; the helper's root is the mounted access point, so the remote path is the destination with that `container_path` prefix stripped. Which volume the helper mounts is determined by `FileManagerService`/`EcsService` today (to be confirmed in the first task); the UI restricts the destination to that volume's `container_path`. Path-traversal (`..`, absolute entries) is rejected locally before any request.
+7. **State is app-local.** `{ game, localPath, include[], destination, lastRun: { status, completedAt, files, bytes, manifestHash } }` per game in electron-store via `ElectronStoreService`; nothing goes to `deployment-config.json`, so no `DeploymentConfig` field checklist applies. A selection made in the wizard before the volume exists is kept and offered for upload once apply succeeds. Trade-off: the selection is per-machine.
+8. **Verification.** After upload, list the destination tree via the API and compare count and per-file size to the scan; report missing/mismatched paths.
+9. **Self-destruct and orphan cleanup.** The upload helper is tagged so it is identifiable as an upload session: `startedBy: filemgr-<game>` (existing, so `getStatus`/`stop` keep working) plus `Purpose=seed-upload`, `Project=hyveon`. It is stopped in a `finally` on success, failure and cancel, and the existing 2-hour EventBridge one-time auto-stop remains the backstop if the app dies mid-run. Because no diagnostic tool for stray tasks exists today (the Diagnostics panel is log viewing), this change adds an **orphan sweep**: on app start and from a "Clean up stray helpers" action in Diagnostics, list tasks in the cluster whose `startedBy` starts with `filemgr-`, and stop those with no active upload run in this app that are older than 15 minutes (or all of them on explicit operator action), reporting what was stopped. The throwaway task definitions are deregistered with them.
+10. **Only the operator can upload (three layers).**
+   - **Network scoping.** Pulumi's `${projectName}-filemgr-sg` stops declaring `0.0.0.0/0:8080` ingress (it declares none). When the app launches an upload helper it detects the operator's public IPv4 (HTTPS to `checkip.amazonaws.com`) and calls `AuthorizeSecurityGroupIngress` for `<ip>/32:8080` with a description naming the game and run; it revokes that rule when the helper stops. Rules are added outside Pulumi's inline set on purpose; a later apply stripping a leftover rule is a harmless cleanup. The orphan sweep (Decision 9) also revokes stale app-created rules. This also tightens the existing dashboard file-manager modal (same launch path), which becomes reachable only from the operator's IP. `HyveonDeployAll` already grants `ec2:*`, so no IAM change.
+   - **Authentication.** The existing random per-launch admin password stays; the login happens only in main, over the TLS channel below.
+   - **TLS with a pinned ephemeral certificate (upload sessions).** desktop-main generates a throwaway self-signed certificate and key per launch and passes them to the container (base64 environment values written to files by a short `sh -c` wrapper that execs FileBrowser with `--cert/--key`; FileBrowser serves HTTPS). The app trusts only that certificate (undici dispatcher `ca`/fingerprint pin), so a network attacker can neither read the password/data nor impersonate the helper. The key exists only for that task's lifetime. If the image has no usable shell, the fallback is a Caddy sidecar in the same task, as game tasks already use. Plain browse sessions from the dashboard keep their current HTTP URL (a self-signed cert would just produce a browser warning) but are IP-scoped.
+11. **Logging.** The new controller logs on entry and the service normalises and logs errors per `.claude/rules/logging.md`; paths may be logged (no secrets), the credential and JWT never.
+
+## Risks / Trade-offs
+
+- [Operator's public IP changes mid-upload (VPN, roaming) or is behind CGNAT/shared egress] → upload fails at the connection level; Resume re-detects the IP and re-authorizes. Shared egress widens access to that /32 but the pinned TLS and per-launch password still gate it.
+- [Private key and password hash visible in the task definition to anyone with ECS read access] → ephemeral per launch, deregistered with the task; acceptable for a throwaway session credential.
+- [2-hour auto-stop kills very long uploads] → resume is cheap (skip-by-size); the run surfaces a Resume action; if needed, a longer per-launch auto-stop for upload sessions.
+- [FileBrowser's per-file POST holds large bodies in the proxy path / is not resumable within a file] → acceptable for ≤ ~200 MB files; revisit with TUS if larger files appear.
+- [Upload speed is bounded by the operator's upstream and Fargate's public IP path] → meter shows rate/ETA; no server-side bottleneck to remove.
+- [Writing while the game server runs corrupts data] → upload disabled unless the game's task is stopped.
+- [Helper image `filebrowser/filebrowser:latest` API drift] → the service pins the endpoints it uses behind one client module with tests against recorded responses; the e2e seam mocks the HTTP layer.
+- [Selection is per-machine] → documented; re-select on another machine.
+
+## Migration Plan
+
+Ship the app and apply once so the helper security group loses its world-open rule; no config schema or IAM change. If the app ships without the apply, the helper's SG stays open (the app still adds its /32 rule and uses TLS). Rollback: re-add the ingress in `securityGroups.ts`. Existing games and `file_seeds` are untouched.

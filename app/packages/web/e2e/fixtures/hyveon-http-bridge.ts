@@ -56,6 +56,63 @@ export function installHyveonHttpBridge(): void {
       start: (game: string) => post(`/api/files/${game}/start`),
       stop: (game: string) => post(`/api/files/${game}/stop`),
     },
+    // Folder upload is IPC-only in production with no HTTP route. This in-page fake scans a canned folder and
+    // walks a run through starting-helper, uploading, verifying and done so specs can drive the whole UI flow.
+    folderUpload: (() => {
+      const listeners = new Set<(progress: unknown) => void>();
+      let last: unknown = null;
+      const emit = (progress: unknown): void => {
+        last = progress;
+        listeners.forEach((cb) => cb(progress));
+      };
+      const file = (relPath: string, size: number) => ({ name: relPath.split('/').pop(), kind: 'file', size, relPath });
+      const scan = {
+        scanId: 'e2e-scan',
+        rootName: 'FoundryVTT',
+        fileCount: 3,
+        totalBytes: 1030,
+        skippedLinks: 1,
+        tree: {
+          name: 'FoundryVTT',
+          kind: 'dir',
+          size: 1030,
+          relPath: '',
+          children: [
+            { name: 'Config', kind: 'dir', size: 30, relPath: 'Config', children: [file('Config/a.json', 10), file('Config/b.json', 20)] },
+            { name: 'Data', kind: 'dir', size: 1000, relPath: 'Data', children: [file('Data/w.db', 1000)] },
+          ],
+        },
+      };
+      const snapshot = (game: string, phase: string, bytesDone: number) => ({
+        game,
+        phase,
+        bytesDone,
+        bytesTotal: 1030,
+        filesDone: bytesDone >= 1030 ? 3 : 1,
+        filesTotal: 3,
+        currentPath: 'Data/w.db',
+        bytesPerSecond: 1024,
+        etaSeconds: 1,
+      });
+      return {
+        pickFolder: async () => scan,
+        rescanSelection: async () => null,
+        getSelection: async () => null,
+        setSelection: async () => ({ saved: true }),
+        startUpload: async (request: { game: string }) => {
+          const steps: [string, number][] = [['starting-helper', 0], ['uploading', 515], ['verifying', 1030], ['done', 1030]];
+          steps.forEach(([phase, bytes], i) => setTimeout(() => emit(snapshot(request.game, phase, bytes)), 100 * (i + 1)));
+          return { started: true, runId: 'e2e-run' };
+        },
+        cancelUpload: async () => ({ cancelled: true }),
+        getProgress: async () => last,
+        cleanupStrayHelpers: async () => ({ stopped: [], skipped: 0, revokedRules: 0, errors: [] }),
+        onProgress: (cb: (progress: unknown) => void) => {
+          listeners.add(cb);
+          return () => listeners.delete(cb);
+        },
+      };
+    })(),
     discord: {
       getConfig: () => call('/api/discord/config'),
       putConfig: (body: unknown) => call('/api/discord/config', withBody('PUT', body)),

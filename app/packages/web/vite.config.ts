@@ -18,6 +18,10 @@ export default defineConfig({
       // before the bare `@hyveon/shared` entry — Vite/Rollup match aliases in
       // array order, and the bare specifier would otherwise shadow this one.
       {
+        find: '@hyveon/shared/folderUpload',
+        replacement: fileURLToPath(new URL('../shared/src/folderUpload/index.ts', import.meta.url)),
+      },
+      {
         find: '@hyveon/shared/gameServerValidator',
         replacement: fileURLToPath(new URL('../shared/src/gameServerValidator.ts', import.meta.url)),
       },

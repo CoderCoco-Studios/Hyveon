@@ -9,6 +9,7 @@ import {
   StopTaskCommand,
   DescribeTaskDefinitionCommand,
   RegisterTaskDefinitionCommand,
+  DeregisterTaskDefinitionCommand,
   type Task,
 } from '@aws-sdk/client-ecs';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
@@ -544,6 +545,50 @@ describe('EcsService', () => {
         taskArn: 'arn',
         error: 'access-denied',
       });
+    });
+  });
+
+  describe('listTasksByStartedByPrefix', () => {
+    it('should page through every running task and keep only those whose startedBy has the prefix', async () => {
+      ecsMock
+        .on(ListTasksCommand)
+        .resolvesOnce({ taskArns: ['a'], nextToken: 'n' })
+        .resolvesOnce({ taskArns: ['b'] });
+      ecsMock.on(DescribeTasksCommand).resolves({
+        tasks: [
+          { taskArn: 'a', startedBy: 'filemgr-minecraft', lastStatus: 'RUNNING' },
+          { taskArn: 'b', startedBy: 'ecs-svc/other', lastStatus: 'RUNNING' },
+          { taskArn: 'c', startedBy: 'filemgr-palworld', lastStatus: 'STOPPED' },
+        ],
+      });
+      const tasks = await makeService(makeConfig(), makeEc2()).listTasksByStartedByPrefix('c', 'filemgr-');
+      expect(tasks.map((t) => t.taskArn)).toEqual(['a']);
+      expect(ecsMock.commandCalls(ListTasksCommand)[1]!.args[0].input.nextToken).toBe('n');
+    });
+
+    it('should describe in batches of 100', async () => {
+      ecsMock.on(ListTasksCommand).resolves({ taskArns: Array.from({ length: 150 }, (_, i) => `t${i}`) });
+      ecsMock.on(DescribeTasksCommand).resolves({ tasks: [] });
+      await makeService(makeConfig(), makeEc2()).listTasksByStartedByPrefix('c', 'filemgr-');
+      expect(ecsMock.commandCalls(DescribeTasksCommand)).toHaveLength(2);
+    });
+
+    it('should return [] on API error', async () => {
+      ecsMock.on(ListTasksCommand).rejects(new Error('boom'));
+      expect(await makeService(makeConfig(), makeEc2()).listTasksByStartedByPrefix('c', 'filemgr-')).toEqual([]);
+    });
+  });
+
+  describe('deregisterTaskDefinition', () => {
+    it('should send DeregisterTaskDefinitionCommand and return true', async () => {
+      ecsMock.on(DeregisterTaskDefinitionCommand).resolves({});
+      expect(await makeService(makeConfig(), makeEc2()).deregisterTaskDefinition('arn:td/x:1')).toBe(true);
+      expect(ecsMock.commandCalls(DeregisterTaskDefinitionCommand)[0]!.args[0].input.taskDefinition).toBe('arn:td/x:1');
+    });
+
+    it('should return false on API error', async () => {
+      ecsMock.on(DeregisterTaskDefinitionCommand).rejects(new Error('nope'));
+      expect(await makeService(makeConfig(), makeEc2()).deregisterTaskDefinition('arn:td/x:1')).toBe(false);
     });
   });
 

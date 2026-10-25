@@ -5,6 +5,7 @@ import {
   DescribeTasksCommand,
   RunTaskCommand,
   StopTaskCommand,
+  DeregisterTaskDefinitionCommand,
   DescribeTaskDefinitionCommand,
   type Task,
 } from '@aws-sdk/client-ecs';
@@ -25,6 +26,9 @@ import { resolveAwsClientCredentialsWithSignature, type AwsClientCredentials } f
 import { createCachedAwsClient } from './awsClientCache.js';
 import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
 import { errMessage } from '@hyveon/shared';
+
+/** `DescribeTasks` accepts at most 100 task ARNs per call. */
+const DESCRIBE_TASKS_BATCH = 100;
 
 /**
  * Maps `ConfigService`'s stack-outputs shape onto the narrow config
@@ -436,6 +440,49 @@ export class EcsService {
         wrapped.name = err.name;
       }
       throw wrapped;
+    }
+  }
+
+  /**
+   * Lists active tasks in `cluster` whose `startedBy` begins with `prefix`. `ListTasks` only filters `startedBy` by
+   * exact match, so this pages through every running task and filters locally. Returns `[]` on failure.
+   */
+  async listTasksByStartedByPrefix(cluster: string, prefix: string): Promise<Task[]> {
+    logger.debug('EcsService.listTasksByStartedByPrefix: listing tasks', { cluster, prefix });
+    try {
+      const arns: string[] = [];
+      let nextToken: string | undefined;
+      do {
+        const resp = await this.getClient().send(new ListTasksCommand({ cluster, desiredStatus: 'RUNNING', nextToken }));
+        arns.push(...(resp.taskArns ?? []));
+        nextToken = resp.nextToken;
+      } while (nextToken);
+
+      const tasks: Task[] = [];
+      for (let i = 0; i < arns.length; i += DESCRIBE_TASKS_BATCH) {
+        const desc = await this.getClient().send(
+          new DescribeTasksCommand({ cluster, tasks: arns.slice(i, i + DESCRIBE_TASKS_BATCH) }),
+        );
+        tasks.push(...(desc.tasks ?? []));
+      }
+      return tasks.filter(
+        (t) => t.startedBy?.startsWith(prefix) && t.lastStatus !== 'STOPPED' && t.lastStatus !== 'DEPROVISIONING',
+      );
+    } catch (err) {
+      logger.error('Failed to list tasks by startedBy prefix', { prefix, error: errMessage(err) });
+      return [];
+    }
+  }
+
+  /** Deregisters a task definition revision (the throwaway FileBrowser ones). Best-effort: returns `false` on failure. */
+  async deregisterTaskDefinition(taskDefinitionArn: string): Promise<boolean> {
+    logger.debug('EcsService.deregisterTaskDefinition: deregistering', { taskDefinitionArn });
+    try {
+      await this.getClient().send(new DeregisterTaskDefinitionCommand({ taskDefinition: taskDefinitionArn }));
+      return true;
+    } catch (err) {
+      logger.warn('EcsService.deregisterTaskDefinition: failed', { taskDefinitionArn, error: errMessage(err) });
+      return false;
     }
   }
 }

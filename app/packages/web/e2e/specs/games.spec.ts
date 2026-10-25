@@ -173,3 +173,42 @@ test.describe('game detail page', () => {
     await expect(games.notFoundMessage('unknown-game')).toBeVisible();
   });
 });
+
+test.describe('game detail page: seed from folder', () => {
+  test('should pick a folder, deselect a directory, and run the upload to a verified result', async ({ games }) => {
+    await stubApis(games.page, { games: [declaredDeployed] });
+    await games.gotoDetail('minecraft');
+
+    await games.chooseFolderButton().click();
+    await expect(games.destinationInput()).toHaveValue('/data');
+    await expect(games.seedSummary()).toContainText('3 files selected');
+    await expect(games.seedSummary()).toContainText('1 symbolic link will be skipped');
+
+    await games.includeCheckbox('Config').uncheck();
+    await expect(games.seedSummary()).toContainText('1 file selected');
+
+    await games.uploadFolderButton().click();
+    await expect(games.uploadProgressBar()).toBeVisible();
+    await expect(games.uploadVerifiedMessage()).toBeVisible();
+  });
+
+  test('should keep Upload disabled when the destination is outside every volume', async ({ games }) => {
+    await stubApis(games.page, { games: [declaredDeployed] });
+    await games.gotoDetail('minecraft');
+
+    await games.chooseFolderButton().click();
+    await games.destinationInput().fill('/etc');
+
+    await expect(games.uploadFolderButton()).toBeDisabled();
+  });
+
+  test('should explain why Upload is disabled for a game that is not deployed', async ({ games }) => {
+    await stubApis(games.page, { games: [{ ...declaredDeployed, deployed: false }] });
+    await games.gotoDetail('minecraft');
+
+    await games.chooseFolderButton().click();
+
+    await expect(games.uploadFolderButton()).toBeDisabled();
+    await expect(games.page.getByText(/has not been deployed yet/)).toBeVisible();
+  });
+});

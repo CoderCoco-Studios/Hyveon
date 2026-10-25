@@ -3,6 +3,7 @@ import { Pencil } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { api, type GameListEntry, type GameWriteSuccess } from '../api.service.js';
 import { GameStatusBadges } from '../components/game-status-badges.component.js';
+import { FolderUploadCard } from '../components/folder-upload/folder-upload-card.component.js';
 import { EditGameForm } from '../components/edit-game-form/edit-game-form.component.js';
 import { PageHeader } from '../components/page-header.component.js';
 import { RemoveGameButton } from '../components/remove-game-button.component.js';
@@ -222,6 +223,9 @@ export function GameDetailPage() {
                   { header: 'Container path', className: 'font-[var(--font-mono)]', cell: (volume) => volume.container_path },
                 ]}
               />
+
+              {/* Seed volume from a local folder */}
+              <FolderUploadCard game={config.name} volumes={config.volumes} deployed={entry.deployed} />
 
               {/* Environment variables (optional) */}
               {config.environment && config.environment.length > 0 && (

@@ -219,6 +219,38 @@ describe('preload dispatcher', () => {
       expect(ipcInvoke).toHaveBeenCalledWith('games.draft.clear');
     });
 
+    describe('folderUpload namespace', () => {
+      type FolderUploadBridge = Record<string, (...args: unknown[]) => Promise<unknown>> & {
+        onProgress: (cb: (p: unknown) => void) => () => void;
+      };
+
+      it.each([
+        ['pickFolder', [], 'folderUpload.pickFolder', []],
+        ['rescanSelection', ['g'], 'folderUpload.rescanSelection', ['g']],
+        ['getSelection', ['g'], 'folderUpload.getSelection', ['g']],
+        ['setSelection', [{ game: 'g' }], 'folderUpload.setSelection', [{ game: 'g' }]],
+        ['startUpload', [{ game: 'g' }], 'folderUpload.startUpload', [{ game: 'g' }]],
+        ['cancelUpload', ['g'], 'folderUpload.cancelUpload', ['g']],
+        ['getProgress', ['g'], 'folderUpload.getProgress', ['g']],
+        ['cleanupStrayHelpers', [], 'folderUpload.cleanupStrayHelpers', []],
+      ])('should forward %s to ipcRenderer.invoke on its channel', async (method, args, channel, payload) => {
+        ipcInvoke.mockResolvedValue(null);
+        await (bridge['folderUpload'] as FolderUploadBridge)[method]!(...(args as unknown[]));
+        expect(ipcInvoke).toHaveBeenCalledWith(channel, ...payload);
+      });
+
+      it('should deliver folderUpload.progress pushes to onProgress and unsubscribe cleanly', () => {
+        const api = bridge['folderUpload'] as FolderUploadBridge;
+        const cb = vi.fn();
+        const unsubscribe = api.onProgress(cb);
+        const listener = ipcOn.mock.calls.find(([channel]) => channel === 'folderUpload.progress')?.[1] as (e: unknown, p: unknown) => void;
+        listener({}, { phase: 'uploading' });
+        expect(cb).toHaveBeenCalledWith({ phase: 'uploading' });
+        unsubscribe();
+        expect(ipcRemoveListener).toHaveBeenCalledWith('folderUpload.progress', listener);
+      });
+    });
+
     describe('window namespace', () => {
       it('should expose the current process platform without an IPC round-trip', () => {
         const windowApi = bridge['window'] as { platform: NodeJS.Platform };

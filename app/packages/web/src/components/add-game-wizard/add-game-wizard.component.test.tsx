@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { AddGameWizard } from './add-game-wizard.component.js';
 import { getFargateCpuOptions, getFargateMemoryOptions } from '@hyveon/shared/gameServerValidator';
+import { makeScan } from '../folder-upload/folder-upload.test-utils.js';
 import { createEmptyWizardDraft, type WizardDraftHealthCheck } from './wizard-form.utils.js';
 
 /**
@@ -37,6 +38,10 @@ const apiMock = vi.hoisted(() => ({
   saveGameDraft: vi.fn(),
   updateGameDraftStepIndex: vi.fn(),
   clearGameDraft: vi.fn(),
+  folderPick: vi.fn(),
+  folderGetSelection: vi.fn(),
+  folderRescan: vi.fn(),
+  folderSetSelection: vi.fn(),
 }));
 vi.mock('../../api.service.js', () => ({ api: apiMock }));
 
@@ -64,6 +69,10 @@ function resetApiMocks() {
   apiMock.saveGameDraft.mockClear();
   apiMock.updateGameDraftStepIndex.mockClear();
   apiMock.clearGameDraft.mockClear();
+  apiMock.folderPick.mockReset();
+  apiMock.folderGetSelection.mockResolvedValue(null);
+  apiMock.folderRescan.mockResolvedValue(null);
+  apiMock.folderSetSelection.mockReset().mockResolvedValue({ saved: true });
   navigateMock.mockClear();
   toastMock.success.mockClear();
   toastMock.error.mockClear();
@@ -188,6 +197,76 @@ describe('AddGameWizard — submit success path', () => {
     );
     expect(navigateMock).toHaveBeenCalledWith('/games/mygame');
     expect(screen.queryByRole('heading', { name: 'Add a game server' })).not.toBeInTheDocument();
+  });
+});
+
+describe('AddGameWizard — seed from folder', () => {
+  beforeEach(resetApiMocks);
+
+  /** Walks to the Storage step with a volume filled in and a folder picked. */
+  async function pickFolderOnStorageStep() {
+    apiMock.folderPick.mockResolvedValue(makeScan());
+    await openWizard();
+    await fillIdentityStep();
+    await goNext();
+    fillResourcesStep();
+    await goNext();
+    await goNext();
+    await fillStorageStep();
+    await userEvent.click(screen.getByRole('button', { name: 'Choose folder' }));
+    await screen.findByLabelText('Destination in container');
+  }
+
+  it('should show the folder section beside, not instead of, the inline file seeds', async () => {
+    await openWizard();
+    await fillIdentityStep();
+    await goNext();
+    fillResourcesStep();
+    await goNext();
+    await goNext();
+    expect(screen.getByRole('heading', { name: 'File seeds' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Seed from folder' })).toBeInTheDocument();
+  });
+
+  it('should keep the picked folder when stepping away from Storage and back', async () => {
+    await pickFolderOnStorageStep();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Include Data' }));
+    await goNext();
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(await screen.findByLabelText('Destination in container')).toHaveValue('/data');
+    expect(screen.getByRole('checkbox', { name: 'Include Config' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Include Data' })).not.toBeChecked();
+  });
+
+  it('should persist the selection under the final name on submit and point the toast at the upload', async () => {
+    apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
+    await pickFolderOnStorageStep();
+    await goNext();
+    await goNext();
+    await screen.findByText('Step 6 of 6: Review');
+    apiMock.folderSetSelection.mockClear();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() => expect(toastMock.success).toHaveBeenCalled());
+    expect(apiMock.folderSetSelection).toHaveBeenCalledWith({
+      game: 'mygame',
+      scanId: 'scan-1',
+      include: ['Config', 'Data'],
+      destination: '/data',
+    });
+    expect(toastMock.success).toHaveBeenCalledWith('mygame created', {
+      description: expect.stringContaining('upload your folder from the game page'),
+    });
+  });
+
+  it('should not persist a selection when no folder was picked', async () => {
+    apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
+    await openWizard();
+    await fillHappyPathToReview();
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/games/mygame'));
+    expect(apiMock.folderSetSelection).not.toHaveBeenCalled();
   });
 });
 

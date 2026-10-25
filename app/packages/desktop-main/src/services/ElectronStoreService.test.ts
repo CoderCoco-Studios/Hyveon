@@ -706,3 +706,36 @@ describe('addGameWizardDraft', () => {
     expect(service.get('addGameWizardDraft')).toBeUndefined();
   });
 });
+
+describe('ElectronStoreService folder-upload state', () => {
+  const selection = { localPath: '/mnt/d/FoundryVTT', include: ['Config', 'Data'], destination: '/data' };
+  const lastRun = { status: 'done' as const, completedAt: '2026-10-25T00:00:00.000Z', files: 3, bytes: 99 };
+
+  beforeEach(() => vi.restoreAllMocks());
+
+  it('should return undefined for a game with no stored state', () => {
+    expect(new ElectronStoreService(makeSafeStorage()).getFolderUploadState('minecraft')).toBeUndefined();
+  });
+
+  it('should round-trip a selection per game without touching other games', () => {
+    const service = new ElectronStoreService(makeSafeStorage());
+    service.setFolderUploadSelection('minecraft', selection);
+    service.setFolderUploadSelection('palworld', { ...selection, destination: '/palworld' });
+    expect(service.getFolderUploadState('minecraft')).toEqual(selection);
+    expect(service.getFolderUploadState('palworld')?.destination).toBe('/palworld');
+  });
+
+  it('should keep lastRun when the selection is updated', () => {
+    const service = new ElectronStoreService(makeSafeStorage());
+    service.setFolderUploadSelection('minecraft', selection);
+    service.setFolderUploadLastRun('minecraft', lastRun);
+    service.setFolderUploadSelection('minecraft', { ...selection, include: ['Data'] });
+    expect(service.getFolderUploadState('minecraft')).toEqual({ ...selection, include: ['Data'], lastRun });
+  });
+
+  it('should ignore a last-run record for a game that has no stored selection', () => {
+    const service = new ElectronStoreService(makeSafeStorage());
+    service.setFolderUploadLastRun('minecraft', lastRun);
+    expect(service.getFolderUploadState('minecraft')).toBeUndefined();
+  });
+});

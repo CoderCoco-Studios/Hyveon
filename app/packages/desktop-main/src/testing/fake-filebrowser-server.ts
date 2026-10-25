@@ -1,0 +1,122 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createServer, type Server } from 'node:https';
+import type { AddressInfo } from 'node:net';
+import type { EphemeralCert } from '../services/folderUpload/ephemeralCert.js';
+
+/** Behaviour switches for {@link startFakeFileBrowser}. */
+export interface FakeFileBrowserOptions {
+  cert: EphemeralCert;
+  username?: string;
+  password?: string;
+  /** Called before an upload is stored; return a status code to reject it, `'drop'` to kill the socket, or nothing to accept. */
+  onUpload?: (path: string, attempt: number) => number | 'drop' | void;
+  /** Files that already exist on the "volume" (absolute path to size). */
+  seed?: Record<string, number>;
+}
+
+/** A running fake FileBrowser helper and the state it observed. */
+export interface FakeFileBrowser {
+  port: number;
+  /** Absolute remote path to stored byte length. */
+  files: Map<string, number>;
+  dirs: Set<string>;
+  /** Every request received, in order (login bodies are not recorded). */
+  requests: { method: string; url: string; auth?: string }[];
+  close(): Promise<void>;
+}
+
+/** Reads and discards a request body, returning how many bytes it carried. */
+async function drain(req: IncomingMessage): Promise<number> {
+  let n = 0;
+  for await (const chunk of req) n += (chunk as Buffer).length;
+  return n;
+}
+
+/**
+ * Starts an HTTPS server on 127.0.0.1 that speaks the slice of the FileBrowser REST API the uploader uses
+ * (`/api/login`, `POST`/`GET /api/resources/...`). Test seam for the client and the end-to-end upload tests.
+ */
+export async function startFakeFileBrowser(options: FakeFileBrowserOptions): Promise<FakeFileBrowser> {
+  const username = options.username ?? 'admin';
+  const password = options.password ?? 'secret';
+  const files = new Map<string, number>(Object.entries(options.seed ?? {}));
+  const dirs = new Set<string>(['/']);
+  for (const p of files.keys()) {
+    const parts = p.split('/').filter(Boolean).slice(0, -1);
+    for (let i = 1; i <= parts.length; i += 1) dirs.add('/' + parts.slice(0, i).join('/'));
+  }
+  const requests: FakeFileBrowser['requests'] = [];
+  const attempts = new Map<string, number>();
+
+  const handler = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const url = new URL(req.url ?? '/', 'https://x');
+    requests.push({ method: req.method ?? '', url: req.url ?? '', auth: req.headers['x-auth'] as string | undefined });
+
+    if (url.pathname === '/api/login') {
+      const body = JSON.parse(Buffer.concat(await collect(req)).toString('utf8')) as { username: string; password: string };
+      if (body.username === username && body.password === password) {
+        res.writeHead(200, { 'content-type': 'text/plain' }).end('fake-jwt');
+      } else {
+        res.writeHead(403).end();
+      }
+      return;
+    }
+    if (req.headers['x-auth'] !== 'fake-jwt') {
+      await drain(req);
+      res.writeHead(401).end();
+      return;
+    }
+    const resource = decodeURIComponent(url.pathname.replace(/^\/api\/resources/, '')) || '/';
+    if (req.method === 'POST' && resource.endsWith('/')) {
+      await drain(req);
+      const dir = resource.replace(/\/+$/, '') || '/';
+      if (dirs.has(dir)) return void res.writeHead(409).end();
+      dirs.add(dir);
+      return void res.writeHead(200).end();
+    }
+    if (req.method === 'POST') {
+      const attempt = (attempts.get(resource) ?? 0) + 1;
+      attempts.set(resource, attempt);
+      const verdict = options.onUpload?.(resource, attempt);
+      if (verdict === 'drop') return void req.socket.destroy();
+      const size = await drain(req);
+      if (typeof verdict === 'number') return void res.writeHead(verdict).end();
+      files.set(resource, size);
+      return void res.writeHead(200).end();
+    }
+    if (req.method === 'GET') {
+      const dir = resource.replace(/\/+$/, '') || '/';
+      if (!dirs.has(dir)) return void res.writeHead(404).end();
+      const prefix = dir === '/' ? '/' : `${dir}/`;
+      const items: { name: string; isDir: boolean; size: number }[] = [];
+      for (const d of dirs) {
+        if (d !== dir && d.startsWith(prefix) && !d.slice(prefix.length).includes('/')) items.push({ name: d.slice(prefix.length), isDir: true, size: 0 });
+      }
+      for (const [f, size] of files) {
+        if (f.startsWith(prefix) && !f.slice(prefix.length).includes('/')) items.push({ name: f.slice(prefix.length), isDir: false, size });
+      }
+      return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ isDir: true, items }));
+    }
+    res.writeHead(405).end();
+  };
+
+  const server: Server = createServer({ cert: options.cert.certPem, key: options.cert.keyPem }, (req, res) => void handler(req, res));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    port: (server.address() as AddressInfo).port,
+    files,
+    dirs,
+    requests,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}
+
+async function collect(req: IncomingMessage): Promise<Buffer[]> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  return chunks;
+}

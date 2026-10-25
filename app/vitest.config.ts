@@ -15,6 +15,7 @@ export default defineConfig({
       // with its target, so '@hyveon/shared' (matched via startsWith) would
       // otherwise shadow '@hyveon/shared/gameServerValidator' and resolve to
       // an invalid path.
+      '@hyveon/shared/folderUpload': resolve(__dirname, 'packages/shared/src/folderUpload/index.ts'),
       '@hyveon/shared/gameServerValidator': resolve(__dirname, 'packages/shared/src/gameServerValidator.ts'),
       '@hyveon/shared/envTokens': resolve(__dirname, 'packages/shared/src/envTokens.ts'),
       '@hyveon/shared/secrets/secretsStore': resolve(__dirname, 'packages/shared/src/secrets/secretsStore.ts'),

@@ -30,6 +30,14 @@ import type {
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
 } from '@hyveon/shared';
+import type {
+  FolderScanResult,
+  FolderUploadProgress,
+  FolderUploadRequest,
+  FolderUploadStartResult,
+  FolderUploadStoredState,
+  StrayHelperReport,
+} from '@hyveon/shared/folderUpload';
 
 /**
  * Re-exported verbatim from `@hyveon/shared` rather than duplicated —
@@ -1547,6 +1555,28 @@ export interface HyveonFilesApi {
   stop: (game: string) => Promise<FileMgrResult>;
 }
 
+/** Seeding a game's volume from a local folder: scan, selection, upload control, and progress. */
+export interface HyveonFolderUploadApi {
+  /** Opens the native folder dialog and scans the choice; `null` when cancelled. */
+  pickFolder: () => Promise<FolderScanResult | null>;
+  /** Re-scans the folder remembered for `game` so a restored selection has a live scan id; `null` if none stored. */
+  rescanSelection: (game: string) => Promise<FolderScanResult | null>;
+  /** Persisted selection and last-run status for `game`, or `null`. */
+  getSelection: (game: string) => Promise<FolderUploadStoredState | null>;
+  /** Persists the selection for a game; the scan is referenced by id and file contents never reach the renderer. */
+  setSelection: (request: FolderUploadRequest) => Promise<{ saved: true }>;
+  /** Runs the guards and starts the upload; progress then arrives through {@link HyveonFolderUploadApi.onProgress}. */
+  startUpload: (request: FolderUploadRequest) => Promise<FolderUploadStartResult>;
+  /** Cancels the upload running for `game`, if any. */
+  cancelUpload: (game: string) => Promise<{ cancelled: boolean }>;
+  /** Latest progress snapshot for `game`'s run in this session, or `null`. */
+  getProgress: (game: string) => Promise<FolderUploadProgress | null>;
+  /** Stops every file-manager helper no active run owns and reports what was stopped. */
+  cleanupStrayHelpers: () => Promise<StrayHelperReport>;
+  /** Subscribes to progress snapshots (about every 500 ms during a run); returns the unsubscribe function. */
+  onProgress: (cb: (progress: FolderUploadProgress) => void) => () => void;
+}
+
 /** Discord bot configuration: credentials, guild allowlist, admins, permissions, command registration. */
 export interface HyveonDiscordApi {
   /** Returns the Discord config with secrets redacted to booleans. */
@@ -2456,6 +2486,8 @@ export interface HyveonApi {
   logs: HyveonLogsApi;
   /** EFS file-manager task endpoints: status, start, and stop per game. */
   files: HyveonFilesApi;
+  /** Folder-to-volume upload: scan, selection, start/cancel, progress, and stray-helper cleanup. */
+  folderUpload: HyveonFolderUploadApi;
   /** Discord bot configuration: credentials, guild allowlist, admins, permissions, command registration. */
   discord: HyveonDiscordApi;
   /** Environment metadata: region, domain, and environment label for UI display. */
