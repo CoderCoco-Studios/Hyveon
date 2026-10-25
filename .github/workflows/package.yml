@@ -4,16 +4,6 @@ on:
   merge_group:
     types: [checks_requested]
   pull_request:
-  # Called by release.yml after it tags a release, so the build, the release
-  # notes, and the GitHub Release all live in one workflow run. There is
-  # deliberately no `push: tags` trigger: release.yml's tag push would start a
-  # second, duplicate run.
-  workflow_call:
-    inputs:
-      tag:
-        description: 'Release tag to build and publish a draft GitHub Release for.'
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -21,11 +11,9 @@ permissions:
 jobs:
   # Doc-only PRs (markdown files only) skip packaging entirely — a skipped
   # required job still satisfies GitHub's required-status-check gate. Release
-  # runs (workflow_call with a tag) skip the filter and always package, since
-  # those are real releases.
+  # builds live in release.yml and share the steps via .github/actions/.
   changes:
-    if: inputs.tag == ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
@@ -43,13 +31,11 @@ jobs:
 
   package:
     needs: changes
-    # `changes` is skipped on release runs, so `!cancelled()` is needed for
-    # this job to be evaluated at all.
-    if: ${{ !cancelled() && needs.changes.result != 'failure' && (inputs.tag != '' || needs.changes.outputs.code == 'true') }}
+    if: ${{ needs.changes.outputs.code == 'true' }}
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             # latest-linux.yml is the electron-updater feed manifest;
             # *.blockmap enables differential (not full) update downloads.
             # Both are written by electron-builder alongside the installer
@@ -81,67 +67,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/setup-app
+
+      - uses: ./.github/actions/build-package
         with:
-          # Release runs build the tagged commit (the version-bump commit),
-          # not whatever main's tip was when the workflow was dispatched.
-          ref: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || '' }}
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - run: npm ci
-
-      - name: Restore @tailwindcss/oxide native binding
-        # The lockfile was generated on a linux-x64 host, so the optional
-        # platform-specific binaries for darwin-arm64 (macos-15-arm64) and
-        # win32-x64-msvc are missing. Re-install to fetch the correct binary
-        # for the current runner before the Vite build step.
-        run: npm install --no-save @tailwindcss/oxide@4.3.0
-
-      - name: Build workspace packages
-        run: npm run app:build
-
-      - name: Package desktop app
-        run: npm run desktop:package
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_glob }}
-          if-no-files-found: error
-
-  release:
-    needs: package
-    runs-on: ubuntu-latest
-    if: ${{ inputs.tag != '' }}
-    permissions:
-      contents: write
-      actions: read
-
-    steps:
-      - name: Download installers
-        uses: actions/download-artifact@v4
-        with:
-          pattern: pkg-*
-          path: dist
-
-      - name: Download release notes
-        uses: actions/download-artifact@v4
-        with:
-          name: release-notes
-          path: notes
-
-      # The release only comes into existence here, after every platform
-      # build succeeded, so a draft that exists always has all its assets.
-      - name: Create GitHub Release and attach artifacts
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.tag }}
-          name: ${{ inputs.tag }}
-          body_path: notes/release-notes.md
-          files: dist/**/*
-          draft: true
+          artifact_name: ${{ matrix.artifact_name }}
+          artifact_glob: ${{ matrix.artifact_glob }}

@@ -1,0 +1,31 @@
+name: Publish draft release
+description: Download every platform's installers plus the release notes and create the draft GitHub Release. Only call after all platform builds succeeded.
+inputs:
+  tag:
+    description: Release tag to create the draft release for.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Download installers
+      uses: actions/download-artifact@v8
+      with:
+        pattern: pkg-*
+        path: dist
+
+    - name: Download release notes
+      uses: actions/download-artifact@v8
+      with:
+        name: release-notes
+        path: notes
+
+    # The release only comes into existence here, after every platform
+    # build succeeded, so a draft that exists always has all its assets.
+    - name: Create GitHub Release and attach artifacts
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ inputs.tag }}
+        name: ${{ inputs.tag }}
+        body_path: notes/release-notes.md
+        files: dist/**/*
+        draft: true

@@ -49,7 +49,7 @@ The system SHALL update the version field in the repository's root package manif
 
 #### Scenario: Build pipeline runs in the same workflow run
 - **WHEN** the release workflow pushes a new version tag
-- **THEN** the same workflow run invokes the build/package workflow for that tag, rather than relying on a separate tag-triggered run
+- **THEN** the same workflow run builds and packages that tag, rather than relying on a separate tag-triggered run
 
 ### Requirement: Skip-bump replay mode
 The system SHALL support a replay mode that regenerates the changelog and AI-written summary for an already-tagged release, identified by an operator-supplied tag, without creating a new version, commit, or tag.

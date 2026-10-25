@@ -38,7 +38,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       id-token: write
@@ -278,13 +278,13 @@ jobs:
             git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin "$TAG"
           fi
 
-      # Bump mode: hand the notes to the `package` job below via an artifact
+      # Bump mode: hand the notes to the `publish` job below via an artifact
       # (same workflow run). It creates the draft release only once every
       # platform build has succeeded, so a draft never exists without its
       # installers.
       - name: Upload release notes
         if: ${{ inputs.skip_bump != true }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-notes
           path: ${{ steps.summary.outputs.notes_path }}
@@ -312,12 +312,71 @@ jobs:
           gh api -X PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" \
             --field body=@"$NOTES_PATH"
 
+  # Builds live here rather than in a reusable workflow so a release run has
+  # no skipped doc-only filter job; the steps are shared with package.yml via
+  # .github/actions/. Keep this matrix in sync with package.yml's.
   package:
     needs: release
     if: ${{ inputs.skip_bump != true }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            # latest-linux.yml is the electron-updater feed manifest;
+            # *.blockmap enables differential (not full) update downloads.
+            # Both are written by electron-builder alongside the installer
+            # whenever `publish` is configured, regardless of `--publish never`.
+            artifact_glob: |
+              release/*.AppImage
+              release/latest-linux.yml
+              release/*.blockmap
+            artifact_name: pkg-linux-AppImage
+          - os: macos-latest
+            # electron-updater's MacUpdater only ever fetches a `zip` asset
+            # (it ignores dmg/pkg outright), so the zip build + latest-mac.yml
+            # feed manifest must ship alongside the dmg installer.
+            artifact_glob: |
+              release/*.dmg
+              release/*.zip
+              release/latest-mac.yml
+              release/*.blockmap
+            artifact_name: pkg-mac-dmg
+          - os: windows-latest
+            # latest.yml is the electron-updater feed manifest for NSIS.
+            artifact_glob: |
+              release/*.exe
+              release/latest.yml
+              release/*.blockmap
+            artifact_name: pkg-win-nsis
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Build the tagged commit (the version-bump commit), not whatever
+          # main's tip was when the workflow was dispatched.
+          ref: refs/tags/${{ needs.release.outputs.tag }}
+
+      - uses: ./.github/actions/setup-app
+
+      - uses: ./.github/actions/build-package
+        with:
+          artifact_name: ${{ matrix.artifact_name }}
+          artifact_glob: ${{ matrix.artifact_glob }}
+
+  publish:
+    needs: [release, package]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: read
-    uses: ./.github/workflows/package.yml
-    with:
-      tag: ${{ needs.release.outputs.tag }}
+    steps:
+      # Needed so the local composite action resolves; the tag's tree has it.
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ needs.release.outputs.tag }}
+
+      - uses: ./.github/actions/publish-release
+        with:
+          tag: ${{ needs.release.outputs.tag }}

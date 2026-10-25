@@ -1,0 +1,34 @@
+name: Build and package
+description: Build the workspace, package the desktop app with electron-builder, and upload the installers as an artifact. Run setup-app first.
+inputs:
+  artifact_name:
+    description: Name of the uploaded artifact.
+    required: true
+  artifact_glob:
+    description: Newline-separated globs of the files to upload.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Restore @tailwindcss/oxide native binding
+      # The lockfile was generated on a linux-x64 host, so the optional
+      # platform-specific binaries for darwin-arm64 (macos-15-arm64) and
+      # win32-x64-msvc are missing. Re-install to fetch the correct binary
+      # for the current runner before the Vite build step.
+      run: npm install --no-save @tailwindcss/oxide@4.3.0
+      shell: bash
+
+    - name: Build workspace packages
+      run: npm run app:build
+      shell: bash
+
+    - name: Package desktop app
+      run: npm run desktop:package
+      shell: bash
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ inputs.artifact_glob }}
+        if-no-files-found: error

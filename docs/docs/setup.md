@@ -497,8 +497,8 @@ then electron-builder, which produces these outputs in `release/`:
 macOS builds both a `.dmg` (the distributed installer) and a `.zip` —
 `electron-updater`'s `MacUpdater` only ever looks for a `zip` asset in the
 release feed, so the zip is required for macOS auto-update even though the
-dmg is what users download and run. `.github/workflows/package.yml` uploads
-both as release assets.
+dmg is what users download and run. the `.github/actions/build-package` action uploads
+both, and `release.yml`'s `publish` job attaches them as release assets.
 
 By default electron-builder targets only the host platform. To cross-compile,
 pass `--win`, `--mac`, or `--linux` explicitly:
