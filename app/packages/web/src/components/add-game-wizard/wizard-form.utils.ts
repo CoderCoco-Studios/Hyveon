@@ -166,14 +166,24 @@ export interface WizardDraft {
   healthCheck: WizardDraftHealthCheck;
 }
 
-/** Builds a blank {@link WizardDraft} — the wizard's initial state before the operator has entered anything. */
+/** Default Fargate cpu units (1 vCPU) a new draft starts with so the Resources step shows a cost estimate immediately. */
+export const DEFAULT_WIZARD_CPU = 1024;
+
+/** Default memory in MiB (2 GiB) — a valid Fargate pairing for {@link DEFAULT_WIZARD_CPU}. */
+export const DEFAULT_WIZARD_MEMORY = 2048;
+
+/**
+ * Builds a blank {@link WizardDraft} — the wizard's initial state before the operator has entered anything.
+ * `cpu`/`memory` start at a valid Fargate default rather than `null` so the Resources step's sliders
+ * and hourly cost estimate are populated on first render.
+ */
 export function createEmptyWizardDraft(): WizardDraft {
   return {
     name: '',
     image: '',
     connect_message: '',
-    cpu: null,
-    memory: null,
+    cpu: DEFAULT_WIZARD_CPU,
+    memory: DEFAULT_WIZARD_MEMORY,
     ports: [],
     volumes: [],
     file_seeds: [],
