@@ -4,18 +4,27 @@ on:
   merge_group:
     types: [checks_requested]
   pull_request:
-  push:
-    tags:
-      - 'v*'
+  # Called by release.yml after it tags a release, so the build, the release
+  # notes, and the GitHub Release all live in one workflow run. There is
+  # deliberately no `push: tags` trigger: release.yml's tag push would start a
+  # second, duplicate run.
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to build and publish a draft GitHub Release for.'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   # Doc-only PRs (markdown files only) skip packaging entirely — a skipped
-  # required job still satisfies GitHub's required-status-check gate. Tag
-  # pushes always run regardless of the diff, since those are real releases.
+  # required job still satisfies GitHub's required-status-check gate. Release
+  # runs (workflow_call with a tag) skip the filter and always package, since
+  # those are real releases.
   changes:
+    if: inputs.tag == ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -34,7 +43,9 @@ jobs:
 
   package:
     needs: changes
-    if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
+    # `changes` is skipped on release runs, so `!cancelled()` is needed for
+    # this job to be evaluated at all.
+    if: ${{ !cancelled() && needs.changes.result != 'failure' && (inputs.tag != '' || needs.changes.outputs.code == 'true') }}
     strategy:
       matrix:
         include:
@@ -47,7 +58,7 @@ jobs:
               release/*.AppImage
               release/latest-linux.yml
               release/*.blockmap
-            artifact_name: linux-AppImage
+            artifact_name: pkg-linux-AppImage
           - os: macos-latest
             # electron-updater's MacUpdater only ever fetches a `zip` asset
             # (it ignores dmg/pkg outright), so the zip build + latest-mac.yml
@@ -57,19 +68,23 @@ jobs:
               release/*.zip
               release/latest-mac.yml
               release/*.blockmap
-            artifact_name: mac-dmg
+            artifact_name: pkg-mac-dmg
           - os: windows-latest
             # latest.yml is the electron-updater feed manifest for NSIS.
             artifact_glob: |
               release/*.exe
               release/latest.yml
               release/*.blockmap
-            artifact_name: win-nsis
+            artifact_name: pkg-win-nsis
 
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Release runs build the tagged commit (the version-bump commit),
+          # not whatever main's tip was when the workflow was dispatched.
+          ref: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || '' }}
 
       - uses: actions/setup-node@v5
         with:
@@ -102,19 +117,31 @@ jobs:
   release:
     needs: package
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ inputs.tag != '' }}
     permissions:
       contents: write
       actions: read
 
     steps:
-      - name: Download all artifacts
+      - name: Download installers
         uses: actions/download-artifact@v4
         with:
+          pattern: pkg-*
           path: dist
 
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: notes
+
+      # The release only comes into existence here, after every platform
+      # build succeeded, so a draft that exists always has all its assets.
       - name: Create GitHub Release and attach artifacts
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.tag }}
+          body_path: notes/release-notes.md
           files: dist/**/*
           draft: true

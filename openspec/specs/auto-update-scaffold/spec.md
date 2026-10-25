@@ -71,7 +71,7 @@ The `AppStoreSchema` in `ElectronStoreService` SHALL include an `enableAutoUpdat
 
 ### Requirement: Packaged builds carry GitHub publish metadata
 
-`electron-builder.yml` SHALL declare `publish: github` so packaged artifacts embed the update-feed metadata (`app-update.yml`) that `electron-updater` requires. Adding the publish configuration MUST NOT cause CI packaging runs to publish releases themselves — release publishing remains owned by the tag-triggered workflow.
+`electron-builder.yml` SHALL declare `publish: github` so packaged artifacts embed the update-feed metadata (`app-update.yml`) that `electron-updater` requires. Adding the publish configuration MUST NOT cause CI packaging runs to publish releases themselves — release publishing remains owned by the release workflow.
 
 #### Scenario: Packaging embeds the update feed configuration
 
@@ -81,7 +81,7 @@ The `AppStoreSchema` in `ElectronStoreService` SHALL include an `enableAutoUpdat
 #### Scenario: CI packaging does not auto-publish
 
 - **WHEN** the Package workflow runs `npm run desktop:package` on a pull request
-- **THEN** electron-builder does not attempt to publish to GitHub Releases (publishing stays gated to the tag-triggered release job)
+- **THEN** electron-builder does not attempt to publish to GitHub Releases (publishing stays gated to the release job)
 
 ### Requirement: Operator can trigger an on-demand update check
 

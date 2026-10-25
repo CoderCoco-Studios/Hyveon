@@ -41,15 +41,15 @@ The system SHALL derive a semantic version bump (major, minor, or patch) from th
 - **THEN** the system uses that value instead of the value it would otherwise have computed from commit types
 
 ### Requirement: Versioned commit and tag pushed to the protected default branch
-The system SHALL update the version field in the repository's root package manifest to the computed or overridden version, commit that change directly to the protected default branch, and push an annotated tag pointing at that commit, using an authentication identity distinct from the default workflow token so that the resulting tag push triggers downstream tag-triggered workflows.
+The system SHALL update the version field in the repository's root package manifest to the computed or overridden version, commit that change directly to the protected default branch, and push an annotated tag pointing at that commit, using an authentication identity distinct from the default workflow token so that the push is permitted by the branch protection rules.
 
 #### Scenario: Version bump committed and tagged
 - **WHEN** a release run with `skip_bump` not set completes changelog generation successfully
 - **THEN** the root package manifest's version field is updated, a commit containing only that change is pushed to the default branch, and a tag named for the new version is pushed pointing at that commit
 
-#### Scenario: Tag push reaches the build pipeline
+#### Scenario: Build pipeline runs in the same workflow run
 - **WHEN** the release workflow pushes a new version tag
-- **THEN** the existing tag-triggered build/publish workflow observes the tag push and runs, rather than silently no-opping as it would for a push made with the default workflow token
+- **THEN** the same workflow run invokes the build/package workflow for that tag, rather than relying on a separate tag-triggered run
 
 ### Requirement: Skip-bump replay mode
 The system SHALL support a replay mode that regenerates the changelog and AI-written summary for an already-tagged release, identified by an operator-supplied tag, without creating a new version, commit, or tag.
@@ -74,11 +74,15 @@ The system SHALL generate a user-facing release summary from the structured chan
 - **THEN** the release is still published using the raw grouped changelog as its body, and the release process does not fail solely because of the AI step
 
 ### Requirement: Draft release requiring human approval
-The system SHALL publish (or update, in replay mode) the resulting release as a draft GitHub Release associated with the relevant tag, and SHALL NOT make the release publicly visible without an explicit separate human action.
+The system SHALL create the resulting release as a draft GitHub Release associated with the relevant tag only after every platform build has succeeded and its installers are attached (or update the existing release's notes, in replay mode), and SHALL NOT make the release publicly visible without an explicit separate human action.
 
 #### Scenario: New release published as draft
 - **WHEN** a non-replay release run completes
-- **THEN** a draft GitHub Release is created for the new tag, visible only to repository collaborators until a human manually publishes it
+- **THEN** a draft GitHub Release is created for the new tag with all platform installers attached, visible only to repository collaborators until a human manually publishes it
+
+#### Scenario: No release exists while builds are running
+- **WHEN** a non-replay release run is still building installers
+- **THEN** no GitHub Release (draft or published) exists yet for the new tag
 
 #### Scenario: Replay updates the existing draft or release notes
 - **WHEN** a replay run completes for an existing tag
