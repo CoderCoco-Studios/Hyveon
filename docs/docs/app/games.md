@@ -233,10 +233,7 @@ always deletes its app-owned secret, if any.
 
 Two sections.
 
-**Volumes** — "Every game server needs at least one EFS-backed volume for its
-save data." Each row has a **Volume name** (e.g. `data`) and a **Container
-path** (e.g. `/data`). The path must be absolute. The **Remove** button is
-disabled once only one row remains; you cannot go below one volume.
+**Volumes** — "Every game server needs at least one EFS-backed volume for its save data." The step starts with one row prefilled as `data` → `/data`. Each row has a **Volume name** and a **Container path**; a hint under the path reminds you to use the save-data path from the game's Dockerfile or docs. The path must be absolute. The **Remove** button is disabled once only one row remains; you cannot go below one volume.
 
 **File seeds** — "Optional — files written into a volume the first time the
 server starts." Each row has:
