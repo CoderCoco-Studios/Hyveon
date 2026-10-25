@@ -13,6 +13,8 @@
 export interface AutoUpdateSettingGetSuccess {
   ok: true;
   enableAutoUpdate: boolean;
+  /** The running app's `app.getVersion()`; `'unknown'` outside Electron. */
+  appVersion: string;
 }
 
 /** Catch-all read failure — the store was unexpectedly unavailable. */

@@ -51,7 +51,10 @@ function engineVersionLabel(state: EngineVersionState): string {
  * `writeError: true` — the checkbox keeps showing the last confirmed
  * `enabled` value rather than dropping to the no-known-value error state.
  */
-type AutoUpdateState = 'loading' | { status: 'ready'; enabled: boolean; writeError?: boolean } | 'error';
+type AutoUpdateState =
+  | 'loading'
+  | { status: 'ready'; enabled: boolean; appVersion: string; writeError?: boolean }
+  | 'error';
 
 /**
  * Client-side state for the Updates section's on-demand "Check for Updates"
@@ -68,13 +71,33 @@ function manualCheckFailed(state: ManualCheckState): boolean {
   return typeof state === 'object' && !state.result.ok;
 }
 
-/** Renders {@link ManualCheckState} as the manual-check row's status text. */
-function manualCheckLabel(state: ManualCheckState): string | null {
+/**
+ * Formats the running app's version for display: `v0.8.0`, or `Unknown` when
+ * the main process could not resolve it (outside Electron).
+ */
+function formatAppVersion(version: string): string {
+  return version === 'unknown' ? 'Unknown' : `v${version}`;
+}
+
+/** Renders {@link AutoUpdateState} as the App Version row's description. */
+function appVersionLabel(state: AutoUpdateState): string {
+  if (state === 'loading') return 'Loading…';
+  if (state === 'error') return 'Unavailable';
+  return formatAppVersion(state.appVersion);
+}
+
+/**
+ * Renders {@link ManualCheckState} as the manual-check row's status text.
+ * The "up to date" copy includes the running version when one is known.
+ */
+function manualCheckLabel(state: ManualCheckState, appVersion: string | null): string | null {
   if (state === 'idle') return null;
   if (state === 'checking') return 'Checking for updates…';
   const result = state.result;
   if (!result.ok) return result.message;
-  return result.updateAvailable ? `Update available: v${result.version}` : "You're up to date.";
+  return result.updateAvailable ? `Update available: v${result.version}` : appVersion && appVersion !== 'unknown'
+      ? `You're up to date (${formatAppVersion(appVersion)}).`
+      : "You're up to date.";
 }
 
 /**
@@ -114,7 +137,11 @@ export function SettingsPage() {
     const settings = window.hyveon?.iac?.settings;
     const read = settings ? settings.autoUpdateGet() : Promise.reject(new Error(SETTINGS_BRIDGE_UNAVAILABLE));
     read
-      .then((result) => setAutoUpdate(result.ok ? { status: 'ready', enabled: result.enableAutoUpdate } : 'error'))
+      .then((result) =>
+        setAutoUpdate(
+          result.ok ? { status: 'ready', enabled: result.enableAutoUpdate, appVersion: result.appVersion } : 'error',
+        ),
+      )
       .catch(() => setAutoUpdate('error'));
   }, []);
 
@@ -132,7 +159,11 @@ export function SettingsPage() {
     write
       .then((result) => {
         if (result.ok) {
-          setAutoUpdate({ status: 'ready', enabled: result.enableAutoUpdate });
+          setAutoUpdate((prev) => ({
+            status: 'ready',
+            enabled: result.enableAutoUpdate,
+            appVersion: typeof prev === 'object' ? prev.appVersion : 'unknown',
+          }));
         } else {
           setAutoUpdate((prev) => (typeof prev === 'object' ? { ...prev, writeError: true } : 'error'));
         }
@@ -209,6 +240,9 @@ export function SettingsPage() {
       */}
       <div className="mb-8">
         <h3 className="text-lg font-medium mb-4">Updates</h3>
+        <div className="mb-3">
+          <SettingsRow label="App Version" description={appVersionLabel(autoUpdate)} />
+        </div>
         <SettingsRow
           label="Automatic Updates"
           description={
@@ -243,7 +277,7 @@ export function SettingsPage() {
             label="Check Now"
             description={
               <>
-                {manualCheckLabel(manualCheck) ?? 'Check GitHub Releases for a newer version right now.'}
+                {manualCheckLabel(manualCheck, typeof autoUpdate === 'object' ? autoUpdate.appVersion : null) ?? 'Check GitHub Releases for a newer version right now.'}
                 {manualCheckFailed(manualCheck) && (
                   <>
                     {' '}

@@ -14,6 +14,8 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock('../app-version.js', () => ({ readAppVersion: () => '0.8.0' }));
+
 const { checkForUpdatesNowMock } = vi.hoisted(() => ({ checkForUpdatesNowMock: vi.fn() }));
 vi.mock('../updater.js', () => ({ checkForUpdatesNow: checkForUpdatesNowMock }));
 
@@ -258,18 +260,18 @@ describe('IacSettingsController', () => {
     it('should return false when enableAutoUpdate was never set', () => {
       const store = makeStore();
       const result = new IacSettingsController(makeDeploymentConfig(), undefined, store).getAutoUpdate();
-      expect(result).toEqual({ ok: true, enableAutoUpdate: false });
+      expect(result).toEqual({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
     });
 
     it('should return true when enableAutoUpdate is stored as true', () => {
       const store = makeStore({ enableAutoUpdate: true });
       const result = new IacSettingsController(makeDeploymentConfig(), undefined, store).getAutoUpdate();
-      expect(result).toEqual({ ok: true, enableAutoUpdate: true });
+      expect(result).toEqual({ ok: true, enableAutoUpdate: true, appVersion: '0.8.0' });
     });
 
     it('should return false without throwing when no store was injected', () => {
       const result = new IacSettingsController(makeDeploymentConfig()).getAutoUpdate();
-      expect(result).toEqual({ ok: true, enableAutoUpdate: false });
+      expect(result).toEqual({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
     });
 
     it('should return an error result without throwing when store.get throws', () => {
@@ -299,7 +301,7 @@ describe('IacSettingsController', () => {
       const controller = new IacSettingsController(makeDeploymentConfig(), undefined, store);
       const writeResult = controller.updateAutoUpdate({ enableAutoUpdate: true });
       expect(writeResult).toEqual({ ok: true, enableAutoUpdate: true });
-      expect(controller.getAutoUpdate()).toEqual({ ok: true, enableAutoUpdate: true });
+      expect(controller.getAutoUpdate()).toEqual({ ok: true, enableAutoUpdate: true, appVersion: '0.8.0' });
     });
 
     it('should persist false', () => {

@@ -231,7 +231,7 @@ export function installHyveonHttpBridge(): void {
         // this unconditionally, so a chromium spec that merely visits
         // `/settings` needs it to resolve, not throw `TypeError:
         // settings.autoUpdateGet is not a function`.
-        autoUpdateGet: async () => ({ ok: true, enableAutoUpdate: false }),
+        autoUpdateGet: async () => ({ ok: true, enableAutoUpdate: false, appVersion: 'unknown' }),
         autoUpdateUpdate: async () => ({
           ok: false,
           code: 'error',

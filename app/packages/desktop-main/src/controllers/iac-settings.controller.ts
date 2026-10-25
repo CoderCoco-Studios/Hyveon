@@ -12,6 +12,7 @@ import type {
 } from '@hyveon/shared';
 import { OptimisticLockError, errMessage, validateDeploymentSettingsPatch } from '@hyveon/shared';
 import { logger } from '../logger.js';
+import { readAppVersion } from '../app-version.js';
 import { checkForUpdatesNow } from '../updater.js';
 import { ConfigurationNotConfiguredError, RunsTableRenameError, DeploymentConfigService } from '../services/DeploymentConfigService.js';
 // Deliberately a value import, not `import type` — Nest's constructor-parameter
@@ -176,7 +177,11 @@ export class IacSettingsController {
   getAutoUpdate(): AutoUpdateSettingGetResult {
     logger.debug('IacSettingsController: iac.settings.autoUpdate.get invoked');
     try {
-      return { ok: true, enableAutoUpdate: this.store?.get('enableAutoUpdate') ?? false };
+      return {
+        ok: true,
+        enableAutoUpdate: this.store?.get('enableAutoUpdate') ?? false,
+        appVersion: readAppVersion(),
+      };
     } catch (err) {
       logger.error('Failed to read enableAutoUpdate setting', { err: errMessage(err) });
       return { ok: false, code: 'error', message: 'An unexpected error occurred while reading the auto-update setting.' };

@@ -2,11 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { ZipArchive } from 'archiver';
 import { createWriteStream } from 'node:fs';
 import { rm, rename } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import * as os from 'node:os';
 import { errMessage, type GameStatus } from '@hyveon/shared';
 import { logger } from '../logger.js';
+import { readAppVersion } from '../app-version.js';
 import { DiagnosticsService } from './DiagnosticsService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
 import { ConfigService } from './ConfigService.js';
@@ -209,22 +209,13 @@ export class DiagnosticsBundleService {
   }
 
   /**
-   * Returns the packaged app's version via Electron's `app.getVersion()`,
-   * lazily requiring `electron` at call-time (mirrors
-   * `CloudHealthService.readIsPackaged`'s pattern). Returns `'unknown'`
-   * outside Electron (e.g. under Vitest) rather than throwing — the
-   * metadata section degrades gracefully instead of failing entirely over
-   * one field. Extracted as a protected method so tests can stub it.
+   * Returns the packaged app's version via the shared {@link readAppVersion}
+   * helper (`'unknown'` outside Electron, so the metadata section degrades
+   * gracefully instead of failing over one field). Kept as a protected
+   * method so tests can stub it.
    */
   protected readAppVersion(): string {
-    if (!process.versions['electron']) return 'unknown';
-    try {
-      const _require = createRequire(import.meta.url);
-      const electron = _require('electron') as { app: { getVersion(): string } };
-      return electron.app.getVersion();
-    } catch {
-      return 'unknown';
-    }
+    return readAppVersion();
   }
 
   /**
