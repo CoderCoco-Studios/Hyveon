@@ -24,43 +24,28 @@
         ]
       },
       {
-        "matcher": "EnterWorktree",
+        "matcher": "Edit|Write|NotebookEdit|Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bun run \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-enter-worktree-path.ts\"",
-            "statusMessage": "Checking EnterWorktree path is under .claude/worktrees/..."
-          },
-          {
-            "type": "command",
-            "command": "bun run \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-enter-worktree-sync.ts\"",
-            "statusMessage": "Syncing local main with origin before branching worktree..."
+            "command": "bun run \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-main-checkout.ts\"",
+            "statusMessage": "Checking edit is not on the main checkout..."
           }
         ]
       },
       {
-        "matcher": "Edit|Write",
+        "matcher": "EnterWorktree|Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bun run \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-require-worktree.ts\"",
-            "statusMessage": "Checking worktree isolation..."
+            "command": "bun run \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-redirect-to-pane.ts\"",
+            "statusMessage": "Checking worktree creation goes through Pane..."
           }
         ]
       },
       {
         "matcher": "Bash",
         "hooks": [
-          {
-            "type": "command",
-            "command": "bun run \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-require-worktree.ts\"",
-            "statusMessage": "Checking worktree isolation..."
-          },
-          {
-            "type": "command",
-            "command": "bun run \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-git-worktree-add-path.ts\"",
-            "statusMessage": "Checking git worktree add path is under .claude/worktrees/..."
-          },
           {
             "type": "command",
             "command": "bun run \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-git-push-sync.ts\"",
@@ -83,18 +68,6 @@
           {
             "type": "command",
             "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard read || echo 'graphify not installed — skipping guard' >&2"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "EnterWorktree",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bun run \"$CLAUDE_PROJECT_DIR/.claude/hooks/hook-npm-ci-on-worktree-enter.ts\"",
-            "statusMessage": "Running npm ci in the new worktree..."
           }
         ]
       }

@@ -151,10 +151,10 @@ Then confirm documentation is current **in the same PR**:
 ## Git & PR workflow
 
 `main` is protected — direct pushes are blocked. Every change goes through a PR, including
-trivial chores. Tracked-file changes require a worktree, entered via `EnterWorktree` — hooks
-enforce isolation, path, sync, and `npm ci` automatically; see `.claude/rules/worktree.md` for
-what the hooks cover and the one thing they can't decide for you (reuse an existing worktree
-before creating a new one).
+trivial chores. Tracked-file changes require a worktree created through Pane (`runpane` / the
+`pane` skill) — never edit the main checkout. A hook (`guard-main-checkout`) blocks edits and
+`git add|commit|merge|rebase|reset` there, and `guard-redirect-to-pane` blocks `EnterWorktree`
+and raw `git worktree add`; see `.claude/rules/worktree.md`.
 
 - **Always use `/pr`** to open pull requests — it validates the title before calling the API.
 - **PR titles MUST be Conventional Commits.** We squash-merge, so the title becomes the commit

@@ -104,3 +104,10 @@ bun --hot ./index.ts
 ```
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+
+## Hooks in this directory
+
+- `guard-main-checkout.ts` (Edit/Write/NotebookEdit/Bash) — denies tracked-file changes on a main checkout.
+- `guard-redirect-to-pane.ts` (EnterWorktree, Bash) — denies `EnterWorktree` / `git worktree add`, pointing at Pane.
+- `guard-git-push-sync.ts`, `guard-superpowers-paths.ts`, `notify-branch-sync-drift.ts` — push-sync, doc-path routing, and drift notices.
+- Shared helpers in `lib/`; tests in `guards.test.ts` (`bun test`).
