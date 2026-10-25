@@ -132,7 +132,7 @@ export function AddGameWizard({
 
   // Lives here, not in the Storage step, so the picked folder survives moving between steps.
   const folderSeed = useFolderSeed({ game: draft.name.trim(), volumes: draft.volumes });
-  const { reset: resetFolderSeed, persistAs: persistFolderSeed } = folderSeed;
+  const { reset: resetFolderSeed, persistAs: persistFolderSeed, discardPersisted: discardFolderSeed } = folderSeed;
 
   // The step body's scroll container is a single persistent DOM node whose
   // children swap as `stepIndex` changes, so a scroll offset left over from
@@ -175,6 +175,14 @@ export function AddGameWizard({
 
   /** Handles the dialog's own open/close, flushing any pending autosave and resetting the draft on close. */
   function handleOpenChange(next: boolean) {
+    // A dialog-initiated close (Cancel/Escape/overlay) discards the draft, so its persisted folder selection goes too;
+    // `handleSubmit` closes through `closeWizard()` directly so a created game keeps its selection.
+    if (!next) void discardFolderSeed();
+    applyOpen(next);
+  }
+
+  /** Opens or closes the dialog without touching persisted folder selections. */
+  function applyOpen(next: boolean) {
     openRef.current = next;
     setOpen(next);
     if (!next) {
@@ -262,7 +270,7 @@ export function AddGameWizard({
         // `getGameDraft()` effect) could race the clear and briefly still
         // see the just-submitted draft as "unfinished".
         await api.clearGameDraft();
-        handleOpenChange(false);
+        applyOpen(false);
         navigate(`/games/${payload.name}`);
         return;
       }

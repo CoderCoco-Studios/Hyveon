@@ -733,6 +733,16 @@ describe('ElectronStoreService folder-upload state', () => {
     expect(service.getFolderUploadState('minecraft')).toEqual({ ...selection, include: ['Data'], lastRun });
   });
 
+  it('should forget one game\'s folder state and leave the others', () => {
+    const service = new ElectronStoreService(makeSafeStorage());
+    service.setFolderUploadSelection('minecraft', selection);
+    service.setFolderUploadSelection('palworld', selection);
+    service.clearFolderUploadState('minecraft');
+    service.clearFolderUploadState('absent');
+    expect(service.getFolderUploadState('minecraft')).toBeUndefined();
+    expect(service.getFolderUploadState('palworld')).toEqual(selection);
+  });
+
   it('should ignore a last-run record for a game that has no stored selection', () => {
     const service = new ElectronStoreService(makeSafeStorage());
     service.setFolderUploadLastRun('minecraft', lastRun);

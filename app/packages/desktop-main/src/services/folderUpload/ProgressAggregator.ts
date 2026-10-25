@@ -71,6 +71,15 @@ export class ProgressAggregator {
     this.bytesDone = Math.max(0, this.bytesDone + n);
   }
 
+  /**
+   * Counts bytes of a resume-skipped file as done without contributing a rate sample: advances the tick baseline
+   * together with `bytesDone`, so the next tick does not read them as one interval's throughput.
+   */
+  addSkippedBytes(n: number): void {
+    this.bytesDone += n;
+    this.lastTickBytes += n;
+  }
+
   /** Records a finished (or resume-skipped) file. */
   fileDone(): void {
     this.filesDone += 1;

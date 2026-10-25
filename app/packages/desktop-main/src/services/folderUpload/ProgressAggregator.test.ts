@@ -38,6 +38,19 @@ describe('ProgressAggregator', () => {
     expect(agg.snapshot().bytesDone).toBe(0);
   });
 
+  it('should not turn resume-skipped bytes into a rate sample on the next tick', () => {
+    const { agg } = make(1_000_000);
+    agg.setPhase('uploading');
+    agg.start();
+    agg.addSkippedBytes(900_000);
+    vi.advanceTimersByTime(PROGRESS_INTERVAL_MS);
+    expect(agg.snapshot()).toMatchObject({ bytesDone: 900_000, bytesPerSecond: 0 });
+    agg.addBytes(1000);
+    vi.advanceTimersByTime(PROGRESS_INTERVAL_MS);
+    // Only the 1000 real bytes feed the smoothed rate (0.3 * 2000); the skipped 900k never does.
+    expect(agg.snapshot().bytesPerSecond).toBe(600);
+  });
+
   it('should smooth the rate and only report an ETA after enough samples', () => {
     const { agg } = make(10_000);
     agg.setPhase('uploading');

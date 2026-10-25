@@ -118,6 +118,29 @@ describe('FolderUploadService guards', () => {
     expect(h.fm.stop).not.toHaveBeenCalled();
   });
 
+  it('should refuse a second overlapping start for the same game while the first is still preparing', async () => {
+    const h = await harness();
+    let release!: (task: null) => void;
+    h.ecs.findRunningTask.mockReturnValueOnce(new Promise<null>((resolve) => { release = resolve; }));
+    const req = await request(['Config']);
+    const first = h.svc.startUpload(req);
+    const second = await h.svc.startUpload(req);
+    expect(second).toEqual({ started: false, error: "An upload is already starting for 'minecraft'." });
+    release(null);
+    expect(await first).toMatchObject({ started: true });
+    await settled(h);
+    expect(h.fm.startForUpload).toHaveBeenCalledTimes(1);
+  });
+
+  it('should allow a new start after a refused one released the reservation', async () => {
+    const h = await harness();
+    h.ecs.findRunningTask.mockResolvedValueOnce({ taskArn: 'x' });
+    const req = await request(['Config']);
+    expect(await h.svc.startUpload(req)).toMatchObject({ started: false, error: expect.stringMatching(/Stop the server/) });
+    expect(await h.svc.startUpload(req)).toMatchObject({ started: true });
+    await settled(h);
+  });
+
   it('should refuse a destination outside the game volumes', async () => {
     const h = await harness();
     expect(await h.svc.startUpload(await request(['Config'], '/etc'))).toMatchObject({ started: false });

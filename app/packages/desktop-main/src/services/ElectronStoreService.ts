@@ -657,6 +657,14 @@ export class ElectronStoreService {
     this.set('folderUpload', { ...all, [game]: { ...all[game], ...selection } });
   }
 
+  /** Forgets the persisted folder selection and last-run record for `game`; a no-op when none is stored. */
+  clearFolderUploadState(game: string): void {
+    const all = this.get('folderUpload');
+    if (!all || !(game in all)) return;
+    const { [game]: _removed, ...rest } = all;
+    this.set('folderUpload', rest);
+  }
+
   /** Records the outcome of the most recent upload run for `game`; a no-op when no selection was ever stored. */
   setFolderUploadLastRun(game: string, lastRun: FolderUploadLastRun): void {
     const all = this.get('folderUpload') ?? {};

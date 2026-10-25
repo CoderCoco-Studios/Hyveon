@@ -445,7 +445,9 @@ export class EcsService {
 
   /**
    * Lists active tasks in `cluster` whose `startedBy` begins with `prefix`. `ListTasks` only filters `startedBy` by
-   * exact match, so this pages through every running task and filters locally. Returns `[]` on failure.
+   * exact match, so this pages through every running task and filters locally.
+   *
+   * @throws Error when ListTasks/DescribeTasks fails — callers must not mistake a failed lookup for "no tasks".
    */
   async listTasksByStartedByPrefix(cluster: string, prefix: string): Promise<Task[]> {
     logger.debug('EcsService.listTasksByStartedByPrefix: listing tasks', { cluster, prefix });
@@ -470,7 +472,7 @@ export class EcsService {
       );
     } catch (err) {
       logger.error('Failed to list tasks by startedBy prefix', { prefix, error: errMessage(err) });
-      return [];
+      throw new Error(`Could not list tasks for prefix '${prefix}': ${errMessage(err)}`);
     }
   }
 

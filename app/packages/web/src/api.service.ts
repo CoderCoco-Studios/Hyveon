@@ -292,6 +292,7 @@ export const api = {
     hyveon().folderUpload.getSelection(game),
   folderSetSelection: async (request: FolderUploadRequest): Promise<{ saved: true }> =>
     hyveon().folderUpload.setSelection(request),
+  folderClearSelection: async (game: string): Promise<{ cleared: true }> => hyveon().folderUpload.clearSelection(game),
   folderStartUpload: async (request: FolderUploadRequest): Promise<FolderUploadStartResult> =>
     hyveon().folderUpload.startUpload(request),
   folderCancelUpload: async (game: string): Promise<{ cancelled: boolean }> => hyveon().folderUpload.cancelUpload(game),

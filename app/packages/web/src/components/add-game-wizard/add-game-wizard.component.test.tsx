@@ -42,6 +42,7 @@ const apiMock = vi.hoisted(() => ({
   folderGetSelection: vi.fn(),
   folderRescan: vi.fn(),
   folderSetSelection: vi.fn(),
+  folderClearSelection: vi.fn(),
 }));
 vi.mock('../../api.service.js', () => ({ api: apiMock }));
 
@@ -73,6 +74,7 @@ function resetApiMocks() {
   apiMock.folderGetSelection.mockResolvedValue(null);
   apiMock.folderRescan.mockResolvedValue(null);
   apiMock.folderSetSelection.mockReset().mockResolvedValue({ saved: true });
+  apiMock.folderClearSelection.mockReset().mockResolvedValue({ cleared: true });
   navigateMock.mockClear();
   toastMock.success.mockClear();
   toastMock.error.mockClear();
@@ -258,6 +260,29 @@ describe('AddGameWizard — seed from folder', () => {
     expect(toastMock.success).toHaveBeenCalledWith('mygame created', {
       description: expect.stringContaining('upload your folder from the game page'),
     });
+  });
+
+  it('should clear the persisted folder selection when the wizard is cancelled', async () => {
+    await pickFolderOnStorageStep();
+    expect(apiMock.folderSetSelection).toHaveBeenCalledWith(expect.objectContaining({ game: 'mygame' }));
+
+    await userEvent.keyboard('{Escape}');
+
+    await waitFor(() => expect(apiMock.folderClearSelection).toHaveBeenCalledWith('mygame'));
+    expect(screen.queryByRole('heading', { name: 'Add a game server' })).not.toBeInTheDocument();
+  });
+
+  it('should keep the persisted folder selection when the game is created', async () => {
+    apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
+    await pickFolderOnStorageStep();
+    await goNext();
+    await goNext();
+    await screen.findByText('Step 6 of 6: Review');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/games/mygame'));
+    expect(apiMock.folderClearSelection).not.toHaveBeenCalled();
   });
 
   it('should not persist a selection when no folder was picked', async () => {

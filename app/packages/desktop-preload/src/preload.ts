@@ -409,6 +409,7 @@ const api: HyveonApi = {
     rescanSelection: (game: string) => invoke<FolderScanResult | null>('folderUpload.rescanSelection', game),
     getSelection: (game: string) => invoke<FolderUploadStoredState | null>('folderUpload.getSelection', game),
     setSelection: (request: FolderUploadRequest) => invoke<{ saved: true }>('folderUpload.setSelection', request),
+    clearSelection: (game: string) => invoke<{ cleared: true }>('folderUpload.clearSelection', game),
     startUpload: (request: FolderUploadRequest) => invoke<FolderUploadStartResult>('folderUpload.startUpload', request),
     cancelUpload: (game: string) => invoke<{ cancelled: boolean }>('folderUpload.cancelUpload', game),
     confirmOverwrite: (game: string, proceed: boolean) =>

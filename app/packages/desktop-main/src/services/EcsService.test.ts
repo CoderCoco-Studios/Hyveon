@@ -573,9 +573,15 @@ describe('EcsService', () => {
       expect(ecsMock.commandCalls(DescribeTasksCommand)).toHaveLength(2);
     });
 
-    it('should return [] on API error', async () => {
+    it('should throw on a ListTasks error rather than report no tasks', async () => {
       ecsMock.on(ListTasksCommand).rejects(new Error('boom'));
-      expect(await makeService(makeConfig(), makeEc2()).listTasksByStartedByPrefix('c', 'filemgr-')).toEqual([]);
+      await expect(makeService(makeConfig(), makeEc2()).listTasksByStartedByPrefix('c', 'filemgr-')).rejects.toThrow(/boom/);
+    });
+
+    it('should throw on a DescribeTasks error', async () => {
+      ecsMock.on(ListTasksCommand).resolves({ taskArns: ['a'] });
+      ecsMock.on(DescribeTasksCommand).rejects(new Error('denied'));
+      await expect(makeService(makeConfig(), makeEc2()).listTasksByStartedByPrefix('c', 'filemgr-')).rejects.toThrow(/denied/);
     });
   });
 

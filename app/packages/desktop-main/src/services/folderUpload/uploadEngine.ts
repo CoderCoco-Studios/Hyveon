@@ -269,7 +269,7 @@ export async function uploadAll(
   const pending: UploadItem[] = [];
   for (const item of items) {
     if (remoteSizes.get(item.remotePath) === item.size) {
-      progress.addBytes(item.size);
+      progress.addSkippedBytes(item.size);
       progress.fileDone();
     } else {
       pending.push(item);

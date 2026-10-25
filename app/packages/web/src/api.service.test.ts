@@ -36,6 +36,7 @@ function makeHyveonMock() {
       rescanSelection: vi.fn().mockResolvedValue(null),
       getSelection: vi.fn().mockResolvedValue(null),
       setSelection: vi.fn().mockResolvedValue({ saved: true }),
+      clearSelection: vi.fn().mockResolvedValue({ cleared: true }),
       startUpload: vi.fn().mockResolvedValue({ started: true, runId: 'r' }),
       cancelUpload: vi.fn().mockResolvedValue({ cancelled: true }),
       confirmOverwrite: vi.fn().mockResolvedValue({ resolved: true }),
@@ -145,6 +146,7 @@ describe('IPC bridge delegation', () => {
     await api.folderRescan('minecraft');
     await api.folderGetSelection('minecraft');
     await api.folderSetSelection(request);
+    await api.folderClearSelection('minecraft');
     await api.folderStartUpload(request);
     await api.folderCancelUpload('minecraft');
     await api.folderConfirmOverwrite('minecraft', true);
@@ -154,6 +156,7 @@ describe('IPC bridge delegation', () => {
     expect(hyveon.folderUpload.rescanSelection).toHaveBeenCalledWith('minecraft');
     expect(hyveon.folderUpload.getSelection).toHaveBeenCalledWith('minecraft');
     expect(hyveon.folderUpload.setSelection).toHaveBeenCalledWith(request);
+    expect(hyveon.folderUpload.clearSelection).toHaveBeenCalledWith('minecraft');
     expect(hyveon.folderUpload.startUpload).toHaveBeenCalledWith(request);
     expect(hyveon.folderUpload.cancelUpload).toHaveBeenCalledWith('minecraft');
     expect(hyveon.folderUpload.confirmOverwrite).toHaveBeenCalledWith('minecraft', true);

@@ -100,6 +100,7 @@ export function installHyveonHttpBridge(): void {
         rescanSelection: async () => null,
         getSelection: async () => null,
         setSelection: async () => ({ saved: true }),
+        clearSelection: async () => ({ cleared: true }),
         startUpload: async (request: { game: string }) => {
           const steps: [string, number][] = [['starting-helper', 0], ['uploading', 515], ['verifying', 1030], ['done', 1030]];
           const play = (from: number): void => {

@@ -93,6 +93,8 @@ export class FolderUploadService implements OnApplicationBootstrap {
   readonly engine: UploadEngineOptions = { ...DEFAULT_ENGINE_OPTIONS };
 
   private readonly active = new Map<string, ActiveRun>();
+  /** Games whose `startUpload` is between the guard and `active.set`, so an overlapping call cannot pass the guard. */
+  private readonly preparing = new Set<string>();
   private readonly confirmations = new Map<string, (proceed: boolean) => void>();
   private readonly latest = new Map<string, FolderUploadProgress>();
   private readonly listeners = new Set<(progress: FolderUploadProgress) => void>();
@@ -145,6 +147,11 @@ export class FolderUploadService implements OnApplicationBootstrap {
     });
   }
 
+  /** Forgets the persisted selection for `game` (e.g. a discarded wizard draft); a no-op when none is stored. */
+  clearSelection(game: string): void {
+    this.store.clearFolderUploadState(game);
+  }
+
   /** Re-scans the persisted `localPath` for `game` so a restored selection has a live `scanId`; `null` if none stored. */
   async rescanSelection(game: string): Promise<FolderScanResult | null> {
     const state = this.store.getFolderUploadState(game);
@@ -182,20 +189,33 @@ export class FolderUploadService implements OnApplicationBootstrap {
    * running, helper already open, bad destination or path, scan expired).
    */
   async startUpload(request: FolderUploadRequest): Promise<FolderUploadStartResult> {
-    let prepared: PreparedRun;
-    try {
-      prepared = await this.prepare(request);
-    } catch (err) {
-      const error = errMessage(err);
-      logger.info('FolderUploadService: upload refused', { game: request.game, reason: error });
-      return { started: false, error };
+    const { game } = request;
+    if (this.preparing.has(game)) {
+      return { started: false, error: `An upload is already starting for '${game}'.` };
     }
-    this.setSelection(request);
+    // Reserve synchronously: `active.set` only happens after `prepare()`'s awaits.
+    this.preparing.add(game);
+    let prepared: PreparedRun;
+    let runId: string;
+    let controller: AbortController;
+    try {
+      try {
+        prepared = await this.prepare(request);
+      } catch (err) {
+        const error = errMessage(err);
+        logger.info('FolderUploadService: upload refused', { game, reason: error });
+        return { started: false, error };
+      }
+      this.setSelection(request);
 
-    const runId = randomUUID();
-    const controller = new AbortController();
-    this.active.set(request.game, { runId, controller });
-    logger.info('FolderUploadService: upload started', { game: request.game, runId, files: prepared.items.length, bytes: prepared.bytesTotal });
+      runId = randomUUID();
+      controller = new AbortController();
+      // No await between here and the release in `finally`.
+      this.active.set(game, { runId, controller });
+    } finally {
+      this.preparing.delete(game);
+    }
+    logger.info('FolderUploadService: upload started', { game, runId, files: prepared.items.length, bytes: prepared.bytesTotal });
     void this.execute(prepared, runId, controller.signal);
     return { started: true, runId };
   }

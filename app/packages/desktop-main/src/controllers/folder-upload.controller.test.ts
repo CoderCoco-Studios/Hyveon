@@ -17,6 +17,7 @@ function make() {
     rescanSelection: vi.fn().mockResolvedValue(null),
     getSelection: vi.fn().mockReturnValue(null),
     setSelection: vi.fn(),
+    clearSelection: vi.fn(),
     startUpload: vi.fn().mockResolvedValue({ started: true, runId: 'r' }),
     cancel: vi.fn().mockReturnValue({ cancelled: true }),
     confirmOverwrite: vi.fn().mockReturnValue({ resolved: true }),
@@ -35,6 +36,7 @@ describe('FolderUploadController', () => {
       ['rescanSelection', 'folderUpload.rescanSelection'],
       ['getSelection', 'folderUpload.getSelection'],
       ['setSelection', 'folderUpload.setSelection'],
+      ['clearSelection', 'folderUpload.clearSelection'],
       ['startUpload', 'folderUpload.startUpload'],
       ['cancelUpload', 'folderUpload.cancelUpload'],
       ['confirmOverwrite', 'folderUpload.confirmOverwrite'],
@@ -86,6 +88,13 @@ describe('FolderUploadController', () => {
     const { controller, uploads } = make();
     expect(controller.setSelection({ game: 'g', scanId: 's', include: ['a'], destination: '/d' })).toEqual({ saved: true });
     expect(uploads.setSelection).toHaveBeenCalled();
+  });
+
+  it('should clear a game selection and reject an empty game', () => {
+    const { controller, uploads } = make();
+    expect(controller.clearSelection('g')).toEqual({ cleared: true });
+    expect(uploads.clearSelection).toHaveBeenCalledWith('g');
+    expect(() => controller.clearSelection('')).toThrow(BadRequestException);
   });
 
   it('should not subscribe to progress outside Electron', async () => {

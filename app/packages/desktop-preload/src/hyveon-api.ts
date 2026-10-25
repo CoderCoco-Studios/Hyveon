@@ -1566,6 +1566,8 @@ export interface HyveonFolderUploadApi {
   getSelection: (game: string) => Promise<FolderUploadStoredState | null>;
   /** Persists the selection for a game; the scan is referenced by id and file contents never reach the renderer. */
   setSelection: (request: FolderUploadRequest) => Promise<{ saved: true }>;
+  /** Forgets the persisted selection for `game` (a discarded add-game wizard draft). */
+  clearSelection: (game: string) => Promise<{ cleared: true }>;
   /** Runs the guards and starts the upload; progress then arrives through {@link HyveonFolderUploadApi.onProgress}. */
   startUpload: (request: FolderUploadRequest) => Promise<FolderUploadStartResult>;
   /** Cancels the upload running for `game`, if any. */

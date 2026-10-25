@@ -83,6 +83,14 @@ export class FolderUploadController implements OnModuleInit, OnModuleDestroy {
     return { saved: true };
   }
 
+  /** Forgets the persisted selection for `game`, used when an add-game wizard draft is discarded. */
+  @MessagePattern('folderUpload.clearSelection')
+  clearSelection(@Payload() game: string): { cleared: true } {
+    logger.debug('FolderUploadController: folderUpload.clearSelection invoked', { game });
+    this.uploads.clearSelection(this.requireGame(game, 'folderUpload.clearSelection'));
+    return { cleared: true };
+  }
+
   /** Validates guards and starts the upload in the background; progress arrives on the push channel. */
   @MessagePattern('folderUpload.startUpload')
   startUpload(@Payload() request: FolderUploadRequest): Promise<FolderUploadStartResult> {

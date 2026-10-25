@@ -30,6 +30,8 @@ export interface FolderSeedState {
   persistAs: (asGame?: string) => Promise<void>;
   /** The request to hand to `startUpload`, or `null` without a scan, a game, or a destination. */
   request: () => FolderUploadRequest | null;
+  /** Deletes every selection this hook persisted (under any draft name); best-effort. Does not touch in-memory state. */
+  discardPersisted: () => Promise<void>;
   /** Forgets all in-memory state (the persisted selection is left alone). */
   reset: () => void;
   /** Records a run outcome without re-reading it from main. */
@@ -57,6 +59,8 @@ export function useFolderSeed({ game, volumes }: UseFolderSeedOptions): FolderSe
   const defaultDestination = volumes[0]?.container_path ?? '';
   const loadedFor = useRef<string | null>(null);
   const scanRef = useRef<FolderScanResult | null>(null);
+  /** Every game name a selection was saved under, so a discarded wizard draft can clear them all (the name may change). */
+  const persistedAs = useRef<Set<string>>(new Set());
   // Re-armed in the effect body so StrictMode's simulated unmount does not disable later setState calls.
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -71,6 +75,7 @@ export function useFolderSeed({ game, volumes }: UseFolderSeedOptions): FolderSe
       if (!target || !nextScan || !validateDestination(nextDestination, volumes).ok) return;
       try {
         await api.folderSetSelection({ game: target, scanId: nextScan.scanId, include: nextInclude, destination: nextDestination });
+        persistedAs.current.add(target);
       } catch (err) {
         if (mountedRef.current) setError(err instanceof Error ? err.message : String(err));
       }
@@ -140,7 +145,16 @@ export function useFolderSeed({ game, volumes }: UseFolderSeedOptions): FolderSe
     return { game, scanId: scan.scanId, include, destination };
   }, [game, scan, include, destination]);
 
+  const discardPersisted = useCallback(async () => {
+    const names = [...persistedAs.current];
+    persistedAs.current.clear();
+    await Promise.all(
+      names.map((name) => api.folderClearSelection(name).catch(() => undefined)),
+    );
+  }, []);
+
   const reset = useCallback(() => {
+    persistedAs.current.clear();
     loadedFor.current = null;
     scanRef.current = null;
     setScan(null);
@@ -150,5 +164,5 @@ export function useFolderSeed({ game, volumes }: UseFolderSeedOptions): FolderSe
     setError(null);
   }, []);
 
-  return { scan, include, destination, lastRun, error, load, pick, setInclude, setDestination, persistAs, request, reset, setLastRun };
+  return { scan, include, destination, lastRun, error, load, pick, setInclude, setDestination, persistAs, request, discardPersisted, reset, setLastRun };
 }

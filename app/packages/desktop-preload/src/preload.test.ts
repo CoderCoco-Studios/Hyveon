@@ -229,6 +229,7 @@ describe('preload dispatcher', () => {
         ['rescanSelection', ['g'], 'folderUpload.rescanSelection', ['g']],
         ['getSelection', ['g'], 'folderUpload.getSelection', ['g']],
         ['setSelection', [{ game: 'g' }], 'folderUpload.setSelection', [{ game: 'g' }]],
+        ['clearSelection', ['g'], 'folderUpload.clearSelection', ['g']],
         ['startUpload', [{ game: 'g' }], 'folderUpload.startUpload', [{ game: 'g' }]],
         ['cancelUpload', ['g'], 'folderUpload.cancelUpload', ['g']],
         ['confirmOverwrite', ['g', true], 'folderUpload.confirmOverwrite', [{ game: 'g', proceed: true }]],
