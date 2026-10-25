@@ -45,13 +45,13 @@ function makeExistingGame(overrides: Partial<RedactedGameServer> = {}): Redacted
 }
 
 describe('createEmptyWizardDraft', () => {
-  it('should return a blank draft with empty strings, null cpu/memory, and empty arrays', () => {
+  it('should return a blank draft with empty strings, default 1 vCPU / 2 GiB cpu/memory, and empty arrays', () => {
     expect(createEmptyWizardDraft()).toEqual({
       name: '',
       image: '',
       connect_message: '',
-      cpu: null,
-      memory: null,
+      cpu: 1024,
+      memory: 2048,
       ports: [],
       volumes: [],
       file_seeds: [],
