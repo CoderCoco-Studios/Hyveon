@@ -172,8 +172,9 @@ Eight workflows live in `.github/workflows/`:
   Runs on every push/PR. Node 24.
 - **`package.yml`** — builds the packaged Electron installer
   (`npm run app:build && npm run desktop:package`) on a Linux/macOS/Windows
-  matrix; runs on every PR and on `v*` tags. On a tag push, a second job
-  publishes a **draft** GitHub Release from the built artifacts. Node 24.
+  matrix; runs on every PR, and is called by `release.yml` for each release.
+  On a release run, a second job creates the **draft** GitHub Release from
+  the built artifacts and the release notes. Node 24.
 - **`docs-build.yml`** — a docs-only build check (`docs/**` paths, PR only);
   renders the D2 diagrams then runs `docusaurus build`, catching broken
   builds before merge. Node 24.
@@ -431,23 +432,25 @@ is a one-click `workflow_dispatch` run of `.github/workflows/release.yml`:
      override.
    - `skip_bump` + `tag` — **replay mode**. Set `skip_bump: true` and supply
      an existing tag to regenerate that release's changelog and AI summary
-     in place, without bumping the version or creating a new commit/tag. Use
+     in place (rewriting the body of the existing release, no rebuild), without bumping the version or creating a new commit/tag. Use
      this to improve a release's notes after the fact.
 3. The workflow computes the changelog and semver bump with `git-cliff`
    (config at root `cliff.toml`), bumps root `package.json` only (workspace
    packages aren't independently versioned — they all ship inside one
    Electron installer), commits and tags that bump on `main`, and pushes
    both using a dedicated GitHub App installation token (not `GITHUB_TOKEN`,
-   which doesn't trigger downstream tag-push workflows, and not a personal
-   PAT).
-4. The pushed tag wakes `package.yml`'s existing tag-triggered `release` job,
-   which builds installers for all three platforms and attaches them to the
-   same GitHub Release.
+   which can't push to the protected branch, and not a personal PAT).
+4. The same run then calls `package.yml` with the new tag. It builds
+   installers for all three platforms, and only once every build has
+   succeeded does its `release` job create the GitHub Release with the
+   installers and the release notes attached. No release exists while
+   builds are still running, so a draft you can see is a complete one.
 5. An `anthropics/claude-code-action` step (authenticated with a
    `CLAUDE_CODE_OAUTH_TOKEN`, which bills against the Claude subscription
    that generated it rather than metered API usage) turns the structured
    changelog into a user-facing "what's new" summary, used as the release
-   body; if that step fails or produces no output, the raw grouped changelog
+   body (handed to `package.yml` as a `release-notes` artifact within the
+   same run); if that step fails or produces no output, the raw grouped changelog
    is published as the body instead so the run never fails solely on the AI
    step.
 6. The release is always created as a **draft** — nothing goes public until

@@ -43,6 +43,8 @@ jobs:
       contents: write
       id-token: write
       pull-requests: read
+    outputs:
+      tag: ${{ steps.release-tag.outputs.tag }}
     steps:
       - name: Validate inputs
         env:
@@ -276,7 +278,22 @@ jobs:
             git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin "$TAG"
           fi
 
-      - name: Publish draft release
+      # Bump mode: hand the notes to the `package` job below via an artifact
+      # (same workflow run). It creates the draft release only once every
+      # platform build has succeeded, so a draft never exists without its
+      # installers.
+      - name: Upload release notes
+        if: ${{ inputs.skip_bump != true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: ${{ steps.summary.outputs.notes_path }}
+          if-no-files-found: error
+
+      # Replay mode: the release already exists with its assets, so only its
+      # body is rewritten. Nothing is deleted or recreated.
+      - name: Update existing release notes
+        if: ${{ inputs.skip_bump == true }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.release-tag.outputs.tag }}
@@ -284,24 +301,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          # package.yml's own `release` job runs separately on the tag push
-          # (Electron builds take several minutes per platform) and attaches
-          # the packaged binaries to whatever draft release exists for this
-          # tag. Deleting-and-recreating the release here (the previous
-          # approach) destroyed those assets on every skip_bump replay run,
-          # and also hit GitHub's tag/release-index eventual consistency
-          # ("not yet discoverable") since nothing but a moment separates
-          # the delete from the recreate. Update the body of the existing
-          # draft in place instead - no assets touched, no delete/recreate
-          # race - and only create fresh when this tag has no release yet.
-          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases" \
-            --jq ".[] | select(.tag_name == \"$TAG\" and .draft == true) | .id" | head -1)
+          RELEASE_ID=$(gh api --paginate "repos/${{ github.repository }}/releases" \
+            --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1)
 
-          if [ -n "$RELEASE_ID" ]; then
-            echo "Updating body of existing draft release $RELEASE_ID for tag $TAG"
-            gh api -X PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" \
-              --field body=@"$NOTES_PATH"
-          else
-            echo "No existing release for tag $TAG - creating a new draft"
-            gh release create "$TAG" --draft --title "$TAG" --notes-file "$NOTES_PATH"
+          if [ -z "$RELEASE_ID" ]; then
+            echo "::error::No release exists for tag $TAG. Replay mode only rewrites an existing release's notes; run the workflow without skip_bump to build and create one." >&2
+            exit 1
           fi
+
+          gh api -X PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" \
+            --field body=@"$NOTES_PATH"
+
+  package:
+    needs: release
+    if: ${{ inputs.skip_bump != true }}
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/package.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
