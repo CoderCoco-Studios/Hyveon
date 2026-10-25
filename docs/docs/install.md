@@ -7,7 +7,7 @@ sidebar_position: 6
 
 Hyveon ships as a packaged Electron desktop app. Download the installer for
 your OS from the project's
-[GitHub Releases](https://github.com/CoderCoco/Hyveon/releases) page:
+[GitHub Releases](https://github.com/CoderCoco-Studios/Hyveon/releases) page:
 
 | Platform | Artifact |
 |---|---|

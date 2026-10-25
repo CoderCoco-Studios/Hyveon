@@ -145,7 +145,7 @@ function NoGamesCard() {
       }
     >
       <a
-        href="https://codercoco.github.io/Hyveon/setup"
+        href="https://codercoco-studios.github.io/Hyveon/setup"
         target="_blank"
         rel="noreferrer"
         className="inline-flex items-center gap-1.5 text-sm text-[var(--color-primary-light)] underline-offset-4 hover:underline"

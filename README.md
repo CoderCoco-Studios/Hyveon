@@ -4,7 +4,7 @@ A cost-efficient multi-game dedicated server platform on **AWS Fargate** with a
 local management UI and a fully serverless Discord bot. Servers only run — and
 only cost money — while someone is playing.
 
-> 📚 Full documentation lives at **[codercoco.github.io/Hyveon](https://codercoco.github.io/Hyveon/)**
+> 📚 Full documentation lives at **[codercoco-studios.github.io/Hyveon](https://codercoco-studios.github.io/Hyveon/)**
 > (built from [`docs/`](./docs) by GitHub Pages). The rest of this README is a
 > quick tour; deep-dives, setup steps, and architecture diagrams are on the
 > site.
@@ -32,22 +32,22 @@ only cost money — while someone is playing.
 
 ## Documentation
 
-The [docs site](https://codercoco.github.io/Hyveon/) is
+The [docs site](https://codercoco-studios.github.io/Hyveon/) is
 organised around three roles. Pick the one that matches what you need to do.
 
 | Guide | You are… |
 |---|---|
-| [**Install**](https://codercoco.github.io/Hyveon/install/) | Just want to download and run the packaged app. |
-| [**Setup guide**](https://codercoco.github.io/Hyveon/setup/) | Going from a blank AWS account to a running Fargate task. |
-| [**User guide**](https://codercoco.github.io/Hyveon/guides/user/) | Driving an already-provisioned deployment — the dashboard, Discord commands, day-to-day ops. |
-| [**Maintainer guide**](https://codercoco.github.io/Hyveon/guides/maintainer/) | Working on this codebase. |
+| [**Install**](https://codercoco-studios.github.io/Hyveon/install/) | Just want to download and run the packaged app. |
+| [**Setup guide**](https://codercoco-studios.github.io/Hyveon/setup/) | Going from a blank AWS account to a running Fargate task. |
+| [**User guide**](https://codercoco-studios.github.io/Hyveon/guides/user/) | Driving an already-provisioned deployment — the dashboard, Discord commands, day-to-day ops. |
+| [**Maintainer guide**](https://codercoco-studios.github.io/Hyveon/guides/maintainer/) | Working on this codebase. |
 
 Component deep-dives:
 
-- [**Architecture**](https://codercoco.github.io/Hyveon/architecture/) — full diagram + `/server-start` sequence.
-- [**Infra program**](https://codercoco.github.io/Hyveon/components/infra/) — the Pulumi Automation API program: every file, resource, and AWS service touched.
-- [**Management app**](https://codercoco.github.io/Hyveon/components/management-app/) — Nest.js API, React dashboard, `@hyveon/shared`.
-- [**Lambdas**](https://codercoco.github.io/Hyveon/components/lambdas/) — interactions, followup, update-dns, watchdog.
+- [**Architecture**](https://codercoco-studios.github.io/Hyveon/architecture/) — full diagram + `/server-start` sequence.
+- [**Infra program**](https://codercoco-studios.github.io/Hyveon/components/infra/) — the Pulumi Automation API program: every file, resource, and AWS service touched.
+- [**Management app**](https://codercoco-studios.github.io/Hyveon/components/management-app/) — Nest.js API, React dashboard, `@hyveon/shared`.
+- [**Lambdas**](https://codercoco-studios.github.io/Hyveon/components/lambdas/) — interactions, followup, update-dns, watchdog.
 
 ## Quick start
 
@@ -64,7 +64,7 @@ npm run desktop:run
 #    page do everything above.
 ```
 
-See the [setup guide](https://codercoco.github.io/Hyveon/setup/)
+See the [setup guide](https://codercoco-studios.github.io/Hyveon/setup/)
 for the full walkthrough, including the IAM policy, Discord bot setup, and
 troubleshooting.
 
@@ -136,7 +136,7 @@ Hyveon/                        # npm-workspaces root — one `npm install` insta
 
 Stop every server from the dashboard first (so the update-dns Lambda cleans
 its records), then use the **Destroy infrastructure** panel on the
-[Infrastructure](https://codercoco.github.io/Hyveon/app/iac/#destroy) page —
+[Infrastructure](https://codercoco-studios.github.io/Hyveon/app/iac/#destroy) page —
 type `destroy infrastructure` to confirm.
 
 The two Discord Secrets Manager secrets use a zero-day recovery window, so

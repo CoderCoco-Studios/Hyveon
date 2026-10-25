@@ -9,8 +9,8 @@ You're here to change the code. This page is the shortest path from "clean
 clone" to "PR merged" plus the invariants that are load-bearing enough that
 CI can't always catch you breaking them.
 
-Read [`CLAUDE.md`](https://github.com/CoderCoco/Hyveon/blob/main/CLAUDE.md)
-and [`CONTRIBUTING.md`](https://github.com/CoderCoco/Hyveon/blob/main/CONTRIBUTING.md)
+Read [`CLAUDE.md`](https://github.com/CoderCoco-Studios/Hyveon/blob/main/CLAUDE.md)
+and [`CONTRIBUTING.md`](https://github.com/CoderCoco-Studios/Hyveon/blob/main/CONTRIBUTING.md)
 first. They are the source of truth for test/lint conventions and PR titles.
 This page is documentation over the top of them, not a replacement.
 
@@ -472,9 +472,9 @@ by someone with admin access — it is not automatable from a PR:
 
 ## Useful references
 
-- [`CLAUDE.md`](https://github.com/CoderCoco/Hyveon/blob/main/CLAUDE.md) —
+- [`CLAUDE.md`](https://github.com/CoderCoco-Studios/Hyveon/blob/main/CLAUDE.md) —
   project instructions in full, including the "why" for every invariant.
-- [`CONTRIBUTING.md`](https://github.com/CoderCoco/Hyveon/blob/main/CONTRIBUTING.md) —
+- [`CONTRIBUTING.md`](https://github.com/CoderCoco-Studios/Hyveon/blob/main/CONTRIBUTING.md) —
   PR rules, review policy, local-check commands.
 - [Architecture](/architecture) —
   component and sequence diagrams.
