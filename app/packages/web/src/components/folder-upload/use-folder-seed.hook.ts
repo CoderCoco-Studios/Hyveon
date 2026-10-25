@@ -30,9 +30,9 @@ export interface FolderSeedState {
   persistAs: (asGame?: string) => Promise<void>;
   /** The request to hand to `startUpload`, or `null` without a scan, a game, or a destination. */
   request: () => FolderUploadRequest | null;
-  /** Deletes every selection this hook persisted (under any draft name); best-effort. Does not touch in-memory state. */
+  /** Deletes every selection this hook persisted (under any draft name), including saves still in flight; a name whose clear fails stays tracked for a retry. Does not touch in-memory state. */
   discardPersisted: () => Promise<void>;
-  /** Forgets all in-memory state (the persisted selection is left alone). */
+  /** Forgets all in-memory state and which names were persisted (the persisted selection itself is left alone). */
   reset: () => void;
   /** Records a run outcome without re-reading it from main. */
   setLastRun: (lastRun: FolderUploadLastRun | null) => void;
@@ -61,6 +61,8 @@ export function useFolderSeed({ game, volumes }: UseFolderSeedOptions): FolderSe
   const scanRef = useRef<FolderScanResult | null>(null);
   /** Every game name a selection was saved under, so a discarded wizard draft can clear them all (the name may change). */
   const persistedAs = useRef<Set<string>>(new Set());
+  /** Saves still awaiting `folderSetSelection`; each resolves to the name it persisted, or `null` on failure. */
+  const inFlight = useRef<Set<Promise<string | null>>>(new Set());
   // Re-armed in the effect body so StrictMode's simulated unmount does not disable later setState calls.
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -73,11 +75,21 @@ export function useFolderSeed({ game, volumes }: UseFolderSeedOptions): FolderSe
   const persist = useCallback(
     async (target: string, nextScan: FolderScanResult | null, nextInclude: string[], nextDestination: string) => {
       if (!target || !nextScan || !validateDestination(nextDestination, volumes).ok) return;
+      const save = (async (): Promise<string | null> => {
+        try {
+          await api.folderSetSelection({ game: target, scanId: nextScan.scanId, include: nextInclude, destination: nextDestination });
+          persistedAs.current.add(target);
+          return target;
+        } catch (err) {
+          if (mountedRef.current) setError(err instanceof Error ? err.message : String(err));
+          return null;
+        }
+      })();
+      inFlight.current.add(save);
       try {
-        await api.folderSetSelection({ game: target, scanId: nextScan.scanId, include: nextInclude, destination: nextDestination });
-        persistedAs.current.add(target);
-      } catch (err) {
-        if (mountedRef.current) setError(err instanceof Error ? err.message : String(err));
+        await save;
+      } finally {
+        inFlight.current.delete(save);
       }
     },
     [volumes],
@@ -146,10 +158,20 @@ export function useFolderSeed({ game, volumes }: UseFolderSeedOptions): FolderSe
   }, [game, scan, include, destination]);
 
   const discardPersisted = useCallback(async () => {
-    const names = [...persistedAs.current];
-    persistedAs.current.clear();
+    const pending = [...inFlight.current];
+    const names = new Set(persistedAs.current);
+    // A save still in flight would re-persist the discarded selection once it lands, so wait for it and clear that too.
+    for (const name of await Promise.all(pending)) if (name) names.add(name);
     await Promise.all(
-      names.map((name) => api.folderClearSelection(name).catch(() => undefined)),
+      [...names].map(async (name) => {
+        try {
+          await api.folderClearSelection(name);
+          persistedAs.current.delete(name);
+        } catch {
+          // Stay tracked so a later discard retries; the selection is only ever a convenience, so nothing is surfaced.
+          persistedAs.current.add(name);
+        }
+      }),
     );
   }, []);
 

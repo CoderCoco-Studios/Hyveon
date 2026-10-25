@@ -39,6 +39,8 @@ const AUTO_STOP_SCHEDULE_PREFIX = 'filemgr-stop-';
 const SG_RULE_DESCRIPTION_PREFIX = 'hyveon-filemgr:';
 /** Run id used in the rule description for ordinary (dashboard) browse sessions. */
 const BROWSE_RUN_ID = 'browse';
+/** ECS task tag recording the operator IP a helper's security-group rule was opened for. */
+const OPERATOR_IP_TAG = 'OperatorIp';
 /** Tags applied to upload helpers so they are identifiable as upload sessions. */
 const UPLOAD_TAGS = [
   { key: 'Purpose', value: 'seed-upload' },
@@ -165,44 +167,56 @@ export class FileManagerService {
   }
 
   /**
-   * Revokes the app-created ingress rules on `securityGroupId` that `shouldRevoke` accepts (by game).
+   * Revokes every app-created ingress rule whose CIDR no remaining helper needs, whichever game's description it carries.
    *
+   * @remarks
+   * The file-manager group is shared and `authorizeIngress` treats a duplicate rule as success, so two helpers on the
+   * same operator IP share one rule (described after whichever game created it), and a helper launched after the
+   * operator's IP changed needs a different rule from its neighbour. Rules are therefore reference-counted by CIDR from
+   * each remaining helper's `OperatorIp` tag. A remaining helper without that tag (launched by an older build) makes its
+   * CIDR unknowable, so nothing is revoked.
+   *
+   * @param remaining - Helpers that will still be running after the caller's stop or sweep.
+   * @param keepGames - Games whose rules are never revoked (an upload run owns them even before its helper is listed).
    * @returns How many rules were revoked.
    */
-  private async revokeAppRules(securityGroupId: string, shouldRevoke: (game: string) => boolean): Promise<number> {
+  private async revokeOrphanedRules(
+    outputs: StackOutputs,
+    remaining: readonly Task[],
+    keepGames: ReadonlySet<string> = new Set(),
+  ): Promise<number> {
+    const needed = new Set<string>();
+    for (const task of remaining) {
+      const ip = task.tags?.find((t) => t.key === OPERATOR_IP_TAG)?.value;
+      if (!ip) {
+        logger.info('Keeping file-manager security-group rules: a running helper has no recorded operator IP');
+        return 0;
+      }
+      needed.add(`${ip}/32`);
+    }
+    const securityGroupId = outputs.fileManagerSecurityGroupId;
     const rules = await this.ec2.listIngressRulesByDescriptionPrefix(securityGroupId, SG_RULE_DESCRIPTION_PREFIX);
     const ids = rules
-      .filter((r) => {
-        const game = FileManagerService.gameOfRule(r.description);
-        return game !== null && shouldRevoke(game);
-      })
+      .filter((r) => !needed.has(r.cidr) && !keepGames.has(FileManagerService.gameOfRule(r.description) ?? ''))
       .map((r) => r.ruleId);
     const ok = await this.ec2.revokeIngressRules(securityGroupId, ids);
     return ok ? ids.length : 0;
   }
 
   /**
-   * Revokes app-created rules like {@link FileManagerService.revokeAppRules}, unless another game's helper is still
-   * using the security group.
-   *
-   * @remarks
-   * The file-manager group is shared and `authorizeIngress` treats a duplicate rule as success, so two games on the
-   * same operator IP share one rule (described after whichever game created it). Revoking it while another helper runs
-   * would cut that helper off; the last helper to stop or be swept revokes it.
-   *
-   * @param othersRunning - Whether any helper other than the ones this caller is removing still exists.
-   * @returns How many rules were revoked (`0` when skipped).
+   * Revokes orphaned rules (see {@link FileManagerService.revokeOrphanedRules}) treating every running helper except
+   * `game`'s own as remaining; a failed helper lookup keeps the rules (fail safe).
    */
-  private async revokeAppRulesUnlessShared(
-    securityGroupId: string,
-    shouldRevoke: (game: string) => boolean,
-    othersRunning: boolean,
-  ): Promise<number> {
-    if (othersRunning) {
-      logger.info('Keeping shared file-manager security-group rules: another helper is still running');
-      return 0;
+  private async revokeOrphanedRulesExcluding(outputs: StackOutputs, game: string): Promise<void> {
+    let remaining: Task[];
+    try {
+      const tasks = await this.ecs.listTasksByStartedByPrefix(outputs.ecsClusterName, STARTED_BY_PREFIX);
+      remaining = tasks.filter((t) => t.startedBy !== this.startedByKey(game));
+    } catch (err) {
+      logger.warn('Could not list file manager helpers; keeping security-group rules', { game, error: errMessage(err) });
+      return;
     }
-    return this.revokeAppRules(securityGroupId, shouldRevoke);
+    await this.revokeOrphanedRules(outputs, remaining);
   }
 
   /**
@@ -367,7 +381,7 @@ export class FileManagerService {
 
     let registeredArn: string | null = null;
     const cleanupAfterFailure = async (): Promise<void> => {
-      await this.revokeAppRules(filemgrSg, (g) => g === game);
+      await this.revokeOrphanedRulesExcluding(outputs, game);
       if (registeredArn) await this.ecs.deregisterTaskDefinition(registeredArn);
     };
 
@@ -442,7 +456,7 @@ export class FileManagerService {
       count: 1,
       launchType: 'FARGATE',
       startedBy: this.startedByKey(game),
-      ...(upload ? { tags: UPLOAD_TAGS } : {}),
+      tags: [...(upload ? UPLOAD_TAGS : []), { key: OPERATOR_IP_TAG, value: operatorIp }],
       networkConfiguration: {
         awsvpcConfiguration: {
           subnets,
@@ -499,24 +513,11 @@ export class FileManagerService {
     if (task.taskDefinitionArn) await this.ecs.deregisterTaskDefinition(task.taskDefinitionArn);
   }
 
-  /** Revokes `game`'s rules unless another game's helper runs; a failed lookup keeps the rules (fail safe). */
-  private async revokeUnlessOtherGameRunning(outputs: StackOutputs, game: string): Promise<void> {
-    let othersRunning: boolean;
-    try {
-      const tasks = await this.ecs.listTasksByStartedByPrefix(outputs.ecsClusterName, STARTED_BY_PREFIX);
-      othersRunning = tasks.some((t) => t.startedBy !== this.startedByKey(game));
-    } catch (err) {
-      logger.warn('Could not check for other file manager helpers; keeping security-group rules', { game, error: errMessage(err) });
-      return;
-    }
-    await this.revokeAppRulesUnlessShared(outputs.fileManagerSecurityGroupId, (g) => g === game, othersRunning);
-  }
-
   /**
    * Stop the FileBrowser task for `game`. Locates it by `startedBy` tag
    * rather than task-def family since multiple revisions may have been
-   * registered across restarts. Always revokes the app-added operator-IP rules for `game`, even
-   * when no task is found, so a rule can never outlive its helper.
+   * registered across restarts. Always revokes app-added operator-IP rules no remaining helper needs, even
+   * when no task is found, so a rule can never outlive its helpers.
    */
   async stop(game: string): Promise<FileMgrResult> {
     const outputs = await this.config.getStackOutputs();
@@ -542,14 +543,14 @@ export class FileManagerService {
         return { success: false, message: String(err) };
       }
     } finally {
-      await this.revokeUnlessOtherGameRunning(outputs, game);
+      await this.revokeOrphanedRulesExcluding(outputs, game);
     }
   }
 
   /**
    * Stops stray file-manager helpers: running `filemgr-*` tasks with no active run here that are at least
    * `minAgeMs` old. Deregisters their task definitions, then revokes app-created security-group rules whose game
-   * has no remaining helper and no active run.
+   * no remaining helper needs (and that belong to no active run).
    *
    * @param options - `activeGames` are games with an upload run in this process (their helpers and rules are left
    * alone); `minAgeMs` is the minimum task age to stop, `0` for an explicit operator-requested cleanup.
@@ -568,14 +569,14 @@ export class FileManagerService {
       report.errors.push(`list helpers: ${message}`);
       return report;
     }
-    const remaining = new Set<string>();
+    const remainingTasks: Task[] = [];
     for (const task of tasks) {
       const game = (task.startedBy ?? '').slice(STARTED_BY_PREFIX.length);
       const startedAt = task.startedAt ?? task.createdAt;
       const ageMs = startedAt ? Date.now() - startedAt.getTime() : Number.POSITIVE_INFINITY;
       if (options.activeGames.has(game) || ageMs < options.minAgeMs) {
         report.skipped += 1;
-        remaining.add(game);
+        remainingTasks.push(task);
         continue;
       }
       try {
@@ -585,15 +586,11 @@ export class FileManagerService {
         const message = errMessage(err);
         logger.warn('Failed to stop stray file manager helper', { game, taskArn: task.taskArn, error: message });
         report.errors.push(`${game}: ${message}`);
-        remaining.add(game);
+        remainingTasks.push(task);
       }
     }
 
-    report.revokedRules = await this.revokeAppRulesUnlessShared(
-      outputs.fileManagerSecurityGroupId,
-      (game) => !options.activeGames.has(game) && !remaining.has(game),
-      remaining.size > 0,
-    );
+    report.revokedRules = await this.revokeOrphanedRules(outputs, remainingTasks, options.activeGames);
     logger.info('Stray helper sweep finished', {
       stopped: report.stopped.length,
       skipped: report.skipped,

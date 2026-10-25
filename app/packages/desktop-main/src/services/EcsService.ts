@@ -463,7 +463,7 @@ export class EcsService {
       const tasks: Task[] = [];
       for (let i = 0; i < arns.length; i += DESCRIBE_TASKS_BATCH) {
         const desc = await this.getClient().send(
-          new DescribeTasksCommand({ cluster, tasks: arns.slice(i, i + DESCRIBE_TASKS_BATCH) }),
+          new DescribeTasksCommand({ cluster, tasks: arns.slice(i, i + DESCRIBE_TASKS_BATCH), include: ['TAGS'] }),
         );
         tasks.push(...(desc.tasks ?? []));
       }
