@@ -68,8 +68,8 @@ export const gameServerEnvironmentVariableSchema = z.object({
 
 /** Zod schema mirroring `GameServerVolume`. `name` and `container_path` must be non-empty. */
 export const gameServerVolumeSchema = z.object({
-  name: z.string().min(1, 'volumes[].name must not be empty.'),
-  container_path: z.string().min(1, 'volumes[].container_path must not be empty.'),
+  name: z.string().min(1, 'Name must not be empty.'),
+  container_path: z.string().min(1, 'Container path must not be empty.'),
 });
 
 /** Zod schema mirroring `GameServerFileSeed`. */

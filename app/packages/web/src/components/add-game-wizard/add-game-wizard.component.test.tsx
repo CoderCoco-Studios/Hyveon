@@ -103,11 +103,10 @@ function fillResourcesStep() {
   fireEvent.pointerUp(screen.getByLabelText('Memory'), { target: { value: String(memoryOptions.indexOf(512)) } });
 }
 
-/** Adds and fills a single volume row on the Storage step (the server requires at least one). */
+/** The Storage step seeds a default `data` → `/data` volume, so the happy path only needs to confirm it is present. */
 async function fillStorageStep() {
-  await userEvent.click(screen.getByRole('button', { name: 'Add volume' }));
-  await userEvent.type(screen.getByLabelText('Volume name'), 'data');
-  await userEvent.type(screen.getByLabelText('Container path'), '/data');
+  expect(screen.getByLabelText('Volume name')).toHaveValue('data');
+  expect(screen.getByLabelText('Container path')).toHaveValue('/data');
 }
 
 /**

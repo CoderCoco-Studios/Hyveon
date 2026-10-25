@@ -171,7 +171,7 @@ function VolumeRow({ index, volume, issues, canRemove, onUpdate, onRemove }: Vol
       data-testid={`volume-row-${index}`}
       className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
     >
-      <div className="flex items-end gap-3">
+      <div className="flex items-start gap-3">
         <FormField id={`volume-name-${index}`} label="Volume name" errors={nameError} className="flex-1">
           {(fieldProps) => (
             <Input
@@ -183,7 +183,17 @@ function VolumeRow({ index, volume, issues, canRemove, onUpdate, onRemove }: Vol
           )}
         </FormField>
 
-        <FormField id={`volume-path-${index}`} label="Container path" errors={pathError} className="flex-1">
+        <FormField
+          id={`volume-path-${index}`}
+          label="Container path"
+          errors={pathError}
+          hint={
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              Where the game writes its save data inside the container. Check the game&apos;s Dockerfile or docs for the path.
+            </p>
+          }
+          className="flex-1"
+        >
           {(fieldProps) => (
             <Input
               {...fieldProps}
@@ -198,6 +208,7 @@ function VolumeRow({ index, volume, issues, canRemove, onUpdate, onRemove }: Vol
           type="button"
           variant="outline"
           size="sm"
+          className="mt-[26px]"
           disabled={!canRemove}
           aria-label={canRemove ? `Remove volume ${index + 1}` : `Remove volume ${index + 1} (at least one volume is required)`}
           onClick={() => onRemove(index)}
@@ -238,7 +249,7 @@ function FileSeedRow({ index, seed, issues, onUpdate, onRemove }: FileSeedRowPro
         pathError ? 'border-[var(--color-red)]' : 'border-[var(--color-border)]',
       )}
     >
-      <div className="flex items-end gap-3">
+      <div className="flex items-start gap-3">
         <FormField id={`file-seed-path-${index}`} label="Path" errors={pathError} className="flex-1">
           {(fieldProps) => (
             <Input

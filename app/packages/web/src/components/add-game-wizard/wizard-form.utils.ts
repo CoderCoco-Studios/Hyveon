@@ -185,7 +185,8 @@ export function createEmptyWizardDraft(): WizardDraft {
     cpu: DEFAULT_WIZARD_CPU,
     memory: DEFAULT_WIZARD_MEMORY,
     ports: [],
-    volumes: [],
+    // Every game needs a volume, so seed one the operator can edit rather than an empty list.
+    volumes: [{ name: 'data', container_path: '/data' }],
     file_seeds: [],
     environment: [],
     command: [],

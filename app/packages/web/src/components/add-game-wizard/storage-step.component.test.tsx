@@ -158,7 +158,7 @@ describe('StorageStep', () => {
               { name: 'saves', container_path: '/saves' },
             ],
           })}
-          issues={[{ path: 'volumes[0].name', message: 'volumes[].name must not be empty.' }]}
+          issues={[{ path: 'volumes[0].name', message: 'Name must not be empty.' }]}
           onChange={vi.fn()}
         />,
       );
@@ -166,8 +166,8 @@ describe('StorageStep', () => {
       const firstRow = screen.getByTestId('volume-row-0');
       const secondRow = screen.getByTestId('volume-row-1');
 
-      expect(within(firstRow).getByText('volumes[].name must not be empty.')).toBeInTheDocument();
-      expect(within(secondRow).queryByText('volumes[].name must not be empty.')).toBeNull();
+      expect(within(firstRow).getByText('Name must not be empty.')).toBeInTheDocument();
+      expect(within(secondRow).queryByText('Name must not be empty.')).toBeNull();
     });
   });
 
