@@ -13,7 +13,7 @@ vi.mock('node:module', async (importOriginal) => {
       return ((id: string) => {
         if (id === 'electron') return fakeElectron;
         throw new Error(`unexpected require: ${id}`);
-      }) as unknown as NodeJS.Require;
+      }) as NodeJS.Require;
     },
   };
 });
