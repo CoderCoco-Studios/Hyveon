@@ -146,6 +146,8 @@ jobs:
         env:
           BUMP_INPUT: ${{ inputs.bump }}
           RANGE: ${{ steps.range.outputs.range }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
