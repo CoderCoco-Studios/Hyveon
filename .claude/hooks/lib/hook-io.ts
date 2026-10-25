@@ -4,9 +4,7 @@
  * permission decision on stdout.
  */
 
-import type { HookJSONOutput, PreToolUseHookInput, PreToolUseHookSpecificOutput, SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
-import { getProducerDataShares } from '@pulumi/aws/redshift/getProducerDataShares';
-import { jsonParse } from '@pulumi/pulumi';
+import type { PreToolUseHookInput, PreToolUseHookSpecificOutput, SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
 
 export type { PreToolUseHookInput };
 

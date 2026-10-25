@@ -67,7 +67,7 @@ node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=OldServiceName
 - `node_modules`, `.git`, `dist`, `out`, `release`, `coverage`, `.docusaurus`,
   `.cache`, `.turbo`, `.next`, `playwright-report` — build output and vendored code,
   never source.
-- `.claude/worktrees`, `.worktrees` — nested worktree copies of this same repo (would
+- `.claude/worktrees`, `.worktrees`, `worktrees` — nested worktree copies of this same repo (would
   otherwise multiply every result and slow the scan down enormously).
 - `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` — machine-generated lockfiles
   whose base64/hex integrity hashes produce meaningless matches, especially for short

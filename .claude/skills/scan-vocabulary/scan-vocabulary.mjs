@@ -66,7 +66,7 @@ const EXCLUDED_DIR_NAMES = new Set([
 ]);
 
 /** Relative path prefixes (from the scan root) to skip — nested worktree copies of this same repo. */
-const EXCLUDED_PATH_PREFIXES = ['.claude/worktrees', '.worktrees'];
+const EXCLUDED_PATH_PREFIXES = ['.claude/worktrees', '.worktrees', 'worktrees'];
 
 /** Exact filenames to skip anywhere in the tree — machine-generated lockfiles whose
  * base64/hex hash content produces meaningless matches, especially for short terms, plus
