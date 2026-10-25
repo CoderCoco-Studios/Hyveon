@@ -2,6 +2,57 @@ import type { ManualUpdateCheckResult } from '@hyveon/shared';
 import { logger } from './logger.js';
 import type { ElectronStoreService } from './services/ElectronStoreService.js';
 import { errMessage } from '@hyveon/shared';
+import { PRIMARY_FEED, resolveFallbackFeedUrl } from './updater-fallback.js';
+
+/**
+ * Loads `electron-updater`'s `autoUpdater` and applies the settings shared by every check.
+ *
+ * @remarks
+ * `autoUpdater` is exported via a getter-defined CJS property that `cjs-module-lexer` can't detect, so a named
+ * dynamic import resolves to `undefined`; going through `.default` reaches the getter at runtime. `autoDownload`
+ * and `autoInstallOnAppQuit` default to `true` and are pinned off: a detected update must never download or
+ * install itself.
+ */
+async function loadAutoUpdater() {
+  const { autoUpdater } = (await import('electron-updater')).default;
+  autoUpdater.logger = logger;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+  return autoUpdater;
+}
+
+type AutoUpdater = Awaited<ReturnType<typeof loadAutoUpdater>>;
+
+/**
+ * Runs `checkForUpdates()`, retrying once against the newest release that has a feed file if the primary check
+ * fails (e.g. the latest release shipped without `latest.yml`).
+ *
+ * @param autoUpdater - The configured `autoUpdater` singleton.
+ * @returns Whatever `checkForUpdates()` resolved with (`null` when the updater is disabled).
+ * @throws The ORIGINAL primary error when no fallback exists or the fallback check also fails.
+ */
+async function checkWithFallback(autoUpdater: AutoUpdater): ReturnType<AutoUpdater['checkForUpdates']> {
+  try {
+    return await autoUpdater.checkForUpdates();
+  } catch (primaryErr) {
+    const url = await resolveFallbackFeedUrl(process.platform);
+    if (!url) throw primaryErr;
+    logger.warn('[updater] primary update check failed — retrying against fallback release', {
+      error: errMessage(primaryErr),
+      feedUrl: url,
+    });
+    autoUpdater.setFeedURL({ provider: 'generic', url });
+    try {
+      return await autoUpdater.checkForUpdates();
+    } catch (fallbackErr) {
+      logger.warn('[updater] fallback update check failed', { error: errMessage(fallbackErr) });
+      throw primaryErr;
+    } finally {
+      // setFeedURL mutates the process-wide singleton; put the primary feed back so later checks start from it.
+      autoUpdater.setFeedURL({ ...PRIMARY_FEED });
+    }
+  }
+}
 
 /**
  * Initializes the `electron-updater` integration for the main process.
@@ -22,20 +73,7 @@ export async function initUpdater(store: ElectronStoreService): Promise<void> {
     return;
   }
 
-  // `electron-updater` exports `autoUpdater` via `Object.defineProperty(exports, ...,
-  // { get })` — cjs-module-lexer can't statically detect getter-defined exports, so
-  // Node's synthetic named export for a dynamic `import('electron-updater')` is
-  // missing and `const { autoUpdater } = await import(...)` resolves to `undefined`.
-  // Going through `.default` (always the real CJS `module.exports` object) sidesteps
-  // the static analysis and reaches the getter at runtime instead.
-  const { autoUpdater } = (await import('electron-updater')).default;
-  autoUpdater.logger = logger;
-
-  // v1 scaffold: a detected update must not download or install itself, even
-  // though the Settings page can now flip `enableAutoUpdate` on. Both default
-  // to `true` in electron-updater, so they're pinned off explicitly here.
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
+  const autoUpdater = await loadAutoUpdater();
 
   autoUpdater.on('error', (err: unknown) => {
     logger.error('[updater] update check failed', {
@@ -53,12 +91,9 @@ export async function initUpdater(store: ElectronStoreService): Promise<void> {
   });
 
   try {
-    await autoUpdater.checkForUpdates();
+    await checkWithFallback(autoUpdater);
   } catch {
-    // electron-updater rethrows after emitting 'error' (see the listener
-    // above, which already logged it) — swallow it here so a failed check
-    // (offline, 404, malformed feed) surfaces as a log line, not an
-    // unhandled rejection in the main process.
+    // The 'error' listener above already logged it; don't leave an unhandled rejection in the main process.
   }
 }
 
@@ -71,23 +106,19 @@ export async function initUpdater(store: ElectronStoreService): Promise<void> {
  * `electron-updater`'s `checkForUpdates()` promise resolves with feed
  * metadata regardless of whether a newer version exists — availability is
  * signaled via the `update-available`/`update-not-available` events, not the
- * return value — so this races one-shot listeners for those events (plus
- * `error`) against the call and resolves from whichever fires first,
- * removing all three afterward so they don't leak into a later call or
- * cross-fire with {@link initUpdater}'s persistent listeners.
+ * return value — so this resolves from whichever of those events fires
+ * first. Failures are decided by the rejection of the check-with-fallback
+ * call, not the first `error` event, so a failed primary check can still be
+ * rescued by the fallback retry. All listeners are removed afterward so they
+ * don't leak into a later call or cross-fire with {@link initUpdater}'s
+ * persistent listeners.
  */
 export async function checkForUpdatesNow(): Promise<ManualUpdateCheckResult> {
   if (!process.versions['electron']) {
     return { ok: false, message: 'Update checks are only available in the packaged app.' };
   }
 
-  // See the comment on the equivalent line in `initUpdater` above — `.default`
-  // sidesteps `cjs-module-lexer`'s inability to detect `electron-updater`'s
-  // getter-defined `autoUpdater` export.
-  const { autoUpdater } = (await import('electron-updater')).default;
-  autoUpdater.logger = logger;
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
+  const autoUpdater = await loadAutoUpdater();
 
   return new Promise<ManualUpdateCheckResult>((resolve) => {
     const cleanup = () => {
@@ -105,33 +136,28 @@ export async function checkForUpdatesNow(): Promise<ManualUpdateCheckResult> {
       logger.info('[updater] manual check: no update available');
       resolve({ ok: true, updateAvailable: false });
     };
-    const onError = (err: unknown) => {
-      cleanup();
-      const message = errMessage(err);
-      logger.error('[updater] manual check failed', { error: message });
-      resolve({ ok: false, message });
-    };
+    // Persistent (`on`, not `once`) so the retry's own 'error' event is also swallowed — an unhandled one throws.
+    // The outcome comes from the check-with-fallback result so a failed primary can't resolve before the retry.
+    const onError = () => {};
 
     autoUpdater.once('update-available', onAvailable);
     autoUpdater.once('update-not-available', onNotAvailable);
-    autoUpdater.once('error', onError);
+    autoUpdater.on('error', onError);
 
-    autoUpdater
-      .checkForUpdates()
+    checkWithFallback(autoUpdater)
       .then((result) => {
         if (result === null) {
-          // Updater disabled (e.g. dev-mode or unsupported platform) — no
-          // event fires in this case, so the promise would otherwise never
-          // settle.
+          // Updater disabled (e.g. dev-mode or unsupported platform) — no event fires.
           cleanup();
           logger.info('[updater] manual check: updater is disabled');
           resolve({ ok: false, message: 'Update checks are disabled for this build.' });
         }
       })
-      .catch(() => {
-        // electron-updater rethrows after emitting 'error' — the listener
-        // above already resolved the promise, so this is just avoiding an
-        // unhandled rejection.
+      .catch((err: unknown) => {
+        cleanup();
+        const message = errMessage(err);
+        logger.error('[updater] manual check failed', { error: message });
+        resolve({ ok: false, message });
       });
   });
 }

@@ -60,6 +60,14 @@ type AutoUpdateState = 'loading' | { status: 'ready'; enabled: boolean; writeErr
  */
 type ManualCheckState = 'idle' | 'checking' | { status: 'done'; result: ManualUpdateCheckResult };
 
+/** GitHub Releases page offered as a manual-download escape hatch when an update check fails. */
+const RELEASES_URL = 'https://github.com/CoderCoco-Studios/Hyveon/releases';
+
+/** True once a manual check finished with `ok: false` (including the IPC-reject fallback message). */
+function manualCheckFailed(state: ManualCheckState): boolean {
+  return typeof state === 'object' && !state.result.ok;
+}
+
 /** Renders {@link ManualCheckState} as the manual-check row's status text. */
 function manualCheckLabel(state: ManualCheckState): string | null {
   if (state === 'idle') return null;
@@ -233,7 +241,19 @@ export function SettingsPage() {
         <div className="mt-3">
           <SettingsRow
             label="Check Now"
-            description={manualCheckLabel(manualCheck) ?? 'Check GitHub Releases for a newer version right now.'}
+            description={
+              <>
+                {manualCheckLabel(manualCheck) ?? 'Check GitHub Releases for a newer version right now.'}
+                {manualCheckFailed(manualCheck) && (
+                  <>
+                    {' '}
+                    <a href={RELEASES_URL} target="_blank" rel="noreferrer" className="underline">
+                      Download manually
+                    </a>
+                  </>
+                )}
+              </>
+            }
           >
             <Button type="button" variant="outline" onClick={handleManualCheck} disabled={manualCheck === 'checking'}>
               Check for Updates

@@ -161,7 +161,7 @@ boot (`electron-entry.ts`). If the flag is off, it logs that update checks
 are disabled and returns without touching the network. If it's on, it uses
 `electron-updater` to check GitHub Releases for a newer version and logs the
 result (`[updater] update available` / `no update available` / a
-failed-check error) to the same diagnostics log described below. There is no
+failed-check error) to the same diagnostics log described below. If the check fails, it retries once against the newest release that carries a feed file, the same fallback described under [Check Now](#check-now). There is no
 download or install here — `autoDownload` and `autoInstallOnAppQuit` are both
 explicitly pinned `false`, so an available update is only detected and
 logged, never fetched or installed automatically. This is v1 scaffolding for
@@ -203,7 +203,9 @@ only reports what it found, inline in place of the row's description text:
 | Check in flight | `Checking for updates…` |
 | Up to date | `You're up to date.` |
 | Newer version found | `Update available: v<version>` |
-| Check failed | The raw error message (e.g. offline, a malformed feed) |
+| Check failed | The raw error message (e.g. offline, a malformed feed) followed by a **Download manually** link to the [GitHub Releases page](https://github.com/CoderCoco-Studios/Hyveon/releases), which opens in your default browser |
+
+If the check fails (for example because the latest release was published without its `latest.yml` feed file), the updater looks up the newest published, non-prerelease GitHub release (among the 10 most recent) that does carry the feed file for your platform and retries once against it, so a single bad release doesn't leave you with no result. If no such release exists, or the retry also fails, the original error is what you see. The retry only checks — it still never downloads or installs.
 
 Outside a real Electron main process — no `process.versions.electron`, e.g.
 the plain-Node integration test harness — the button still works but always

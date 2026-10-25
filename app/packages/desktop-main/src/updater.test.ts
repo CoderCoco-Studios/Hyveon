@@ -6,7 +6,7 @@ import type { ElectronStoreService } from './services/ElectronStoreService.js';
  * `updater.ts` touches: `logger` (assignable), `on` (event registration),
  * and `checkForUpdates` (the one call that must stay gated behind the flag).
  */
-const { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMock } = vi.hoisted(() => {
+const { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMock, setFeedURLMock, resolveFallbackMock } = vi.hoisted(() => {
   const checkForUpdatesMock = vi.fn().mockResolvedValue(null);
   const onMock = vi.fn();
   const listeners = new Map<string, (...args: unknown[]) => void>();
@@ -16,7 +16,10 @@ const { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMo
   const removeListenerMock = vi.fn((event: string) => {
     listeners.delete(event);
   });
+  const setFeedURLMock = vi.fn();
+  const resolveFallbackMock = vi.fn().mockResolvedValue(null);
   const mockAutoUpdater = {
+    setFeedURL: setFeedURLMock,
     logger: null as unknown,
     on: onMock,
     once: onceMock,
@@ -27,7 +30,7 @@ const { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMo
     /** Test helper — invokes the handler registered via `once(event, ...)`, mirroring a real event emit. */
     emit: (event: string, ...args: unknown[]) => listeners.get(event)?.(...args),
   };
-  return { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMock };
+  return { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMock, setFeedURLMock, resolveFallbackMock };
 });
 
 /**
@@ -43,6 +46,12 @@ vi.mock('./logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock('./updater-fallback.js', () => ({
+  resolveFallbackFeedUrl: resolveFallbackMock,
+  PRIMARY_FEED: { provider: 'github', owner: 'CoderCoco-Studios', repo: 'Hyveon' },
+}));
+
+import { logger } from './logger.js';
 import { initUpdater, checkForUpdatesNow } from './updater.js';
 
 /** Builds a minimal `ElectronStoreService`-shaped stub for `initUpdater`'s single `get` call. */
@@ -60,7 +69,12 @@ describe('initUpdater', () => {
     }
   };
 
-  beforeEach(() => setElectron('36.0.0'));
+  beforeEach(() => {
+    setElectron('36.0.0');
+    setFeedURLMock.mockClear();
+    resolveFallbackMock.mockReset().mockResolvedValue(null);
+    checkForUpdatesMock.mockReset().mockResolvedValue(null);
+  });
   afterEach(() => setElectron(realElectronVersion));
 
   it('should be a no-op outside a real Electron main process, regardless of the flag', async () => {
@@ -111,6 +125,46 @@ describe('initUpdater', () => {
 
     await expect(initUpdater(makeStore(true))).resolves.toBeUndefined();
   });
+
+  it('should retry against the fallback feed when the primary check rejects, and not throw', async () => {
+    checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml')).mockResolvedValueOnce(null);
+    resolveFallbackMock.mockResolvedValue('https://example.test/download/v0.6.0');
+
+    await expect(initUpdater(makeStore(true))).resolves.toBeUndefined();
+
+    expect(setFeedURLMock).toHaveBeenCalledWith({ provider: 'generic', url: 'https://example.test/download/v0.6.0' });
+    expect(checkForUpdatesMock).toHaveBeenCalledTimes(2);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('fallback'), expect.any(Object));
+  });
+
+  it('should restore the primary feed after the fallback retry succeeds', async () => {
+    checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml')).mockResolvedValueOnce(null);
+    resolveFallbackMock.mockResolvedValue('https://example.test/download/v0.6.0');
+
+    await initUpdater(makeStore(true));
+
+    expect(setFeedURLMock).toHaveBeenCalledTimes(2);
+    expect(setFeedURLMock).toHaveBeenLastCalledWith({ provider: 'github', owner: 'CoderCoco-Studios', repo: 'Hyveon' });
+  });
+
+  it('should restore the primary feed after the fallback retry fails', async () => {
+    checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml')).mockRejectedValueOnce(new Error('boom'));
+    resolveFallbackMock.mockResolvedValue('https://example.test/download/v0.6.0');
+
+    await initUpdater(makeStore(true));
+
+    expect(setFeedURLMock).toHaveBeenCalledTimes(2);
+    expect(setFeedURLMock).toHaveBeenLastCalledWith({ provider: 'github', owner: 'CoderCoco-Studios', repo: 'Hyveon' });
+  });
+
+  it('should not set a feed or retry when no fallback release exists', async () => {
+    checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml'));
+
+    await initUpdater(makeStore(true));
+
+    expect(setFeedURLMock).not.toHaveBeenCalled();
+    expect(checkForUpdatesMock).toHaveBeenCalledOnce();
+  });
 });
 
 describe('checkForUpdatesNow', () => {
@@ -128,6 +182,8 @@ describe('checkForUpdatesNow', () => {
     onceMock.mockClear();
     removeListenerMock.mockClear();
     checkForUpdatesMock.mockReset().mockResolvedValue(null);
+    setFeedURLMock.mockClear();
+    resolveFallbackMock.mockReset().mockResolvedValue(null);
   });
   afterEach(() => setElectron(realElectronVersion));
 
@@ -204,5 +260,62 @@ describe('checkForUpdatesNow', () => {
     expect(removeListenerMock).toHaveBeenCalledWith('update-available', expect.any(Function));
     expect(removeListenerMock).toHaveBeenCalledWith('update-not-available', expect.any(Function));
     expect(removeListenerMock).toHaveBeenCalledWith('error', expect.any(Function));
+  });
+
+  describe('fallback feed', () => {
+    const FALLBACK_URL = 'https://example.test/download/v0.6.0';
+
+    it('should not resolve on the primary error event and should report the fallback result (available)', async () => {
+      resolveFallbackMock.mockResolvedValue(FALLBACK_URL);
+      checkForUpdatesMock
+        .mockImplementationOnce(() => {
+          mockAutoUpdater.emit('error', new Error('404 latest.yml'));
+          return Promise.reject(new Error('404 latest.yml'));
+        })
+        .mockImplementationOnce(() => {
+          mockAutoUpdater.emit('update-available', { version: '0.6.0' });
+          return Promise.resolve(null);
+        });
+
+      const result = await checkForUpdatesNow();
+
+      expect(setFeedURLMock).toHaveBeenCalledWith({ provider: 'generic', url: FALLBACK_URL });
+      expect(result).toEqual({ ok: true, updateAvailable: true, version: '0.6.0' });
+    });
+
+    it('should report up to date when the fallback feed has no newer version', async () => {
+      resolveFallbackMock.mockResolvedValue(FALLBACK_URL);
+      checkForUpdatesMock
+        .mockRejectedValueOnce(new Error('404 latest.yml'))
+        .mockImplementationOnce(() => {
+          mockAutoUpdater.emit('update-not-available');
+          return Promise.resolve(null);
+        });
+
+      const result = await checkForUpdatesNow();
+
+      expect(result).toEqual({ ok: true, updateAvailable: false });
+      expect(checkForUpdatesMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('should surface the original error when no fallback release exists', async () => {
+      checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml'));
+
+      const result = await checkForUpdatesNow();
+
+      expect(result).toEqual({ ok: false, message: '404 latest.yml' });
+      expect(setFeedURLMock).not.toHaveBeenCalled();
+    });
+
+    it('should surface the original error, not the retry error, when the fallback check also fails', async () => {
+      resolveFallbackMock.mockResolvedValue(FALLBACK_URL);
+      checkForUpdatesMock
+        .mockRejectedValueOnce(new Error('404 latest.yml'))
+        .mockRejectedValueOnce(new Error('fallback boom'));
+
+      const result = await checkForUpdatesNow();
+
+      expect(result).toEqual({ ok: false, message: '404 latest.yml' });
+    });
   });
 });
