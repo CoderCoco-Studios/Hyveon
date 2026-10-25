@@ -31,6 +31,32 @@ describe('pickFallbackRelease', () => {
     expect(picked?.tag_name).toBe('v0.6.0');
   });
 
+  it('should pick the greatest published_at, not the first array position', () => {
+    const picked = pickFallbackRelease(
+      [
+        release('v0.5.0', ['latest.yml'], { published_at: '2026-01-01T00:00:00Z' }),
+        release('v0.6.0', ['latest.yml'], { published_at: '2026-03-01T00:00:00Z' }),
+        release('v0.4.0', ['latest.yml'], { published_at: '2025-12-01T00:00:00Z' }),
+      ],
+      'win32',
+    );
+
+    expect(picked?.tag_name).toBe('v0.6.0');
+  });
+
+  it('should treat a missing or invalid published_at as oldest', () => {
+    const picked = pickFallbackRelease(
+      [
+        release('v0.9.0', ['latest.yml'], { published_at: 'not-a-date' }),
+        release('v0.8.0', ['latest.yml']),
+        release('v0.5.0', ['latest.yml'], { published_at: '2026-01-01T00:00:00Z' }),
+      ],
+      'win32',
+    );
+
+    expect(picked?.tag_name).toBe('v0.5.0');
+  });
+
   it.each([
     ['win32', 'latest.yml'],
     ['darwin', 'latest-mac.yml'],
@@ -54,6 +80,7 @@ describe('pickFallbackRelease', () => {
 describe('resolveFallbackFeedUrl', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  /** Replaces global `fetch` with a mock that returns `impl`'s result. */
   const stubFetch = (impl: () => unknown) => vi.stubGlobal('fetch', vi.fn(impl));
 
   it('should return the generic-provider download URL for the picked release tag', async () => {

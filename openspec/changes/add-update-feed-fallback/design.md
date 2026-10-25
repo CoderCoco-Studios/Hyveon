@@ -22,5 +22,6 @@
 
 ## Risks / Trade-offs
 
-- The fallback feed stays set on the singleton for the process lifetime; later checks in the same session use it. Acceptable: it points at a known-good release and the next app launch starts from the default provider.
+- `setFeedURL` mutates the process-wide singleton, so `checkWithFallback` restores the primary `github` feed in a `finally` after the retry (success or failure); the owner/repo constant is shared with the resolver. Later checks in the session therefore start from the primary feed again.
+- Newest eligible release is chosen by greatest `published_at` (missing/invalid sorts oldest), not array position. Pagination is intentionally absent: `per_page=10` suffices for a recent-release fallback.
 - Unauthenticated API rate limit; failure to fetch simply yields the original error.

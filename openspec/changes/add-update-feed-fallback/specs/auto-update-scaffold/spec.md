@@ -2,7 +2,7 @@
 
 ### Requirement: Failed update checks fall back to the newest release with a feed
 
-When `checkForUpdates` fails, the updater SHALL query the GitHub releases API for the newest release that is neither a draft nor a prerelease and carries the current platform's feed file (`latest.yml` on win32, `latest-mac.yml` on darwin, `latest-linux.yml` on linux), point the generic provider at that release's download URL, and retry the check once. If no such release exists, the lookup fails, or the retry fails, the updater MUST surface the original error. The updater MUST NOT download or install as part of the fallback.
+When `checkForUpdates` fails, the updater SHALL query the GitHub releases API for the newest release that is neither a draft nor a prerelease and carries the current platform's feed file (`latest.yml` on win32, `latest-mac.yml` on darwin, `latest-linux.yml` on linux), point the generic provider at that release's download URL, and retry the check once. If no such release exists, the lookup fails, or the retry fails, the updater MUST surface the original error. The updater MUST NOT download or install as part of the fallback. After the retry (success or failure) the updater MUST restore the primary GitHub feed so later checks do not stay on the fallback feed. The newest eligible release is the one with the greatest `published_at`.
 
 #### Scenario: Latest release has no feed file
 

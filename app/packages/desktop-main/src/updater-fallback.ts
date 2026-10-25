@@ -4,6 +4,9 @@ import { logger } from './logger.js';
 /** GitHub `owner/repo` that hosts releases; must match `publish` in `electron-builder.yml`. */
 const RELEASES_REPO = 'CoderCoco-Studios/Hyveon';
 
+/** The primary `github` provider feed, restored after a fallback retry so the singleton isn't left on the fallback. */
+export const PRIMARY_FEED = { provider: 'github', owner: 'CoderCoco-Studios', repo: 'Hyveon' } as const;
+
 const RELEASES_API_URL = `https://api.github.com/repos/${RELEASES_REPO}/releases?per_page=10`;
 const RELEASE_DOWNLOAD_BASE_URL = `https://github.com/${RELEASES_REPO}/releases/download`;
 const FETCH_TIMEOUT_MS = 10_000;
@@ -20,7 +23,14 @@ export interface GithubRelease {
   tag_name: string;
   draft: boolean;
   prerelease: boolean;
+  published_at?: string | null;
   assets: ReadonlyArray<{ name: string }>;
+}
+
+/** Epoch ms of a release's `published_at`; missing or unparseable values sort as oldest. */
+function publishedAtMs(r: GithubRelease): number {
+  const ms = r.published_at ? Date.parse(r.published_at) : NaN;
+  return Number.isNaN(ms) ? -Infinity : ms;
 }
 
 /**
@@ -28,18 +38,22 @@ export interface GithubRelease {
  *
  * @remarks
  * Skips drafts, prereleases, and releases missing the platform's feed asset (e.g. a release published with no
- * assets, which makes electron-updater's primary check 404). Relies on GitHub returning releases newest-first.
+ * assets, which makes electron-updater's primary check 404). Among the rest, the greatest `published_at` wins
+ * regardless of array order; a missing or invalid `published_at` counts as oldest, and ties keep the earlier entry.
  *
- * @param releases - Releases as returned by the GitHub releases API, newest first.
+ * @param releases - Releases as returned by the GitHub releases API, in any order.
  * @param platform - Node platform to match the feed asset for.
- * @returns The first usable release, or `null` when none qualifies or the platform has no feed file.
+ * @returns The newest usable release, or `null` when none qualifies or the platform has no feed file.
  */
 export function pickFallbackRelease(releases: readonly GithubRelease[], platform: NodeJS.Platform): GithubRelease | null {
   const feedAsset = FEED_ASSET_BY_PLATFORM[platform];
   if (!feedAsset) return null;
-  return (
-    releases.find((r) => !r.draft && !r.prerelease && (r.assets ?? []).some((a) => a.name === feedAsset)) ?? null
-  );
+  let best: GithubRelease | null = null;
+  for (const r of releases) {
+    if (r.draft || r.prerelease || !(r.assets ?? []).some((a) => a.name === feedAsset)) continue;
+    if (!best || publishedAtMs(r) > publishedAtMs(best)) best = r;
+  }
+  return best;
 }
 
 /**

@@ -2,7 +2,7 @@ import type { ManualUpdateCheckResult } from '@hyveon/shared';
 import { logger } from './logger.js';
 import type { ElectronStoreService } from './services/ElectronStoreService.js';
 import { errMessage } from '@hyveon/shared';
-import { resolveFallbackFeedUrl } from './updater-fallback.js';
+import { PRIMARY_FEED, resolveFallbackFeedUrl } from './updater-fallback.js';
 
 /**
  * Loads `electron-updater`'s `autoUpdater` and applies the settings shared by every check.
@@ -47,6 +47,9 @@ async function checkWithFallback(autoUpdater: AutoUpdater): ReturnType<AutoUpdat
     } catch (fallbackErr) {
       logger.warn('[updater] fallback update check failed', { error: errMessage(fallbackErr) });
       throw primaryErr;
+    } finally {
+      // setFeedURL mutates the process-wide singleton; put the primary feed back so later checks start from it.
+      autoUpdater.setFeedURL({ ...PRIMARY_FEED });
     }
   }
 }

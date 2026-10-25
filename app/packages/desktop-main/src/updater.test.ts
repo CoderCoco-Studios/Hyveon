@@ -46,7 +46,10 @@ vi.mock('./logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('./updater-fallback.js', () => ({ resolveFallbackFeedUrl: resolveFallbackMock }));
+vi.mock('./updater-fallback.js', () => ({
+  resolveFallbackFeedUrl: resolveFallbackMock,
+  PRIMARY_FEED: { provider: 'github', owner: 'CoderCoco-Studios', repo: 'Hyveon' },
+}));
 
 import { logger } from './logger.js';
 import { initUpdater, checkForUpdatesNow } from './updater.js';
@@ -132,6 +135,26 @@ describe('initUpdater', () => {
     expect(setFeedURLMock).toHaveBeenCalledWith({ provider: 'generic', url: 'https://example.test/download/v0.6.0' });
     expect(checkForUpdatesMock).toHaveBeenCalledTimes(2);
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('fallback'), expect.any(Object));
+  });
+
+  it('should restore the primary feed after the fallback retry succeeds', async () => {
+    checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml')).mockResolvedValueOnce(null);
+    resolveFallbackMock.mockResolvedValue('https://example.test/download/v0.6.0');
+
+    await initUpdater(makeStore(true));
+
+    expect(setFeedURLMock).toHaveBeenCalledTimes(2);
+    expect(setFeedURLMock).toHaveBeenLastCalledWith({ provider: 'github', owner: 'CoderCoco-Studios', repo: 'Hyveon' });
+  });
+
+  it('should restore the primary feed after the fallback retry fails', async () => {
+    checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml')).mockRejectedValueOnce(new Error('boom'));
+    resolveFallbackMock.mockResolvedValue('https://example.test/download/v0.6.0');
+
+    await initUpdater(makeStore(true));
+
+    expect(setFeedURLMock).toHaveBeenCalledTimes(2);
+    expect(setFeedURLMock).toHaveBeenLastCalledWith({ provider: 'github', owner: 'CoderCoco-Studios', repo: 'Hyveon' });
   });
 
   it('should not set a feed or retry when no fallback release exists', async () => {
