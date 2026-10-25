@@ -254,6 +254,14 @@ describe('SettingsPage', () => {
     });
   });
 
+  /** Asserts the failure-state link to the GitHub Releases page is present and opens externally. */
+  function expectManualDownloadLink() {
+    const link = screen.getByRole('link', { name: /download manually/i });
+    expect(link).toHaveAttribute('href', 'https://github.com/CoderCoco-Studios/Hyveon/releases');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noreferrer'));
+  }
+
   describe('Updates — Check for Updates button', () => {
     it('should show a loading message while the check is in flight', async () => {
       let resolveCheck!: (result: { ok: true; updateAvailable: false }) => void;
@@ -273,6 +281,7 @@ describe('SettingsPage', () => {
       await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
 
       expect(await screen.findByText("You're up to date.")).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /download manually/i })).not.toBeInTheDocument();
     });
 
     it('should report the version when an update is available', async () => {
@@ -291,6 +300,7 @@ describe('SettingsPage', () => {
       await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
 
       expect(await screen.findByText('feed unreachable')).toBeInTheDocument();
+      expectManualDownloadLink();
     });
 
     it('should render a fallback message when the IPC call rejects', async () => {
@@ -300,6 +310,7 @@ describe('SettingsPage', () => {
       await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
 
       expect(await screen.findByText('Unable to reach the update service.')).toBeInTheDocument();
+      expectManualDownloadLink();
     });
 
     it('should work regardless of the enableAutoUpdate toggle value', async () => {
