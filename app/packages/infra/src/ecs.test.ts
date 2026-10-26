@@ -92,11 +92,32 @@ describe('defineEcs', () => {
 
     expect(Object.keys(result.logGroups).sort()).toEqual(['alpha', 'bravo', 'charlie', 'delta']);
     const logGroups = mocks.resources.filter((resource) => resource.type === 'aws:cloudwatch/logGroup:LogGroup');
-    expect(logGroups).toHaveLength(4);
+    expect(logGroups).toHaveLength(8);
     const alphaLog = findByName(mocks.resources, 'alpha-server-logs');
     expect(alphaLog.inputs.name).toBe('/ecs/alpha-server');
     expect(alphaLog.inputs.retentionInDays).toBe(7);
     expect(alphaLog.inputs.tags).toEqual({ Name: 'alpha-logs', Game: 'alpha' });
+  });
+
+  it('should pre-create one /ecs/filebrowser-{game} log group per game with 7-day retention', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
+    const result = await runDefineEcs({
+      projectName: 'hyveon',
+      awsRegion: 'us-east-1',
+      hostedZoneName: 'example.com',
+      gameServers: FIXTURE_GAME_SERVERS,
+      efs,
+      executionRoleArn: 'arn:aws:iam::123456789012:role/hyveon-task-execution',
+      provider,
+    });
+
+    expect(Object.keys(result.fileManagerLogGroups).sort()).toEqual(['alpha', 'bravo', 'charlie', 'delta']);
+    const alphaLog = findByName(mocks.resources, 'alpha-filebrowser-logs');
+    expect(alphaLog.type).toBe('aws:cloudwatch/logGroup:LogGroup');
+    expect(alphaLog.inputs.name).toBe('/ecs/filebrowser-alpha');
+    expect(alphaLog.inputs.retentionInDays).toBe(7);
+    expect(alphaLog.inputs.tags).toEqual({ Name: 'alpha-filebrowser-logs', Game: 'alpha' });
   });
 
   it('should derive per-game task definitions purely from the game-server map, one per game', async () => {

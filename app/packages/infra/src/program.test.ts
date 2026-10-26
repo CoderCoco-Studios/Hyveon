@@ -154,9 +154,9 @@ describe('defineAll', () => {
     // FIXTURE_GAME_SERVERS: 4 games × 1 volume each = 4 game access points, plus 1 https (delta) cert access point.
     expect(types.filter((type) => type === 'aws:efs/accessPoint:AccessPoint')).toHaveLength(5);
     expect(types).toContain('aws:ecs/cluster:Cluster');
-    // 4 ECS per-game log groups + 4 Lambda log groups (interactions/followup/watchdog/dns-updater;
+    // 4 ECS per-game log groups + 4 FileBrowser helper log groups + 4 Lambda log groups (interactions/followup/watchdog/dns-updater;
     // FIXTURE_GAME_SERVERS declares no file_seeds, so no efs-seeder log group).
-    expect(types.filter((type) => type === 'aws:cloudwatch/logGroup:LogGroup')).toHaveLength(8);
+    expect(types.filter((type) => type === 'aws:cloudwatch/logGroup:LogGroup')).toHaveLength(12);
     expect(types.filter((type) => type === 'aws:ecs/taskDefinition:TaskDefinition')).toHaveLength(4);
     expect(types).not.toContain('aws:ecs/service:Service');
 

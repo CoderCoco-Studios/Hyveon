@@ -4,6 +4,7 @@
  * | Resource | This file |
  * | --- | --- |
  * | CloudWatch log group (one per game) | {@link EcsResources.logGroups} |
+ * | FileBrowser helper log group (one per game) | {@link EcsResources.fileManagerLogGroups} |
  * | ECS cluster | {@link EcsResources.cluster} |
  * | Task definition (one per game) | {@link EcsResources.taskDefinitions} |
  *
@@ -26,7 +27,7 @@
 
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import { isIcmpProtocol, type GameServerConfig, type GameServerEnvironmentVariable } from '@hyveon/shared';
+import { fileManagerLogGroupName, isIcmpProtocol, type GameServerConfig, type GameServerEnvironmentVariable } from '@hyveon/shared';
 import { HYVEON_ENV_TOKENS, substituteHyveonToken, valueUsesToken } from '@hyveon/shared/envTokens';
 import type { EfsResources } from './efs.js';
 import { buildIpv4WrapperScript } from './envTokenWrapper.js';
@@ -39,6 +40,13 @@ export interface EcsResources {
   cluster: aws.ecs.Cluster;
   /** One CloudWatch log group per game, keyed by game name. */
   logGroups: Record<string, aws.cloudwatch.LogGroup>;
+  /**
+   * One CloudWatch log group per game for the on-demand FileBrowser helper task
+   * (`/ecs/filebrowser-{game}`), keyed by game name. Pre-created here because the
+   * task-execution role cannot `logs:CreateLogGroup`; the helper's task
+   * definition is registered by `FileManagerService`, not this program.
+   */
+  fileManagerLogGroups: Record<string, aws.cloudwatch.LogGroup>;
   /** One task definition per game, keyed by game name, with family `${game}-server`. */
   taskDefinitions: Record<string, aws.ecs.TaskDefinition>;
 }
@@ -169,6 +177,19 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
     );
   }
 
+  const fileManagerLogGroups: Record<string, aws.cloudwatch.LogGroup> = {};
+  for (const game of Object.keys(gameServers)) {
+    fileManagerLogGroups[game] = new aws.cloudwatch.LogGroup(
+      `${game}-filebrowser-logs`,
+      {
+        name: fileManagerLogGroupName(game),
+        retentionInDays: LOG_RETENTION_DAYS,
+        tags: { Name: `${game}-filebrowser-logs`, Game: game },
+      },
+      opts,
+    );
+  }
+
   const taskDefinitions: Record<string, aws.ecs.TaskDefinition> = {};
   for (const [game, config] of Object.entries(gameServers)) {
     const isHttps = config.https === true;
@@ -277,5 +298,5 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
     );
   }
 
-  return { cluster, logGroups, taskDefinitions };
+  return { cluster, logGroups, fileManagerLogGroups, taskDefinitions };
 }

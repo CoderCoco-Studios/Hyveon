@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { hash as bcryptHash } from 'bcryptjs';
 import { type Task } from '@aws-sdk/client-ecs';
-import { errMessage, type SecretsStore, type StackOutputs } from '@hyveon/shared';
+import { errMessage, fileManagerLogGroupName, type SecretsStore, type StackOutputs } from '@hyveon/shared';
 import type { StrayHelperReport } from '@hyveon/shared/folderUpload';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
@@ -361,7 +361,7 @@ export class FileManagerService {
     }
 
     const region = this.config.getRegion();
-    const logGroup = `/ecs/filebrowser-${game}`;
+    const logGroup = fileManagerLogGroupName(game);
     const family = `filebrowser-${game}`;
 
     // Generate a fresh credential for this launch and hash it — the hash
@@ -452,7 +452,6 @@ export class FileManagerService {
               'awslogs-group': logGroup,
               'awslogs-region': region,
               'awslogs-stream-prefix': 'ecs',
-              'awslogs-create-group': 'true',
             },
           },
         },
