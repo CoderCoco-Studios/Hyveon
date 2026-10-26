@@ -218,8 +218,10 @@ jobs:
             echo "<details>"
             echo "<summary>Full changelog</summary>"
             echo
-            cat raw-changelog.md
-            echo
+            # git-cliff always emits a leading and trailing newline; trim both
+            # so <details> holds exactly one blank line after <summary> and
+            # none before </details>.
+            sed -e '/./,$!d' raw-changelog.md | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
             echo "</details>"
           } > "$NOTES_PATH"
 
