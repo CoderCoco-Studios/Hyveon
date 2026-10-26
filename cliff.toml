@@ -11,23 +11,28 @@ header = ""
 # type happened to appear first chronologically in the range - matching the
 # canonical commit-type order in CLAUDE.md's Git & PR workflow section.
 body = """
-{% set group_order = ["Features", "Bug Fixes", "Refactoring", "Documentation", "Tests", "Chores", "Performance", "Build System", "Continuous Integration", "Style", "Other"] %}
-{% for group in group_order %}
-{% set group_commits = commits | filter(attribute="group", value=group) %}
-{% if group_commits %}
+{%- set group_order = ["Features", "Bug Fixes", "Refactoring", "Documentation", "Tests", "Chores", "Performance", "Build System", "Continuous Integration", "Style", "Other"] -%}
+{%- for group in group_order -%}
+{%- set group_commits = commits | filter(attribute="group", value=group) -%}
+{%- if group_commits %}
 ### {{ group }}
 {% for commit in group_commits %}
 - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
 {{ commit.message | upper_first }} \
 ({{ commit.id | truncate(length=7, end="") }})\
 {% if commit.remote.username %} by @{{ commit.remote.username }}{% endif %}\
-{% if commit.breaking %} [**breaking**]{% endif %}
-{% endfor %}
-{% endif %}
-{% endfor %}
+{% if commit.breaking %} [**breaking**]{% endif %}\
+{%- endfor %}
+{% endif -%}
+{%- endfor %}
 """
 trim = true
 footer = ""
+# Safety net: collapse any run of blank lines to one. git-cliff still emits a
+# leading/trailing newline outside postprocessing; release.yml trims those.
+postprocessors = [
+  { pattern = '\n{3,}', replace = "\n\n" },
+]
 
 [git]
 conventional_commits = true
