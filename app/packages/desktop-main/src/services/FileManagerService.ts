@@ -263,7 +263,7 @@ export class FileManagerService {
     const outputs = await this.config.getStackOutputs();
     if (!outputs) return null;
     const tasks = await this.ecs.listTasksByStartedBy(outputs.ecsClusterName, this.startedByKey(game));
-    const task = tasks[0];
+    const task = taskArn ? tasks.find((candidate) => candidate.taskArn === taskArn) : tasks[0];
     if (!task && taskArn) {
       const reason = await this.getHelperStopReason(taskArn);
       if (reason) {
