@@ -97,7 +97,7 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
               data-testid={`env-row-${index}`}
               className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
             >
-              <div className="flex items-end gap-3">
+              <div className="flex items-start gap-3">
                 <FormField id={`env-name-${index}`} label="Variable name" errors={nameError} className="flex-1">
                   {(fieldProps) => (
                     <Input
@@ -124,6 +124,7 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="mt-[26px]"
                   aria-label={`Remove environment variable ${index + 1}`}
                   onClick={() => removeVariable(index)}
                 >
@@ -157,7 +158,7 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
             const argError = messageFor(issues, `command[${index}]`);
 
             return (
-              <div key={index} data-testid={`command-arg-${index}`} className="flex items-end gap-3">
+              <div key={index} data-testid={`command-arg-${index}`} className="flex items-start gap-3">
                 <FormField
                   id={`command-arg-input-${index}`}
                   label={`Argument ${index + 1}`}
@@ -178,6 +179,7 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="mt-[26px]"
                   aria-label={`Remove command argument ${index + 1}`}
                   onClick={() => removeCommandArgument(index)}
                 >
