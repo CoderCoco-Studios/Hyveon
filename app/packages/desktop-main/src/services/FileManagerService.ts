@@ -265,13 +265,19 @@ export class FileManagerService {
     const tasks = await this.ecs.listTasksByStartedBy(outputs.ecsClusterName, this.startedByKey(game));
     const task = tasks[0];
     if (!task && taskArn) {
-      const reason = await this.ecs.describeStoppedReason(outputs.ecsClusterName, taskArn);
+      const reason = await this.getHelperStopReason(taskArn);
       if (reason) {
         logger.warn('File manager helper stopped before it was reachable', { game, taskArn, reason });
         throw new Error(`The file manager helper stopped before it was reachable: ${reason}`);
       }
     }
     return task && task.lastStatus === 'RUNNING' ? this.publicIpOf(task) : null;
+  }
+
+  /** ECS's stop reason for `taskArn`, or `null` while it is still alive (or the stack is not deployed). */
+  async getHelperStopReason(taskArn: string): Promise<string | null> {
+    const outputs = await this.config.getStackOutputs();
+    return outputs ? this.ecs.describeStoppedReason(outputs.ecsClusterName, taskArn) : null;
   }
 
   /**

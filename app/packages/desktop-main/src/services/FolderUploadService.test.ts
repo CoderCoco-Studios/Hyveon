@@ -41,7 +41,7 @@ afterEach(() => rm(root, { recursive: true, force: true }));
 interface Harness {
   svc: FolderUploadService;
   client: FakeClient;
-  fm: { startForUpload: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; getStatus: ReturnType<typeof vi.fn>; getHelperPublicIp: ReturnType<typeof vi.fn>; sweepStrayHelpers: ReturnType<typeof vi.fn> };
+  fm: { startForUpload: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; getStatus: ReturnType<typeof vi.fn>; getHelperPublicIp: ReturnType<typeof vi.fn>; getHelperStopReason: ReturnType<typeof vi.fn>; sweepStrayHelpers: ReturnType<typeof vi.fn> };
   ecs: { findRunningTask: ReturnType<typeof vi.fn> };
   store: ElectronStoreService;
   progress: FolderUploadProgress[];
@@ -59,6 +59,7 @@ async function harness(options: { client?: FakeClient; launch?: UploadHelperLaun
     stop: vi.fn().mockResolvedValue({ success: true, message: 'ok' }),
     getStatus: vi.fn().mockResolvedValue({ game: 'minecraft', state: 'stopped' }),
     getHelperPublicIp: vi.fn().mockResolvedValue('9.9.9.9'),
+    getHelperStopReason: vi.fn().mockResolvedValue(null),
     sweepStrayHelpers: vi.fn().mockResolvedValue({ stopped: [], skipped: 0, revokedRules: 0, errors: [] }),
   };
   const ecs = { findRunningTask: vi.fn().mockResolvedValue(null) };
@@ -308,6 +309,18 @@ describe('FolderUploadService runs', () => {
     expect(last.error).toContain('pull failed');
     expect(h.fm.getHelperPublicIp).toHaveBeenCalledWith('minecraft', 't');
     expect(h.fm.stop).toHaveBeenCalled();
+  });
+
+  it('should append the helper stop reason when a run fails after the helper died', async () => {
+    const login = vi.fn().mockRejectedValue(new Error('ECONNRESET'));
+    const h = await harness({ client: fakeClient({ login }) });
+    h.svc.timings.loginTimeoutMs = 0;
+    h.fm.getHelperStopReason.mockResolvedValue('OutOfMemoryError: Container killed');
+    await h.svc.startUpload(await request(['Config']));
+    const last = await settled(h);
+    expect(last.phase).toBe('failed');
+    expect(last.error).toContain('helper task stopped: OutOfMemoryError');
+    expect(h.fm.getHelperStopReason).toHaveBeenCalledWith('t');
   });
 
   it('should keep retrying login while the container boots', async () => {

@@ -746,6 +746,13 @@ describe('FileManagerService', () => {
     });
   });
 
+  describe('getHelperStopReason', () => {
+    it('should return the ECS stop reason for the task', async () => {
+      const { service: ecs } = makeEcs({ describeStoppedReason: vi.fn().mockResolvedValue('boom') });
+      expect(await buildService({ ecs }).getHelperStopReason('arn-1')).toBe('boom');
+    });
+  });
+
   describe('sweepStrayHelpers', () => {
     const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
     const task = (game: string, ageMin: number, extra: Partial<Task> = {}): Task => ({

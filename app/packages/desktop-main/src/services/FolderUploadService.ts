@@ -340,7 +340,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     } catch (err) {
       terminal = err instanceof UploadCancelledError || signal.aborted
         ? { phase: 'cancelled', error: err instanceof ConfirmationTimeoutError ? err.message : undefined }
-        : { phase: 'failed', error: errMessage(err) };
+        : { phase: 'failed', error: await this.withStopReason(errMessage(err), session) };
       if (terminal.phase === 'failed') logger.warn('FolderUploadService: upload failed', { game, runId, error: terminal.error });
     } finally {
       await this.releaseHelper(game, runId, client, session !== undefined);
@@ -440,6 +440,18 @@ export class FolderUploadService implements OnApplicationBootstrap {
       if (!result.success) logger.warn('FolderUploadService: helper stop reported failure', { game, runId, message: result.message });
     } catch (err) {
       logger.error('FolderUploadService: helper stop threw', { game, runId, error: errMessage(err) });
+    }
+  }
+
+  /** Appends the helper container's ECS stop reason to `message` when the task died, so a mid-run failure names its cause. */
+  private async withStopReason(message: string, session: UploadHelperSession | undefined): Promise<string> {
+    if (!session || message.includes('stopped before it was reachable')) return message;
+    try {
+      const reason = await this.fileManager.getHelperStopReason(session.taskArn);
+      return reason ? `${message} (helper task stopped: ${reason})` : message;
+    } catch (err) {
+      logger.warn('FolderUploadService: could not read helper stop reason', { error: errMessage(err) });
+      return message;
     }
   }
 
