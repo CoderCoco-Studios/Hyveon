@@ -716,7 +716,7 @@ function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue
     if (port.container === 80 || port.container === 443) {
       issues.push({
         path: `ports[${index}]`,
-        message: `ports[${index}] uses container port ${port.container}, which is reserved for the Caddy sidecar on an https = true game server.`,
+        message: `ports[${index}] uses container port ${port.container}, which is reserved for the Caddy sidecar on an https = true game server. Enter your game's own listen port (e.g. 30000 for Foundry VTT); Caddy terminates TLS on 443 and proxies to the first port.`,
       });
     }
   });
