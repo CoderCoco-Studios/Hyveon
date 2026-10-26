@@ -21,12 +21,12 @@ export interface ReviewStepProps {
   submitError?: string | null;
 }
 
-/** One label/value pair in a summary section. */
+/** One label/value pair in a summary section; the value is `min-w-0` + `break-all` so long unbroken strings wrap in the card. */
 function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 py-1.5 text-sm">
-      <span className="text-[var(--color-muted-foreground)]">{label}</span>
-      <span className="font-[var(--font-mono)] text-right text-[var(--color-foreground)] break-all">{value}</span>
+      <span className="shrink-0 text-[var(--color-muted-foreground)]">{label}</span>
+      <span className="min-w-0 font-[var(--font-mono)] text-right text-[var(--color-foreground)] break-all">{value}</span>
     </div>
   );
 }
@@ -123,11 +123,8 @@ export function ReviewStep({ draft, issues = [], submitError = null }: ReviewSte
           ) : (
             <ul className="space-y-1">
               {draft.volumes.map((volume, index) => (
-                <li key={index} className="flex items-center justify-between gap-4 py-1 text-sm">
-                  <span>{volume.name}</span>
-                  <span className="font-[var(--font-mono)] text-[var(--color-muted-foreground)]">
-                    {volume.container_path}
-                  </span>
+                <li key={index}>
+                  <SummaryRow label={volume.name} value={volume.container_path} />
                 </li>
               ))}
             </ul>
@@ -155,11 +152,8 @@ export function ReviewStep({ draft, issues = [], submitError = null }: ReviewSte
               </h4>
               <ul className="space-y-1">
                 {draft.environment.map((variable, index) => (
-                  <li key={index} className="flex items-center justify-between gap-4 py-1 text-sm">
-                    <span>{variable.name}</span>
-                    <span className="font-[var(--font-mono)] text-[var(--color-muted-foreground)]">
-                      {variable.value}
-                    </span>
+                  <li key={index}>
+                    <SummaryRow label={variable.name} value={variable.value} />
                   </li>
                 ))}
               </ul>
