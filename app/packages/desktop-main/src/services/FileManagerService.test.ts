@@ -726,6 +726,24 @@ describe('FileManagerService', () => {
       const { service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'a', lastStatus: 'PROVISIONING' }]) });
       expect(await buildService({ ecs }).getHelperPublicIp('minecraft')).toBeNull();
     });
+
+    it('should throw the ECS stop reason when the launched task stopped before it was reachable', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([]),
+        describeStoppedReason: vi.fn().mockResolvedValue('CannotPullContainerError: rate limit'),
+      });
+      await expect(buildService({ ecs }).getHelperPublicIp('minecraft', 'arn-1')).rejects.toThrow(
+        'stopped before it was reachable: CannotPullContainerError: rate limit',
+      );
+    });
+
+    it('should return null when no task is listed and the launched task has not stopped', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([]),
+        describeStoppedReason: vi.fn().mockResolvedValue(null),
+      });
+      expect(await buildService({ ecs }).getHelperPublicIp('minecraft', 'arn-1')).toBeNull();
+    });
   });
 
   describe('sweepStrayHelpers', () => {

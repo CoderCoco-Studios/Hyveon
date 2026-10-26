@@ -311,7 +311,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
       if (!launch.ok) throw new Error(launch.message);
       session = launch.session;
 
-      const host = await this.waitForHelperIp(game, signal);
+      const host = await this.waitForHelperIp(game, runId, session.taskArn, signal);
       client = this.clients.create({
         host,
         port: this.timings.helperPort,
@@ -443,14 +443,21 @@ export class FolderUploadService implements OnApplicationBootstrap {
     }
   }
 
-  /** Polls until the helper task exposes a public IP. */
-  private async waitForHelperIp(game: string, signal: AbortSignal): Promise<string> {
+  /** Polls until the helper task exposes a public IP; a task that stopped first fails fast with ECS's reason. */
+  private async waitForHelperIp(game: string, runId: string, taskArn: string, signal: AbortSignal): Promise<string> {
     const deadline = Date.now() + this.timings.helperIpTimeoutMs;
+    logger.info('FolderUploadService: waiting for helper public IP', { game, runId, taskArn });
     for (;;) {
       if (signal.aborted) throw new UploadCancelledError();
-      const ip = await this.fileManager.getHelperPublicIp(game);
-      if (ip) return ip;
-      if (Date.now() > deadline) throw new Error('The file manager helper did not get a public IP in time.');
+      const ip = await this.fileManager.getHelperPublicIp(game, taskArn);
+      if (ip) {
+        logger.info('FolderUploadService: helper reachable at public IP', { game, runId, ip });
+        return ip;
+      }
+      if (Date.now() > deadline) {
+        logger.warn('FolderUploadService: helper never exposed a public IP', { game, runId, taskArn });
+        throw new Error('The file manager helper did not get a public IP in time.');
+      }
       await abortableSleep(this.timings.pollMs, signal);
     }
   }

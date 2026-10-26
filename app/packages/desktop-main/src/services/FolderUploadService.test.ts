@@ -299,6 +299,17 @@ describe('FolderUploadService runs', () => {
     expect(h.fm.stop).toHaveBeenCalled();
   });
 
+  it('should fail with the helper stop reason instead of waiting out the IP timeout', async () => {
+    const h = await harness();
+    h.fm.getHelperPublicIp.mockRejectedValue(new Error('The file manager helper stopped before it was reachable: pull failed'));
+    await h.svc.startUpload(await request(['Config']));
+    const last = await settled(h);
+    expect(last.phase).toBe('failed');
+    expect(last.error).toContain('pull failed');
+    expect(h.fm.getHelperPublicIp).toHaveBeenCalledWith('minecraft', 't');
+    expect(h.fm.stop).toHaveBeenCalled();
+  });
+
   it('should keep retrying login while the container boots', async () => {
     const login = vi.fn().mockRejectedValueOnce(new Error('ECONNREFUSED')).mockResolvedValue(undefined);
     const h = await harness({ client: fakeClient({ login }) });
