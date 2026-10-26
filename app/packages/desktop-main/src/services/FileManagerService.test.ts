@@ -327,6 +327,8 @@ describe('FileManagerService', () => {
       expect(passwordFlagValue).not.toBe(result.credentials?.password);
       expect(container.logConfiguration!.options!['awslogs-group']).toBe('/ecs/filebrowser-minecraft');
       expect(container.logConfiguration!.options!['awslogs-region']).toBe('us-east-1');
+      // The group is pre-created by infra; the execution role can't create it.
+      expect(container.logConfiguration!.options).not.toHaveProperty('awslogs-create-group');
 
       const runArgs = vi.mocked(stub.runTask).mock.calls[0]![0];
       expect(runArgs.cluster).toBe('game-cluster');
