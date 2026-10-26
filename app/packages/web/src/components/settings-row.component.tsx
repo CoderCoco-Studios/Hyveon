@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
  *
  * @param label - the row's bold title text.
  * @param description - the row's muted detail line, rendered below `label`.
- * @param children - the trailing action (button, toggle, etc.).
+ * @param children - optional trailing action (button, toggle, etc.); omit for a read-only row.
  * @returns the row's markup.
  */
 export function SettingsRow({
@@ -16,7 +16,7 @@ export function SettingsRow({
 }: {
   label: string;
   description: ReactNode;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   return (
     <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] p-4">

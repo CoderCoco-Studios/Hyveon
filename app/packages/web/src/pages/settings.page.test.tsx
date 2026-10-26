@@ -105,7 +105,7 @@ describe('SettingsPage', () => {
       .mockResolvedValue({ ok: true, settings: SAMPLE_DEPLOYMENT_SETTINGS, etag: 'etag-1' });
     hyveonMock.iac.settings.update.mockReset();
     hyveonMock.iac.settings.engineVersion.mockReset().mockResolvedValue({ resolvedVersion: '3.255.0' });
-    hyveonMock.iac.settings.autoUpdateGet.mockReset().mockResolvedValue({ ok: true, enableAutoUpdate: false });
+    hyveonMock.iac.settings.autoUpdateGet.mockReset().mockResolvedValue({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
     hyveonMock.iac.settings.autoUpdateUpdate.mockReset();
     hyveonMock.iac.settings.autoUpdateCheck.mockReset();
     apiMock.cloudHealthList.mockResolvedValue([{ id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'ok' }]);
@@ -172,9 +172,46 @@ describe('SettingsPage', () => {
     });
   });
 
+  describe('Updates — App Version row', () => {
+    it('should render the running version prefixed with v', async () => {
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      expect(await screen.findByText('App Version')).toBeInTheDocument();
+      expect(await screen.findByText('v0.8.0')).toBeInTheDocument();
+    });
+
+    it("should render Unknown when the version is 'unknown'", async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({
+        ok: true,
+        enableAutoUpdate: false,
+        appVersion: 'unknown',
+      });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      expect(await screen.findByText('Unknown')).toBeInTheDocument();
+    });
+
+    it('should render Unavailable when the read rejects', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockRejectedValue(new Error('IPC unavailable'));
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      expect(await screen.findByText('Unavailable')).toBeInTheDocument();
+    });
+
+    it('should include the version in the up-to-date message', async () => {
+      hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: true, updateAvailable: false });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+      await screen.findByText('v0.8.0');
+
+      await userEvent.click(screen.getByRole('button', { name: /check for updates/i }));
+
+      expect(await screen.findByText("You're up to date (v0.8.0).")).toBeInTheDocument();
+    });
+  });
+
   describe('Updates — Automatic Updates toggle', () => {
     it('should render unchecked once the read resolves false', async () => {
-      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 
       const toggle = await screen.findByLabelText('Automatic updates');
@@ -182,7 +219,7 @@ describe('SettingsPage', () => {
     });
 
     it('should render checked once the read resolves true', async () => {
-      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: true });
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: true, appVersion: '0.8.0' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 
       const toggle = await screen.findByLabelText('Automatic updates');
@@ -210,7 +247,7 @@ describe('SettingsPage', () => {
     });
 
     it('should call autoUpdateUpdate with true and reflect the new checked state on toggle', async () => {
-      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
       hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValue({ ok: true, enableAutoUpdate: true });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 
@@ -223,7 +260,7 @@ describe('SettingsPage', () => {
     });
 
     it('should keep the checkbox reflecting the last confirmed value when the write fails, not drop to the no-value error state', async () => {
-      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: true });
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: true, appVersion: '0.8.0' });
       hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValue({ ok: false, code: 'error', message: 'nope' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 
@@ -237,7 +274,7 @@ describe('SettingsPage', () => {
     });
 
     it('should keep the checkbox unchecked and clear the write-error message on a subsequent successful toggle', async () => {
-      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
       hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValueOnce({ ok: false, code: 'error', message: 'nope' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 
@@ -280,7 +317,7 @@ describe('SettingsPage', () => {
 
       await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
 
-      expect(await screen.findByText("You're up to date.")).toBeInTheDocument();
+      expect(await screen.findByText("You're up to date (v0.8.0).")).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /download manually/i })).not.toBeInTheDocument();
     });
 
@@ -314,7 +351,7 @@ describe('SettingsPage', () => {
     });
 
     it('should work regardless of the enableAutoUpdate toggle value', async () => {
-      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
       hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: true, updateAvailable: false });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 
@@ -323,7 +360,7 @@ describe('SettingsPage', () => {
       await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
 
       expect(hyveonMock.iac.settings.autoUpdateCheck).toHaveBeenCalledOnce();
-      expect(await screen.findByText("You're up to date.")).toBeInTheDocument();
+      expect(await screen.findByText("You're up to date (v0.8.0).")).toBeInTheDocument();
     });
   });
 

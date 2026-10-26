@@ -2362,6 +2362,7 @@ export interface HyveonIacSettingsApi {
   /**
    * Reads the current `enableAutoUpdate` flag by invoking the
    * `iac.settings.autoUpdate.get` IPC channel — backs Settings' Updates row.
+   * Also returns the running app's version (`appVersion`).
    * See {@link AutoUpdateSettingGetResult}.
    */
   autoUpdateGet: () => Promise<AutoUpdateSettingGetResult>;

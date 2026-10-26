@@ -148,7 +148,11 @@ inside the wizard.
 
 ## Updates
 
-The first row, **Automatic Updates**, has a checkbox:
+The first row, **App Version**, shows the version of the app you are running, formatted like `v0.8.0`.
+It reads `app.getVersion()` in the main process, returned alongside the Automatic Updates flag by the same `iac.settings.autoUpdate.get` call, so there is no separate request.
+It shows `Loading…` while that read is pending, `Unavailable` if it failed, and `Unknown` if the version could not be resolved.
+
+The second row, **Automatic Updates**, has a checkbox:
 
 > Check GitHub Releases for updates on app start. Applies on next app start.
 
@@ -188,7 +192,7 @@ to save — still showing the last saved value.` inline instead.
 
 ### Check Now
 
-A second row, **Check Now**, sits directly below the toggle with its own
+A third row, **Check Now**, sits directly below the toggle with its own
 **Check for Updates** button. It runs a one-off `electron-updater` check via
 `checkForUpdatesNow()`, completely independent of the **Automatic Updates**
 toggle above — the toggle only gates `initUpdater()`'s automatic check at
@@ -201,7 +205,7 @@ only reports what it found, inline in place of the row's description text:
 | State | Copy |
 |---|---|
 | Check in flight | `Checking for updates…` |
-| Up to date | `You're up to date.` |
+| Up to date | `You're up to date (v<version>).` (plain `You're up to date.` if the running version is unknown) |
 | Newer version found | `Update available: v<version>` |
 | Check failed | The raw error message (e.g. offline, a malformed feed) followed by a **Download manually** link to the [GitHub Releases page](https://github.com/CoderCoco-Studios/Hyveon/releases), which opens in your default browser |
 
