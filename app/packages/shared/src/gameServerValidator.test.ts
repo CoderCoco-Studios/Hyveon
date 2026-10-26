@@ -453,7 +453,7 @@ describe('validateGameServer', () => {
       }
     });
 
-    it('should reject an https game server using container port 443', () => {
+    it('should reject an https game server using container port 443 and point at the app port', () => {
       const result = validateGameServer(
         'game',
         makeProposed({ https: true, ports: [{ container: 443, protocol: 'tcp' }] }),
@@ -462,6 +462,7 @@ describe('validateGameServer', () => {
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.issues.some((i) => i.path === 'ports[0]' && i.message.includes('443'))).toBe(true);
+        expect(result.issues.some((i) => i.message.includes("your game's own listen port"))).toBe(true);
       }
     });
 
