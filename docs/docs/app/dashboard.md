@@ -69,7 +69,7 @@ text `no hostname` if neither is known.
 When there is something to copy, a copy button sits next to it. Pressing it
 writes the hostname to your clipboard. **There is no visible confirmation** —
 no toast, no icon change — so if nothing seems to happen, the copy most likely
-worked. When both a hostname and a public IP are known, the IP is also shown
+worked. When both a hostname and a public IP are known, the IP is also shown on its own line below the hostname
 in parentheses; the button copies the hostname.
 
 ### Stat tiles
