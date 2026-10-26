@@ -12,7 +12,7 @@ import { logger } from './logger.js';
  * (often derived from a `streamId` it mints itself) for the duration of a
  * long-running run, and its owning controller bridges it manually to push
  * those follow-up chunk/end messages — see `logs.controller.ts`,
- * `iac.controller.ts`, and `iac-runs.controller.ts`.
+ * `iac.controller.ts`, `iac-runs.controller.ts`, and `iac-settings.controller.ts`.
  *
  * Two exceptions worth calling out specifically:
  * - `iac.rollback.confirm` must stay in this set for a second, independent
@@ -33,6 +33,7 @@ export const SELF_BRIDGED_PATTERNS: ReadonlySet<string> = new Set([
   'iac.rollback.confirm',
   'iac.runs.logs',
   'iac.stack.initialize',
+  'iac.settings.autoUpdate.download',
 ]);
 
 /**

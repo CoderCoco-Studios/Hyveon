@@ -44,6 +44,8 @@ const hyveonMock = {
       autoUpdateGet: vi.fn(),
       autoUpdateUpdate: vi.fn(),
       autoUpdateCheck: vi.fn(),
+      autoUpdateDownload: vi.fn(),
+      autoUpdateInstall: vi.fn(),
     },
   },
 };
@@ -108,6 +110,8 @@ describe('SettingsPage', () => {
     hyveonMock.iac.settings.autoUpdateGet.mockReset().mockResolvedValue({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
     hyveonMock.iac.settings.autoUpdateUpdate.mockReset();
     hyveonMock.iac.settings.autoUpdateCheck.mockReset();
+    hyveonMock.iac.settings.autoUpdateDownload.mockReset();
+    hyveonMock.iac.settings.autoUpdateInstall.mockReset();
     apiMock.cloudHealthList.mockResolvedValue([{ id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'ok' }]);
   });
 
@@ -361,6 +365,106 @@ describe('SettingsPage', () => {
 
       expect(hyveonMock.iac.settings.autoUpdateCheck).toHaveBeenCalledOnce();
       expect(await screen.findByText("You're up to date (v0.8.0).")).toBeInTheDocument();
+    });
+  });
+
+  describe('Updates — Download & Install flow', () => {
+    /** Progress sample with only `percent` varying. */
+    const sample = (percent: number) => ({ percent, transferred: percent, total: 100, bytesPerSecond: 1 });
+
+    /** Runs a check that reports v1.2.3 available and returns once the offer is on screen. */
+    async function checkForAvailableUpdate() {
+      hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: true, updateAvailable: true, version: '1.2.3' });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+      await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
+      await screen.findByText('Update available: v1.2.3');
+    }
+
+    it('should not show Download & Install before a check or when no update is available', async () => {
+      hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: true, updateAvailable: false });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+      expect(screen.queryByRole('button', { name: /download & install/i })).not.toBeInTheDocument();
+
+      await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
+      await screen.findByText("You're up to date (v0.8.0).");
+
+      expect(screen.queryByRole('button', { name: /download & install/i })).not.toBeInTheDocument();
+    });
+
+    it('should show Download & Install alongside the check button when an update is available', async () => {
+      await checkForAvailableUpdate();
+
+      expect(screen.getByRole('button', { name: /download & install/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /check for updates/i })).toBeInTheDocument();
+    });
+
+    it('should update the description with progress while downloading', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      hyveonMock.iac.settings.autoUpdateDownload.mockImplementation(
+        toStreamHandleMock(async function* () {
+          yield sample(10);
+          yield sample(42);
+          await gate;
+        }),
+      );
+      await checkForAvailableUpdate();
+
+      await userEvent.click(screen.getByRole('button', { name: /download & install/i }));
+
+      expect(await screen.findByText('Downloading v1.2.3… 42%')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /download & install/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /check for updates/i })).toBeDisabled();
+      release();
+    });
+
+    it('should offer Restart & Install once downloaded, and invoke autoUpdateInstall on click', async () => {
+      hyveonMock.iac.settings.autoUpdateDownload.mockImplementation(
+        toStreamHandleMock(async function* () {
+          yield sample(100);
+        }),
+      );
+      hyveonMock.iac.settings.autoUpdateInstall.mockResolvedValue({ ok: true });
+      await checkForAvailableUpdate();
+
+      await userEvent.click(screen.getByRole('button', { name: /download & install/i }));
+
+      expect(await screen.findByText('v1.2.3 downloaded. Restart to install.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /download & install/i })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /restart & install/i }));
+      expect(hyveonMock.iac.settings.autoUpdateInstall).toHaveBeenCalledOnce();
+    });
+
+    it('should show the error and the manual link when the download fails, and allow a retry', async () => {
+      hyveonMock.iac.settings.autoUpdateDownload.mockImplementation(
+        toStreamHandleMock(async function* () {
+          yield sample(5);
+          throw new Error('code signature mismatch');
+        }),
+      );
+      await checkForAvailableUpdate();
+
+      await userEvent.click(screen.getByRole('button', { name: /download & install/i }));
+
+      expect(await screen.findByText(/code signature mismatch/)).toBeInTheDocument();
+      expectManualDownloadLink();
+      expect(screen.getByRole('button', { name: /download & install/i })).toBeEnabled();
+    });
+
+    it('should show the error and the manual link when the install step fails', async () => {
+      hyveonMock.iac.settings.autoUpdateDownload.mockImplementation(
+        toStreamHandleMock(async function* () {
+          yield sample(100);
+        }),
+      );
+      hyveonMock.iac.settings.autoUpdateInstall.mockResolvedValue({ ok: false, message: 'installer missing' });
+      await checkForAvailableUpdate();
+      await userEvent.click(screen.getByRole('button', { name: /download & install/i }));
+
+      await userEvent.click(await screen.findByRole('button', { name: /restart & install/i }));
+
+      expect(await screen.findByText(/installer missing/)).toBeInTheDocument();
+      expectManualDownloadLink();
     });
   });
 

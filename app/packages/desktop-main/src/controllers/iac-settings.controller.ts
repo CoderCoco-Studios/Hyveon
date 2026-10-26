@@ -1,5 +1,7 @@
-import { Controller } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
+import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
 import type {
   AutoUpdateSettingGetResult,
   AutoUpdateSettingUpdatePayload,
@@ -9,11 +11,13 @@ import type {
   ManualUpdateCheckResult,
   PulumiEngineVersionResult,
   UpdateDeploymentSettingsPayload,
+  UpdateDownloadProgress,
+  UpdateInstallResult,
 } from '@hyveon/shared';
 import { OptimisticLockError, errMessage, validateDeploymentSettingsPatch } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { readAppVersion } from '../app-version.js';
-import { checkForUpdatesNow } from '../updater.js';
+import { checkForUpdatesNow, downloadUpdateNow, installDownloadedUpdate } from '../updater.js';
 import { ConfigurationNotConfiguredError, RunsTableRenameError, DeploymentConfigService } from '../services/DeploymentConfigService.js';
 // Deliberately a value import, not `import type` — Nest's constructor-parameter
 // DI resolves `engine`'s token off `design:paramtypes` metadata, which
@@ -26,6 +30,36 @@ import { PulumiEngineService } from '../services/PulumiEngineService.js';
 // Same value-import requirement as `PulumiEngineService` above — see that
 // import's doc comment.
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
+
+/** Fixed side-channel {@link IacSettingsController.downloadAutoUpdate} pushes download progress on. */
+const UPDATE_DOWNLOAD_CHUNK_CHANNEL = 'iac.settings.autoUpdate.download.chunk';
+
+/** Fixed side-channel {@link IacSettingsController.downloadAutoUpdate} sends its terminal message on. */
+const UPDATE_DOWNLOAD_END_CHANNEL = 'iac.settings.autoUpdate.download.end';
+
+/**
+ * Immediate acknowledgement `downloadAutoUpdate()` resolves with: the `streamId` the
+ * {@link UPDATE_DOWNLOAD_CHUNK_CHANNEL}/{@link UPDATE_DOWNLOAD_END_CHANNEL} messages that follow are tagged with.
+ */
+interface UpdateDownloadAck {
+  started: true;
+  streamId: string;
+}
+
+/** Message pushed on {@link UPDATE_DOWNLOAD_CHUNK_CHANNEL} for every progress sample. */
+interface UpdateDownloadChunkMessage extends UpdateDownloadProgress {
+  streamId: string;
+}
+
+/**
+ * Message sent once on {@link UPDATE_DOWNLOAD_END_CHANNEL} when the download settles. `error` is present only on
+ * failure; on success `version` names the downloaded release.
+ */
+interface UpdateDownloadEndMessage {
+  streamId: string;
+  version?: string;
+  error?: string;
+}
 
 /**
  * IPC-only controller for the deployment-settings editor — reads and writes
@@ -47,7 +81,7 @@ import { ElectronStoreService } from '../services/ElectronStoreService.js';
  * to the apply gate, never surfaced on its own channel.
  */
 @Controller()
-export class IacSettingsController {
+export class IacSettingsController implements OnModuleInit {
   /**
    * `engine` and `store` are both typed optional (`?`) purely so existing
    * test call sites that construct `new IacSettingsController(deploymentConfig)`
@@ -66,6 +100,24 @@ export class IacSettingsController {
     private readonly engine?: PulumiEngineService,
     private readonly store?: ElectronStoreService,
   ) {}
+
+  /**
+   * Registers the `ipcMain.handle` bridge for `iac.settings.autoUpdate.download`. It pushes progress/end
+   * messages to the calling renderer, so it needs the `IpcMainInvokeEvent` that the generic bridge in
+   * `../ipc-main-bridge.ts` cannot hand a `@MessagePattern` handler (Nest's `RpcContextCreator` drops
+   * undecorated parameters) — hence its entry in `SELF_BRIDGED_PATTERNS`. Same approach as
+   * `IacController.onModuleInit`.
+   *
+   * Skipped outside a real Electron main process (`process.versions.electron` unset).
+   */
+  async onModuleInit(): Promise<void> {
+    if (!process.versions.electron) return;
+    const { ipcMain } = (await import('electron')) as unknown as { ipcMain: IpcMain };
+    ipcMain.removeHandler('iac.settings.autoUpdate.download');
+    ipcMain.handle('iac.settings.autoUpdate.download', (evt) =>
+      this.downloadAutoUpdate({ evt: evt as IpcMainInvokeEvent }),
+    );
+  }
 
   /**
    * Returns the current top-level deployment settings plus the etag to
@@ -217,12 +269,53 @@ export class IacSettingsController {
    * Runs an on-demand update check via `checkForUpdatesNow()`
    * (`desktop-main/src/updater.ts`), independent of the `enableAutoUpdate`
    * flag — the flag gates only the automatic boot-time check. Never
-   * downloads or installs; see that function's doc comment.
+   * downloads or installs; see that function's doc comment, and
+   * {@link downloadAutoUpdate} / {@link installAutoUpdate} for the separate explicit steps.
    *
    */
   @MessagePattern('iac.settings.autoUpdate.check')
   async checkAutoUpdate(): Promise<ManualUpdateCheckResult> {
     logger.debug('IacSettingsController: iac.settings.autoUpdate.check invoked');
     return checkForUpdatesNow();
+  }
+
+  /**
+   * Downloads the update found by the last manual check via `downloadUpdateNow()`
+   * (`desktop-main/src/updater.ts`) — an explicit operator action; the automatic check never downloads. Resolves
+   * immediately with a `streamId`, then pushes every progress sample on {@link UPDATE_DOWNLOAD_CHUNK_CHANNEL} and
+   * a single terminal message on {@link UPDATE_DOWNLOAD_END_CHANNEL} (`error` set on failure).
+   *
+   * Reachable via the Electron IPC transport (`iac.settings.autoUpdate.download`); self-bridged — see
+   * {@link onModuleInit}.
+   */
+  @MessagePattern('iac.settings.autoUpdate.download')
+  async downloadAutoUpdate(ctx: { evt: IpcMainInvokeEvent }): Promise<UpdateDownloadAck> {
+    logger.debug('IacSettingsController: iac.settings.autoUpdate.download invoked');
+    const sender: WebContents = ctx.evt.sender;
+    const streamId = randomUUID();
+
+    void downloadUpdateNow((progress) => {
+      if (sender.isDestroyed()) return;
+      const message: UpdateDownloadChunkMessage = { streamId, ...progress };
+      sender.send(UPDATE_DOWNLOAD_CHUNK_CHANNEL, message);
+    }).then((result) => {
+      if (sender.isDestroyed()) return;
+      const message: UpdateDownloadEndMessage = result.ok
+        ? { streamId, version: result.version }
+        : { streamId, error: result.message };
+      sender.send(UPDATE_DOWNLOAD_END_CHANNEL, message);
+    });
+
+    return { started: true, streamId };
+  }
+
+  /**
+   * Quits the app and installs the update {@link downloadAutoUpdate} fetched, via `installDownloadedUpdate()`.
+   * An explicit operator action ("Restart & Install").
+   */
+  @MessagePattern('iac.settings.autoUpdate.install')
+  async installAutoUpdate(): Promise<UpdateInstallResult> {
+    logger.debug('IacSettingsController: iac.settings.autoUpdate.install invoked');
+    return installDownloadedUpdate();
   }
 }

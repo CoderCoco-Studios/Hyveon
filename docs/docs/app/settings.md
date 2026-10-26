@@ -168,8 +168,8 @@ result (`[updater] update available` / `no update available` / a
 failed-check error) to the same diagnostics log described below. If the check fails, it retries once against the newest release that carries a feed file, the same fallback described under [Check Now](#check-now). There is no
 download or install here — `autoDownload` and `autoInstallOnAppQuit` are both
 explicitly pinned `false`, so an available update is only detected and
-logged, never fetched or installed automatically. This is v1 scaffolding for
-a future real auto-update flow, not one yet. (See [Check Now](#check-now)
+logged, never fetched or installed automatically. Downloading and installing
+happen only on an explicit click (see [Download and install](#download-and-install)). (See [Check Now](#check-now)
 below for the on-demand equivalent this toggle does *not* control.)
 
 Two consequences worth calling out explicitly:
@@ -178,9 +178,8 @@ Two consequences worth calling out explicitly:
   once at startup, so the new value takes effect on the *next* app launch,
   not immediately.
 - **Turning it on does not update the app.** It only makes the app check and
-  log whether a newer release exists on GitHub. Until a download/install path
-  ships, updating still means downloading and running the new installer
-  yourself.
+  log whether a newer release exists on GitHub. Downloading and
+  installing is a separate, explicit step in [Check Now](#check-now).
 
 Toggling shows one of three states: `Checking update setting…` while the
 initial read is pending, `Unable to read the update setting.` if that
@@ -198,9 +197,9 @@ A third row, **Check Now**, sits directly below the toggle with its own
 toggle above — the toggle only gates `initUpdater()`'s automatic check at
 boot; pressing this button works the same whether the toggle is on or off.
 
-Same restriction as the automatic check: it never downloads or installs
+Same restriction as the automatic check: the check itself never downloads or installs
 anything (`autoDownload` and `autoInstallOnAppQuit` stay pinned `false`) — it
-only reports what it found, inline in place of the row's description text:
+only reports what it found, inline in place of the row's description text. Installing is a separate, explicit step; see [Download and install](#download-and-install) below:
 
 | State | Copy |
 |---|---|
@@ -208,6 +207,9 @@ only reports what it found, inline in place of the row's description text:
 | Up to date | `You're up to date (v<version>).` (plain `You're up to date.` if the running version is unknown) |
 | Newer version found | `Update available: v<version>` |
 | Check failed | The raw error message (e.g. offline, a malformed feed) followed by a **Download manually** link to the [GitHub Releases page](https://github.com/CoderCoco-Studios/Hyveon/releases), which opens in your default browser |
+| Downloading | `Downloading v<version>… <percent>%` |
+| Downloaded | `v<version> downloaded. Restart to install.` |
+| Download or install failed | The error message followed by the **Download manually** link |
 
 If the check fails (for example because the latest release was published without its `latest.yml` feed file), the updater looks up the newest published, non-prerelease GitHub release (among the 10 most recent) that does carry the feed file for your platform and retries once against it, so a single bad release doesn't leave you with no result. If no such release exists, or the retry also fails, the original error is what you see. The retry only checks — it still never downloads or installs.
 
@@ -217,7 +219,19 @@ reports `Update checks are only available in the packaged app.` rather than
 attempting a network call. This is not the same check as "packaged vs.
 `npm run desktop:dev`": a dev-mode Electron session still has
 `process.versions.electron` set, so it does attempt a real check. The button
-disables itself only while a check is in flight.
+disables itself only while a check or download is in flight.
+
+### Download and install
+
+When a check reports `Update available`, a **Download & Install** button appears next to **Check for Updates** (the check button stays). Pressing it downloads the update through `downloadUpdateNow()` (`iac.settings.autoUpdate.download`), streaming progress into the row's description. When the download finishes the button becomes **Restart & Install**; pressing it calls `installDownloadedUpdate()` (`iac.settings.autoUpdate.install`), which quits the app, runs the installer, and relaunches.
+
+This is the only path that ever downloads or installs an update. The automatic boot-time check and the plain **Check for Updates** press stay detect-only, and an update you downloaded but did not restart into is simply not applied.
+
+If the download or install fails, the row shows the error with the **Download manually** link, and **Download & Install** is offered again as a retry. If the app was restarted since the check, the download transparently re-runs the check first.
+
+:::note
+Unsigned macOS builds can fail the download with a code-signature error. Use the **Download manually** link in that case.
+:::
 
 ## General
 

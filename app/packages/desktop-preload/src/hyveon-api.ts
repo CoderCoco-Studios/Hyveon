@@ -21,6 +21,9 @@ import type {
   GameServerHealthCheckAuth,
   LambdaFunctionKey,
   ManualUpdateCheckResult,
+  UpdateDownloadProgress,
+  UpdateDownloadResult,
+  UpdateInstallResult,
   OpType,
   PulumiEngineVersionResult,
   RendererConsoleLevel,
@@ -71,6 +74,9 @@ export type {
   GameServerHealthCheckAuth,
   LambdaFunctionKey,
   ManualUpdateCheckResult,
+  UpdateDownloadProgress,
+  UpdateDownloadResult,
+  UpdateInstallResult,
   OpType,
   PulumiEngineVersionResult,
   RendererConsoleLevel,
@@ -2379,6 +2385,23 @@ export interface HyveonIacSettingsApi {
    * Never downloads or installs — see {@link ManualUpdateCheckResult}.
    */
   autoUpdateCheck: () => Promise<ManualUpdateCheckResult>;
+  /**
+   * Downloads the update found by the last check — backs Settings' "Download & Install" button. An explicit
+   * operator action; the automatic check never downloads. Invokes `iac.settings.autoUpdate.download` and returns
+   * live progress as a {@link HyveonStreamHandle} of {@link UpdateDownloadProgress}. Consume it with
+   * `for await (const p of iac.settings.autoUpdateDownload())`: the iteration completes normally once the update
+   * is fully downloaded and throws (with the failure message) if the download fails.
+   *
+   * Internally wraps the fixed `iac.settings.autoUpdate.download.chunk` / `.end` side-channel IPC messages, same
+   * shape as {@link HyveonIacStackApi.initialize}. `cancel()` stops consumption only; it does not abort the download.
+   */
+  autoUpdateDownload: () => HyveonStreamHandle<UpdateDownloadProgress>;
+  /**
+   * Quits the app and installs the downloaded update by invoking `iac.settings.autoUpdate.install` — backs
+   * Settings' "Restart & Install" button. Resolves `{ ok: true }` just before the app quits, or `{ ok: false }`
+   * with a message if it could not. See {@link UpdateInstallResult}.
+   */
+  autoUpdateInstall: () => Promise<UpdateInstallResult>;
 }
 
 /**

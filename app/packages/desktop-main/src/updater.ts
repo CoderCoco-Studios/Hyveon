@@ -1,4 +1,9 @@
-import type { ManualUpdateCheckResult } from '@hyveon/shared';
+import type {
+  ManualUpdateCheckResult,
+  UpdateDownloadProgress,
+  UpdateDownloadResult,
+  UpdateInstallResult,
+} from '@hyveon/shared';
 import { logger } from './logger.js';
 import type { ElectronStoreService } from './services/ElectronStoreService.js';
 import { errMessage } from '@hyveon/shared';
@@ -11,7 +16,8 @@ import { PRIMARY_FEED, resolveFallbackFeedUrl } from './updater-fallback.js';
  * `autoUpdater` is exported via a getter-defined CJS property that `cjs-module-lexer` can't detect, so a named
  * dynamic import resolves to `undefined`; going through `.default` reaches the getter at runtime. `autoDownload`
  * and `autoInstallOnAppQuit` default to `true` and are pinned off: a detected update must never download or
- * install itself.
+ * install itself. Only the explicit user actions {@link downloadUpdateNow} / {@link installDownloadedUpdate}
+ * ever do.
  */
 async function loadAutoUpdater() {
   const { autoUpdater } = (await import('electron-updater')).default;
@@ -160,4 +166,91 @@ export async function checkForUpdatesNow(): Promise<ManualUpdateCheckResult> {
         resolve({ ok: false, message });
       });
   });
+}
+
+/** Message `electron-updater` rejects `downloadUpdate()` with when no `checkForUpdates()` has populated its cache. */
+const NO_PRIOR_CHECK_MESSAGE = 'Please check update first';
+
+/**
+ * Downloads the update found by the last check — an explicit, user-initiated action; nothing else in the app ever
+ * downloads. `autoDownload`/`autoInstallOnAppQuit` stay `false`, so the downloaded installer is applied only when
+ * {@link installDownloadedUpdate} is called.
+ *
+ * @remarks
+ * `electron-updater` caches the check's `updateInfo` on the singleton. If `downloadUpdate()` rejects because that
+ * cache is empty (e.g. the app restarted between the check and the click), the check is re-run once via
+ * {@link checkWithFallback} and the download retried. The `error` listener is persistent for the duration so the
+ * updater's own `error` event (dispatched before the rejection) is never unhandled; the outcome is decided by the
+ * promise. All listeners are removed afterward.
+ *
+ * @param onProgress - Called for every `download-progress` event.
+ * @returns `{ ok: true, version }` once the update is fully downloaded, otherwise `{ ok: false, message }`.
+ */
+export async function downloadUpdateNow(onProgress: (progress: UpdateDownloadProgress) => void): Promise<UpdateDownloadResult> {
+  if (!process.versions['electron']) {
+    return { ok: false, message: 'Update downloads are only available in the packaged app.' };
+  }
+
+  try {
+    const autoUpdater = await loadAutoUpdater();
+    let version = 'unknown';
+    const onProgressEvent = (info: UpdateDownloadProgress) => {
+      onProgress({
+        percent: info.percent,
+        transferred: info.transferred,
+        total: info.total,
+        bytesPerSecond: info.bytesPerSecond,
+      });
+    };
+    const onDownloaded = (info: { version: string }) => {
+      version = info.version;
+    };
+    const onError = () => {};
+    autoUpdater.on('download-progress', onProgressEvent);
+    autoUpdater.on('update-downloaded', onDownloaded);
+    autoUpdater.on('error', onError);
+
+    try {
+      try {
+        await autoUpdater.downloadUpdate();
+      } catch (err) {
+        if (errMessage(err) !== NO_PRIOR_CHECK_MESSAGE) throw err;
+        logger.info('[updater] download requested before a check in this process — re-checking first');
+        await checkWithFallback(autoUpdater);
+        await autoUpdater.downloadUpdate();
+      }
+    } finally {
+      autoUpdater.removeListener('download-progress', onProgressEvent);
+      autoUpdater.removeListener('update-downloaded', onDownloaded);
+      autoUpdater.removeListener('error', onError);
+    }
+    logger.info('[updater] user-initiated download complete', { version });
+    return { ok: true, version };
+  } catch (err) {
+    const message = errMessage(err);
+    logger.error('[updater] user-initiated download failed', { error: message });
+    return { ok: false, message };
+  }
+}
+
+/**
+ * Quits the app and runs the installer for the update {@link downloadUpdateNow} fetched — an explicit,
+ * user-initiated action. Passes `isForceRunAfter = true` so the app relaunches after installing.
+ *
+ * @returns `{ ok: true }` when the quit-and-install was kicked off, otherwise `{ ok: false, message }`.
+ */
+export async function installDownloadedUpdate(): Promise<UpdateInstallResult> {
+  if (!process.versions['electron']) {
+    return { ok: false, message: 'Update installs are only available in the packaged app.' };
+  }
+  try {
+    const autoUpdater = await loadAutoUpdater();
+    logger.info('[updater] user-initiated install: quitting to install the downloaded update');
+    autoUpdater.quitAndInstall(false, true);
+    return { ok: true };
+  } catch (err) {
+    const message = errMessage(err);
+    logger.error('[updater] user-initiated install failed', { error: message });
+    return { ok: false, message };
+  }
 }

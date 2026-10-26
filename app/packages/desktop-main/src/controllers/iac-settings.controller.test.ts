@@ -16,8 +16,16 @@ vi.mock('../logger.js', () => ({
 
 vi.mock('../app-version.js', () => ({ readAppVersion: () => '0.8.0' }));
 
-const { checkForUpdatesNowMock } = vi.hoisted(() => ({ checkForUpdatesNowMock: vi.fn() }));
-vi.mock('../updater.js', () => ({ checkForUpdatesNow: checkForUpdatesNowMock }));
+const { checkForUpdatesNowMock, downloadUpdateNowMock, installDownloadedUpdateMock } = vi.hoisted(() => ({
+  checkForUpdatesNowMock: vi.fn(),
+  downloadUpdateNowMock: vi.fn(),
+  installDownloadedUpdateMock: vi.fn(),
+}));
+vi.mock('../updater.js', () => ({
+  checkForUpdatesNow: checkForUpdatesNowMock,
+  downloadUpdateNow: downloadUpdateNowMock,
+  installDownloadedUpdate: installDownloadedUpdateMock,
+}));
 
 /** Default top-level settings fixture used by most tests. */
 const SETTINGS: TopLevelDeploymentSettings = {
@@ -58,6 +66,8 @@ describe('IacSettingsController', () => {
         ['getAutoUpdate', 'iac.settings.autoUpdate.get'],
         ['updateAutoUpdate', 'iac.settings.autoUpdate.update'],
         ['checkAutoUpdate', 'iac.settings.autoUpdate.check'],
+        ['downloadAutoUpdate', 'iac.settings.autoUpdate.download'],
+        ['installAutoUpdate', 'iac.settings.autoUpdate.install'],
       ] as const);
     });
   });
@@ -343,6 +353,88 @@ describe('IacSettingsController', () => {
       const result = await new IacSettingsController(makeDeploymentConfig()).checkAutoUpdate();
 
       expect(result).toEqual({ ok: false, message: 'feed unreachable' });
+    });
+  });
+
+  describe('downloadAutoUpdate', () => {
+    /** Fake `WebContents` + invoke event capturing every `send`. */
+    function makeEvt(destroyed = false) {
+      const send = vi.fn();
+      return { send, evt: { sender: { send, isDestroyed: () => destroyed } } as never };
+    }
+
+    it('should ack with a streamId, forward progress on the chunk channel, and end without error on success', async () => {
+      let onProgress!: (p: { percent: number; transferred: number; total: number; bytesPerSecond: number }) => void;
+      let finish!: (r: { ok: true; version: string }) => void;
+      downloadUpdateNowMock.mockImplementationOnce((cb) => {
+        onProgress = cb;
+        return new Promise((resolve) => (finish = resolve));
+      });
+      const { send, evt } = makeEvt();
+
+      const ack = await new IacSettingsController(makeDeploymentConfig()).downloadAutoUpdate({ evt });
+      onProgress({ percent: 42, transferred: 42, total: 100, bytesPerSecond: 7 });
+      finish({ ok: true, version: '1.2.3' });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(ack).toEqual({ started: true, streamId: expect.any(String) });
+      expect(send).toHaveBeenNthCalledWith(1, 'iac.settings.autoUpdate.download.chunk', {
+        streamId: ack.streamId,
+        percent: 42,
+        transferred: 42,
+        total: 100,
+        bytesPerSecond: 7,
+      });
+      expect(send).toHaveBeenNthCalledWith(2, 'iac.settings.autoUpdate.download.end', {
+        streamId: ack.streamId,
+        version: '1.2.3',
+      });
+    });
+
+    it('should send the failure message as the end message error', async () => {
+      downloadUpdateNowMock.mockResolvedValueOnce({ ok: false, message: 'boom' });
+      const { send, evt } = makeEvt();
+
+      const ack = await new IacSettingsController(makeDeploymentConfig()).downloadAutoUpdate({ evt });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(send).toHaveBeenCalledWith('iac.settings.autoUpdate.download.end', { streamId: ack.streamId, error: 'boom' });
+    });
+
+    it('should not send anything once the renderer is destroyed', async () => {
+      downloadUpdateNowMock.mockResolvedValueOnce({ ok: true, version: '1.2.3' });
+      const { send, evt } = makeEvt(true);
+
+      await new IacSettingsController(makeDeploymentConfig()).downloadAutoUpdate({ evt });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('installAutoUpdate', () => {
+    it('should return the result of installDownloadedUpdate verbatim', async () => {
+      installDownloadedUpdateMock.mockResolvedValueOnce({ ok: false, message: 'nope' });
+
+      const result = await new IacSettingsController(makeDeploymentConfig()).installAutoUpdate();
+
+      expect(result).toEqual({ ok: false, message: 'nope' });
+      expect(installDownloadedUpdateMock).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('onModuleInit', () => {
+    it('should not touch electron outside an Electron main process', async () => {
+      const real = process.versions.electron;
+      delete (process.versions as { electron?: string }).electron;
+      try {
+        await expect(new IacSettingsController(makeDeploymentConfig()).onModuleInit()).resolves.toBeUndefined();
+      } finally {
+        if (real !== undefined) Object.defineProperty(process.versions, 'electron', { value: real, configurable: true });
+      }
     });
   });
 });
