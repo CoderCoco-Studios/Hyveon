@@ -79,6 +79,15 @@ describe('ReviewStep — empty optional sections', () => {
     expect(screen.getByText('TRUE')).toBeInTheDocument();
   });
 
+  it('should keep a long unbroken env value shrinkable and breakable inside its row', () => {
+    const value = 'x'.repeat(64);
+    render(<ReviewStep draft={makeDraft({ environment: [{ name: 'FOUNDRY_PASSWORD', value }] })} />);
+
+    const valueEl = screen.getByText(value);
+    expect(valueEl).toHaveClass('min-w-0', 'break-all');
+    expect(screen.getByText('FOUNDRY_PASSWORD')).toHaveClass('shrink-0');
+  });
+
   it('should omit the environment variables section when there are none', () => {
     render(<ReviewStep draft={makeDraft({ environment: [] })} />);
 
