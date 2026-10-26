@@ -311,7 +311,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
       if (!launch.ok) throw new Error(launch.message);
       session = launch.session;
 
-      const host = await this.waitForHelperIp(game, signal);
+      const host = await this.waitForHelperIp(game, runId, session.taskArn, signal);
       client = this.clients.create({
         host,
         port: this.timings.helperPort,
@@ -340,7 +340,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     } catch (err) {
       terminal = err instanceof UploadCancelledError || signal.aborted
         ? { phase: 'cancelled', error: err instanceof ConfirmationTimeoutError ? err.message : undefined }
-        : { phase: 'failed', error: errMessage(err) };
+        : { phase: 'failed', error: await this.withStopReason(errMessage(err), session) };
       if (terminal.phase === 'failed') logger.warn('FolderUploadService: upload failed', { game, runId, error: terminal.error });
     } finally {
       await this.releaseHelper(game, runId, client, session !== undefined);
@@ -443,14 +443,33 @@ export class FolderUploadService implements OnApplicationBootstrap {
     }
   }
 
-  /** Polls until the helper task exposes a public IP. */
-  private async waitForHelperIp(game: string, signal: AbortSignal): Promise<string> {
+  /** Appends the helper container's ECS stop reason to `message` when the task died, so a mid-run failure names its cause. */
+  private async withStopReason(message: string, session: UploadHelperSession | undefined): Promise<string> {
+    if (!session || message.includes('stopped before it was reachable')) return message;
+    try {
+      const reason = await this.fileManager.getHelperStopReason(session.taskArn);
+      return reason ? `${message} (helper task stopped: ${reason})` : message;
+    } catch (err) {
+      logger.warn('FolderUploadService: could not read helper stop reason', { error: errMessage(err) });
+      return message;
+    }
+  }
+
+  /** Polls until the helper task exposes a public IP; a task that stopped first fails fast with ECS's reason. */
+  private async waitForHelperIp(game: string, runId: string, taskArn: string, signal: AbortSignal): Promise<string> {
     const deadline = Date.now() + this.timings.helperIpTimeoutMs;
+    logger.info('FolderUploadService: waiting for helper public IP', { game, runId, taskArn });
     for (;;) {
       if (signal.aborted) throw new UploadCancelledError();
-      const ip = await this.fileManager.getHelperPublicIp(game);
-      if (ip) return ip;
-      if (Date.now() > deadline) throw new Error('The file manager helper did not get a public IP in time.');
+      const ip = await this.fileManager.getHelperPublicIp(game, taskArn);
+      if (ip) {
+        logger.info('FolderUploadService: helper reachable at public IP', { game, runId, ip });
+        return ip;
+      }
+      if (Date.now() > deadline) {
+        logger.warn('FolderUploadService: helper never exposed a public IP', { game, runId, taskArn });
+        throw new Error('The file manager helper did not get a public IP in time.');
+      }
       await abortableSleep(this.timings.pollMs, signal);
     }
   }

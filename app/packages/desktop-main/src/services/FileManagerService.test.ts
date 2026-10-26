@@ -52,6 +52,7 @@ const DEFAULT_OUTPUTS: StackOutputs = stackOutputs({
 type EcsStub = Pick<
   EcsService,
   | 'listTasksByStartedBy'
+  | 'describeStoppedReason'
   | 'extractEniId'
   | 'getTaskDefinition'
   | 'registerTaskDefinition'
@@ -78,6 +79,7 @@ function makeConfig(outputs: StackOutputs | null = DEFAULT_OUTPUTS): ConfigServi
 function makeEcs(overrides: Partial<EcsStub> = {}): { stub: EcsStub; service: EcsService } {
   const stub: EcsStub = {
     listTasksByStartedBy: vi.fn().mockResolvedValue([]),
+    describeStoppedReason: vi.fn().mockResolvedValue(null),
     extractEniId: vi.fn().mockReturnValue(null),
     getTaskDefinition: vi.fn().mockResolvedValue({
       cpu: 1024,
@@ -725,6 +727,39 @@ describe('FileManagerService', () => {
     it('should return null while the task is still provisioning', async () => {
       const { service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'a', lastStatus: 'PROVISIONING' }]) });
       expect(await buildService({ ecs }).getHelperPublicIp('minecraft')).toBeNull();
+    });
+
+    it('should throw the ECS stop reason when the launched task stopped before it was reachable', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([]),
+        describeStoppedReason: vi.fn().mockResolvedValue('CannotPullContainerError: rate limit'),
+      });
+      await expect(buildService({ ecs }).getHelperPublicIp('minecraft', 'arn-1')).rejects.toThrow(
+        'stopped before it was reachable: CannotPullContainerError: rate limit',
+      );
+    });
+
+    it('should ignore a listed task that is not the launched one and surface the launched task stop reason', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'other', lastStatus: 'RUNNING' }]),
+        describeStoppedReason: vi.fn().mockResolvedValue('boom'),
+      });
+      await expect(buildService({ ecs }).getHelperPublicIp('minecraft', 'arn-1')).rejects.toThrow('boom');
+    });
+
+    it('should return null when no task is listed and the launched task has not stopped', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([]),
+        describeStoppedReason: vi.fn().mockResolvedValue(null),
+      });
+      expect(await buildService({ ecs }).getHelperPublicIp('minecraft', 'arn-1')).toBeNull();
+    });
+  });
+
+  describe('getHelperStopReason', () => {
+    it('should return the ECS stop reason for the task', async () => {
+      const { service: ecs } = makeEcs({ describeStoppedReason: vi.fn().mockResolvedValue('boom') });
+      expect(await buildService({ ecs }).getHelperStopReason('arn-1')).toBe('boom');
     });
   });
 

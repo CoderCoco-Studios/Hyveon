@@ -254,13 +254,30 @@ export class FileManagerService {
   /**
    * The helper's public IP once its task is RUNNING and its ENI has an address; `null` before that (or when no helper
    * exists). Used by the upload service to wait for the helper without going through the HTTP-flavoured status URL.
+   *
+   * @param game - Game whose helper to look up.
+   * @param taskArn - The launched task; when it is no longer running its stop reason is surfaced instead of `null`.
+   * @throws Error when `taskArn` has stopped, carrying ECS's stop reason (image pull, EFS mount, container exit).
    */
-  async getHelperPublicIp(game: string): Promise<string | null> {
+  async getHelperPublicIp(game: string, taskArn?: string): Promise<string | null> {
     const outputs = await this.config.getStackOutputs();
     if (!outputs) return null;
     const tasks = await this.ecs.listTasksByStartedBy(outputs.ecsClusterName, this.startedByKey(game));
-    const task = tasks[0];
+    const task = taskArn ? tasks.find((candidate) => candidate.taskArn === taskArn) : tasks[0];
+    if (!task && taskArn) {
+      const reason = await this.getHelperStopReason(taskArn);
+      if (reason) {
+        logger.warn('File manager helper stopped before it was reachable', { game, taskArn, reason });
+        throw new Error(`The file manager helper stopped before it was reachable: ${reason}`);
+      }
+    }
     return task && task.lastStatus === 'RUNNING' ? this.publicIpOf(task) : null;
+  }
+
+  /** ECS's stop reason for `taskArn`, or `null` while it is still alive (or the stack is not deployed). */
+  async getHelperStopReason(taskArn: string): Promise<string | null> {
+    const outputs = await this.config.getStackOutputs();
+    return outputs ? this.ecs.describeStoppedReason(outputs.ecsClusterName, taskArn) : null;
   }
 
   /**

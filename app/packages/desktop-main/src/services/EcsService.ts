@@ -398,6 +398,27 @@ export class EcsService {
   }
 
   /**
+   * Human-readable reason a task stopped, or `null` while it has not stopped (or cannot be described).
+   *
+   * @param cluster - ECS cluster name.
+   * @param taskArn - The task to inspect; STOPPED tasks stay describable for about an hour.
+   */
+  async describeStoppedReason(cluster: string, taskArn: string): Promise<string | null> {
+    logger.debug('EcsService.describeStoppedReason: describing task', { cluster, taskArn });
+    try {
+      const resp = await this.getClient().send(new DescribeTasksCommand({ cluster, tasks: [taskArn] }));
+      const task = resp.tasks?.[0];
+      if (!task || task.lastStatus !== 'STOPPED') return null;
+      const containerReasons = (task.containers ?? []).map((c) => c.reason).filter((r): r is string => !!r);
+      const parts = [task.stoppedReason, ...containerReasons].filter((r): r is string => !!r);
+      return parts.length ? parts.join('; ') : 'stopped with no reason reported';
+    } catch (err) {
+      logger.warn('Failed to describe task for stop reason', { cluster, taskArn, error: errMessage(err) });
+      return null;
+    }
+  }
+
+  /**
    * Find active tasks tagged with a given `startedBy` value — the marker
    * the FileBrowser launcher uses (`filemgr-{game}`) to locate its own
    * tasks without relying on a bespoke task-definition family.
