@@ -96,7 +96,7 @@ Branch from `main`. Covers tasks.md 1.1–1.6.
   - `parentOfVolumePath(path: string): string` — `/a/b` → `/a`, `/a` → `/`.
   - `class VolumePathError extends Error` (`name = 'VolumePathError'`).
 
-- [ ] **Step 1: Write the failing tests** in `paths.test.ts`:
+- [x] **Step 1: Write the failing tests** in `paths.test.ts`:
 
 ```ts
 it('should accept the root and nested absolute paths', () => {
@@ -116,10 +116,10 @@ it('should return the parent of a nested path and root for a top-level one', () 
 });
 ```
 
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/shared/src/volumeFiles/paths.test.ts` → FAIL (module not found).
-- [ ] **Step 3: Implement** the functions above in `paths.ts`; `index.ts` re-exports `./paths.js` with a one-line module comment matching `folderUpload/index.ts`. Replace `isCleanAbsolute` in `folderUpload/paths.ts` with an import of `isCleanVolumePath` (behaviour identical except empty segments, which `segments()` already drops; keep `paths.test.ts` there green).
-- [ ] **Step 4: Run** `cd app && npx vitest run packages/shared/src` → PASS, including the existing `folderUpload/paths.test.ts`.
-- [ ] **Step 5: Commit** — `refactor(shared): add volume path validator subpath`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/shared/src/volumeFiles/paths.test.ts` → FAIL (module not found).
+- [x] **Step 3: Implement** the functions above in `paths.ts`; `index.ts` re-exports `./paths.js` with a one-line module comment matching `folderUpload/index.ts`. Replace `isCleanAbsolute` in `folderUpload/paths.ts` with an import of `isCleanVolumePath` (behaviour identical except empty segments, which `segments()` already drops; keep `paths.test.ts` there green).
+- [x] **Step 4: Run** `cd app && npx vitest run packages/shared/src` → PASS, including the existing `folderUpload/paths.test.ts`.
+- [x] **Step 5: Commit** — `refactor(shared): add volume path validator subpath`.
 
 ### Task 2: `VolumeFileBackend` interface and FileBrowser read operations (tasks.md 1.1, 1.2, 1.6)
 

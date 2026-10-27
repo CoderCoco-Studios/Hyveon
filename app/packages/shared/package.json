@@ -19,6 +19,10 @@
       "types": "./dist/folderUpload/index.d.ts",
       "default": "./dist/folderUpload/index.js"
     },
+    "./volumeFiles": {
+      "types": "./dist/volumeFiles/index.d.ts",
+      "default": "./dist/volumeFiles/index.js"
+    },
     "./secrets/secretsStore": {
       "types": "./dist/secrets/secretsStore.d.ts",
       "default": "./dist/secrets/secretsStore.js"
