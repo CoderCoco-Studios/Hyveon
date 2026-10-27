@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { FileBrowserClient, FileBrowserHttpError, PinMismatchError, type FileBrowserClientOptions } from './FileBrowserClient.js';
 import { VolumeFileError } from '../volumeFiles/VolumeFileBackend.js';
@@ -61,7 +62,7 @@ describe('FileBrowserClient', () => {
     const client = new FileBrowserClient(options);
     await client.login();
     await client.mkdir('/Data');
-    await client.mkdir('/Data');
+    await client.mkdir('/Data', { existOk: true });
     let counted = 0;
     await client.uploadFile({ remotePath: '/Data/a b.bin', localPath: local, size: 300_000, onBytes: (n) => (counted += n) });
     const entries = await client.list('/Data');
@@ -218,6 +219,89 @@ describe('FileBrowserClient read operations', () => {
     expect(message).not.toContain('127.0.0.1');
     expect(message).not.toContain(String(options.port));
     expect((failure as Error).cause).toBeInstanceOf(Error);
+    await client.close();
+  });
+});
+
+describe('FileBrowserClient write operations', () => {
+  const NAME = '/a #1 ?%é.txt';
+
+  /** Starts a fake helper with `seed` and returns it with a connected client. */
+  async function connected(seed: Record<string, number> = {}): Promise<{ server: FakeFileBrowser; client: FileBrowserClient }> {
+    const { server, options } = await setup(cert, cert, { seed });
+    const client = new FileBrowserClient(options);
+    await client.connect();
+    return { server, client };
+  }
+
+  it('should write a stream and report its bytes', async () => {
+    const { server, client } = await connected();
+    let counted = 0;
+    await client.writeStream('/n.txt', Readable.from([Buffer.from('hello')]), { size: 5, overwrite: true, onBytes: (n) => (counted += n) });
+    await client.close();
+    expect(server.files.get('/n.txt')).toBe(5);
+    expect(counted).toBe(5);
+  });
+
+  it('should refuse to overwrite when overwrite is false', async () => {
+    const { server, client } = await connected({ '/n.txt': 2 });
+    const failure = client.writeStream('/n.txt', Readable.from([Buffer.from('hello')]), { size: 5, overwrite: false });
+    await expect(failure).rejects.toBeInstanceOf(VolumeFileError);
+    await expect(failure).rejects.toMatchObject({ code: 'conflict' });
+    await client.close();
+    expect(server.files.get('/n.txt')).toBe(2);
+  });
+
+  it('should create a directory and treat an existing one as success only when existOk', async () => {
+    const { server, client } = await connected();
+    await client.mkdir('/d');
+    await expect(client.mkdir('/d')).rejects.toMatchObject({ code: 'conflict' });
+    await expect(client.mkdir('/d', { existOk: true })).resolves.toBeUndefined();
+    await client.close();
+    expect(server.dirs.has('/d')).toBe(true);
+  });
+
+  it('should rename a file whose name needs encoding', async () => {
+    const { server, client } = await connected({ [NAME]: 3 });
+    await client.move(NAME, '/b #2.txt');
+    await client.close();
+    expect(server.files.has('/b #2.txt')).toBe(true);
+    expect(server.files.has(NAME)).toBe(false);
+  });
+
+  it('should round-trip a destination that needs encoding', async () => {
+    const { server, client } = await connected({ '/src.txt': 3 });
+    await client.move('/src.txt', NAME);
+    await client.close();
+    expect([...server.files.keys()]).toEqual([NAME]);
+  });
+
+  it('should refuse a rename onto an existing name', async () => {
+    const { server, client } = await connected({ '/a.txt': 1, '/b.txt': 2 });
+    await expect(client.move('/a.txt', '/b.txt')).rejects.toMatchObject({ code: 'conflict' });
+    await client.close();
+    expect([...server.files.keys()].sort()).toEqual(['/a.txt', '/b.txt']);
+  });
+
+  it('should report not-found when renaming a missing source', async () => {
+    const { client } = await connected();
+    await expect(client.move('/missing.txt', '/b.txt')).rejects.toMatchObject({ code: 'not-found' });
+    await client.close();
+  });
+
+  it('should delete a directory recursively', async () => {
+    const { server, client } = await connected({ '/d/x': 1, '/d/y/z': 2, '/keep.txt': 3 });
+    await client.remove('/d');
+    await client.close();
+    expect([...server.files.keys()]).toEqual(['/keep.txt']);
+    expect([...server.dirs].some((d) => d === '/d' || d.startsWith('/d/'))).toBe(false);
+  });
+
+  it('should delete a single file and report not-found for a missing path', async () => {
+    const { server, client } = await connected({ [NAME]: 3 });
+    await client.remove(NAME);
+    expect(server.files.size).toBe(0);
+    await expect(client.remove(NAME)).rejects.toMatchObject({ code: 'not-found' });
     await client.close();
   });
 });

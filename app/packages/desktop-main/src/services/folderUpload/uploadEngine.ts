@@ -126,7 +126,7 @@ async function mapPool<T>(inputs: T[], limit: number, fn: (input: T) => Promise<
 export async function ensureDirs(client: FileBrowserApi, items: UploadItem[], signal?: AbortSignal): Promise<void> {
   for (const dir of ancestorDirs(items.map((i) => i.remotePath))) {
     throwIfAborted(signal);
-    await client.mkdir(dir, signal);
+    await client.mkdir(dir, { existOk: true, signal });
   }
 }
 

@@ -2,7 +2,13 @@ import { createReadStream } from 'node:fs';
 import { Transform, type Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
 import { Agent, request } from 'undici';
-import { VolumeFileError, type VolumeEntry, type VolumeFileBackend, type VolumeStat } from '../volumeFiles/VolumeFileBackend.js';
+import {
+  VolumeFileError,
+  type VolumeEntry,
+  type VolumeFileBackend,
+  type VolumeStat,
+  type WriteOptions,
+} from '../volumeFiles/VolumeFileBackend.js';
 
 /** Where and how to reach one FileBrowser helper. */
 export interface FileBrowserClientOptions {
@@ -40,7 +46,7 @@ export interface UploadFileArgs {
 export interface FileBrowserApi {
   /** Alias of {@link VolumeFileBackend.connect}; removed once the upload engine moves onto that interface. */
   login(signal?: AbortSignal): Promise<void>;
-  mkdir(remoteDir: string, signal?: AbortSignal): Promise<void>;
+  mkdir(remoteDir: string, options?: { existOk?: boolean; signal?: AbortSignal }): Promise<void>;
   uploadFile(args: UploadFileArgs): Promise<void>;
   /**
    * Lists `remoteDir`. An absent directory is reported as a {@link VolumeFileError} with code `not-found`; a fake may
@@ -90,9 +96,6 @@ const TLS_TRUST_CODES = new Set([
   'ERR_TLS_CERT_ALTNAME_INVALID',
   'ERR_PIN_MISMATCH',
 ]);
-
-/** The part of {@link VolumeFileBackend} implemented so far; widened to the full interface when the write operations land. */
-type ReadableVolumeBackend = Pick<VolumeFileBackend, 'supportsArchive' | 'connect' | 'list' | 'stat' | 'readStream' | 'archiveStream' | 'close'>;
 
 /** Maps a non-2xx response to the modeled {@link VolumeFileError} vocabulary. */
 function toVolumeError(status: number, op: string, path: string): VolumeFileError {
@@ -150,7 +153,7 @@ function isTrustFailure(err: unknown): boolean {
  * `X-Auth`), `POST /api/resources/<path>` (creates missing parent directories), `GET /api/resources/<dir>` (404 when absent),
  * `GET /api/raw/<path>` (file bytes) and `GET /api/raw/<dir>/?algo=zip` (zip archive).
  */
-export class FileBrowserClient implements FileBrowserApi, ReadableVolumeBackend {
+export class FileBrowserClient implements FileBrowserApi, VolumeFileBackend {
   readonly supportsArchive = true;
 
   private readonly dispatcher: Agent;
@@ -194,41 +197,70 @@ export class FileBrowserClient implements FileBrowserApi, ReadableVolumeBackend 
     return this.connect(signal);
   }
 
-  /** Creates a directory; an already-existing one is not an error. */
-  async mkdir(remoteDir: string, signal?: AbortSignal): Promise<void> {
-    const res = await this.send('POST', `/api/resources${encodePath(remoteDir)}/`, { headers: this.authHeaders(), signal });
+  /** {@inheritDoc VolumeFileBackend.mkdir} */
+  async mkdir(path: string, { existOk = false, signal }: { existOk?: boolean; signal?: AbortSignal } = {}): Promise<void> {
+    const res = await this.send('POST', `/api/resources${encodePath(path)}/`, { headers: this.authHeaders(), signal });
+    if (res.statusCode === 409 && existOk) {
+      await res.body.dump();
+      return;
+    }
+    await this.expectOk(res, 'mkdir', path);
     await res.body.dump();
-    if (res.statusCode === 409) return;
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw new FileBrowserHttpError(res.statusCode, `mkdir ${remoteDir} failed (${res.statusCode})`);
+  }
+
+  /**
+   * Streams a local file to `remotePath` (overwriting any partial copy).
+   *
+   * @remarks
+   * A thin wrapper over {@link FileBrowserClient.writeStream}, removed once the upload engine moves onto it. A failed
+   * response is rethrown as {@link FileBrowserHttpError} so the engine's retry classification keeps working.
+   */
+  async uploadFile({ remotePath, localPath, size, signal, onBytes }: UploadFileArgs): Promise<void> {
+    try {
+      await this.writeStream(remotePath, createReadStream(localPath), { size, overwrite: true, signal, onBytes });
+    } catch (err) {
+      if (err instanceof VolumeFileError && err.status !== undefined) throw new FileBrowserHttpError(err.status, err.message);
+      throw err;
     }
   }
 
-  /** Streams a local file to `remotePath` (overwriting any partial copy) through a byte-counting transform. */
-  async uploadFile({ remotePath, localPath, size, signal, onBytes }: UploadFileArgs): Promise<void> {
+  /** {@inheritDoc VolumeFileBackend.writeStream} */
+  async writeStream(path: string, source: Readable, { size, overwrite, signal, onBytes }: WriteOptions): Promise<void> {
     const counter = new Transform({
       transform(chunk: Buffer, _enc, cb) {
-        onBytes(chunk.length);
+        onBytes?.(chunk.length);
         cb(null, chunk);
       },
     });
-    const source = createReadStream(localPath);
     const body = source.pipe(counter);
     source.on('error', (err) => counter.destroy(err));
     try {
-      const res = await this.send('POST', `/api/resources${encodePath(remotePath)}?override=true`, {
+      const res = await this.send('POST', `/api/resources${encodePath(path)}?override=${overwrite}`, {
         headers: { ...this.authHeaders(), 'content-length': String(size), 'content-type': 'application/octet-stream' },
         body,
         signal,
       });
+      await this.expectOk(res, 'write', path);
       await res.body.dump();
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        throw new FileBrowserHttpError(res.statusCode, `upload ${remotePath} failed (${res.statusCode})`);
-      }
     } finally {
       source.destroy();
       counter.destroy();
     }
+  }
+
+  /** {@inheritDoc VolumeFileBackend.move} */
+  async move(from: string, to: string, signal?: AbortSignal): Promise<void> {
+    const query = `action=rename&destination=${encodeURIComponent(to)}&override=false&rename=false`;
+    const res = await this.send('PATCH', `/api/resources${encodePath(from)}?${query}`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'move', from);
+    await res.body.dump();
+  }
+
+  /** {@inheritDoc VolumeFileBackend.remove} */
+  async remove(path: string, signal?: AbortSignal): Promise<void> {
+    const res = await this.send('DELETE', `/api/resources${encodePath(path)}`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'remove', path);
+    await res.body.dump();
   }
 
   /** {@inheritDoc VolumeFileBackend.list} */

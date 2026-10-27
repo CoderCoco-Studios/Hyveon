@@ -16,11 +16,11 @@ Execution is subagent-driven (plan.md).
 ## 1. PR 1 — `refactor(desktop-main)`: volume file backend interface and path safety
 
 - [x] 1.1 Define the `VolumeFileBackend` interface in desktop-main: `list`, `stat`, `readStream`, `writeStream`, `mkdir`, `move`, `remove`, optional `archiveStream`, plus typed error results (`not-found`, `conflict`, `unreachable`, `auth`, `pin-mismatch`). Give it TSDoc per `.claude/rules/tsdoc-tags.md`.
-- [ ] 1.2 Extend `FileBrowserClient` to implement the interface. Add raw download (`GET /api/raw`), rename/move (`PATCH ?action=rename`), delete (`DELETE /api/resources`), stat, and folder archive (`?algo=zip`). Keep the existing pinned-fingerprint check on every request.
+- [x] 1.2 Extend `FileBrowserClient` to implement the interface. Add raw download (`GET /api/raw`), rename/move (`PATCH ?action=rename`), delete (`DELETE /api/resources`), stat, and folder archive (`?algo=zip`). Keep the existing pinned-fingerprint check on every request.
 - [ ] 1.3 Migrate `uploadEngine` onto the interface so there is exactly one FileBrowser HTTP client (`.claude/rules/duplication.md`), and name this extraction in the PR body.
 - [x] 1.4 Add the volume path validator in the `@hyveon/shared/volumeFiles` subpath (absolute POSIX under the root, no `..`/NUL/empty segments, and names without `/`). Use it in the upload planner as well.
 - [ ] 1.5 Pin `FILEBROWSER_IMAGE` to the v2.63.23 image digest, looked up from the registry rather than written from memory (`~/.claude/rules/dependencies.md`), with a comment noting the project is archived and the pin is deliberate.
-- [ ] 1.6 Extend `fake-filebrowser-server` with raw, rename, delete, stat, zip and TLS. Add unit tests for every backend method, including pin mismatch and the validator's traversal cases.
+- [x] 1.6 Extend `fake-filebrowser-server` with raw, rename, delete, stat, zip and TLS. Add unit tests for every backend method, including pin mismatch and the validator's traversal cases.
 
 ## 2. PR 2 — `fix(app)`: mount every game volume in the helper and upload into the right one
 

@@ -198,16 +198,16 @@ export interface VolumeFileBackend {
 
 - `uploadFile(args)` becomes a thin wrapper over `writeStream(remotePath, createReadStream(localPath).pipe(counter), { size, overwrite: true, signal, onBytes })` until Task 4 deletes it.
 
-- [ ] **Step 1: Extend the fake server**: `POST` honours `override=false` (409 when the file exists), `PATCH ?action=rename` (409 when `destination` exists, 404 when source is missing; moves a directory with its descendants), `DELETE` (removes a file or a directory subtree; 404 when missing).
-- [ ] **Step 2: Write the failing tests**:
+- [x] **Step 1: Extend the fake server**: `POST` honours `override=false` (409 when the file exists), `PATCH ?action=rename` (409 when `destination` exists, 404 when source is missing; moves a directory with its descendants), `DELETE` (removes a file or a directory subtree; 404 when missing).
+- [x] **Step 2: Write the failing tests**:
   - `should write a stream and report its bytes` — `writeStream('/n.txt', Readable.from([Buffer.from('hello')]), { size: 5, overwrite: true, onBytes })` → fake `files.get('/n.txt') === 5`, `onBytes` total 5.
   - `should refuse to overwrite when overwrite is false` — seed `/n.txt`; rejects `code: 'conflict'`; size unchanged.
   - `should create a directory and treat an existing one as success only when existOk` — second `mkdir('/d')` rejects `conflict`; `mkdir('/d', { existOk: true })` resolves.
   - `should rename a file whose name needs encoding` — `move('/a #1 ?%é.txt', '/b #2.txt')` → fake has `/b #2.txt`, not the source.
   - `should refuse a rename onto an existing name` — rejects `conflict`, both files still present.
   - `should delete a directory recursively` — seed `/d/x`, `/d/y/z`; `remove('/d')` → no entry under `/d`.
-- [ ] **Step 3: Run to verify failure**, **Step 4: implement**, **Step 5: run** — same command as Task 2 → PASS.
-- [ ] **Step 6: Commit** — `refactor(desktop-main): add VolumeFileBackend write operations to FileBrowserClient`.
+- [x] **Step 3: Run to verify failure**, **Step 4: implement**, **Step 5: run** — same command as Task 2 → PASS.
+- [x] **Step 6: Commit** — `refactor(desktop-main): add VolumeFileBackend write operations to FileBrowserClient`.
 
 ### Task 4: Move the upload engine onto `VolumeFileBackend` (tasks.md 1.3)
 

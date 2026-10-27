@@ -44,7 +44,7 @@ async function drain(req: IncomingMessage): Promise<number> {
 
 /**
  * Starts an HTTPS server on 127.0.0.1 that speaks the slice of the FileBrowser REST API the uploader uses
- * (`/api/login`, `POST`/`GET /api/resources/...`). Test seam for the client and the end-to-end upload tests.
+ * (`/api/login`, `POST`/`GET`/`PATCH`/`DELETE /api/resources/...`). Test seam for the client and the end-to-end upload tests.
  */
 export async function startFakeFileBrowser(options: FakeFileBrowserOptions): Promise<FakeFileBrowser> {
   const username = options.username ?? 'admin';
@@ -104,8 +104,46 @@ export async function startFakeFileBrowser(options: FakeFileBrowserOptions): Pro
       if (verdict === 'drop') return void req.socket.destroy();
       const size = await drain(req);
       if (typeof verdict === 'number') return void res.writeHead(verdict).end();
+      if (url.searchParams.get('override') === 'false' && files.has(resource)) return void res.writeHead(409).end();
       files.set(resource, size);
       return void res.writeHead(200).end();
+    }
+    if (req.method === 'PATCH' && url.searchParams.get('action') === 'rename') {
+      const destination = url.searchParams.get('destination') ?? '';
+      const from = resource.replace(/\/+$/, '');
+      const to = destination.replace(/\/+$/, '');
+      const isFile = files.has(from);
+      if (!isFile && !dirs.has(from)) return void res.writeHead(404).end();
+      if (files.has(to) || dirs.has(to)) return void res.writeHead(409).end();
+      const rebase = (p: string): string => to + p.slice(from.length);
+      if (isFile) {
+        files.set(to, files.get(from)!);
+        files.delete(from);
+      } else {
+        for (const [f, size] of [...files]) {
+          if (f.startsWith(`${from}/`)) {
+            files.delete(f);
+            files.set(rebase(f), size);
+          }
+        }
+        for (const d of [...dirs]) {
+          if (d === from || d.startsWith(`${from}/`)) {
+            dirs.delete(d);
+            dirs.add(rebase(d));
+          }
+        }
+      }
+      const parts = to.split('/').filter(Boolean).slice(0, -1);
+      for (let i = 1; i <= parts.length; i += 1) dirs.add('/' + parts.slice(0, i).join('/'));
+      return void res.writeHead(200).end();
+    }
+    if (req.method === 'DELETE') {
+      const target = resource.replace(/\/+$/, '');
+      if (files.delete(target)) return void res.writeHead(204).end();
+      if (target === '' || !dirs.has(target)) return void res.writeHead(404).end();
+      for (const f of [...files.keys()]) if (f.startsWith(`${target}/`)) files.delete(f);
+      for (const d of [...dirs]) if (d === target || d.startsWith(`${target}/`)) dirs.delete(d);
+      return void res.writeHead(204).end();
     }
     if (req.method === 'GET' && !resource.endsWith('/') && files.has(resource)) {
       const name = resource.slice(resource.lastIndexOf('/') + 1);
