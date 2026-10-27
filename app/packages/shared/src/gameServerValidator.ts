@@ -53,6 +53,20 @@ export const GAME_NAME_PATTERN = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/;
 export const GAME_NAME_PATTERN_DESCRIPTION =
   'a lowercase alphanumeric DNS-safe label (letters, digits, and internal hyphens only, 1-32 characters, no leading/trailing hyphen)';
 
+/**
+ * Allowed shape of {@link GameServer.pinnedHostname}: 1-63 characters of letters, digits, `.`, `_`, and `-`, starting
+ * and ending with an alphanumeric. The value is only ever returned from JS (never DNS-resolved), so underscores are
+ * allowed; the restricted set also cannot escape a JS string or a shell argument.
+ */
+export const PINNED_HOSTNAME_PATTERN = /^[A-Za-z0-9]([A-Za-z0-9._-]{0,61}[A-Za-z0-9])?$/;
+
+/** Human-readable description of {@link PINNED_HOSTNAME_PATTERN}, reused verbatim by the server-side and wizard validation messages. */
+export const PINNED_HOSTNAME_PATTERN_DESCRIPTION =
+  'letters, digits, ".", "_" and "-" only, 1-63 characters, starting and ending with a letter or digit';
+
+/** Container path reserved for the hostname shim volume when {@link GameServer.pinnedHostname} is set. */
+export const HOSTNAME_SHIM_MOUNT_PATH = '/hyveon/hostname-shim';
+
 /** Zod schema mirroring {@link GameServerPort}. */
 export const gameServerPortSchema = z.object({
   container: z.number(),
@@ -282,6 +296,7 @@ export const gameServerSchema = z.object({
   connect_message: z.string().optional(),
   file_seeds: z.array(gameServerFileSeedSchema).optional(),
   healthCheck: gameServerHealthCheckSchema.optional(),
+  pinnedHostname: z.string().optional(),
 });
 
 /** Structural (name-less) shape validated by {@link gameServerSchema}. */
@@ -837,6 +852,39 @@ function checkReservedHttpsPortsAcrossDeployment(
 }
 
 /**
+ * Validates {@link GameServer.pinnedHostname}: the value must match {@link PINNED_HOSTNAME_PATTERN}, and no volume may
+ * mount at or under {@link HOSTNAME_SHIM_MOUNT_PATH}, which the hostname shim volume occupies. A no-op when the field
+ * is absent, so the reserved path stays free for games that don't pin a hostname.
+ */
+function checkPinnedHostname(entry: GameServerEntryInput): GameServerValidationIssue[] {
+  const { pinnedHostname } = entry;
+  if (pinnedHostname === undefined) {
+    return [];
+  }
+
+  const issues: GameServerValidationIssue[] = [];
+
+  if (!PINNED_HOSTNAME_PATTERN.test(pinnedHostname)) {
+    issues.push({
+      path: 'pinnedHostname',
+      message: `pinnedHostname must be ${PINNED_HOSTNAME_PATTERN_DESCRIPTION}, got "${pinnedHostname}".`,
+    });
+  }
+
+  entry.volumes.forEach((volume, index) => {
+    const path = volume.container_path;
+    if (path === HOSTNAME_SHIM_MOUNT_PATH || path.startsWith(`${HOSTNAME_SHIM_MOUNT_PATH}/`)) {
+      issues.push({
+        path: `volumes[${index}].container_path`,
+        message: `volumes[${index}].container_path must not be ${HOSTNAME_SHIM_MOUNT_PATH} or under it; it is reserved for pinnedHostname.`,
+      });
+    }
+  });
+
+  return issues;
+}
+
+/**
  * Validates the cross-field business rules for a declared `healthCheck` that
  * the structural schema ({@link gameServerHealthCheckSchema}) can't express:
  * the declared port must be one of the entry's own `ports`, and every
@@ -925,6 +973,7 @@ export function validateGameServer(
     issues.push(...checkEnvironmentValueTokens(parsed.data));
     issues.push(...checkConnectMessagePlaceholders(parsed.data.connect_message));
     issues.push(...checkHealthCheckRules(parsed.data));
+    issues.push(...checkPinnedHostname(parsed.data));
   }
 
   // Port-collision and HTTPS-rule detection only need `ports` (and, for

@@ -8,7 +8,10 @@ import {
   FARGATE_VCPU_PER_HOUR,
   FARGATE_GB_PER_HOUR,
   validateHealthCheckAuthInput,
+  PINNED_HOSTNAME_PATTERN_DESCRIPTION,
+  HOSTNAME_SHIM_MOUNT_PATH,
 } from './gameServerValidator.js';
+import { redactGameServer } from './gameServerConfig.js';
 import type { GameServer } from './gameServerConfig.js';
 
 /** Build a minimal, fully-valid proposed entry; override any fields per test. */
@@ -1084,5 +1087,72 @@ describe('environment value tokens', () => {
       [],
     );
     expect(result.success).toBe(true);
+  });
+});
+
+describe('pinnedHostname', () => {
+  /** Validate a proposed entry and return only the issues at the given path. */
+  function issuesAt(proposed: Record<string, unknown>, path: string): { path: string; message: string }[] {
+    const result = validateGameServer('foundry', proposed, []);
+    return result.success ? [] : result.issues.filter((i) => i.path === path);
+  }
+
+  it('should accept my_foundry_host', () => {
+    const result = validateGameServer('foundry', makeProposed({ pinnedHostname: 'my_foundry_host' }), []);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.pinnedHostname).toBe('my_foundry_host');
+    }
+  });
+
+  it.each([
+    ['a value containing a space', 'foundry host'],
+    ['a leading hyphen', '-foundry'],
+    ['a 64-character value', 'a'.repeat(64)],
+    ['an empty string', ''],
+  ])('should reject %s with the shared description', (_label, value) => {
+    const issues = issuesAt(makeProposed({ pinnedHostname: value }), 'pinnedHostname');
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.message).toContain(PINNED_HOSTNAME_PATTERN_DESCRIPTION);
+  });
+
+  it('should accept a 63-character value', () => {
+    expect(issuesAt(makeProposed({ pinnedHostname: 'a'.repeat(63) }), 'pinnedHostname')).toHaveLength(0);
+  });
+
+  it.each([
+    ['at the reserved path', HOSTNAME_SHIM_MOUNT_PATH],
+    ['under the reserved path', `${HOSTNAME_SHIM_MOUNT_PATH}/x`],
+  ])('should reject a volume %s', (_label, containerPath) => {
+    const proposed = makeProposed({
+      pinnedHostname: 'foundry',
+      volumes: [{ name: 'data', container_path: containerPath }],
+    });
+    expect(issuesAt(proposed, 'volumes[0].container_path')).toHaveLength(1);
+  });
+
+  it('should allow a sibling path that merely shares the reserved prefix', () => {
+    const proposed = makeProposed({
+      pinnedHostname: 'foundry',
+      volumes: [{ name: 'data', container_path: '/hyveon/hostname-shimmer' }],
+    });
+    expect(issuesAt(proposed, 'volumes[0].container_path')).toHaveLength(0);
+  });
+
+  it('should leave the reserved path free when the field is absent', () => {
+    const proposed = makeProposed({ volumes: [{ name: 'data', container_path: HOSTNAME_SHIM_MOUNT_PATH }] });
+    expect(issuesAt(proposed, 'volumes[0].container_path')).toHaveLength(0);
+  });
+
+  it('should not synthesize the field when absent', () => {
+    const result = validateGameServer('foundry', makeProposed(), []);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect('pinnedHostname' in result.data).toBe(false);
+    }
+  });
+
+  it('should preserve pinnedHostname through redactGameServer', () => {
+    expect(redactGameServer(makeExisting({ pinnedHostname: 'foundry' })).pinnedHostname).toBe('foundry');
   });
 });

@@ -1,10 +1,10 @@
 ## 1. Shared type and validation (`@hyveon/shared`)
 
-- [ ] 1.1 Add `pinnedHostname?: string` to `GameServer` in `gameServerConfig.ts`, with TSDoc stating it is Node.js-only (patches `os.hostname()` via a `NODE_OPTIONS` preload), the one-time EULA caveat, and "default when omitted: hostname not pinned"
-- [ ] 1.2 Export `PINNED_HOSTNAME_PATTERN`, `PINNED_HOSTNAME_PATTERN_DESCRIPTION`, and `HOSTNAME_SHIM_MOUNT_PATH = '/hyveon/hostname-shim'` from `gameServerValidator.ts` (plain constants; no AWS imports)
-- [ ] 1.3 Add `pinnedHostname: z.string().optional()` to `gameServerSchema`
-- [ ] 1.4 Add `checkPinnedHostname` (pattern check at `pinnedHostname`; reserved-path collision at `volumes[i].container_path` only when the field is set) and register it in `validateGameServer`
-- [ ] 1.5 Unit tests in `gameServerValidator.test.ts` for every validation scenario in the spec, plus round-trip through `redactGameServer`
+- [x] 1.1 Add `pinnedHostname?: string` to `GameServer` in `gameServerConfig.ts`, with TSDoc stating it is Node.js-only (patches `os.hostname()` via a `NODE_OPTIONS` preload), the one-time EULA caveat, and "default when omitted: hostname not pinned"
+- [x] 1.2 Export `PINNED_HOSTNAME_PATTERN`, `PINNED_HOSTNAME_PATTERN_DESCRIPTION`, and `HOSTNAME_SHIM_MOUNT_PATH = '/hyveon/hostname-shim'` from `gameServerValidator.ts` (plain constants; no AWS imports)
+- [x] 1.3 Add `pinnedHostname: z.string().optional()` to `gameServerSchema`
+- [x] 1.4 Add `checkPinnedHostname` (pattern check at `pinnedHostname`; reserved-path collision at `volumes[i].container_path` only when the field is set) and register it in `validateGameServer`
+- [x] 1.5 Unit tests in `gameServerValidator.test.ts` for every validation scenario in the spec, plus round-trip through `redactGameServer`
 
 ## 2. Infra wiring (`@hyveon/infra`)
 
