@@ -83,7 +83,7 @@ export function toRemotePath(destination: string, containerPath: string, relPath
  */
 export function validateDestination(destination: string, volumes: VolumeLike[]): DestinationValidation {
   if (!isCleanVolumePath(destination)) {
-    return { ok: false, error: 'Destination must be an absolute path without ".." or "." segments.' };
+    return { ok: false, error: 'Destination must be an absolute path without "..", "." or empty segments.' };
   }
   const dest = segments(destination);
   const matches = volumes

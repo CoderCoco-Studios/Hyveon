@@ -118,6 +118,13 @@ describe('validateDestination', () => {
     expect(validateDestination('data', volumes).ok).toBe(false);
   });
 
+  it('should reject a doubled slash with an error that names empty segments', () => {
+    expect(validateDestination('/data//x', [{ name: 'data', container_path: '/data' }])).toEqual({
+      ok: false,
+      error: 'Destination must be an absolute path without "..", "." or empty segments.',
+    });
+  });
+
   it('should reject when the game has no volumes', () => {
     expect(validateDestination('/data', []).ok).toBe(false);
   });
