@@ -405,6 +405,7 @@ Rules worth knowing before you save:
   before HTTPS is live — it can't request a certificate until the
   update-dns Lambda's DNS record for the game propagates. Certificates
   persist on EFS, so this delay does not recur on subsequent restarts.
+- **Pin hostname** (optional; the Environment step's switch) makes a game's Node.js process see a fixed `os.hostname()` on every start, for Node-based games whose license is bound to the hostname (e.g. Foundry VTT). It has no effect on games that don't run on Node.js. Details, including the extra EULA acceptance when you enable it on an existing game, are in [Games](/app/games#pin-hostname-nodejs-only).
 - **CPU / memory** must be a valid Fargate pair (see the
   [Fargate task size table](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html#task_size)).
 - There is no way to declare a per-game DNS record from the app — the

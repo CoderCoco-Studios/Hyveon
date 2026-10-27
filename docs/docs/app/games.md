@@ -326,6 +326,41 @@ can't be discovered after all retries, the resolver exits non-zero instead
 of launching the game, so the server never comes up with a broken address
 silently baked in.
 
+#### Pin hostname (Node.js only)
+
+At the bottom of the step, a **Pin hostname** switch is off by default.
+**It only works for game servers whose process runs on Node.js.**
+It has no effect on any other runtime, so you need to know what your image actually runs before you turn it on.
+
+Use it for a Node-based game whose license is bound to the hostname, such as Foundry VTT.
+A Fargate task gets a new container hostname on every start, so a hostname-bound license would otherwise fail to verify each time.
+With the switch on, the game's Node process always sees the hostname you choose when it calls `os.hostname()`.
+Hyveon does this by preloading a small script through `NODE_OPTIONS`; no image change is needed.
+If you also declare your own `NODE_OPTIONS` variable, Hyveon keeps your flags and puts its preload first, so you do not need to remove yours.
+
+| Control | Behaviour |
+|---|---|
+| **Pin hostname** switch | Turning it on fills the **Hostname** field with the game's name from Step 1. Turning it off clears the value, so the saved entry has no pinned hostname at all |
+| **Hostname** field | Appears only while the switch is on, and is editable. Allowed: letters, digits, `.`, `_` and `-` only, 1-63 characters, starting and ending with a letter or digit. Anything else, including an empty field, shows an error under the field and blocks **Next** |
+
+The pre-filled value is copied from the name once, at the moment you flip the switch.
+It does not follow later edits to the game name, so change the field yourself if you rename the game before submitting.
+
+When the switch is on, you cannot declare a volume whose container path is `/hyveon/hostname-shim` or anywhere under it, because Hyveon mounts its preload script there.
+The Storage step shows an error against that volume.
+
+Two caveats to know before you rely on it:
+
+- **Turning it on for an existing game needs the EULA accepted once more.**
+  A host that the license was previously signed for may avoid this, but that is unverified, so plan on accepting it.
+  After that one acceptance the license keeps verifying across restarts.
+- **It depends on the game reading its host name through `os.hostname()`.**
+  If a future release of the game stops doing that, the pin stops working and the game goes back to asking for the EULA on each start.
+  Nothing is lost when that happens; your data is untouched.
+
+The [edit-game form](#editing-a-game) reuses this same control, loaded with the game's current value.
+Like every other change on this screen, pinning only updates the configuration object until you plan and apply from [Infrastructure](/app/iac).
+
 ### Step 6 — Review
 
 A read-only summary in four cards — **Identity**, **Resources**,
@@ -337,6 +372,7 @@ Storage card follows for file-seed contents. The Storage card lists
 file-seed *paths* only (contents are never displayed) and, underneath, an
 **Environment variables** list of name/value pairs — both sub-sections are
 omitted entirely when empty rather than shown blank.
+When **Pin hostname** is on, the Storage card also lists a **Pinned hostname** row with the value; with the switch off the row is absent.
 
 The footer button reads **Submit**.
 
@@ -573,7 +609,7 @@ selector, and every credential field rendering blank rather than echoing back
 a previous value). `environment` is directly editable here too, in its own
 **Environment** card — the same row editor (Variable name / Value, no
 minimum row count), the same `${hyveon.*}` token interpolation, and the same
-**Start command** editor as the wizard's Step 5.
+**Start command** editor as the wizard's Step 5, followed by the same [**Pin hostname** switch](#pin-hostname-nodejs-only) with its Node.js-only caveat, loaded on if the game already has a pinned hostname.
 
 Above the save button:
 

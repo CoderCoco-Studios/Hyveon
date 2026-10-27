@@ -690,6 +690,7 @@ export interface GameWizardDraft {
     token: string;
     secretSet: boolean;
   };
+  pinnedHostname?: string;
 }
 
 /**

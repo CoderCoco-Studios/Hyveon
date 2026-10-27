@@ -25,8 +25,8 @@
 ## 4. Docs
 
 - [x] 4.0 Add `hasPinnedHostname` to the per-game summary in `desktop-main/src/services/diagnosticsBundleAllowlist.ts`, so a failed shim start is visible in a diagnostics bundle
-- [ ] 4.1 Use the `write-docs` skill: `docs/docs/components/infra.md` (new file-table row for `hostnameShim.ts`, the `ecs.ts` row mentions the init container and ephemeral volume, task-definition contents for opted-in games) and `docs/docs/app/games.md` (the control, Node.js-only requirement, one-time EULA, `os.hostname()` dependency)
-- [ ] 4.2 Run the `deployment-config-field-auditor` agent over the diff and close every gap it reports
+- [x] 4.1 Use the `write-docs` skill: `docs/docs/components/infra.md` (new file-table row for `hostnameShim.ts`, the `ecs.ts` row mentions the init container and ephemeral volume, task-definition contents for opted-in games) and `docs/docs/app/games.md` (the control, Node.js-only requirement, one-time EULA, `os.hostname()` dependency)
+- [x] 4.2 Run the `deployment-config-field-auditor` agent over the diff and close every gap it reports
 
 ## 5. Verification
 
