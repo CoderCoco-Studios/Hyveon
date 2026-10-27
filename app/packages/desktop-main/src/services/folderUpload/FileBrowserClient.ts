@@ -104,9 +104,13 @@ function isTrustFailure(err: unknown): boolean {
  * per-launch certificate and whose server-identity check compares the certificate fingerprint, so a different
  * certificate fails the handshake before any request bytes (credential or file) are written.
  *
- * Endpoints (verified against `filebrowser/filebrowser:latest` v2.63): `POST /api/login` (plain-text JWT, sent back as
- * `X-Auth`), `POST /api/resources/<path>` (creates missing parent directories), `GET /api/resources/<dir>` (404 when absent),
- * `GET /api/raw/<path>` (file bytes) and `GET /api/raw/<dir>/?algo=zip` (zip archive).
+ * Endpoints (verified against `filebrowser/filebrowser` `v2.63.23`):
+ * - `POST /api/login` returns a plain-text JWT, sent back as `X-Auth`.
+ * - `POST /api/resources<dir>/` is `MkdirAll` (200 even when the directory exists); `POST /api/resources<file>` uploads and creates missing parents.
+ * - `GET /api/resources<path>` stats a path (404 when absent).
+ * - `PATCH /api/resources<from>?action=rename&destination=...` renames; the server decodes `destination` twice, so it is double-encoded.
+ * - `DELETE /api/resources<path>` deletes recursively.
+ * - `GET /api/raw<path>` returns file bytes; `?algo=zip` on a directory returns a zip archive.
  */
 export class FileBrowserClient implements VolumeFileBackend {
   readonly supportsArchive = true;

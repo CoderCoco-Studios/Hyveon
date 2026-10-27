@@ -233,11 +233,11 @@ export interface VolumeFileBackend {
 - Modify: `app/packages/desktop-main/src/services/FileManagerService.ts:17`
 - Test: `app/packages/desktop-main/src/services/FileManagerService.test.ts`
 
-- [ ] **Step 1: Look up the digest** from Docker Hub (do not write one from memory): `curl -s 'https://hub.docker.com/v2/repositories/filebrowser/filebrowser/tags?page_size=100&name=2.63.23' | jq -r '.results[] | "\(.name) \(.digest)"'`. Expected: one line for the `v2.63.23` tag (or `2.63.23`) with a `sha256:` manifest-list digest. If no such tag exists, stop and report.
-- [ ] **Step 2: Write the failing test** `should launch the helper from an immutable image reference` — capture `registerTaskDefinition`'s argument; `containerDefinitions[0].image` matches `/^filebrowser\/filebrowser:v?2\.63\.23@sha256:[0-9a-f]{64}$/`.
-- [ ] **Step 3: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FileManagerService.test.ts` → FAIL.
-- [ ] **Step 4: Set** `FILEBROWSER_IMAGE = 'filebrowser/filebrowser:<tag>@<digest>'` with a TSDoc line: upstream archived 2026-09-01, `v2.63.23` is the final release, the pin is deliberate. Update the two `@remarks` that say "verified against `filebrowser/filebrowser:latest`" (`tlsLaunch.ts`, `FileBrowserClient.ts`) to name `v2.63.23`.
-- [ ] **Step 5: Run** → PASS. Then the PR gate: `npm run app:lint && npm run app:typecheck && npm run app:test` → exit 0.
+- [x] **Step 1: Look up the digest** from Docker Hub (do not write one from memory): `curl -s 'https://hub.docker.com/v2/repositories/filebrowser/filebrowser/tags?page_size=100&name=2.63.23' | jq -r '.results[] | "\(.name) \(.digest)"'`. Expected: one line for the `v2.63.23` tag (or `2.63.23`) with a `sha256:` manifest-list digest. If no such tag exists, stop and report.
+- [x] **Step 2: Write the failing test** `should launch the helper from an immutable image reference` — capture `registerTaskDefinition`'s argument; `containerDefinitions[0].image` matches `/^filebrowser\/filebrowser:v?2\.63\.23@sha256:[0-9a-f]{64}$/`.
+- [x] **Step 3: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FileManagerService.test.ts` → FAIL.
+- [x] **Step 4: Set** `FILEBROWSER_IMAGE = 'filebrowser/filebrowser:<tag>@<digest>'` with a TSDoc line: upstream archived 2026-09-01, `v2.63.23` is the final release, the pin is deliberate. Update the two `@remarks` that say "verified against `filebrowser/filebrowser:latest`" (`tlsLaunch.ts`, `FileBrowserClient.ts`) to name `v2.63.23`.
+- [x] **Step 5: Run** → PASS. Then the PR gate: `npm run app:lint && npm run app:typecheck && npm run app:test` → exit 0.
 - [ ] **Step 6: Commit** — `build(desktop-main): pin the FileBrowser helper image to v2.63.23`. Open PR 1 with `/pr`.
 
 ---

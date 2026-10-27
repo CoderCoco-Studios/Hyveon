@@ -12,7 +12,7 @@ export interface TlsContainerSettings {
  * FileBrowser with `--cert/--key`.
  *
  * @remarks
- * Verified against `filebrowser/filebrowser:latest` (v2.63): `/bin/sh`, `base64` and `filebrowser` are on PATH, `/tmp` is writable by
+ * Verified against `filebrowser/filebrowser` `v2.63.23`: `/bin/sh`, `base64` and `filebrowser` are on PATH, `/tmp` is writable by
  * the image's uid 1000 user, and `--cert/--key` serve HTTPS. It is deliberately the only place that knows how TLS is wired
  * so it can be replaced by a Caddy sidecar without touching the launch flow.
  *
