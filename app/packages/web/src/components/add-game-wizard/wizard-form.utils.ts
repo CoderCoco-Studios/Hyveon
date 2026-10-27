@@ -168,6 +168,8 @@ export interface WizardDraft {
    */
   pinnedHostname?: string | undefined;
   https: boolean;
+  /** Port the game's web server listens on (the Caddy upstream); `null` until entered. Meaningful only while `https` is on — {@link draftToPayload} and {@link toProposedEntry} drop it otherwise. */
+  webPort: number | null;
   healthCheck: WizardDraftHealthCheck;
 }
 
@@ -197,6 +199,7 @@ export function createEmptyWizardDraft(): WizardDraft {
     command: [],
     pinnedHostname: undefined,
     https: false,
+    webPort: null,
     healthCheck: emptyHealthCheckDraft(),
   };
 }
@@ -239,6 +242,7 @@ export function draftFromGameServer(game: RedactedGameServer): WizardDraft {
     command: [...(game.command ?? [])],
     pinnedHostname: game.pinnedHostname,
     https: game.https === true,
+    webPort: game.webPort ?? null,
     healthCheck: game.healthCheck
       ? {
           enabled: true,
@@ -372,6 +376,7 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
       command: draft.command.length > 0 ? [...draft.command] : undefined,
       ...(draft.pinnedHostname !== undefined ? { pinnedHostname: draft.pinnedHostname } : {}),
       https: draft.https,
+      ...(draft.https ? { webPort: draft.webPort ?? 0 } : {}),
       healthCheck: healthCheckFromDraft(draft.healthCheck),
     },
   };
@@ -382,7 +387,7 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
  * `ports[1]`, `memory`, `name`) to the wizard step whose fields own it, by
  * looking at the first path segment (the field family). Every top-level
  * field on {@link WizardDraft} is covered: `name`/`image`/`connect_message`
- * → identity, `cpu`/`memory` → resources, `ports` → networking,
+ * → identity, `cpu`/`memory` → resources, `ports`/`webPort`/`healthCheck` → networking,
  * `volumes`/`file_seeds` → storage, `environment`/`command`/`pinnedHostname` → environment.
  * Anything unrecognized falls back to `review` so it's still surfaced
  * somewhere rather than silently dropped.
@@ -481,6 +486,8 @@ function toProposedEntry(draft: WizardDraft): Record<string, unknown> {
     command: draft.command.length > 0 ? draft.command : undefined,
     pinnedHostname: draft.pinnedHostname,
     https: draft.https,
+    // An unset web port stays `undefined` so the validator reports "must declare webPort" at `webPort` rather than a null type error.
+    webPort: draft.https && draft.webPort !== null ? draft.webPort : undefined,
     healthCheck: toStructuralHealthCheckPreview(draft.healthCheck),
   };
 }
@@ -669,7 +676,7 @@ export function validateResourcesStep(
   return validateStep('resources', draft, existingGames, mode);
 }
 
-/** Validates the "Networking" step: `ports`, including collisions within the draft and against `existingGames`. */
+/** Validates the "Networking" step: `webPort` (https games) and `ports`, including collisions within the draft and against `existingGames`. */
 export function validateNetworkingStep(
   draft: WizardDraft,
   existingGames: GameServer[],

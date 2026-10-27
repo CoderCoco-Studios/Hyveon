@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeGameServer, ingressPorts, isReservedHttpsPort, HTTPS_RESERVED_PORTS } from './gameServerPorts.js';
+import { normalizeDeploymentConfigGames, normalizeGameServer, ingressPorts, isReservedHttpsPort, HTTPS_RESERVED_PORTS } from './gameServerPorts.js';
 import type { GameServerConfig } from './gameServerConfig.js';
 
 /** Builds a minimal valid {@link GameServerConfig}, with `overrides` applied on top. */
@@ -121,5 +121,24 @@ describe('isReservedHttpsPort', () => {
     expect(isReservedHttpsPort(80)).toBe(true);
     expect(isReservedHttpsPort(443)).toBe(true);
     expect(isReservedHttpsPort(8080)).toBe(false);
+  });
+});
+
+describe('normalizeDeploymentConfigGames', () => {
+  it('should normalise legacy https entries and leave other entries untouched', () => {
+    const legacy = makeGame({ https: true, ports: [{ container: 8080, protocol: 'tcp' }, { container: 27015, protocol: 'udp' }] });
+    const plain = makeGame({ https: false });
+    const config = { gameServers: { a: legacy, b: plain } } as unknown as Parameters<typeof normalizeDeploymentConfigGames>[0];
+
+    const result = normalizeDeploymentConfigGames(config);
+
+    expect(result.gameServers.a).toMatchObject({ webPort: 8080, ports: [{ container: 27015, protocol: 'udp' }] });
+    expect(result.gameServers.b).toBe(plain);
+  });
+
+  it('should return the same object when no entry needs normalising', () => {
+    const config = { gameServers: { b: makeGame({ https: false }) } } as unknown as Parameters<typeof normalizeDeploymentConfigGames>[0];
+
+    expect(normalizeDeploymentConfigGames(config)).toBe(config);
   });
 });

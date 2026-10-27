@@ -11,11 +11,15 @@ import { Button } from '@/components/ui/button.component';
 import { SectionCard } from '../components/section-card.component.js';
 import { AsyncContent } from '../components/async-content.component.js';
 
-/** Renders a game's declared ports as a comma-separated `container/protocol` list, or an em dash when undeclared. */
+/**
+ * Renders a game's declared ports as a comma-separated `container/protocol` list, or an em dash when undeclared.
+ * An https game's web port leads the list as `<port> (web)`, ahead of its additional ports.
+ */
 function formatPorts(entry: GameListEntry): string {
-  const ports = entry.config?.ports;
-  if (!ports || ports.length === 0) return '—';
-  return ports.map((p) => `${p.container}/${p.protocol}`).join(', ');
+  const config = entry.config;
+  const parts = (config?.ports ?? []).map((p) => `${p.container}/${p.protocol}`);
+  if (config?.https === true && config.webPort !== undefined) parts.unshift(`${config.webPort} (web)`);
+  return parts.length === 0 ? '—' : parts.join(', ');
 }
 
 /**
@@ -165,7 +169,7 @@ export function GamesPage() {
       )}
       {draft && resuming && (
         <AddGameWizard
-          initialDraft={draft.draft}
+          initialDraft={{ ...draft.draft, webPort: draft.draft.webPort ?? null }}
           initialStepIndex={draft.stepIndex}
           hideTrigger
           onClose={() => void handleResumedWizardClose()}

@@ -42,6 +42,8 @@ export interface HealthCheckFieldsProps {
   healthCheck: WizardDraftHealthCheck;
   /** Current draft port rows, read-only — used to populate the port dropdown. */
   ports: WizardDraftPort[];
+  /** Draft web port of an https game (the Caddy upstream), offered as a health-check target ahead of the extra ports; `null` when absent. */
+  webPort: number | null;
   /** Validation issues for this step, positioned via `healthCheck.*` paths. */
   issues: GameServerValidationIssue[];
   /** Called with a partial patch whenever a health-check field changes. */
@@ -53,7 +55,7 @@ export interface HealthCheckFieldsProps {
  * request path, response-matching condition, and (via
  * {@link HealthCheckAuthFields}) the optional credential.
  */
-export function HealthCheckFields({ healthCheck, ports, issues, onChange }: HealthCheckFieldsProps) {
+export function HealthCheckFields({ healthCheck, ports, webPort, issues, onChange }: HealthCheckFieldsProps) {
   return (
     <div className="space-y-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3">
       <div className="flex flex-wrap gap-3">
@@ -86,6 +88,11 @@ export function HealthCheckFields({ healthCheck, ports, issues, onChange }: Heal
               onChange={(event) => onChange({ port: event.target.value === '' ? null : Number(event.target.value) })}
             >
               <option value="">Select a declared port…</option>
+              {webPort !== null && (
+                <option value={webPort}>
+                  {webPort}/tcp (web port)
+                </option>
+              )}
               {ports
                 .filter((port) => port.container !== null)
                 .map((port, index) => (

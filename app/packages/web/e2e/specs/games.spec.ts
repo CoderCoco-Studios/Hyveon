@@ -20,6 +20,7 @@ const declaredDeployed: GameListEntry = {
     cpu: 1024,
     memory: 2048,
     https: true,
+    webPort: 30000,
     ports: [{ container: 25565, protocol: 'tcp' }],
     volumes: [{ name: 'data', container_path: '/data' }],
     environment: [{ name: 'EULA', value: 'TRUE' }],
@@ -66,7 +67,7 @@ test.describe('games list page', () => {
     await expect(games.gameLink('minecraft')).toBeVisible();
     await expect(games.driftChip('In sync')).toBeVisible();
     await expect(games.tableCell('itzg/minecraft-server:latest')).toBeVisible();
-    await expect(games.tableCell('25565/tcp')).toBeVisible();
+    await expect(games.tableCell('30000 (web), 25565/tcp')).toBeVisible();
     await expect(games.tableCell('1024')).toBeVisible();
     await expect(games.tableCell('2048')).toBeVisible();
   });
@@ -123,8 +124,12 @@ test.describe('game detail page', () => {
     await expect(games.page.getByText('2048')).toBeVisible();
     await expect(games.page.getByText('Enabled')).toBeVisible();
 
-    // Ports.
-    await expect(games.panelTitle('Ports')).toBeVisible();
+    // Web port (https), shown apart from the additional ports.
+    await expect(games.panelTitle('Web port')).toBeVisible();
+    await expect(games.page.getByText('30000')).toBeVisible();
+
+    // Additional ports.
+    await expect(games.panelTitle('Additional ports')).toBeVisible();
     await expect(games.page.getByRole('cell', { name: '25565' })).toBeVisible();
     await expect(games.page.getByRole('cell', { name: /tcp/i })).toBeVisible();
 

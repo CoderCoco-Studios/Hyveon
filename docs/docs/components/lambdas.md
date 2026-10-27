@@ -71,7 +71,7 @@ we can't forge).
 | **Trigger** | Async invoke from the interactions Lambda (`InvocationType: 'Event'`). Not exposed externally. |
 | **Pulumi** | `app/packages/infra/src/lambdas.ts` (`followupFunction`). |
 | **IAM** | `ecs:RunTask` / `StopTask` / `ListTasks` / `DescribeTasks` / `TagResource`, `iam:PassRole` (task execution role — required for RunTask with Fargate), `ec2:DescribeNetworkInterfaces`, `dynamodb:GetItem` / `PutItem`, `secretsmanager:GetSecretValue` on the public key (only read for downstream calls in some paths). |
-| **Env vars** | `AWS_REGION_`, `TABLE_NAME`, `ECS_CLUSTER`, `SUBNET_IDS` (comma-separated), `SECURITY_GROUP_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `CONNECT_MESSAGES` (JSON map, game → an optional operator-facing connect-instructions string folded into `status`/`list` replies). |
+| **Env vars** | `AWS_REGION_`, `TABLE_NAME`, `ECS_CLUSTER`, `SUBNET_IDS` (comma-separated), `SECURITY_GROUP_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `CONNECT_MESSAGES` (JSON map, game → an optional operator-facing connect-instructions string folded into `status`/`list` replies), `GAME_PORTS` (JSON map, game → port number, or the string `'https'` for `https = true` games; same rendering as the update-dns Lambda below). |
 
 ### Behaviour
 
@@ -128,7 +128,7 @@ Failure modes:
 | **Trigger** | EventBridge rule on `source: aws.ecs`, `detail-type: 'ECS Task State Change'`, `lastStatus` in `['RUNNING', 'STOPPED']`. |
 | **Pulumi** | `app/packages/infra/src/lambdas.ts` (`dnsUpdaterFunction`, `ecsTaskChangeRule`) — `route53.ts` only performs the hosted-zone lookup (DNS records themselves are Lambda-managed, never infra-program-managed). |
 | **IAM** | `route53:ChangeResourceRecordSets`, `route53:ListResourceRecordSets`, `route53:GetChange` (polls the async change's status after a mutating call), `ecs:DescribeTasks`, `ec2:DescribeNetworkInterfaces`, `dynamodb:GetItem` / `DeleteItem`. |
-| **Env vars** | `HOSTED_ZONE_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `DNS_TTL`, `AWS_REGION_`, `TABLE_NAME`, `GAME_PORTS` (JSON map, game → port, folded into the final Discord status message). |
+| **Env vars** | `HOSTED_ZONE_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `DNS_TTL`, `AWS_REGION_`, `TABLE_NAME`, `GAME_PORTS` (JSON map, game → port number, or the string `'https'` for `https = true` games; folded into the final Discord status message — for an https game `{host}:{port}` renders as `https://{host}` and a bare `{port}` as `443`). |
 
 ### Behaviour
 

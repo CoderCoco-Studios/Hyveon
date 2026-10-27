@@ -36,7 +36,7 @@ deployed but no longer declared.
 | **Name** | The game name, linked to its detail page |
 | **Status** | One chip — see below |
 | **Image** | The container image, or `—` |
-| **Ports** | `25565/tcp, 25575/tcp`, or `—` (an ICMP entry shows the same way, e.g. `8/icmp`) |
+| **Ports** | `25565/tcp, 25575/tcp`, or `—` (an ICMP entry shows the same way, e.g. `8/icmp`). An HTTPS game leads with its web port, e.g. `30000 (web), 25565/udp` |
 | **CPU** | Fargate CPU units, or `—` |
 | **Memory** | MiB, or `—` |
 
@@ -100,6 +100,8 @@ current step shown as `Step 1 of 6: Identity`.
 | **Image** | `itzg/minecraft-server` | Required |
 | **Connect message** | `Connect at {ip}:25565` | Optional. Only the placeholders `{host}`, `{ip}`, `{port}` and `{game}` are allowed |
 
+For an HTTPS game the Discord connect message never shows a game port: `{host}:{port}` is rendered as `https://{host}` (when the host is known), and a bare `{port}` renders as `443`. Neither the web port nor an additional port is substituted.
+
 The name becomes the `gameServers` map key, the task-definition family
 (`{name}-server`), the log group (`/ecs/{name}-server`) and the DNS label —
 which is why it is validated as an identifier and why it cannot be changed
@@ -158,15 +160,25 @@ Two collision checks run continuously:
 
 Both are hard blocks. The cross-game check exempts `icmp`: the same pair (e.g. `8/icmp`) is allowed on more than one game as long as every declaration shares the same effective visibility — the security group dedupes identical `icmp` rules into one, so there's nothing to collide over. A visibility mismatch is still rejected, naming both games: `Port 8/icmp on game "minecraft" conflicts with existing game "palworld": effective visibility must match across games for icmp entries (one is "public", the other "internal").` A repeated `icmp` pair within the *same* game still hits the first (same-game) check above. Note that zero ports is technically allowed by the wizard — you can advance without adding any — but a server with no declared ports will not be reachable.
 
-Below the port rows, an **Enable HTTPS (Caddy sidecar)** checkbox sets the
-game's `https` flag. Checking it shows a warning: enabling HTTPS opens ports
-443 and 80 to the internet for the **whole stack**, not just this game, and
-this game's raw container port loses its public ingress rule — traffic
-reaches it through the sidecar instead. Two validations key off this flag:
-an `https = true` game must declare at least one port (`An https = true
-game server must declare at least one port.`), and its first port must be
-`tcp` (`The first port entry of an https = true game server must use
-protocol "tcp" (exact, lowercase).`).
+Below the port rows, an **Enable HTTPS (Caddy sidecar)** checkbox sets the game's `https` flag. Checking it shows an amber warning: enabling HTTPS opens ports 443 and 80 to the internet for the **whole stack**, not only this game; the web port is not directly reachable from outside (it is reached through the sidecar on 443); additional ports follow their own visibility; and on first boot the task performs a Let's Encrypt (ACME) issuance, which requires the game's hostname to resolve to the running task.
+
+Checking it also changes the rest of the step:
+
+- A required **Web port** number field appears. It is the port your game's web server listens on inside the task (for example `30000` for Foundry VTT). Caddy serves it publicly on 443 and proxies to it. `80` and `443` are rejected, because Caddy binds them in the shared task network namespace (`webPort 443 is reserved: Caddy serves ports 80 and 443 publicly on an https = true game server. …`). The value must be an integer from 1 to 65535.
+- The port list is relabeled **Additional ports (optional)** and may be empty (`No additional ports.`; the button reads **Add additional port**). Use it for ports that must be reachable on their own, such as a UDP game or voice port. Each row keeps its own **Protocol** and **Visibility**, and the **Visibility** setting is honoured: a `Public` extra is open to the internet and a `VPC-only` extra is reachable only from inside the VPC. The web port itself never gets a direct ingress rule.
+- A `tcp` additional port that repeats the web port is rejected (`ports[0] duplicates webPort 30000/tcp; webPort is already served through Caddy, so list only additional ports here.`), and 80/443 on an additional port are still reserved. ICMP rows are still not allowed on an HTTPS game.
+
+An HTTPS game no longer needs a port list at all: the old rules that it must declare at least one port and that its first port must be `tcp` are gone, replaced by the required **Web port**. Leaving the field blank blocks the step with `An https = true game server must declare webPort, the port its web server listens on (e.g. 30000 for Foundry VTT).`
+
+:::note[Behaviour change for existing HTTPS games]
+Before the explicit web port existed, an HTTPS game's `ports[0]` was the implicit Caddy upstream and none of its ports received an ingress rule. Additional ports of an HTTPS game are now ingressed per their visibility.
+:::
+
+:::warning[Deprecated: legacy HTTPS configs are rewritten on read]
+A saved HTTPS game that has no `webPort` is treated as the legacy shape. When the app reads the configuration (and when it loads a saved wizard draft), it promotes `ports[0]` to `webPort` and keeps the remaining entries as additional ports. This is deprecated read-time compatibility only: it is not written back until you next save the game, and it is slated for removal once no supported release can have written the old shape. If the legacy `ports[0]` is not `tcp`, nothing is rewritten and validation asks you for a web port instead.
+
+**Release note:** because the former `ports[1..]` of a legacy HTTPS game had no ingress before, they become publicly (or VPC-only, per their visibility) ingressed on the next apply. Review the plan on the [Infrastructure](/app/iac) page before applying: the preview lists the new security-group rules.
+:::
 
 #### Health check (optional)
 
@@ -182,7 +194,7 @@ Checking it exposes:
 | Field | Purpose |
 |---|---|
 | **Scheme** | `http` or `https` |
-| **Port** | A dropdown constrained to the ports declared above — you cannot target a port this game doesn't expose |
+| **Port** | A dropdown constrained to the ports declared above — you cannot target a port this game doesn't expose. On an HTTPS game the web port is listed first as `<port>/tcp (web port)`, followed by the additional ports |
 | **Method** | `GET`, `POST`, `PUT`, `PATCH`, or `HEAD` |
 | **Timeout (ms)** | 100–10000. Bounds the entire request as one wall-clock budget |
 | **Request path** | Rooted at `/`, e.g. `/status` |
@@ -192,8 +204,7 @@ Checking it exposes:
 | **Credential type** | `None` / `Raw ARN` / `Basic` / `Bearer` — see below |
 
 Two validations key off this block: a declared port not among this game's
-own ports (`healthCheck.port <N> is not among this game server's declared
-ports.`), and a comparison operator declared without a value
+own ports (`healthCheck.port <N> is not among this game server's declared tcp ports or its webPort.`), and a comparison operator declared without a value
 (`healthCheck.activeWhen.value is required for operator "<op>"; only
 "exists" takes none.`).
 
@@ -374,6 +385,8 @@ file-seed *paths* only (contents are never displayed) and, underneath, an
 omitted entirely when empty rather than shown blank.
 When **Pin hostname** is on, the Storage card also lists a **Pinned hostname** row with the value; with the switch off the row is absent.
 
+On an HTTPS game the Networking card shows the **HTTPS** row, then a **Web port** row, followed by an **Additional ports** list (`No additional ports.` when empty) instead of the plain **Ports** list.
+
 The footer button reads **Submit**.
 
 On success you get a `minecraft created` toast and are taken straight to the
@@ -471,7 +484,8 @@ without prompting for confirmation. Below that:
 | Card | Contents | Shown |
 |---|---|---|
 | **Container** | Image, CPU, Memory, HTTPS (`Enabled` / `Disabled`) | Always |
-| **Ports** | Container port (or ICMP type, for an `icmp` row) and protocol per row | Always |
+| **Web port** | The web port the Caddy sidecar proxies to, with a note that it is served publicly on 443 and not directly reachable | HTTPS games with a web port |
+| **Ports** | Container port (or ICMP type, for an `icmp` row), protocol and visibility per row. Titled **Additional ports** on an HTTPS game | Always, except an HTTPS game with no additional ports |
 | **Volumes** | Name and container path per row | Always |
 | **Environment variables** | Name/value pairs | Only if any are declared |
 | **File seeds** | A collapsed `3 files seeded at task start` summary; expand for the paths (and modes). Contents are never shown | Only if any are declared |
@@ -601,7 +615,7 @@ an update: the name is the task-definition family, the EFS access-point key,
 the log-group name and the DNS label. Remove the old game and add a new one if
 you need a different name.
 
-`https` has the same toggle here as in the wizard's Networking step, and the
+`https` has the same toggle here as in the wizard's Networking step, including the **Web port** field and the **Additional ports (optional)** list that appear when it is on, and the
 same health-check block sits below it — enable/disable, request/condition
 fields, and the credential-type selector with its per-type fields, identical
 to Step 3 of the wizard (including "a credential is already set" next to the

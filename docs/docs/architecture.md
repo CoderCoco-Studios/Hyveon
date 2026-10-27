@@ -68,7 +68,8 @@ abstraction, and DynamoDB reads/writes go straight through the AWS SDK v3
 client with no abstraction layer. Players reach the game directly at the
 task's public IP either way — UDP/TCP games connect straight to the game
 port, and HTTPS games terminate TLS in-task via a Caddy sidecar that shares
-the same public IP. There is no load balancer anywhere in the path.
+the same public IP and proxies to the game's explicit `webPort`, which is never
+exposed directly. There is no load balancer anywhere in the path.
 
 ![Game plane and operator](/diagrams/game-plane.svg)
 

@@ -1,3 +1,4 @@
+import type { DeploymentConfig } from './deploymentConfig.js';
 import type { GameServerConfig, GameServerPort } from './gameServerConfig.js';
 
 /** Container ports the in-task Caddy sidecar binds publicly on any `https: true` game. */
@@ -62,6 +63,30 @@ export function normalizeGameServer<T extends NormalizableGame>(game: T): T {
     return game;
   }
   return { ...game, webPort: first.container, ports: rest };
+}
+
+/**
+ * Applies {@link normalizeGameServer} to every entry of `config.gameServers`.
+ * For readers that consume the raw S3 object directly (the Pulumi preview/apply
+ * path and rollback diffs) rather than via `DeploymentConfigService`.
+ *
+ * @param config - A parsed deployment config, possibly holding legacy https entries.
+ * @returns `config` itself when nothing changed, otherwise a copy with normalised games.
+ * @deprecated Handles the legacy implicit-upstream (`ports[0]`) https shape only; removable with {@link normalizeGameServer}.
+ */
+export function normalizeDeploymentConfigGames(config: DeploymentConfig): DeploymentConfig {
+  const games = config.gameServers;
+  if (typeof games !== 'object' || games === null) {
+    return config;
+  }
+  let changed = false;
+  const gameServers: DeploymentConfig['gameServers'] = {};
+  for (const [name, game] of Object.entries(games)) {
+    const normalised = normalizeGameServer(game);
+    changed ||= normalised !== game;
+    gameServers[name] = normalised;
+  }
+  return changed ? { ...config, gameServers } : config;
 }
 
 /**
