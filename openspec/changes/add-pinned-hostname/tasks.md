@@ -30,7 +30,7 @@
 
 ## 5. Verification
 
-- [ ] 5.1 `npm run app:lint`, `npm run app:typecheck`, `npm run app:test` all exit 0
-- [ ] 5.2 `npm run app:test:e2e` exits 0 (wizard changed)
+- [x] 5.1 `npm run app:lint`, `npm run app:typecheck`, `npm run app:test` all exit 0
+- [x] 5.2 `npm run app:test:e2e` exits 0 (wizard changed)
 - [ ] 5.3 Pulumi preview against an existing stack with no opted-in game shows zero task-definition diff
 - [ ] 5.4 Live: enable on the Foundry game, apply, start, accept the EULA once, stop, start again → log shows `Software license verification succeeded` and no EULA prompt
