@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Upload goes directly into the mounted volume
-The system SHALL upload the selected files into the game's EFS volume through the file-manager helper task. When the application already holds a helper session for the game, the upload SHALL use that session. Otherwise the application SHALL launch a helper for the duration of the upload. The upload SHALL release its hold when it finishes, fails or is cancelled, and the helper SHALL be stopped when no browse page or other upload still holds the session. File contents and the helper's credential SHALL stay in the desktop main process and SHALL NOT reach the renderer, `deployment-config.json` or any log. Upload SHALL be available only once the game's infrastructure has been applied.
+The system SHALL upload the selected files into the EFS volume that owns the destination (the game volume whose `container_path` is the deepest match for the destination) through the file-manager helper task, which mounts each of the game's applied volumes separately. When the application already holds a helper session for the game, the upload SHALL use that session. Otherwise the application SHALL launch a helper for the duration of the upload. The upload SHALL release its hold when it finishes, fails or is cancelled, and the helper SHALL be stopped when no browse page or other upload still holds the session. File contents and the helper's credential SHALL stay in the desktop main process and SHALL NOT reach the renderer, `deployment-config.json` or any log. Upload SHALL be available only once the game's infrastructure has been applied.
 
 #### Scenario: Upload after apply
 - **WHEN** the operator starts an upload for a deployed game with no helper session open
@@ -14,6 +14,18 @@ The system SHALL upload the selected files into the game's EFS volume through th
 #### Scenario: Game server is running
 - **WHEN** the game's server task is running
 - **THEN** the upload action is disabled with an explanation that the server must be stopped first
+
+#### Scenario: Server state cannot be confirmed
+- **WHEN** the check for a running server task fails
+- **THEN** the upload is refused with an explanation that the application couldn't confirm the server is stopped, and nothing is written to the volume
+
+#### Scenario: Upload to a second volume
+- **WHEN** the game has volumes `config` at `/data/config` and `saves` at `/data/saves`, and the operator uploads a folder to the destination `/data/saves/worlds`
+- **THEN** the files are written into the `saves` volume under `worlds`, and nothing is written to the `config` volume
+
+#### Scenario: Destination volume not yet mounted
+- **WHEN** the destination belongs to a volume the helper cannot mount because the infrastructure has not been applied since that volume's access point was exported
+- **THEN** the upload is refused before any helper is launched, with an explanation to apply the infrastructure first, and the selection is kept
 
 #### Scenario: Application-held session already open for this game
 - **WHEN** the operator starts an upload while the application holds a browse session for the game
