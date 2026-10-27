@@ -1,8 +1,9 @@
 import { createReadStream } from 'node:fs';
-import { Transform } from 'node:stream';
+import { Transform, type Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
 import { Agent, request } from 'undici';
 import { errMessage } from '@hyveon/shared';
+import { VolumeFileError, type VolumeEntry, type VolumeFileBackend, type VolumeStat } from '../volumeFiles/VolumeFileBackend.js';
 
 /** Where and how to reach one FileBrowser helper. */
 export interface FileBrowserClientOptions {
@@ -38,18 +39,22 @@ export interface UploadFileArgs {
 
 /** The FileBrowser REST surface the uploader depends on; fake this in tests. */
 export interface FileBrowserApi {
+  /** Alias of {@link VolumeFileBackend.connect}; removed once the upload engine moves onto that interface. */
   login(signal?: AbortSignal): Promise<void>;
   mkdir(remoteDir: string, signal?: AbortSignal): Promise<void>;
   uploadFile(args: UploadFileArgs): Promise<void>;
-  /** Lists `remoteDir`, or returns `null` when it does not exist. */
+  /**
+   * Lists `remoteDir`. An absent directory is reported as a {@link VolumeFileError} with code `not-found`; a fake may
+   * return `null` instead.
+   */
   list(remoteDir: string, signal?: AbortSignal): Promise<RemoteEntry[] | null>;
   close(): Promise<void>;
 }
 
 /** The server presented a certificate other than the one generated for this launch; nothing was sent. */
-export class PinMismatchError extends Error {
+export class PinMismatchError extends VolumeFileError {
   constructor(message = 'The helper presented an unexpected TLS certificate; aborting without sending credentials.') {
-    super(message);
+    super('pin-mismatch', message);
     this.name = 'PinMismatchError';
   }
 }
@@ -87,6 +92,38 @@ const TLS_TRUST_CODES = new Set([
   'ERR_PIN_MISMATCH',
 ]);
 
+/** The part of {@link VolumeFileBackend} implemented so far; widened to the full interface when the write operations land. */
+type ReadableVolumeBackend = Pick<VolumeFileBackend, 'supportsArchive' | 'connect' | 'list' | 'stat' | 'readStream' | 'archiveStream' | 'close'>;
+
+/** Maps a non-2xx response to the modeled {@link VolumeFileError} vocabulary. */
+function toVolumeError(status: number, op: string, path: string): VolumeFileError {
+  const message = `${op} ${path} failed (${status})`;
+  if (status === 401 || status === 403) return new VolumeFileError('auth', message, status);
+  if (status === 404) return new VolumeFileError('not-found', message, status);
+  if (status === 409) return new VolumeFileError('conflict', message, status);
+  return new VolumeFileError('failed', message, status);
+}
+
+/** Parses FileBrowser's RFC 3339 `modified` field; `0` when absent or malformed. */
+function parseModifiedMs(modified: string | undefined): number {
+  const ms = Date.parse(modified ?? '');
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+/** The per-item JSON FileBrowser returns for `GET /api/resources`. */
+interface ResourceJson {
+  name: string;
+  isDir: boolean;
+  size: number;
+  modified?: string;
+  items?: ResourceJson[];
+}
+
+/** Maps one FileBrowser item to a {@link VolumeEntry}. */
+function toVolumeEntry(item: ResourceJson): VolumeEntry {
+  return { name: item.name, isDir: item.isDir, size: item.size, modifiedMs: parseModifiedMs(item.modified) };
+}
+
 /** Encodes each segment of an absolute POSIX path for use after `/api/resources`. */
 function encodePath(path: string): string {
   return path
@@ -111,9 +148,12 @@ function isTrustFailure(err: unknown): boolean {
  * certificate fails the handshake before any request bytes (credential or file) are written.
  *
  * Endpoints (verified against `filebrowser/filebrowser:latest` v2.63): `POST /api/login` (plain-text JWT, sent back as
- * `X-Auth`), `POST /api/resources/<path>` (creates missing parent directories), `GET /api/resources/<dir>` (404 when absent).
+ * `X-Auth`), `POST /api/resources/<path>` (creates missing parent directories), `GET /api/resources/<dir>` (404 when absent),
+ * `GET /api/raw/<path>` (file bytes) and `GET /api/raw/<dir>/?algo=zip` (zip archive).
  */
-export class FileBrowserClient implements FileBrowserApi {
+export class FileBrowserClient implements FileBrowserApi, ReadableVolumeBackend {
+  readonly supportsArchive = true;
+
   private readonly dispatcher: Agent;
   private readonly origin: string;
   private token: string | null = null;
@@ -130,16 +170,29 @@ export class FileBrowserClient implements FileBrowserApi {
     });
   }
 
-  /** Authenticates and stores the JWT for subsequent calls. Throws {@link PinMismatchError} on an untrusted certificate. */
-  async login(signal?: AbortSignal): Promise<void> {
+  /**
+   * Authenticates and stores the JWT for subsequent calls.
+   *
+   * @param signal - Aborts the request.
+   * @throws {@link PinMismatchError} on an untrusted certificate, and {@link VolumeFileError} with `auth` on rejected credentials.
+   */
+  async connect(signal?: AbortSignal): Promise<void> {
     const res = await this.send('POST', '/api/login', {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ username: this.options.username, password: this.options.password, recaptcha: '' }),
       signal,
     });
     const text = await res.body.text();
-    if (res.statusCode !== 200) throw new FileBrowserHttpError(res.statusCode, `Login failed (${res.statusCode})`);
+    if (res.statusCode !== 200) {
+      const code = res.statusCode === 401 || res.statusCode === 403 ? 'auth' : 'failed';
+      throw new VolumeFileError(code, `Login failed (${res.statusCode})`, res.statusCode);
+    }
     this.token = text.trim();
+  }
+
+  /** Alias of {@link FileBrowserClient.connect}; removed once the upload engine moves onto {@link VolumeFileBackend}. */
+  login(signal?: AbortSignal): Promise<void> {
+    return this.connect(signal);
   }
 
   /** Creates a directory; an already-existing one is not an error. */
@@ -179,22 +232,33 @@ export class FileBrowserClient implements FileBrowserApi {
     }
   }
 
-  /** Lists a directory's immediate children; `null` when the directory does not exist. */
-  async list(remoteDir: string, signal?: AbortSignal): Promise<RemoteEntry[] | null> {
-    const res = await this.send('GET', `/api/resources${encodePath(remoteDir).replace(/\/$/, '')}/`, {
-      headers: this.authHeaders(),
-      signal,
-    });
-    if (res.statusCode === 404) {
-      await res.body.dump();
-      return null;
-    }
-    if (res.statusCode !== 200) {
-      await res.body.dump();
-      throw new FileBrowserHttpError(res.statusCode, `list ${remoteDir} failed (${res.statusCode})`);
-    }
-    const json = (await res.body.json()) as { items?: { name: string; isDir: boolean; size: number }[] };
-    return (json.items ?? []).map((i) => ({ name: i.name, isDir: i.isDir, size: i.size }));
+  /** {@inheritDoc VolumeFileBackend.list} */
+  async list(dir: string, signal?: AbortSignal): Promise<VolumeEntry[]> {
+    const res = await this.send('GET', `/api/resources${encodePath(dir).replace(/\/$/, '')}/`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'list', dir);
+    const json = (await res.body.json()) as ResourceJson;
+    return (json.items ?? []).map(toVolumeEntry);
+  }
+
+  /** {@inheritDoc VolumeFileBackend.stat} */
+  async stat(path: string, signal?: AbortSignal): Promise<VolumeStat> {
+    const res = await this.send('GET', `/api/resources${encodePath(path)}`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'stat', path);
+    return { ...toVolumeEntry((await res.body.json()) as ResourceJson), path };
+  }
+
+  /** {@inheritDoc VolumeFileBackend.readStream} */
+  async readStream(path: string, signal?: AbortSignal): Promise<Readable> {
+    const res = await this.send('GET', `/api/raw${encodePath(path)}`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'read', path);
+    return res.body;
+  }
+
+  /** {@inheritDoc VolumeFileBackend.archiveStream} */
+  async archiveStream(dir: string, signal?: AbortSignal): Promise<Readable> {
+    const res = await this.send('GET', `/api/raw${encodePath(dir).replace(/\/$/, '')}/?algo=zip`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'archive', dir);
+    return res.body;
   }
 
   /** Closes pooled connections. */
@@ -207,13 +271,21 @@ export class FileBrowserClient implements FileBrowserApi {
     return { 'x-auth': this.token };
   }
 
-  /** Issues one request, mapping TLS trust failures to {@link PinMismatchError} and normalizing other errors. */
-  private async send(method: 'GET' | 'POST', path: string, init: Parameters<typeof request>[1]) {
+  /** Drains the body and throws the mapped {@link VolumeFileError} unless the response is 2xx. */
+  private async expectOk(res: Awaited<ReturnType<FileBrowserClient['send']>>, op: string, path: string): Promise<void> {
+    if (res.statusCode >= 200 && res.statusCode < 300) return;
+    await res.body.dump();
+    throw toVolumeError(res.statusCode, op, path);
+  }
+
+  /** Issues one request, mapping TLS trust failures to {@link PinMismatchError} and other network errors to `unreachable`. */
+  private async send(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, init: Parameters<typeof request>[1]) {
     try {
       return await request(`${this.origin}${path}`, { ...init, method, dispatcher: this.dispatcher });
     } catch (err) {
       if (err instanceof PinMismatchError || isTrustFailure(err)) throw new PinMismatchError();
-      throw err instanceof Error && !(err.name === 'AbortError') ? new Error(errMessage(err), { cause: err }) : err;
+      if (err instanceof Error && err.name === 'AbortError') throw err;
+      throw new VolumeFileError('unreachable', errMessage(err), undefined, { cause: err });
     }
   }
 }

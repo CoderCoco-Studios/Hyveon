@@ -12,7 +12,17 @@ export interface FakeFileBrowserOptions {
   onUpload?: (path: string, attempt: number) => number | 'drop' | void;
   /** Files that already exist on the "volume" (absolute path to size). */
   seed?: Record<string, number>;
+  /** Per-file RFC 3339 modification times; files not listed here report {@link DEFAULT_MODIFIED}. */
+  seedModified?: Record<string, string>;
+  /** Exact bytes served by `GET /api/raw` for a file; others serve `size` repetitions of `0x61`. Also seeds the file. */
+  seedContent?: Record<string, Buffer>;
 }
+
+/** Modification time reported for every entry without a `seedModified` override. */
+export const DEFAULT_MODIFIED = '2026-01-01T00:00:00Z';
+
+/** Body of the fake `?algo=zip` response: a zip local-file-header signature, not a real archive. */
+export const FAKE_ZIP_BODY = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]);
 
 /** A running fake FileBrowser helper and the state it observed. */
 export interface FakeFileBrowser {
@@ -40,6 +50,8 @@ export async function startFakeFileBrowser(options: FakeFileBrowserOptions): Pro
   const username = options.username ?? 'admin';
   const password = options.password ?? 'secret';
   const files = new Map<string, number>(Object.entries(options.seed ?? {}));
+  for (const [p, content] of Object.entries(options.seedContent ?? {})) files.set(p, content.length);
+  const modifiedOf = (path: string): string => options.seedModified?.[path] ?? DEFAULT_MODIFIED;
   const dirs = new Set<string>(['/']);
   for (const p of files.keys()) {
     const parts = p.split('/').filter(Boolean).slice(0, -1);
@@ -66,6 +78,17 @@ export async function startFakeFileBrowser(options: FakeFileBrowserOptions): Pro
       res.writeHead(401).end();
       return;
     }
+    if (req.method === 'GET' && url.pathname.startsWith('/api/raw')) {
+      const rawPath = decodeURIComponent(url.pathname.replace(/^\/api\/raw/, '')) || '/';
+      if (url.searchParams.get('algo') === 'zip') {
+        if (!dirs.has(rawPath.replace(/\/+$/, '') || '/')) return void res.writeHead(404).end();
+        return void res.writeHead(200, { 'content-type': 'application/zip' }).end(FAKE_ZIP_BODY);
+      }
+      const size = files.get(rawPath);
+      if (size === undefined) return void res.writeHead(404).end();
+      const body = options.seedContent?.[rawPath] ?? Buffer.alloc(size, 0x61);
+      return void res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(body);
+    }
     const resource = decodeURIComponent(url.pathname.replace(/^\/api\/resources/, '')) || '/';
     if (req.method === 'POST' && resource.endsWith('/')) {
       await drain(req);
@@ -84,18 +107,23 @@ export async function startFakeFileBrowser(options: FakeFileBrowserOptions): Pro
       files.set(resource, size);
       return void res.writeHead(200).end();
     }
+    if (req.method === 'GET' && !resource.endsWith('/') && files.has(resource)) {
+      const name = resource.slice(resource.lastIndexOf('/') + 1);
+      const body = { name, isDir: false, size: files.get(resource), modified: modifiedOf(resource) };
+      return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+    }
     if (req.method === 'GET') {
       const dir = resource.replace(/\/+$/, '') || '/';
       if (!dirs.has(dir)) return void res.writeHead(404).end();
       const prefix = dir === '/' ? '/' : `${dir}/`;
-      const items: { name: string; isDir: boolean; size: number }[] = [];
+      const items: { name: string; isDir: boolean; size: number; modified: string }[] = [];
       for (const d of dirs) {
-        if (d !== dir && d.startsWith(prefix) && !d.slice(prefix.length).includes('/')) items.push({ name: d.slice(prefix.length), isDir: true, size: 0 });
+        if (d !== dir && d.startsWith(prefix) && !d.slice(prefix.length).includes('/')) items.push({ name: d.slice(prefix.length), isDir: true, size: 0, modified: modifiedOf(d) });
       }
       for (const [f, size] of files) {
-        if (f.startsWith(prefix) && !f.slice(prefix.length).includes('/')) items.push({ name: f.slice(prefix.length), isDir: false, size });
+        if (f.startsWith(prefix) && !f.slice(prefix.length).includes('/')) items.push({ name: f.slice(prefix.length), isDir: false, size, modified: modifiedOf(f) });
       }
-      return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ isDir: true, items }));
+      return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ name: dir.slice(dir.lastIndexOf('/') + 1), isDir: true, size: 0, modified: modifiedOf(dir), items }));
     }
     res.writeHead(405).end();
   };

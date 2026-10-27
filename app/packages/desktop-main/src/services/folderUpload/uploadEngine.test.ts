@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileBrowserHttpError, PinMismatchError, type UploadFileArgs } from './FileBrowserClient.js';
 import { fakeClient } from '../../testing/fake-filebrowser-client.js';
 import { ProgressAggregator } from './ProgressAggregator.js';
+import { VolumeFileError } from '../volumeFiles/VolumeFileBackend.js';
 import {
   ancestorDirs,
   classifyUpload,
@@ -206,6 +207,15 @@ describe('listPlannedDirs', () => {
     const listings = await listPlannedDirs(client, items);
     expect([...listings.keys()]).toEqual(['/Data']);
     expect(remoteSizesOf(listings)).toEqual(new Map([['/Data/a.txt', 1]]));
+  });
+
+  it('should treat a not-found VolumeFileError as an absent directory and rethrow other failures', async () => {
+    const items = [await makeItem('a.txt', 1, '/New/a.txt')];
+    const client = fakeClient();
+    vi.mocked(client.list).mockRejectedValueOnce(new VolumeFileError('not-found', 'list /New failed (404)', 404));
+    expect((await listPlannedDirs(client, items)).size).toBe(0);
+    vi.mocked(client.list).mockRejectedValueOnce(new VolumeFileError('auth', 'list /New failed (403)', 403));
+    await expect(listPlannedDirs(client, items)).rejects.toMatchObject({ code: 'auth' });
   });
 
   it('should stop listing once the signal aborts', async () => {

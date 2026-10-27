@@ -15,7 +15,7 @@ Execution is subagent-driven (plan.md).
 
 ## 1. PR 1 — `refactor(desktop-main)`: volume file backend interface and path safety
 
-- [ ] 1.1 Define the `VolumeFileBackend` interface in desktop-main: `list`, `stat`, `readStream`, `writeStream`, `mkdir`, `move`, `remove`, optional `archiveStream`, plus typed error results (`not-found`, `conflict`, `unreachable`, `auth`, `pin-mismatch`). Give it TSDoc per `.claude/rules/tsdoc-tags.md`.
+- [x] 1.1 Define the `VolumeFileBackend` interface in desktop-main: `list`, `stat`, `readStream`, `writeStream`, `mkdir`, `move`, `remove`, optional `archiveStream`, plus typed error results (`not-found`, `conflict`, `unreachable`, `auth`, `pin-mismatch`). Give it TSDoc per `.claude/rules/tsdoc-tags.md`.
 - [ ] 1.2 Extend `FileBrowserClient` to implement the interface. Add raw download (`GET /api/raw`), rename/move (`PATCH ?action=rename`), delete (`DELETE /api/resources`), stat, and folder archive (`?algo=zip`). Keep the existing pinned-fingerprint check on every request.
 - [ ] 1.3 Migrate `uploadEngine` onto the interface so there is exactly one FileBrowser HTTP client (`.claude/rules/duplication.md`), and name this extraction in the PR body.
 - [x] 1.4 Add the volume path validator in the `@hyveon/shared/volumeFiles` subpath (absolute POSIX under the root, no `..`/NUL/empty segments, and names without `/`). Use it in the upload planner as well.

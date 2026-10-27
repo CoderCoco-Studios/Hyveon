@@ -2,6 +2,7 @@ import { stat } from 'node:fs/promises';
 import { errMessage } from '@hyveon/shared';
 import { MAX_OVERWRITE_SAMPLES, type OverwriteSummary } from '@hyveon/shared/folderUpload';
 import { FileBrowserHttpError, PinMismatchError, type FileBrowserApi, type RemoteEntry } from './FileBrowserClient.js';
+import { VolumeFileError } from '../volumeFiles/VolumeFileBackend.js';
 import type { ProgressAggregator } from './ProgressAggregator.js';
 
 /** A file resolved for upload: where it is locally, where it lands on the helper, and what the scan recorded. */
@@ -140,8 +141,12 @@ export async function listPlannedDirs(
   const listings = new Map<string, RemoteEntry[]>();
   await mapPool(parents, concurrency, async (dir) => {
     throwIfAborted(signal);
-    const entries = await client.list(dir, signal);
-    if (entries) listings.set(dir, entries);
+    try {
+      const entries = await client.list(dir, signal);
+      if (entries) listings.set(dir, entries);
+    } catch (err) {
+      if (!(err instanceof VolumeFileError && err.code === 'not-found')) throw err;
+    }
   });
   return listings;
 }

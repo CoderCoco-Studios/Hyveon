@@ -166,8 +166,8 @@ export interface VolumeFileBackend {
 | `readStream` | `GET /api/raw<path>` |
 | `archiveStream` | `GET /api/raw<dir>/?algo=zip`; `supportsArchive = true` |
 
-- [ ] **Step 1: Extend the fake server** with per-file `modified` (default `2026-01-01T00:00:00Z`, overridable via a new `seedModified?: Record<string, string>` option), `GET /api/resources<file>` stat, `GET /api/raw<path>` (bytes are `size` repetitions of `0x61`, or a `seedContent?: Record<string, Buffer>` value), and `GET /api/raw<dir>/?algo=zip` (returns `application/zip` with a fixed `PK\x03\x04` body; the fake does not need a real archive). Existing upload tests must stay green.
-- [ ] **Step 2: Write the failing tests** in `FileBrowserClient.test.ts`, each against `startFakeFileBrowser` with the launch cert:
+- [x] **Step 1: Extend the fake server** with per-file `modified` (default `2026-01-01T00:00:00Z`, overridable via a new `seedModified?: Record<string, string>` option), `GET /api/resources<file>` stat, `GET /api/raw<path>` (bytes are `size` repetitions of `0x61`, or a `seedContent?: Record<string, Buffer>` value), and `GET /api/raw<dir>/?algo=zip` (returns `application/zip` with a fixed `PK\x03\x04` body; the fake does not need a real archive). Existing upload tests must stay green.
+- [x] **Step 2: Write the failing tests** in `FileBrowserClient.test.ts`, each against `startFakeFileBrowser` with the launch cert:
   - `should list entries with modification times in milliseconds` — seed `/Data/a #1 ?%é.txt` size 3; `list('/Data')` deep-equals `[{ name: 'a #1 ?%é.txt', isDir: false, size: 3, modifiedMs: Date.parse('2026-01-01T00:00:00Z') }]`.
   - `should throw not-found when listing a missing directory` — rejects with `VolumeFileError` `code: 'not-found'`.
   - `should stat a file` — `stat('/Data/a #1 ?%é.txt')` → `{ path: '/Data/a #1 ?%é.txt', isDir: false, size: 3 }` (partial match).
@@ -175,10 +175,10 @@ export interface VolumeFileBackend {
   - `should stream a zip for a directory archive` — first four bytes `PK\x03\x04`; `supportsArchive === true`.
   - `should map 401 to auth` — client constructed with a wrong password: `connect()` rejects with `code: 'auth'`.
   - `should fail closed on a different certificate before sending the credential` — existing pin test re-pointed at `connect()`; fake `requests` has no `/api/login` entry.
-- [ ] **Step 3: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/folderUpload/FileBrowserClient.test.ts` → FAIL.
-- [ ] **Step 4: Implement** `VolumeFileBackend.ts` and the read operations on `FileBrowserClient` (`implements FileBrowserApi, VolumeFileBackend` for now). `send()` widens to `'GET' | 'POST' | 'PATCH' | 'DELETE'`. Streams return `res.body` (undici `BodyReadable`) after a status check; dump the body on error statuses.
-- [ ] **Step 5: Run** the same command → PASS; `cd app && npx vitest run packages/desktop-main/src/services` → PASS.
-- [ ] **Step 6: Commit** — `refactor(desktop-main): add VolumeFileBackend read operations to FileBrowserClient`.
+- [x] **Step 3: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/folderUpload/FileBrowserClient.test.ts` → FAIL.
+- [x] **Step 4: Implement** `VolumeFileBackend.ts` and the read operations on `FileBrowserClient` (`implements FileBrowserApi, VolumeFileBackend` for now). `send()` widens to `'GET' | 'POST' | 'PATCH' | 'DELETE'`. Streams return `res.body` (undici `BodyReadable`) after a status check; dump the body on error statuses.
+- [x] **Step 5: Run** the same command → PASS; `cd app && npx vitest run packages/desktop-main/src/services` → PASS.
+- [x] **Step 6: Commit** — `refactor(desktop-main): add VolumeFileBackend read operations to FileBrowserClient`.
 
 ### Task 3: FileBrowser write operations (tasks.md 1.2, 1.6)
 
