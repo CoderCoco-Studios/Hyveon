@@ -1,6 +1,6 @@
 ## Open Questions
 
-These need the operator's decision. Each lists the designer's default, which the tasks assume until answered.
+**Resolved 2026-10-26:** the operator accepted every default below as written. The tasks already assume these defaults, so no task changes were needed.
 
 1. **Auto-start on page entry, or an explicit Start?** Default: explicit **Start session** on the Files page. The dashboard **Files** button navigates *and* starts, since clicking it states the intent; navigating to the page any other way only shows state. Auto-start on every page entry bills and opens a `/32` rule silently.
 2. **Write access while the game server runs.** Default: read-only while the server task is STARTING/RUNNING, with no override. Alternative: allow writes behind a confirm ("the server may overwrite or corrupt this").
