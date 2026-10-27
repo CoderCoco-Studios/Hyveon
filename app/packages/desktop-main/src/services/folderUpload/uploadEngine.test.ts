@@ -1,11 +1,12 @@
 import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FileBrowserHttpError, PinMismatchError, type UploadFileArgs } from './FileBrowserClient.js';
-import { fakeClient } from '../../testing/fake-filebrowser-client.js';
+import { PinMismatchError } from './FileBrowserClient.js';
+import { fakeBackend } from '../../testing/fake-volume-backend.js';
 import { ProgressAggregator } from './ProgressAggregator.js';
-import { VolumeFileError } from '../volumeFiles/VolumeFileBackend.js';
+import { VolumeFileError, type WriteOptions } from '../volumeFiles/VolumeFileBackend.js';
 import {
   ancestorDirs,
   classifyUpload,
@@ -51,7 +52,7 @@ describe('ancestorDirs', () => {
 
 describe('ensureDirs', () => {
   it('should create parents before children', async () => {
-    const client = fakeClient();
+    const client = fakeBackend();
     await ensureDirs(client, [{ remotePath: '/a/b/c.txt' } as UploadItem]);
     expect(vi.mocked(client.mkdir).mock.calls.map((c) => c[0])).toEqual(['/a', '/a/b']);
   });
@@ -60,7 +61,7 @@ describe('ensureDirs', () => {
 describe('uploadAll', () => {
   it('should upload every file and count their bytes and completions', async () => {
     const items = [await makeItem('a.txt', 10), await makeItem('b.txt', 20)];
-    const client = fakeClient();
+    const client = fakeBackend();
     const agg = aggFor(items);
     await uploadAll(client, items, new Map(), agg, undefined, instantOpts);
     expect(client.uploads.sort()).toEqual(['/Data/a.txt', '/Data/b.txt']);
@@ -71,12 +72,12 @@ describe('uploadAll', () => {
     const items = await Promise.all(Array.from({ length: 12 }, (_, i) => makeItem(`f${i}.txt`, 5)));
     let inFlight = 0;
     let peak = 0;
-    const client = fakeClient({
-      uploadFile: async ({ onBytes, size }) => {
+    const client = fakeBackend({
+      writeStream: async (_path, _source, { onBytes, size }) => {
         inFlight += 1;
         peak = Math.max(peak, inFlight);
         await new Promise((r) => setTimeout(r, 5));
-        onBytes(size);
+        onBytes?.(size);
         inFlight -= 1;
       },
     });
@@ -86,7 +87,7 @@ describe('uploadAll', () => {
 
   it('should skip files already present with the expected size and overwrite partial ones (resume)', async () => {
     const items = [await makeItem('done.txt', 10), await makeItem('partial.txt', 20)];
-    const client = fakeClient();
+    const client = fakeBackend();
     const agg = aggFor(items);
     const existing = new Map([['/Data/done.txt', 10], ['/Data/partial.txt', 7]]);
     await uploadAll(client, items, existing, agg, undefined, instantOpts);
@@ -97,12 +98,12 @@ describe('uploadAll', () => {
   it('should retry a transient failure, roll back the failed attempt\'s bytes, then succeed', async () => {
     const items = [await makeItem('a.txt', 10)];
     let calls = 0;
-    const client = fakeClient({
-      uploadFile: async ({ onBytes, size }) => {
+    const client = fakeBackend({
+      writeStream: async (_path, _source, { onBytes, size }) => {
         calls += 1;
-        onBytes(size / 2);
+        onBytes?.(size / 2);
         if (calls < 3) throw new Error('socket hang up');
-        onBytes(size / 2);
+        onBytes?.(size / 2);
       },
     });
     const agg = aggFor(items);
@@ -113,54 +114,84 @@ describe('uploadAll', () => {
 
   it('should fail the run naming the path after three attempts', async () => {
     const items = [await makeItem('bad.txt', 10), await makeItem('ok.txt', 10)];
-    const uploadFile = vi.fn(async ({ remotePath }: UploadFileArgs) => {
+    const writeStream = vi.fn(async (remotePath: string) => {
       if (remotePath.endsWith('bad.txt')) throw new Error('ECONNRESET');
     });
-    const client = fakeClient({ uploadFile });
+    const client = fakeBackend({ writeStream });
     const err = await uploadAll(client, items.slice(0, 1), new Map(), aggFor(items), undefined, instantOpts).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UploadFileError);
     expect((err as UploadFileError).relPath).toBe('bad.txt');
-    expect(uploadFile).toHaveBeenCalledTimes(3);
+    expect(writeStream).toHaveBeenCalledTimes(3);
   });
 
-  it('should not retry a 4xx response or a pin mismatch', async () => {
+  it('should not retry a 4xx response, a pin mismatch, or an auth, not-found or conflict failure', async () => {
     const items = [await makeItem('a.txt', 10)];
-    for (const failure of [new FileBrowserHttpError(403, 'forbidden'), new PinMismatchError()]) {
-      const uploadFile = vi.fn().mockRejectedValue(failure);
-      await expect(uploadAll(fakeClient({ uploadFile }), items, new Map(), aggFor(items), undefined, instantOpts)).rejects.toBeInstanceOf(UploadFileError);
-      expect(uploadFile).toHaveBeenCalledTimes(1);
+    const failures = [
+      new VolumeFileError('failed', 'x', 403),
+      new PinMismatchError(),
+      new VolumeFileError('auth', 'x', 401),
+      new VolumeFileError('not-found', 'x', 404),
+      new VolumeFileError('conflict', 'x', 409),
+    ];
+    for (const failure of failures) {
+      const writeStream = vi.fn().mockRejectedValue(failure);
+      await expect(uploadAll(fakeBackend({ writeStream }), items, new Map(), aggFor(items), undefined, instantOpts)).rejects.toBeInstanceOf(UploadFileError);
+      expect(writeStream).toHaveBeenCalledTimes(1);
     }
   });
 
-  it('should retry a 5xx response', async () => {
+  it.each([
+    ['a 5xx response', new VolumeFileError('failed', 'x', 503)],
+    ['a 408 response', new VolumeFileError('failed', 'x', 408)],
+    ['a 429 response', new VolumeFileError('failed', 'x', 429)],
+  ])('should retry %s up to maxAttempts', async (_label, failure) => {
     const items = [await makeItem('a.txt', 10)];
-    const uploadFile = vi.fn().mockRejectedValue(new FileBrowserHttpError(503, 'unavailable'));
-    await expect(uploadAll(fakeClient({ uploadFile }), items, new Map(), aggFor(items), undefined, instantOpts)).rejects.toBeInstanceOf(UploadFileError);
-    expect(uploadFile).toHaveBeenCalledTimes(3);
+    const writeStream = vi.fn().mockRejectedValue(failure);
+    await expect(uploadAll(fakeBackend({ writeStream }), items, new Map(), aggFor(items), undefined, instantOpts)).rejects.toBeInstanceOf(UploadFileError);
+    expect(writeStream).toHaveBeenCalledTimes(3);
+  });
+
+  it('should retry an unreachable error up to maxAttempts', async () => {
+    const items = [await makeItem('a.txt', 10)];
+    const writeStream = vi.fn().mockRejectedValue(new VolumeFileError('unreachable', 'The file manager helper is unreachable'));
+    await expect(uploadAll(fakeBackend({ writeStream }), items, new Map(), aggFor(items), undefined, instantOpts)).rejects.toBeInstanceOf(UploadFileError);
+    expect(writeStream).toHaveBeenCalledTimes(3);
+  });
+
+  it('should open the local file as the source and request an overwrite', async () => {
+    const items = [await makeItem('a.txt', 10)];
+    const chunks: Buffer[] = [];
+    const writeStream = vi.fn(async (_path: string, source: Readable, options: WriteOptions) => {
+      for await (const chunk of source) chunks.push(chunk as Buffer);
+      options.onBytes?.(10);
+    });
+    await uploadAll(fakeBackend({ writeStream }), items, new Map(), aggFor(items), undefined, instantOpts);
+    expect(Buffer.concat(chunks)).toEqual(Buffer.alloc(10, 1));
+    expect(writeStream).toHaveBeenCalledWith('/Data/a.txt', expect.anything(), expect.objectContaining({ size: 10, overwrite: true }));
   });
 
   it('should fail without sending when the local file changed since the scan', async () => {
     const items = [await makeItem('a.txt', 10)];
     await writeFile(items[0]!.localPath, Buffer.alloc(11, 2));
-    const uploadFile = vi.fn();
-    await expect(uploadAll(fakeClient({ uploadFile }), items, new Map(), aggFor(items), undefined, instantOpts)).rejects.toThrow(/changed on disk/);
-    expect(uploadFile).not.toHaveBeenCalled();
+    const writeStream = vi.fn();
+    await expect(uploadAll(fakeBackend({ writeStream }), items, new Map(), aggFor(items), undefined, instantOpts)).rejects.toThrow(/changed on disk/);
+    expect(writeStream).not.toHaveBeenCalled();
   });
 
   it('should fail when only the mtime changed', async () => {
     const items = [await makeItem('a.txt', 10)];
     await utimes(items[0]!.localPath, 1_800_000_000, 1_800_000_000);
-    const uploadFile = vi.fn();
-    await expect(uploadAll(fakeClient({ uploadFile }), items, new Map(), aggFor(items), undefined, instantOpts)).rejects.toThrow(/changed on disk/);
-    expect(uploadFile).not.toHaveBeenCalled();
+    const writeStream = vi.fn();
+    await expect(uploadAll(fakeBackend({ writeStream }), items, new Map(), aggFor(items), undefined, instantOpts)).rejects.toThrow(/changed on disk/);
+    expect(writeStream).not.toHaveBeenCalled();
   });
 
   it('should reject with UploadCancelledError and abort in-flight requests when the signal fires', async () => {
     const items = await Promise.all(Array.from({ length: 6 }, (_, i) => makeItem(`f${i}.txt`, 5)));
     const controller = new AbortController();
     const seen: AbortSignal[] = [];
-    const client = fakeClient({
-      uploadFile: ({ signal }) =>
+    const client = fakeBackend({
+      writeStream: (_path, _source, { signal }) =>
         new Promise<void>((_resolve, reject) => {
           seen.push(signal!);
           signal!.addEventListener('abort', () => reject(new Error('aborted')));
@@ -176,14 +207,14 @@ describe('uploadAll', () => {
 describe('verifyUpload', () => {
   it('should pass when every planned file exists with the planned size', async () => {
     const items = [await makeItem('a.txt', 10)];
-    const client = fakeClient();
+    const client = fakeBackend();
     client.sizes.set('/Data/a.txt', 10);
     expect(await verifyUpload(client, items)).toEqual({ ok: true, missing: [], mismatched: [] });
   });
 
   it('should report missing and size-mismatched paths', async () => {
     const items = [await makeItem('a.txt', 10), await makeItem('b.txt', 10), await makeItem('c.txt', 10)];
-    const client = fakeClient();
+    const client = fakeBackend();
     client.sizes.set('/Data/a.txt', 10);
     client.sizes.set('/Data/b.txt', 3);
     expect(await verifyUpload(client, items)).toEqual({ ok: false, missing: ['c.txt'], mismatched: ['b.txt'] });
@@ -193,7 +224,7 @@ describe('verifyUpload', () => {
 describe('listRemoteSizes', () => {
   it('should list each parent directory once', async () => {
     const items = [await makeItem('a.txt', 1), await makeItem('b.txt', 1)];
-    const client = fakeClient();
+    const client = fakeBackend();
     await listRemoteSizes(client, items);
     expect(client.list).toHaveBeenCalledTimes(1);
   });
@@ -202,7 +233,7 @@ describe('listRemoteSizes', () => {
 describe('listPlannedDirs', () => {
   it('should omit directories the volume does not have yet', async () => {
     const items = [await makeItem('a.txt', 1, '/Data/a.txt'), await makeItem('b.txt', 1, '/New/b.txt')];
-    const client = fakeClient();
+    const client = fakeBackend();
     client.sizes.set('/Data/a.txt', 1);
     const listings = await listPlannedDirs(client, items);
     expect([...listings.keys()]).toEqual(['/Data']);
@@ -211,7 +242,7 @@ describe('listPlannedDirs', () => {
 
   it('should treat a not-found VolumeFileError as an absent directory and rethrow other failures', async () => {
     const items = [await makeItem('a.txt', 1, '/New/a.txt')];
-    const client = fakeClient();
+    const client = fakeBackend();
     vi.mocked(client.list).mockRejectedValueOnce(new VolumeFileError('not-found', 'list /New failed (404)', 404));
     expect((await listPlannedDirs(client, items)).size).toBe(0);
     vi.mocked(client.list).mockRejectedValueOnce(new VolumeFileError('auth', 'list /New failed (403)', 403));
@@ -222,7 +253,7 @@ describe('listPlannedDirs', () => {
     const items = [await makeItem('a.txt', 1)];
     const ctl = new AbortController();
     ctl.abort();
-    await expect(listPlannedDirs(fakeClient(), items, ctl.signal)).rejects.toBeInstanceOf(UploadCancelledError);
+    await expect(listPlannedDirs(fakeBackend(), items, ctl.signal)).rejects.toBeInstanceOf(UploadCancelledError);
   });
 });
 

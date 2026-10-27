@@ -1,9 +1,10 @@
+import { createReadStream } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { FileBrowserClient, FileBrowserHttpError, PinMismatchError, type FileBrowserClientOptions } from './FileBrowserClient.js';
+import { FileBrowserClient, PinMismatchError, type FileBrowserClientOptions } from './FileBrowserClient.js';
 import { VolumeFileError } from '../volumeFiles/VolumeFileBackend.js';
 import { generateEphemeralCert, type EphemeralCert } from './ephemeralCert.js';
 import { startFakeFileBrowser, type FakeFileBrowser } from '../../testing/fake-filebrowser-server.js';
@@ -60,11 +61,11 @@ describe('FileBrowserClient', () => {
     await writeFile(local, Buffer.alloc(300_000, 7));
 
     const client = new FileBrowserClient(options);
-    await client.login();
+    await client.connect();
     await client.mkdir('/Data');
     await client.mkdir('/Data', { existOk: true });
     let counted = 0;
-    await client.uploadFile({ remotePath: '/Data/a b.bin', localPath: local, size: 300_000, onBytes: (n) => (counted += n) });
+    await client.writeStream('/Data/a b.bin', createReadStream(local), { size: 300_000, overwrite: true, onBytes: (n) => (counted += n) });
     const entries = await client.list('/Data');
     await client.close();
 
@@ -73,17 +74,17 @@ describe('FileBrowserClient', () => {
     expect(entries).toEqual([{ name: 'a b.bin', isDir: false, size: 300_000, modifiedMs: Date.parse('2026-01-01T00:00:00Z') }]);
   });
 
-  it('should throw an auth VolumeFileError carrying the status when login is rejected', async () => {
+  it('should throw an auth VolumeFileError carrying the status when connect is rejected', async () => {
     const { options } = await setup(cert, cert);
     const client = new FileBrowserClient({ ...options, password: 'wrong' });
-    await expect(client.login()).rejects.toMatchObject({ name: 'VolumeFileError', code: 'auth', status: 403 });
+    await expect(client.connect()).rejects.toMatchObject({ name: 'VolumeFileError', code: 'auth', status: 403 });
     await client.close();
   });
 
   it('should abort with PinMismatchError and send nothing when the server presents a different certificate', async () => {
     const { server, options } = await setup(otherCert, cert);
     const client = new FileBrowserClient(options);
-    await expect(client.login()).rejects.toBeInstanceOf(PinMismatchError);
+    await expect(client.connect()).rejects.toBeInstanceOf(PinMismatchError);
     await client.close();
     expect(server.requests).toHaveLength(0);
   });
@@ -91,25 +92,27 @@ describe('FileBrowserClient', () => {
   it('should reject a certificate whose fingerprint differs even when the CA matches', async () => {
     const { server, options } = await setup(cert, cert);
     const client = new FileBrowserClient({ ...options, fingerprint256: otherCert.fingerprint256 });
-    await expect(client.login()).rejects.toBeInstanceOf(PinMismatchError);
+    await expect(client.connect()).rejects.toBeInstanceOf(PinMismatchError);
     await client.close();
     expect(server.requests).toHaveLength(0);
   });
 
-  it('should surface a non-2xx upload as FileBrowserHttpError', async () => {
+  it('should surface a non-2xx upload as a VolumeFileError carrying the status', async () => {
     const { options } = await setup(cert, cert, { onUpload: () => 500 });
     tmp = await mkdtemp(join(tmpdir(), 'fbc-'));
     const local = join(tmp, 'a.bin');
     await writeFile(local, 'hello');
     const client = new FileBrowserClient(options);
-    await client.login();
-    await expect(client.uploadFile({ remotePath: '/a.bin', localPath: local, size: 5, onBytes: () => undefined })).rejects.toBeInstanceOf(
-      FileBrowserHttpError,
-    );
+    await client.connect();
+    await expect(client.writeStream('/a.bin', createReadStream(local), { size: 5, overwrite: true })).rejects.toMatchObject({
+      name: 'VolumeFileError',
+      code: 'failed',
+      status: 500,
+    });
     await client.close();
   });
 
-  it('should refuse to call authenticated endpoints before login', async () => {
+  it('should refuse to call authenticated endpoints before connect', async () => {
     const { options } = await setup(cert, cert);
     const client = new FileBrowserClient(options);
     await expect(client.list('/')).rejects.toThrow(/Not logged in/);

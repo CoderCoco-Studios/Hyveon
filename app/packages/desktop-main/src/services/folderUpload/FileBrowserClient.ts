@@ -1,4 +1,3 @@
-import { createReadStream } from 'node:fs';
 import { Transform, type Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
 import { Agent, request } from 'undici';
@@ -23,39 +22,6 @@ export interface FileBrowserClientOptions {
   fingerprint256: string;
 }
 
-/** One entry of a remote directory listing. */
-export interface RemoteEntry {
-  name: string;
-  isDir: boolean;
-  size: number;
-}
-
-/** Arguments to {@link FileBrowserApi.uploadFile}. */
-export interface UploadFileArgs {
-  /** Absolute path on the helper, such as `/Data/worlds/a.db`. */
-  remotePath: string;
-  localPath: string;
-  /** Byte length announced as `Content-Length`; the stream must produce exactly this many bytes. */
-  size: number;
-  signal?: AbortSignal;
-  /** Called with the byte count of each chunk as it is handed to the socket. */
-  onBytes: (n: number) => void;
-}
-
-/** The FileBrowser REST surface the uploader depends on; fake this in tests. */
-export interface FileBrowserApi {
-  /** Alias of {@link VolumeFileBackend.connect}; removed once the upload engine moves onto that interface. */
-  login(signal?: AbortSignal): Promise<void>;
-  mkdir(remoteDir: string, options?: { existOk?: boolean; signal?: AbortSignal }): Promise<void>;
-  uploadFile(args: UploadFileArgs): Promise<void>;
-  /**
-   * Lists `remoteDir`. An absent directory is reported as a {@link VolumeFileError} with code `not-found`; a fake may
-   * return `null` instead.
-   */
-  list(remoteDir: string, signal?: AbortSignal): Promise<RemoteEntry[] | null>;
-  close(): Promise<void>;
-}
-
 /** The server presented a certificate other than the one generated for this launch; nothing was sent. */
 export class PinMismatchError extends VolumeFileError {
   constructor(message = 'The helper presented an unexpected TLS certificate; aborting without sending credentials.') {
@@ -64,22 +30,11 @@ export class PinMismatchError extends VolumeFileError {
   }
 }
 
-/** A non-2xx response from the helper. */
-export class FileBrowserHttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'FileBrowserHttpError';
-  }
-}
-
-/** Builds {@link FileBrowserApi} instances; a separate injectable so the upload service can be tested without sockets. */
+/** Builds {@link VolumeFileBackend} instances; a separate injectable so the upload service can be tested without sockets. */
 @Injectable()
 export class FileBrowserClientFactory {
   /** Creates a client bound to one helper and pinned to its certificate. */
-  create(options: FileBrowserClientOptions): FileBrowserApi {
+  create(options: FileBrowserClientOptions): VolumeFileBackend {
     return new FileBrowserClient(options);
   }
 }
@@ -153,7 +108,7 @@ function isTrustFailure(err: unknown): boolean {
  * `X-Auth`), `POST /api/resources/<path>` (creates missing parent directories), `GET /api/resources/<dir>` (404 when absent),
  * `GET /api/raw/<path>` (file bytes) and `GET /api/raw/<dir>/?algo=zip` (zip archive).
  */
-export class FileBrowserClient implements FileBrowserApi, VolumeFileBackend {
+export class FileBrowserClient implements VolumeFileBackend {
   readonly supportsArchive = true;
 
   private readonly dispatcher: Agent;
@@ -192,11 +147,6 @@ export class FileBrowserClient implements FileBrowserApi, VolumeFileBackend {
     this.token = text.trim();
   }
 
-  /** Alias of {@link FileBrowserClient.connect}; removed once the upload engine moves onto {@link VolumeFileBackend}. */
-  login(signal?: AbortSignal): Promise<void> {
-    return this.connect(signal);
-  }
-
   /**
    * Creates a directory, including missing parents.
    *
@@ -216,22 +166,6 @@ export class FileBrowserClient implements FileBrowserApi, VolumeFileBackend {
     const res = await this.send('POST', `/api/resources${encodePath(path)}/`, { headers: this.authHeaders(), signal });
     await this.expectOk(res, 'mkdir', path);
     await res.body.dump();
-  }
-
-  /**
-   * Streams a local file to `remotePath` (overwriting any partial copy).
-   *
-   * @remarks
-   * A thin wrapper over {@link FileBrowserClient.writeStream}, removed once the upload engine moves onto it. A failed
-   * response is rethrown as {@link FileBrowserHttpError} so the engine's retry classification keeps working.
-   */
-  async uploadFile({ remotePath, localPath, size, signal, onBytes }: UploadFileArgs): Promise<void> {
-    try {
-      await this.writeStream(remotePath, createReadStream(localPath), { size, overwrite: true, signal, onBytes });
-    } catch (err) {
-      if (err instanceof VolumeFileError && err.status !== undefined) throw new FileBrowserHttpError(err.status, err.message);
-      throw err;
-    }
   }
 
   /** {@inheritDoc VolumeFileBackend.writeStream} */

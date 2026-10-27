@@ -221,11 +221,11 @@ export interface VolumeFileBackend {
 - Produces: unchanged exported engine function names (`ensureDirs`, `listPlannedDirs`, `remoteSizesOf`, `listRemoteSizes`, `classifyUpload`, `verifyUpload`, `uploadAll`) with `client: VolumeFileBackend`. `listPlannedDirs` treats `not-found` as an absent directory. `ensureDirs` calls `mkdir(dir, { existOk: true, signal })`. `uploadOne` builds the counting stream itself and calls `writeStream(..., { overwrite: true })`.
 - `isPermanent(err)`: cancellation, `FileChangedError`, and `VolumeFileError` with code `pin-mismatch` | `auth` | `not-found` | `conflict`, or `failed` with `status` 4xx other than 408/429. `unreachable` and 5xx retry.
 
-- [ ] **Step 1: Update the failing expectations** in `uploadEngine.test.ts`: replace `FileBrowserHttpError(403)` cases with `new VolumeFileError('failed', 'x', 403)` and add `should retry an unreachable error up to maxAttempts` (three `writeStream` calls, then `UploadFileError`).
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/folderUpload packages/desktop-main/src/services/FolderUpload*` → FAIL.
-- [ ] **Step 3: Implement** the migration and deletions; `grep -rn "FileBrowserApi\|FileBrowserHttpError\|fake-filebrowser-client" app/packages` returns nothing.
-- [ ] **Step 4: Run** the same command and `npm run app:typecheck` → PASS / clean.
-- [ ] **Step 5: Commit** — `refactor(desktop-main): run the upload engine on VolumeFileBackend`. PR body names the extraction: "one FileBrowser HTTP client (`FileBrowserClient`) behind `VolumeFileBackend`; `FileBrowserApi` removed".
+- [x] **Step 1: Update the failing expectations** in `uploadEngine.test.ts`: replace `FileBrowserHttpError(403)` cases with `new VolumeFileError('failed', 'x', 403)` and add `should retry an unreachable error up to maxAttempts` (three `writeStream` calls, then `UploadFileError`).
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/folderUpload packages/desktop-main/src/services/FolderUpload*` → FAIL.
+- [x] **Step 3: Implement** the migration and deletions; `grep -rn "FileBrowserApi\|FileBrowserHttpError\|fake-filebrowser-client" app/packages` returns nothing.
+- [x] **Step 4: Run** the same command and `npm run app:typecheck` → PASS / clean.
+- [x] **Step 5: Commit** — `refactor(desktop-main): run the upload engine on VolumeFileBackend`. PR body names the extraction: "one FileBrowser HTTP client (`FileBrowserClient`) behind `VolumeFileBackend`; `FileBrowserApi` removed".
 
 ### Task 5: Pin the archived FileBrowser image (tasks.md 1.5)
 

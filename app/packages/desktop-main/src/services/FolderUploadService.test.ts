@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FolderUploadProgress } from '@hyveon/shared/folderUpload';
 
@@ -15,13 +16,14 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import type { EcsService } from './EcsService.js';
 import type { FileManagerService, UploadHelperLaunch } from './FileManagerService.js';
-import type { FileBrowserApi, FileBrowserClientFactory } from './folderUpload/FileBrowserClient.js';
+import type { FileBrowserClientFactory } from './folderUpload/FileBrowserClient.js';
 import { PinMismatchError } from './folderUpload/FileBrowserClient.js';
+import type { WriteOptions } from './volumeFiles/VolumeFileBackend.js';
 import { generateEphemeralCert } from './folderUpload/ephemeralCert.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
 import { deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
-import { fakeClient, type FakeClient } from '../testing/fake-filebrowser-client.js';
+import { fakeBackend, type FakeBackend } from '../testing/fake-volume-backend.js';
 
 let root: string;
 let scans: FolderScanService;
@@ -40,7 +42,7 @@ afterEach(() => rm(root, { recursive: true, force: true }));
 
 interface Harness {
   svc: FolderUploadService;
-  client: FakeClient;
+  client: FakeBackend;
   fm: { startForUpload: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; getStatus: ReturnType<typeof vi.fn>; getHelperPublicIp: ReturnType<typeof vi.fn>; getHelperStopReason: ReturnType<typeof vi.fn>; sweepStrayHelpers: ReturnType<typeof vi.fn> };
   ecs: { findRunningTask: ReturnType<typeof vi.fn> };
   store: ElectronStoreService;
@@ -49,9 +51,9 @@ interface Harness {
 }
 
 /** Builds the service under test with happy-path collaborators; `launch` overrides the helper launch result. */
-async function harness(options: { client?: FakeClient; launch?: UploadHelperLaunch; outputs?: ReturnType<typeof stackOutputs> | null } = {}): Promise<Harness> {
+async function harness(options: { client?: FakeBackend; launch?: UploadHelperLaunch; outputs?: ReturnType<typeof stackOutputs> | null } = {}): Promise<Harness> {
   const cert = await generateEphemeralCert();
-  const client = options.client ?? fakeClient();
+  const client = options.client ?? fakeBackend();
   const fm = {
     startForUpload: vi.fn().mockResolvedValue(
       options.launch ?? { ok: true, session: { taskArn: 't', runId: 'r', credentials: { username: 'admin', password: 'pw-secret' }, cert } },
@@ -63,7 +65,7 @@ async function harness(options: { client?: FakeClient; launch?: UploadHelperLaun
     sweepStrayHelpers: vi.fn().mockResolvedValue({ stopped: [], skipped: 0, revokedRules: 0, errors: [] }),
   };
   const ecs = { findRunningTask: vi.fn().mockResolvedValue(null) };
-  const create = vi.fn().mockReturnValue(client as FileBrowserApi);
+  const create = vi.fn().mockReturnValue(client);
   const store = new ElectronStoreService(new SafeStorageService());
   const outputs = options.outputs === undefined ? stackOutputs({ efsAccessPoints: { minecraft: 'fsap' } }) : options.outputs;
   const svc = new FolderUploadService(
@@ -168,8 +170,8 @@ describe('FolderUploadService guards', () => {
   });
 
   it('should refuse a second concurrent run for the same game', async () => {
-    const login = (signal?: AbortSignal) => new Promise<void>((_res, rej) => signal?.addEventListener('abort', () => rej(new Error('aborted'))));
-    const h = await harness({ client: fakeClient({ login }) });
+    const connect = (signal?: AbortSignal) => new Promise<void>((_res, rej) => signal?.addEventListener('abort', () => rej(new Error('aborted'))));
+    const h = await harness({ client: fakeBackend({ connect }) });
     expect((await h.svc.startUpload(await request(['Config']))).started).toBe(true);
     expect(await h.svc.startUpload(await request(['Config']))).toMatchObject({ started: false, error: expect.stringMatching(/already running/) });
     h.svc.cancel('minecraft');
@@ -204,7 +206,7 @@ describe('FolderUploadService runs', () => {
   });
 
   it('should skip files already on the volume with the right size when resuming', async () => {
-    const client = fakeClient();
+    const client = fakeBackend();
     client.sizes.set('/Config/a.json', 4);
     const h = await harness({ client });
     await h.svc.startUpload(await request(['Config', 'Data']));
@@ -214,8 +216,8 @@ describe('FolderUploadService runs', () => {
   });
 
   it('should fail with the path when a file keeps failing, persist a failed last run, and still stop the helper', async () => {
-    const client = fakeClient({
-      uploadFile: async () => {
+    const client = fakeBackend({
+      writeStream: async () => {
         throw new Error('socket hang up');
       },
     });
@@ -229,11 +231,11 @@ describe('FolderUploadService runs', () => {
 
   it('should fail with a resumable error when the helper expires mid-run (connections refused) and stop it', async () => {
     let calls = 0;
-    const client = fakeClient({
-      uploadFile: async ({ onBytes, size, remotePath }) => {
+    const client = fakeBackend({
+      writeStream: async (remotePath, _source, { onBytes, size }) => {
         calls += 1;
         if (calls > 1) throw new Error('connect ECONNREFUSED 9.9.9.9:8080');
-        onBytes(size);
+        onBytes?.(size);
         client.sizes.set(remotePath, size);
       },
     });
@@ -247,11 +249,11 @@ describe('FolderUploadService runs', () => {
   });
 
   it('should fail verification listing the missing path', async () => {
-    const client = fakeClient();
-    const original = client.uploadFile;
-    client.uploadFile = async (args) => {
-      if (args.remotePath.endsWith('b.db')) return args.onBytes(args.size);
-      return original(args);
+    const client = fakeBackend();
+    const original = client.writeStream;
+    client.writeStream = async (path, source, options) => {
+      if (path.endsWith('b.db')) return options.onBytes?.(options.size);
+      return original(path, source, options);
     };
     const h = await harness({ client });
     await h.svc.startUpload(await request(['Config', 'Data']));
@@ -260,17 +262,17 @@ describe('FolderUploadService runs', () => {
   });
 
   it('should cancel mid-run, stop the helper, and record a cancelled last run', async () => {
-    const uploadFile = vi.fn(
-      ({ signal }: { signal?: AbortSignal }) =>
+    const writeStream = vi.fn(
+      (_path: string, _source: Readable, { signal }: WriteOptions) =>
         new Promise<void>((_res, rej) => {
           signal?.addEventListener('abort', () => rej(new Error('aborted')));
         }),
     );
-    const client = fakeClient({ uploadFile });
+    const client = fakeBackend({ writeStream });
     const h = await harness({ client });
     await h.svc.startUpload(await request(['Config', 'Data']));
     await vi.waitFor(() => expect(h.progress.some((p) => p.phase === 'uploading')).toBe(true));
-    await vi.waitFor(() => expect(uploadFile).toHaveBeenCalled());
+    await vi.waitFor(() => expect(writeStream).toHaveBeenCalled());
     expect(h.svc.cancel('minecraft')).toEqual({ cancelled: true });
     const last = await settled(h);
     expect(last.phase).toBe('cancelled');
@@ -289,14 +291,14 @@ describe('FolderUploadService runs', () => {
   });
 
   it('should abort on a certificate pin mismatch without retrying or sending any file, and stop the helper', async () => {
-    const login = vi.fn().mockRejectedValue(new PinMismatchError());
-    const client = fakeClient({ login });
+    const connect = vi.fn().mockRejectedValue(new PinMismatchError());
+    const client = fakeBackend({ connect });
     const h = await harness({ client });
     await h.svc.startUpload(await request(['Config']));
     const last = await settled(h);
     expect(last.phase).toBe('failed');
-    expect(login).toHaveBeenCalledTimes(1);
-    expect(client.uploadFile).not.toHaveBeenCalled();
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(client.writeStream).not.toHaveBeenCalled();
     expect(h.fm.stop).toHaveBeenCalled();
   });
 
@@ -312,8 +314,8 @@ describe('FolderUploadService runs', () => {
   });
 
   it('should append the helper stop reason when a run fails after the helper died', async () => {
-    const login = vi.fn().mockRejectedValue(new Error('ECONNRESET'));
-    const h = await harness({ client: fakeClient({ login }) });
+    const connect = vi.fn().mockRejectedValue(new Error('ECONNRESET'));
+    const h = await harness({ client: fakeBackend({ connect }) });
     h.svc.timings.loginTimeoutMs = 0;
     h.fm.getHelperStopReason.mockResolvedValue('OutOfMemoryError: Container killed');
     await h.svc.startUpload(await request(['Config']));
@@ -323,12 +325,12 @@ describe('FolderUploadService runs', () => {
     expect(h.fm.getHelperStopReason).toHaveBeenCalledWith('t');
   });
 
-  it('should keep retrying login while the container boots', async () => {
-    const login = vi.fn().mockRejectedValueOnce(new Error('ECONNREFUSED')).mockResolvedValue(undefined);
-    const h = await harness({ client: fakeClient({ login }) });
+  it('should keep retrying connect while the container boots', async () => {
+    const connect = vi.fn().mockRejectedValueOnce(new Error('ECONNREFUSED')).mockResolvedValue(undefined);
+    const h = await harness({ client: fakeBackend({ connect }) });
     await h.svc.startUpload(await request(['Config']));
     expect((await settled(h)).phase).toBe('done');
-    expect(login).toHaveBeenCalledTimes(2);
+    expect(connect).toHaveBeenCalledTimes(2);
   });
 
   it('should fail with the launch message and not stop a helper it did not start', async () => {
@@ -365,8 +367,8 @@ async function reached(h: Harness, phase: FolderUploadProgress['phase']): Promis
 
 describe('FolderUploadService overwrite confirmation', () => {
   /** A volume already holding a different-size `a.json`, an identical `b.db`, and an unrelated file in `Config`. */
-  function conflictedClient(): FakeClient {
-    const client = fakeClient();
+  function conflictedClient(): FakeBackend {
+    const client = fakeBackend();
     client.sizes.set('/Config/a.json', 1);
     client.sizes.set('/Config/old.cfg', 7);
     client.sizes.set('/Data/b.db', 8);
@@ -387,7 +389,7 @@ describe('FolderUploadService overwrite confirmation', () => {
       samples: [{ relPath: 'Config/a.json', existingSize: 1, newSize: 4 }],
     });
     expect(client.mkdir).not.toHaveBeenCalled();
-    expect(client.uploadFile).not.toHaveBeenCalled();
+    expect(client.writeStream).not.toHaveBeenCalled();
     expect(h.fm.stop).not.toHaveBeenCalled();
     expect(h.svc.getProgress('minecraft')?.phase).toBe('awaiting-confirmation');
 
@@ -409,7 +411,7 @@ describe('FolderUploadService overwrite confirmation', () => {
     expect(last.phase).toBe('cancelled');
     expect(last.error).toBeUndefined();
     expect(client.mkdir).not.toHaveBeenCalled();
-    expect(client.uploadFile).not.toHaveBeenCalled();
+    expect(client.writeStream).not.toHaveBeenCalled();
     expect(h.fm.stop).toHaveBeenCalledTimes(1);
     expect(h.svc.getSelection('minecraft')?.lastRun?.status).toBe('cancelled');
   });
@@ -431,12 +433,12 @@ describe('FolderUploadService overwrite confirmation', () => {
     await h.svc.startUpload(await request(['Config']));
     const last = await settled(h);
     expect(last).toMatchObject({ phase: 'cancelled', error: expect.stringMatching(/Timed out/) });
-    expect(client.uploadFile).not.toHaveBeenCalled();
+    expect(client.writeStream).not.toHaveBeenCalled();
     expect(h.fm.stop).toHaveBeenCalledTimes(1);
   });
 
   it('should not prompt when nothing on the volume would be overwritten', async () => {
-    const client = fakeClient();
+    const client = fakeBackend();
     client.sizes.set('/Config/a.json', 4);
     client.sizes.set('/Config/other.cfg', 9);
     const h = await harness({ client });
@@ -482,7 +484,7 @@ describe('FolderUploadService overwrite confirmation', () => {
       ['a different selection', ['Config'], '/data'],
       ['a different destination', ['Config', 'Data'], '/data/sub'],
     ])('should still prompt for %s', async (_label, include, destination) => {
-      const client = fakeClient();
+      const client = fakeBackend();
       client.sizes.set(destination === '/data' ? '/Config/a.json' : '/sub/Config/a.json', 1);
       const h = await harness({ client });
       await afterFailedRun(h, ['Config', 'Data']);
