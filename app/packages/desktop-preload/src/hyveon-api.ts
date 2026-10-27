@@ -442,6 +442,8 @@ export interface GameServer {
   connect_message?: string;
   file_seeds?: GameServerFileSeed[];
   healthCheck?: GameServerHealthCheck;
+  /** Node.js only: the exact value `os.hostname()` returns inside the game's Node process. Default when omitted: hostname not pinned. */
+  pinnedHostname?: string;
 }
 
 /**

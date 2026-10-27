@@ -17,28 +17,34 @@ import { HYVEON_ENV_TOKENS } from '@hyveon/shared/envTokens';
 import { Button } from '@/components/ui/button.component';
 import { FormField } from '@/components/ui/form-field.component';
 import { Input } from '@/components/ui/input.component';
+import { Label } from '@/components/ui/label.component';
 import { messageFor, type WizardDraft, type WizardDraftEnvironmentVariable } from './wizard-form.utils.js';
 
 /** Blank row appended by the "Add variable" button. */
 const EMPTY_ENVIRONMENT_VARIABLE: WizardDraftEnvironmentVariable = { name: '', value: '' };
 
+/** Operator-facing explanation of the "Pin hostname" switch; leads with the Node.js-only requirement. */
+const PIN_HOSTNAME_HELPER_TEXT =
+  "Node.js game servers only. Pins the hostname the Node process sees, for games whose license is bound to the hostname (e.g. Foundry VTT). Has no effect on games that don't run on Node; check what your image runs before enabling. Enabling this on an existing game requires accepting the EULA one more time.";
+
 /** Props for {@link EnvironmentStep}. */
 export interface EnvironmentStepProps {
-  /** The wizard's in-progress draft; only `environment` and `command` are read here. */
+  /** The wizard's in-progress draft; only `name`, `environment`, `command`, and `pinnedHostname` are read here. */
   draft: WizardDraft;
-  /** Validation issues for this step (e.g. from `validateEnvironmentStep()`), positioned via `environment[N].name`/`environment[N].value`/`command` paths. */
+  /** Validation issues for this step (e.g. from `validateEnvironmentStep()`), positioned via `environment[N].name`/`environment[N].value`/`command`/`pinnedHostname` paths. */
   issues: GameServerValidationIssue[];
   /** Called with a partial patch of the changed field whenever the operator adds, removes, or edits a row. */
-  onChange: (patch: Partial<Pick<WizardDraft, 'environment' | 'command'>>) => void;
+  onChange: (patch: Partial<Pick<WizardDraft, 'environment' | 'command' | 'pinnedHostname'>>) => void;
 }
 
 /**
  * Row editor for the wizard's "Environment" step: an optional `environment`
- * list plus an optional `command` (container start command) list, both with
- * no minimum row count.
+ * list plus an optional `command` (container start command) list
+ * (both with no minimum row count), plus an optional "Pin hostname" switch
+ * and field.
  */
 export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProps) {
-  const { environment, command } = draft;
+  const { environment, command, pinnedHostname } = draft;
 
   function addVariable() {
     onChange({ environment: [...environment, { ...EMPTY_ENVIRONMENT_VARIABLE }] });
@@ -66,7 +72,12 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
     onChange({ command: command.map((arg, i) => (i === index ? value : arg)) });
   }
 
+  function togglePinnedHostname(enabled: boolean) {
+    onChange({ pinnedHostname: enabled ? draft.name.trim() : undefined });
+  }
+
   const commandError = messageFor(issues, 'command');
+  const pinnedHostnameError = messageFor(issues, 'pinnedHostname');
 
   return (
     <div className="space-y-3">
@@ -199,6 +210,38 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
         <Button type="button" variant="secondary" size="sm" onClick={addCommandArgument}>
           Add argument
         </Button>
+      </div>
+
+      <div className="space-y-3 border-t border-[var(--color-border)] pt-3">
+        <div className="flex items-center gap-2">
+          <input
+            id="pin-hostname-toggle"
+            type="checkbox"
+            role="switch"
+            checked={pinnedHostname !== undefined}
+            aria-describedby="pin-hostname-help"
+            onChange={(event) => togglePinnedHostname(event.target.checked)}
+            className="size-3.5 rounded border-[var(--color-border)] bg-[var(--color-surface-2)] accent-[var(--color-primary)]"
+          />
+          <Label htmlFor="pin-hostname-toggle" className="cursor-pointer">
+            Pin hostname
+          </Label>
+        </div>
+        <p id="pin-hostname-help" className="text-xs text-[var(--color-muted-foreground)]">
+          {PIN_HOSTNAME_HELPER_TEXT}
+        </p>
+
+        {pinnedHostname !== undefined && (
+          <FormField id="pinned-hostname-input" label="Hostname" errors={pinnedHostnameError}>
+            {(fieldProps) => (
+              <Input
+                {...fieldProps}
+                value={pinnedHostname}
+                onChange={(event) => onChange({ pinnedHostname: event.target.value })}
+              />
+            )}
+          </FormField>
+        )}
       </div>
     </div>
   );

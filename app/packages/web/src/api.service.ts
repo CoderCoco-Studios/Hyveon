@@ -153,6 +153,8 @@ export interface GameWizardDraft {
   file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
   environment: { name: string; value: string }[];
   command: string[];
+  /** Absent when the "Pin hostname" switch is off. */
+  pinnedHostname?: string;
   https: boolean;
   healthCheck: {
     enabled: boolean;

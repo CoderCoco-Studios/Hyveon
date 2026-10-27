@@ -118,6 +118,24 @@ describe('EditGameForm', () => {
     expect(screen.getByLabelText('Container path')).toHaveValue('/data');
   });
 
+  it('should load an existing pinnedHostname with the switch on and the field filled', async () => {
+    renderForm(<EditGameForm game={sampleGame({ pinnedHostname: 'my_foundry_host' })} />);
+
+    expect(await screen.findByRole('switch', { name: 'Pin hostname' })).toBeChecked();
+    expect(screen.getByLabelText('Hostname')).toHaveValue('my_foundry_host');
+  });
+
+  it('should leave the switch off and omit pinnedHostname from the saved payload for a game without it', async () => {
+    apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
+    renderForm(<EditGameForm game={sampleGame()} />);
+
+    expect(await screen.findByRole('switch', { name: 'Pin hostname' })).not.toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(apiMock.updateGame).toHaveBeenCalled());
+    expect('pinnedHostname' in apiMock.updateGame.mock.calls[0][0].config).toBe(false);
+  });
+
   it('should render the Name field as not editable', async () => {
     renderForm(<EditGameForm game={sampleGame()} />);
 

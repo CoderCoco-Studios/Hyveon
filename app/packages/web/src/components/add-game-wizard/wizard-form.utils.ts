@@ -162,6 +162,11 @@ export interface WizardDraft {
   environment: WizardDraftEnvironmentVariable[];
   /** Container start command (Docker `CMD`) argument list. Required when any `environment` value uses `${hyveon.network.public-ipv4}`. */
   command: string[];
+  /**
+   * Hostname pinned for Node.js games; `undefined` (or absent, as on a draft autosaved before this field existed)
+   * means the "Pin hostname" switch is off, `''` means on but not yet filled in.
+   */
+  pinnedHostname?: string | undefined;
   https: boolean;
   healthCheck: WizardDraftHealthCheck;
 }
@@ -190,6 +195,7 @@ export function createEmptyWizardDraft(): WizardDraft {
     file_seeds: [],
     environment: [],
     command: [],
+    pinnedHostname: undefined,
     https: false,
     healthCheck: emptyHealthCheckDraft(),
   };
@@ -231,6 +237,7 @@ export function draftFromGameServer(game: RedactedGameServer): WizardDraft {
     })),
     environment: (game.environment ?? []).map((variable) => ({ name: variable.name, value: variable.value })),
     command: [...(game.command ?? [])],
+    pinnedHostname: game.pinnedHostname,
     https: game.https === true,
     healthCheck: game.healthCheck
       ? {
@@ -363,6 +370,7 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
           : undefined,
       environment: draft.environment.length > 0 ? draft.environment.map((v) => ({ name: v.name, value: v.value })) : undefined,
       command: draft.command.length > 0 ? [...draft.command] : undefined,
+      ...(draft.pinnedHostname !== undefined ? { pinnedHostname: draft.pinnedHostname } : {}),
       https: draft.https,
       healthCheck: healthCheckFromDraft(draft.healthCheck),
     },
@@ -375,7 +383,7 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
  * looking at the first path segment (the field family). Every top-level
  * field on {@link WizardDraft} is covered: `name`/`image`/`connect_message`
  * → identity, `cpu`/`memory` → resources, `ports` → networking,
- * `volumes`/`file_seeds` → storage, `environment`/`command` → environment.
+ * `volumes`/`file_seeds` → storage, `environment`/`command`/`pinnedHostname` → environment.
  * Anything unrecognized falls back to `review` so it's still surfaced
  * somewhere rather than silently dropped.
  */
@@ -397,6 +405,7 @@ export function stepForIssuePath(path: string): WizardStep {
       return 'storage';
     case 'environment':
     case 'command':
+    case 'pinnedHostname':
       return 'environment';
     default:
       return 'review';
@@ -469,6 +478,7 @@ function toProposedEntry(draft: WizardDraft): Record<string, unknown> {
     environment:
       draft.environment.length > 0 ? draft.environment.map((v) => ({ name: v.name, value: v.value })) : undefined,
     command: draft.command.length > 0 ? draft.command : undefined,
+    pinnedHostname: draft.pinnedHostname,
     https: draft.https,
     healthCheck: toStructuralHealthCheckPreview(draft.healthCheck),
   };

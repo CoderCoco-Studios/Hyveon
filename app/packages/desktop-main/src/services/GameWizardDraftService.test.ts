@@ -202,6 +202,36 @@ describe('GameWizardDraftService', () => {
       expect(service.get()?.draft.command).toEqual([]);
     });
 
+    it('should accept a draft with a pinnedHostname string', () => {
+      const stored: StoredGameWizardDraft = {
+        draft: { ...sampleDraft, pinnedHostname: 'my_foundry_host' },
+        stepIndex: 4,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      };
+      const service = new GameWizardDraftService(makeStore(stored));
+
+      expect(service.get()?.draft.pinnedHostname).toBe('my_foundry_host');
+    });
+
+    it('should accept a draft without pinnedHostname', () => {
+      const stored: StoredGameWizardDraft = { draft: sampleDraft, stepIndex: 4, savedAt: '2026-08-09T00:00:00.000Z' };
+      const service = new GameWizardDraftService(makeStore(stored));
+
+      expect(service.get()).not.toBeNull();
+      expect(service.get()?.draft.pinnedHostname).toBeUndefined();
+    });
+
+    it('should reject a draft whose pinnedHostname is not a string', () => {
+      const stored: StoredGameWizardDraft = {
+        draft: { ...sampleDraft, pinnedHostname: 42 as unknown as string },
+        stepIndex: 4,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      };
+      const service = new GameWizardDraftService(makeStore(stored));
+
+      expect(service.get()).toBeNull();
+    });
+
     it('should blank out healthCheck.secretArn while preserving secretSet before returning the draft', () => {
       const draftWithSecret: GameWizardDraft = {
         ...sampleDraft,
