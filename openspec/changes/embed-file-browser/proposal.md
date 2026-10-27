@@ -1,13 +1,13 @@
 ## Why
 
-The dashboard's file manager hands the operator a plain-HTTP link to a raw task IP and a password to copy, then relies on `shell.openExternal` and the OS browser. That hop fails silently (rejections only reach `console.error`) and depends on the browser egressing from the same IP the app opened the `/32` rule for, so "click does nothing" is both possible and undiagnosable. The FileBrowser project behind the helper was archived on 2026-09-01 with unfixed advisories, so its web UI should not become a surface we embed or grow. Moving browsing into the app, with desktop-main as the only client of the helper, removes the failing hop, keeps credentials out of the renderer and out of the operator's hands, and makes the archived image replaceable.
+The dashboard's file manager hands the operator a plain-HTTP link to a raw task IP and a password to copy, then relies on `shell.openExternal` and the OS browser. In the reported case the browser opened behind another application without focus, so from inside the app the click appeared to do nothing. The same hop also fails silently when it does fail (rejections only reach `console.error`) and depends on the browser egressing from the same IP the app opened the `/32` rule for. The FileBrowser project behind the helper was archived on 2026-09-01 with unfixed advisories, so its web UI should not become a surface we embed or grow. Moving browsing into the app, with desktop-main as the only client of the helper, removes the failing hop, keeps credentials out of the renderer and out of the operator's hands, and makes the archived image replaceable.
 
 ## What Changes
 
 **Where the operator browses volume files**
 - From: Files → modal → Launch → `<a target="_blank">` to `http://<ip>:8080` in the OS browser, with the plaintext username/password shown in the modal to copy.
 - To: Files → a routed in-app page `/games/:name/files` with a session bar (start/stop, state, auto-stop countdown), breadcrumb navigation, a file table, and upload, download, new folder, rename, delete, and small-text-file view/edit. desktop-main does all helper traffic over IPC.
-- Reason: removes the external-browser hop that fails silently, and keeps the UI consistent and testable.
+- Reason: removes the external-browser hop (unfocused windows, silent failures, a context switch out of the app), and keeps the UI consistent and testable.
 - Impact: replaces the modal (breaking for the operator's workflow, but there is no persisted state). The external link and copy-password UI are removed.
 
 **Helper transport and credentials**

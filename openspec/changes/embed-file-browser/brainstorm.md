@@ -41,9 +41,7 @@ Every step the app controls up to rendering the link is confirmed working from l
 
 There is also a latent renderer bug found on the way: `useFileManager`'s reactive poller only stays registered while `state === 'starting'` or a pending flag is set (`use-file-manager.hook.ts:122-136`). `fetchOnce` clears `pendingStart` on the first `running` read, so if that read arrives before the ENI's public IP resolves (`url` undefined), polling stops and the modal never shows a link until the operator closes and reopens it. It did not fire in today's session (the URL resolved on the first RUNNING read), but it produces exactly the same "nothing to click / nothing happens" symptom.
 
-Which of (1)/(2) bit the operator today needs one observation they can make: whether a browser tab opens at all when the link is clicked. Both are removed by design if the browser lives in the app and the main process does all helper traffic itself.
-
-Minimal stop-gap, independent of this change (a direct-PR bug fix, not part of this change): log `openExternal` success/failure through `logger` and surface a failure toast; keep polling while `running && !url`; show "Copy URL" next to the link so the operator can paste it into any browser.
+**Resolved (operator, 2026-10-26):** neither (1) nor (2) fired. The browser did open the page, but behind another application and without focus, so from inside Hyveon the click looked like it did nothing. All of these are removed by design once the browser lives in the app and the main process does all helper traffic itself, so the operator chose not to patch the current external-link flow (no stop-gap PR).
 
 ## Decision chain
 
@@ -84,7 +82,7 @@ EFS allows concurrent access, so browsing (read) while the server runs is safe. 
 - Remove `credentials` from `FileMgrResult` / the IPC surface entirely.
 - desktop-main normalizes and validates every path (POSIX, rooted at the volume, rejects `..` segments and NUL bytes) before it reaches the backend.
 - The pinned-cert check covers every request, and the client refuses to send the credential on fingerprint mismatch (already true of `FileBrowserClient`).
-- Hardening on the side: add a `will-navigate` deny on the main window, and give `setDefaultBrowserOpener` an allowlist of known external hosts (AWS console, GitHub releases, Discord docs) so it can't be used to open arbitrary URLs. This lands in the stop-gap PR, not this change.
+- Hardening on the side: add a `will-navigate` deny on the main window, and give `setDefaultBrowserOpener` an allowlist of known external hosts (AWS console, GitHub releases, Discord docs) so it can't be used to open arbitrary URLs. Not part of this change; a candidate for a separate hardening issue.
 
 **Q9. Downloads.**
 Main streams `GET /api/raw/<path>` to the path chosen in `dialog.showSaveDialog`, with progress events. Folders download as a zip via FileBrowser's `?algo=zip`, exposed as an optional backend capability so a future backend can omit it. A download is cancellable, and a partial file is deleted on cancel/failure.

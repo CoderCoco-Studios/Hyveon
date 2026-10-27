@@ -19,12 +19,14 @@
 
 Once the task is RUNNING, the modal renders `<a href="http://<ip>:8080" target="_blank">` and the credential. `setDefaultBrowserOpener` (`electron-entry.ts:44-51`) converts the `window.open` into `shell.openExternal`.
 
-**Root-cause findings** (full notes in `brainstorm.md`). The operator's log for the failing session shows the helper launched, the `/32` was authorized for the operator's current IP, and `getStatus` returned `running` with `url: http://<ip>:8080` at the first RUNNING read. The helper's CloudWatch log shows FileBrowser listening for the whole session. So the failure is in the hop the app hands to the OS, which today is unobservable:
+**Root cause of the reported "click does nothing"** (full notes in `brainstorm.md`). The operator's log for the session shows the helper launched, the `/32` was authorized for the operator's current IP, and `getStatus` returned `running` with `url: http://<ip>:8080` at the first RUNNING read. The helper's CloudWatch log shows FileBrowser listening for the whole session. The operator then confirmed that clicking the link did open the page, but the OS opened the browser window behind another application without focusing it, so from inside Hyveon nothing appeared to happen. The external-browser hop worked; it is just invisible from the app. This change removes that hop, which is why no fix to today's external link is planned.
+
+The investigation also found weaknesses in the external hop that this change removes rather than fixes:
 - `openExternal` rejections go only to `console.error`, which a packaged build discards.
 - Reachability requires the browser's egress IP to equal the IP the main process detected via `checkip.amazonaws.com`. Since #672's infra edit removed the world-open rule, any divergence is a silent connect timeout.
-- A latent renderer bug produces the same symptom. `useFileManager` stops polling once `pendingStart` clears on the first `running` read, even if `url` is still undefined, so the link never appears (`use-file-manager.hook.ts:122-136`).
+- `useFileManager` stops polling once `pendingStart` clears on the first `running` read, even if `url` is still undefined, so the link would never appear (`use-file-manager.hook.ts:122-136`).
 
-A stop-gap fix for these is a separate direct-PR bug fix (see Migration Plan) and does not depend on this change.
+The operator chose not to patch the current external-link flow, since the renderer swap in this change deletes it.
 
 **FileBrowser is archived.** The helper image prints the project's wind-down notice at startup. The repo was archived 2026-09-01, the final release is v2.63.23, and advisories remain unfixed (non-revocable JWTs among them). `:latest` is frozen.
 
@@ -55,7 +57,7 @@ A stop-gap fix for these is a separate direct-PR bug fix (see Migration Plan) an
 - Browsing volumes of games whose infrastructure is not applied.
 - Removing the 30–60 s helper cold start.
 - Changing infra, IAM, or `deployment-config.json`.
-- The stop-gap fix for the external link (separate direct PR).
+- Fixing or polishing the current external-link flow (focus, logging, Copy URL). It is deleted by this change.
 
 ## Decisions
 
@@ -70,7 +72,7 @@ A stop-gap fix for these is a separate direct-PR bug fix (see Migration Plan) an
 - **Alternatives considered**:
   - (a) `WebContentsView` embedding FileBrowser's SPA in an in-memory partition, with `setCertificateVerifyProc` pinning, a navigation allowlist, deny-all permission handlers, and the JWT seeded via cookie + localStorage, or FileBrowser proxy auth via an injected header. Rejected: unpatched remote UI, a token in renderer-adjacent storage (proxy auth trusts anyone who can set the header), z-order/bounds complexity, and the archived UI becoming our product surface. `BrowserView` is deprecated and `<webview>` is discouraged upstream, so (a) would have meant `WebContentsView`.
   - (c) Hybrid (native core plus embedded SPA as "Advanced"). Rejected for v1: it inherits all of (a)'s costs for long-tail features.
-  - Keep the external browser and fix the stop-gap bugs only. Rejected as the target state, because plaintext HTTP, a hand-copied password and the egress-mismatch fragility remain. The stop-gap still ships separately.
+  - Keep the external browser and only fix its rough edges (focus, logging, polling). Rejected, because plaintext HTTP, a hand-copied password, a context switch out of the app and the egress-mismatch fragility remain.
 
 ### D2: Transport stays public IP + operator `/32` + pinned TLS, now for browse too
 - **Choice**: Browse launches use `buildTlsContainerSettings` exactly like upload launches. The per-launch `EphemeralCert` fingerprint is pinned by the backend client on every request. Ingress is the existing app-managed `/32` for the main process's detected IP.
@@ -161,12 +163,6 @@ A stop-gap fix for these is a separate direct-PR bug fix (see Migration Plan) an
 
 ## Migration Plan
 
-0. **Prerequisite — stop-gap bug fix (direct PR, independent of this change):**
-   - log `shell.openExternal` outcomes through `logger` and toast on failure (`electron-entry.ts:44-51`);
-   - keep polling while `state === 'running' && !url` (`use-file-manager.hook.ts:122-136`);
-   - add a Copy URL button beside the link.
-
-   This unblocks the operator now and makes the next failure diagnosable.
 1. Archive `add-folder-volume-upload` so `openspec/specs/game-volume-folder-upload/spec.md` exists for this change's delta.
 2. Ship the PR stack in `tasks.md` order. Each PR passes lint, typecheck, unit, plus integration/e2e where relevant, on its own. The renderer swap (new page + removal of modal, link and credentials) lands in one PR so there is never a window where neither path works.
 3. No infra apply, IAM change or data migration. Helpers launched by an older build are handled by the orphan path (Restart) and the startup sweep.

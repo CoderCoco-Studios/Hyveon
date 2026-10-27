@@ -2,7 +2,7 @@
 PR stack (per .claude/rules/pr-stacking.md). Each numbered group from 1 to 5 is one PR, branched from the previous group's branch; group 1 bases on `main`.
 Every PR must pass `npm run app:lint`, `app:typecheck` and `app:test` with exit code 0, plus `app:test:integration` (groups 2–3) and `app:test:e2e` (groups 3–4).
 Docs ship in the PR whose behaviour they describe (no dedicated docs PR).
-The stop-gap external-link fix is NOT part of this stack. It is a separate direct bug-fix PR off `main` (design.md Migration Plan step 0) and can merge before or during this stack.
+The current external-link flow is not patched separately; group 4 deletes it.
 -->
 
 ## 0. Prerequisites (no code PR)
