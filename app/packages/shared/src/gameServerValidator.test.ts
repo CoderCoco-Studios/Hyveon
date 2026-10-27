@@ -10,6 +10,7 @@ import {
   validateHealthCheckAuthInput,
   PINNED_HOSTNAME_PATTERN_DESCRIPTION,
   HOSTNAME_SHIM_MOUNT_PATH,
+  HOSTNAME_SHIM_RESERVED_NAME,
 } from './gameServerValidator.js';
 import { redactGameServer } from './gameServerConfig.js';
 import type { GameServer } from './gameServerConfig.js';
@@ -1129,6 +1130,26 @@ describe('pinnedHostname', () => {
       volumes: [{ name: 'data', container_path: containerPath }],
     });
     expect(issuesAt(proposed, 'volumes[0].container_path')).toHaveLength(1);
+  });
+
+  it('should reject a volume named hostname-shim', () => {
+    const proposed = makeProposed({
+      pinnedHostname: 'foundry',
+      volumes: [{ name: HOSTNAME_SHIM_RESERVED_NAME, container_path: '/data' }],
+    });
+    expect(issuesAt(proposed, 'volumes[0].name')).toHaveLength(1);
+  });
+
+  it('should reject a game named hostname-shim', () => {
+    const result = validateGameServer(HOSTNAME_SHIM_RESERVED_NAME, makeProposed({ pinnedHostname: 'foundry' }), []);
+    expect(result.success ? [] : result.issues.filter((i) => i.path === 'name')).toHaveLength(1);
+  });
+
+  it('should leave the hostname-shim names free when the field is absent', () => {
+    const proposed = makeProposed({ volumes: [{ name: HOSTNAME_SHIM_RESERVED_NAME, container_path: '/data' }] });
+    expect(issuesAt(proposed, 'volumes[0].name')).toHaveLength(0);
+    const result = validateGameServer(HOSTNAME_SHIM_RESERVED_NAME, makeProposed({}), []);
+    expect(result.success ? [] : result.issues.filter((i) => i.path === 'name')).toHaveLength(0);
   });
 
   it('should allow a sibling path that merely shares the reserved prefix', () => {

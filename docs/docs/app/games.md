@@ -346,7 +346,7 @@ If you also declare your own `NODE_OPTIONS` variable, Hyveon keeps your flags an
 The pre-filled value is copied from the name once, at the moment you flip the switch.
 It does not follow later edits to the game name, so change the field yourself if you rename the game before submitting.
 
-When the switch is on, you cannot declare a volume whose container path is `/hyveon/hostname-shim` or anywhere under it, because Hyveon mounts its preload script there.
+When the switch is on, you cannot declare a volume whose container path is `/hyveon/hostname-shim` or anywhere under it, because Hyveon mounts its preload script there. The game name and volume names also can't be `hostname-shim` while it's on, because Hyveon uses that name for its helper container and volume.
 The Storage step shows an error against that volume.
 
 Two caveats to know before you rely on it:

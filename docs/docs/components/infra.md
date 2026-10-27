@@ -381,7 +381,7 @@ What this does not do:
 - It leaves the Caddy sidecar definition as it was, for HTTPS games too.
 - It changes nothing for games without `pinnedHostname`: no init container, volume, mount, `dependsOn`, or `NODE_OPTIONS` entry is added.
 
-The shared validator reserves `/hyveon/hostname-shim` (and anything beneath it) so a game volume's `container_path` can't collide with the shim mount when `pinnedHostname` is set.
+The shared validator reserves `/hyveon/hostname-shim` (and anything beneath it) so a game volume's `container_path` can't collide with the shim mount when `pinnedHostname` is set. It also rejects a game or a volume named `hostname-shim` in that case, because either would collide with the init container's name or its `{game}-hostname-shim` task volume.
 
 ## The runs table invariant — bootstrap-managed, not Pulumi-managed
 

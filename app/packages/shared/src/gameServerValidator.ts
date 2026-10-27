@@ -67,6 +67,9 @@ export const PINNED_HOSTNAME_PATTERN_DESCRIPTION =
 /** Container path reserved for the hostname shim volume when {@link GameServer.pinnedHostname} is set. */
 export const HOSTNAME_SHIM_MOUNT_PATH = '/hyveon/hostname-shim';
 
+/** Name of the hostname shim init container and volume suffix; a game or volume of this name would collide with them. */
+export const HOSTNAME_SHIM_RESERVED_NAME = 'hostname-shim';
+
 /** Zod schema mirroring {@link GameServerPort}. */
 export const gameServerPortSchema = z.object({
   container: z.number(),
@@ -853,10 +856,11 @@ function checkReservedHttpsPortsAcrossDeployment(
 
 /**
  * Validates {@link GameServer.pinnedHostname}: the value must match {@link PINNED_HOSTNAME_PATTERN}, and no volume may
- * mount at or under {@link HOSTNAME_SHIM_MOUNT_PATH}, which the hostname shim volume occupies. A no-op when the field
- * is absent, so the reserved path stays free for games that don't pin a hostname.
+ * mount at or under {@link HOSTNAME_SHIM_MOUNT_PATH}, which the hostname shim volume occupies. Neither the game nor any
+ * volume may be named {@link HOSTNAME_SHIM_RESERVED_NAME}, which would collide with the init container or its task
+ * volume. A no-op when the field is absent, so these names stay free for games that don't pin a hostname.
  */
-function checkPinnedHostname(entry: GameServerEntryInput): GameServerValidationIssue[] {
+function checkPinnedHostname(gameName: string, entry: GameServerEntryInput): GameServerValidationIssue[] {
   const { pinnedHostname } = entry;
   if (pinnedHostname === undefined) {
     return [];
@@ -871,8 +875,21 @@ function checkPinnedHostname(entry: GameServerEntryInput): GameServerValidationI
     });
   }
 
+  if (gameName === HOSTNAME_SHIM_RESERVED_NAME) {
+    issues.push({
+      path: 'name',
+      message: `Game name must not be "${HOSTNAME_SHIM_RESERVED_NAME}" when pinnedHostname is set; it names the init container.`,
+    });
+  }
+
   entry.volumes.forEach((volume, index) => {
     const path = volume.container_path;
+    if (volume.name === HOSTNAME_SHIM_RESERVED_NAME) {
+      issues.push({
+        path: `volumes[${index}].name`,
+        message: `volumes[${index}].name must not be "${HOSTNAME_SHIM_RESERVED_NAME}"; it is reserved for pinnedHostname.`,
+      });
+    }
     if (path === HOSTNAME_SHIM_MOUNT_PATH || path.startsWith(`${HOSTNAME_SHIM_MOUNT_PATH}/`)) {
       issues.push({
         path: `volumes[${index}].container_path`,
@@ -973,7 +990,7 @@ export function validateGameServer(
     issues.push(...checkEnvironmentValueTokens(parsed.data));
     issues.push(...checkConnectMessagePlaceholders(parsed.data.connect_message));
     issues.push(...checkHealthCheckRules(parsed.data));
-    issues.push(...checkPinnedHostname(parsed.data));
+    issues.push(...checkPinnedHostname(name, parsed.data));
   }
 
   // Port-collision and HTTPS-rule detection only need `ports` (and, for

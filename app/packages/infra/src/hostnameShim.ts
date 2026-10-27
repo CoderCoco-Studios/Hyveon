@@ -6,7 +6,7 @@
  * and the `NODE_OPTIONS` merge — {@link defineEcs} only wires them into the task definition.
  */
 
-import { HOSTNAME_SHIM_MOUNT_PATH, type GameServerEnvironmentVariable } from '@hyveon/shared';
+import { HOSTNAME_SHIM_MOUNT_PATH, HOSTNAME_SHIM_RESERVED_NAME, type GameServerEnvironmentVariable } from '@hyveon/shared';
 
 /**
  * Init-container image. Exact tag so task definitions stay reproducible; ECR Public mirror avoids Docker Hub anonymous
@@ -15,7 +15,7 @@ import { HOSTNAME_SHIM_MOUNT_PATH, type GameServerEnvironmentVariable } from '@h
 export const HOSTNAME_SHIM_IMAGE = 'public.ecr.aws/docker/library/busybox:1.38.0';
 
 /** Name of the init container, also its `dependsOn` target and `awslogs` stream prefix. */
-export const HOSTNAME_SHIM_CONTAINER_NAME = 'hostname-shim';
+export const HOSTNAME_SHIM_CONTAINER_NAME = HOSTNAME_SHIM_RESERVED_NAME;
 
 /** Container path of the generated shim file inside the shared volume. */
 const HOSTNAME_SHIM_FILE_PATH = `${HOSTNAME_SHIM_MOUNT_PATH}/hostname-shim.js`;

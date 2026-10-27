@@ -223,7 +223,8 @@ describe('GameWizardDraftService', () => {
 
     it('should reject a draft whose pinnedHostname is not a string', () => {
       const stored: StoredGameWizardDraft = {
-        draft: { ...sampleDraft, pinnedHostname: 42 as unknown as string },
+        // @ts-expect-error intentionally malformed to test runtime rejection
+        draft: { ...sampleDraft, pinnedHostname: 42 },
         stepIndex: 4,
         savedAt: '2026-08-09T00:00:00.000Z',
       };
