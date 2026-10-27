@@ -7,7 +7,7 @@ The current external-link flow is not patched separately; group 4 deletes it.
 
 ## 0. Prerequisites (no code PR)
 
-- [ ] 0.1 Archive `add-folder-volume-upload` (`/opsx:archive`) so `openspec/specs/game-volume-folder-upload/spec.md` exists for this change's MODIFIED delta, then rebase this change's branch on it.
+- [x] 0.1 Archive `add-folder-volume-upload` (`/opsx:archive`) so `openspec/specs/game-volume-folder-upload/spec.md` exists for this change's MODIFIED delta, then rebase this change's branch on it.
 - [x] 0.2 Record the operator's answers to design.md Open Questions 1–6 in design.md. Adjust the affected tasks below if any answer differs from the default.
 
 ## 1. PR 1 — `refactor(desktop-main)`: volume file backend interface and path safety

@@ -34,7 +34,7 @@
 - [x] 4.1 Run `npm run app:lint`, `app:typecheck`, `app:test`, `app:test:integration`, `app:test:e2e`
 - [ ] 4.2 Manual run against a real deployment with `/mnt/d/Desktop/gameserver_files/FoundryVTT` (`Config` + `Data` only): watch the meter, interrupt and resume, confirm counts/sizes on the volume, record total time
 - [x] 4.3 Update docs via `write-docs` (`components/management-app.md`, games/dashboard app pages, `architecture.md`; note the HTTP-helper security posture)
-- [ ] 4.4 Sync specs (`/opsx:sync`) once implemented
+- [x] 4.4 Sync specs (`/opsx:sync`) once implemented
 
 ## 5. Overwrite confirmation
 
