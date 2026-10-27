@@ -86,13 +86,14 @@
   - `ipv4 wrapper coexists`: field + `command` + ipv4 token → wrapper `entryPoint` kept, merged `NODE_OPTIONS` present.
 - [ ] **Step 4: Run** `npx vitest run app/packages/infra/src/hostnameShim.test.ts app/packages/infra/src/ecs.test.ts` — expected FAIL.
 - [ ] **Step 5: Implement** `hostnameShim.ts`. Shim body is exactly `const os = require('node:os');\nos.hostname = () => ${JSON.stringify(hostname)};\n`. Container command: `` `echo ${base64} | base64 -d > ${HOSTNAME_SHIM_MOUNT_PATH}/hostname-shim.js` ``.
-- [ ] **Step 6: Wire into `ecs.ts`.** Only when `config.pinnedHostname !== undefined`: push the volume, apply `mergeNodeOptions` to `resolvedEnvironment` before `usesIpv4Token` and the wrapper are computed, add `dependsOn` + the read-only mount to the game container, and push the init container with `logConfiguration(logGroupName, awsRegion, 'hostname-shim')`. The no-field path must not change key order or add empty arrays.
+- [ ] **Step 6: Wire into `ecs.ts`.** Widen `logConfiguration`'s `streamPrefix` to `'ecs' | 'caddy' | 'hostname-shim'`. Only when `config.pinnedHostname !== undefined`: push the volume, apply `mergeNodeOptions` to `resolvedEnvironment` before `usesIpv4Token` and the wrapper are computed, add `dependsOn` + the read-only mount to the game container, and push the init container with `logConfiguration(logGroupName, awsRegion, 'hostname-shim')`. The no-field path must not change key order or add empty arrays.
 - [ ] **Step 7: Run** the Step 4 command — expected PASS. Then `npm run app:typecheck` — clean.
 - [ ] **Step 8: Commit** `feat(infra): pin game hostname via NODE_OPTIONS shim init container`.
 
 ### Task 3: Wizard control
 
 **Files:**
+- Modify (type copies): `app/packages/desktop-preload/src/hyveon-api.ts` (`GameServer` ~L433), `app/packages/web/src/api.service.ts` (`GameWizardDraft` ~L145), `app/packages/desktop-main/src/services/ElectronStoreService.ts` (`GameWizardDraft` ~L108), `app/packages/desktop-main/src/services/GameWizardDraftService.ts` (`isGameWizardDraft` ~L145)
 - Modify: `app/packages/web/src/components/add-game-wizard/wizard-form.utils.ts` (`WizardDraft` ~L153, `createEmptyWizardDraft`, `draftFromGameServer`, `draftToPayload`, `toProposedEntry`, `stepForIssuePath`)
 - Modify: `app/packages/web/src/components/add-game-wizard/environment-step.component.tsx`
 - Modify: `app/packages/web/src/components/add-game-wizard/review-step.component.tsx`
@@ -107,6 +108,7 @@
   - environment step: `helper text states Node.js requirement` (text matches `/Node\.js game servers only/`); `enabling pre-fills game name` (`name: 'foundry'` → field value `foundry`, `onChange` called with `{ pinnedHostname: 'foundry' }`); `disabling clears` (→ `{ pinnedHostname: undefined }`); `enabling with empty name shows validation` (issue at `pinnedHostname` rendered next to the field); `shows issue message for invalid value`.
   - review step: `lists pinned hostname` when set; nothing when `undefined`.
   - edit form: `loads existing pinnedHostname` → switch checked, field shows `my_foundry_host`.
+  - draft guard (`GameWizardDraftService` tests): `accepts draft with pinnedHostname string`, `accepts draft without pinnedHostname`, `rejects non-string pinnedHostname`.
 - [ ] **Step 2: Run** `npx vitest run app/packages/web/src/components/add-game-wizard app/packages/web/src/components/edit-game-form` — expected FAIL.
 - [ ] **Step 3: Implement.** Switch id `pin-hostname-toggle`, input id `pinned-hostname-input`. Helper text (exact copy from design D8): "Node.js game servers only. Pins the hostname the Node process sees, for games whose license is bound to the hostname (e.g. Foundry VTT). Has no effect on games that don't run on Node; check what your image runs before enabling. Enabling this on an existing game requires accepting the EULA one more time." Extend the step's `Pick<WizardDraft, …>` props to include `pinnedHostname` and `name`.
 - [ ] **Step 4: Run** the Step 2 command — expected PASS.
@@ -115,9 +117,11 @@
 ### Task 4: Docs and field audit
 
 **Files:**
+- Modify: `app/packages/desktop-main/src/services/diagnosticsBundleAllowlist.ts` (+ its test)
 - Modify: `docs/docs/components/infra.md`, `docs/docs/app/games.md`
 
-- [ ] **Step 1:** Run the `write-docs` skill over the branch diff. `infra.md`: opted-in task-definition contents (init container, ephemeral volume, mount, `NODE_OPTIONS` merge, no new resources). `games.md`: the control, Node.js-only requirement, one-time EULA, dependency on the game reading `os.hostname()`.
+- [ ] **Step 0:** Add `hasPinnedHostname: boolean` to the per-game diagnostics summary, with a test asserting the flag and that the hostname value itself is absent.
+- [ ] **Step 1:** Run the `write-docs` skill over the branch diff. `infra.md`: new file-table row for `hostnameShim.ts`, `ecs.ts` row mentions the init container and ephemeral volume, opted-in task-definition contents (init container, ephemeral volume, mount, `NODE_OPTIONS` merge, no new resources). `games.md`: the control, Node.js-only requirement, one-time EULA, dependency on the game reading `os.hostname()`.
 - [ ] **Step 2:** Dispatch `deployment-config-field-auditor` on the diff; fix every gap it reports.
 - [ ] **Step 3: Commit** `docs: document pinned hostname`.
 

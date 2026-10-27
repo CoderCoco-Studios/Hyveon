@@ -34,6 +34,8 @@ None. Existing requirements (`pulumi-infra-program`'s typed config model and tok
 - `@hyveon/shared`: `GameServer.pinnedHostname` + TSDoc (`gameServerConfig.ts`); `gameServerSchema` field + `checkPinnedHostname` deep rule + reserved-path constant (`gameServerValidator.ts`).
 - `@hyveon/infra`: new `hostnameShim.ts` (shim source, init-container builder, `NODE_OPTIONS` merge); `ecs.ts` wires it into the per-game task definition.
 - `@hyveon/web`: `WizardDraft` + `draftFromGameServer`/`draftToPayload`/`toProposedEntry` (`wizard-form.utils.ts`), `environment-step.component.tsx`, `review-step.component.tsx`.
-- Docs: `docs/docs/components/infra.md` (task-definition contents), `docs/docs/app/games.md` (the new control and its caveats).
+- Mirrored type copies: `GameServer` in `@hyveon/desktop-preload`'s `hyveon-api.ts`; `GameWizardDraft` in `@hyveon/web`'s `api.service.ts` and `@hyveon/desktop-main`'s `ElectronStoreService.ts`, plus the `isGameWizardDraft` guard in `GameWizardDraftService.ts`. Removing those copies is out of scope; this change only keeps them in step.
+- `@hyveon/desktop-main`: `diagnosticsBundleAllowlist.ts` gains a `hasPinnedHostname` flag.
+- Docs: `docs/docs/components/infra.md` (new `hostnameShim.ts` row, `ecs.ts` row, task-definition contents), `docs/docs/app/games.md` (the new control and its caveats).
 - AWS: no new resources. Opted-in games get a revised task definition with one extra container and one ephemeral volume. One extra public image pull (~2 MB) per start for those games.
 - Invariants preserved: no ECS Service, all per-game wiring stays inside the `gameServers` fan-out, Caddy sidecar untouched, no secrets in config.
