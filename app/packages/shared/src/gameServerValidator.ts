@@ -15,6 +15,7 @@
 
 import { z } from 'zod';
 import { isIcmpProtocol, type GameServer, type GameServerPort } from './gameServerConfig.js';
+import { isReservedHttpsPort } from './gameServerPorts.js';
 import { ALLOWED_HYVEON_ENV_TOKENS, HYVEON_ENV_TOKENS, findHyveonTokenCandidates, valueUsesToken } from './envTokens.js';
 
 /**
@@ -295,6 +296,7 @@ export const gameServerSchema = z.object({
   volumes: z
     .array(gameServerVolumeSchema)
     .min(1, 'Each game server must have at least one volume entry with non-empty name and container_path.'),
+  webPort: z.number().optional(),
   https: z.boolean().optional(),
   connect_message: z.string().optional(),
   file_seeds: z.array(gameServerFileSeedSchema).optional(),
@@ -694,10 +696,48 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Structural HTTPS port rules for a single `https: true` game server: it must declare at least
- * one port, the first port must use protocol `tcp` (exact, lowercase), every port protocol must
- * be `tcp` or `udp`, and no port may use container port 80 or 443 (reserved for the in-task Caddy
- * sidecar).
+ * Validates `webPort` against `https`: required, an integer in 1-65535 and not
+ * 80/443 when `https` is true; forbidden otherwise. Takes the raw proposed
+ * value so it runs even when the rest of the entry fails to parse (wizard
+ * drafts); a non-number is left to {@link gameServerSchema}.
+ */
+function checkWebPortRules(isHttps: boolean, webPort: unknown): GameServerValidationIssue[] {
+  if (!isHttps) {
+    return webPort === undefined
+      ? []
+      : [{ path: 'webPort', message: 'webPort is only valid when https = true; remove it or enable https.' }];
+  }
+  if (webPort === undefined) {
+    return [
+      {
+        path: 'webPort',
+        message:
+          'An https = true game server must declare webPort, the port its web server listens on (e.g. 30000 for Foundry VTT).',
+      },
+    ];
+  }
+  if (typeof webPort !== 'number') {
+    return [];
+  }
+  if (!Number.isInteger(webPort) || webPort < 1 || webPort > 65535) {
+    return [{ path: 'webPort', message: `webPort must be an integer between 1 and 65535, got ${webPort}.` }];
+  }
+  if (isReservedHttpsPort(webPort)) {
+    return [
+      {
+        path: 'webPort',
+        message: `webPort ${webPort} is reserved: Caddy serves ports 80 and 443 publicly on an https = true game server. Enter the port your game's own web server listens on (e.g. 30000 for Foundry VTT); Caddy proxies 443 to it.`,
+      },
+    ];
+  }
+  return [];
+}
+
+/**
+ * Structural HTTPS rules for the additional `ports` of an `https: true` game
+ * server: every protocol must be `tcp` or `udp`, no port may use container
+ * port 80 or 443 (reserved for the in-task Caddy sidecar), and no tcp entry
+ * may duplicate `webPort`. An empty list is valid.
  *
  * Only needs `ports` to be structurally valid — like {@link checkPortCollisions},
  * it's called independently of whether the rest of the entry parses, so a
@@ -706,23 +746,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * than silently skipping every business rule because `gameServerSchema` failed
  * on an unrelated field.
  */
-function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue[] {
+function checkHttpsPortRules(ports: GameServerPort[], webPort: unknown): GameServerValidationIssue[] {
   const issues: GameServerValidationIssue[] = [];
-
-  if (ports.length === 0) {
-    issues.push({
-      path: 'ports',
-      message: 'An https = true game server must declare at least one port.',
-    });
-    return issues;
-  }
-
-  if (ports[0]?.protocol !== 'tcp') {
-    issues.push({
-      path: 'ports[0]',
-      message: 'The first port entry of an https = true game server must use protocol "tcp" (exact, lowercase).',
-    });
-  }
 
   ports.forEach((port, index) => {
     if (port.protocol !== 'tcp' && port.protocol !== 'udp') {
@@ -731,10 +756,16 @@ function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue
         message: `ports[${index}].protocol must be "tcp" or "udp" for an https = true game server, got "${port.protocol}".`,
       });
     }
-    if (port.container === 80 || port.container === 443) {
+    if (isReservedHttpsPort(port.container)) {
       issues.push({
         path: `ports[${index}]`,
-        message: `ports[${index}] uses container port ${port.container}, which is reserved for the Caddy sidecar on an https = true game server. Enter your game's own listen port (e.g. 30000 for Foundry VTT); Caddy terminates TLS on 443 and proxies to the first port.`,
+        message: `ports[${index}] uses container port ${port.container}, which is reserved for the Caddy sidecar on an https = true game server. Enter your game's own listen port instead; Caddy terminates TLS on 443 and proxies to webPort.`,
+      });
+    }
+    if (port.protocol === 'tcp' && port.container === webPort) {
+      issues.push({
+        path: `ports[${index}]`,
+        message: `ports[${index}] duplicates webPort ${port.container}/tcp; webPort is already served through Caddy, so list only additional ports here.`,
       });
     }
   });
@@ -784,7 +815,7 @@ function checkIcmpPortRules(ports: GameServerPort[]): GameServerValidationIssue[
 
 /** `true` for container port 443 or 80 on protocol `tcp` (case-insensitively, like {@link portKey}) — the Caddy sidecar's fixed, unconditional ingress. `443/udp`/`80/udp` never collide with it, since Caddy only ever binds `tcp`. */
 function isCaddyReservedPort(port: GameServerPort): boolean {
-  return (port.container === 443 || port.container === 80) && port.protocol.toLowerCase() === 'tcp';
+  return isReservedHttpsPort(port.container) && port.protocol.toLowerCase() === 'tcp';
 }
 
 /**
@@ -916,10 +947,11 @@ function checkHealthCheckRules(entry: GameServerEntryInput): GameServerValidatio
 
   const issues: GameServerValidationIssue[] = [];
 
-  if (!entry.ports.some((port) => port.container === healthCheck.port && port.protocol === 'tcp')) {
+  const targetsWebPort = entry.webPort !== undefined && healthCheck.port === entry.webPort;
+  if (!targetsWebPort && !entry.ports.some((port) => port.container === healthCheck.port && port.protocol === 'tcp')) {
     issues.push({
       path: 'healthCheck.port',
-      message: `healthCheck.port ${healthCheck.port} is not among this game server's declared tcp ports.`,
+      message: `healthCheck.port ${healthCheck.port} is not among this game server's declared tcp ports or its webPort.`,
     });
   }
 
@@ -998,14 +1030,16 @@ export function validateGameServer(
   // independently of whether the rest of the entry parsed cleanly — a
   // structurally incomplete draft (e.g. missing `volumes`) must not
   // silently swallow HTTPS feedback.
+  const isHttps = isRecord(proposed) && proposed['https'] === true;
+  const webPort = isRecord(proposed) ? proposed['webPort'] : undefined;
+  issues.push(...checkWebPortRules(isHttps, webPort));
   const portsResult = z
     .array(gameServerPortSchema)
     .safeParse(isRecord(proposed) ? proposed['ports'] : undefined);
   if (portsResult.success) {
     issues.push(...checkPortCollisions(name, portsResult.data, existingGameServers));
-    const isHttps = isRecord(proposed) && proposed['https'] === true;
     if (isHttps) {
-      issues.push(...checkHttpsPortRules(portsResult.data));
+      issues.push(...checkHttpsPortRules(portsResult.data, webPort));
     } else {
       issues.push(...checkIcmpPortRules(portsResult.data));
     }

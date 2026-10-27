@@ -16,6 +16,8 @@ export interface DiagnosticsGameServerSummary {
   memory: number;
   portCount: number;
   https: boolean;
+  /** Whether `webPort` is set; the port value itself is never included. */
+  hasWebPort: boolean;
   volumeCount: number;
   hasHealthCheck: boolean;
   hasPinnedHostname: boolean;
@@ -58,6 +60,7 @@ function summarizeGameServer(game: GameServer): DiagnosticsGameServerSummary {
     memory: game.memory,
     portCount: game.ports.length,
     https: game.https ?? false,
+    hasWebPort: game.webPort !== undefined,
     volumeCount: game.volumes.length,
     hasHealthCheck: game.healthCheck != null,
     hasPinnedHostname: game.pinnedHostname != null,

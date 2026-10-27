@@ -227,6 +227,41 @@ describe('GameWizardDraftService', () => {
       expect(service.get()).toBeNull();
     });
 
+    it('should normalise a legacy https draft so ports[0] becomes webPort', () => {
+      const stored: StoredGameWizardDraft = {
+        draft: {
+          ...sampleDraft,
+          https: true,
+          ports: [
+            { container: 30000, protocol: 'tcp', visibility: 'public' },
+            { container: 27015, protocol: 'udp', visibility: 'public' },
+          ],
+        },
+        stepIndex: 1,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      };
+      const service = new GameWizardDraftService(makeStore(stored));
+
+      const result = service.get();
+
+      expect(result?.draft.webPort).toBe(30000);
+      expect(result?.draft.ports).toEqual([{ container: 27015, protocol: 'udp', visibility: 'public' }]);
+    });
+
+    it('should leave a draft that already has a webPort unchanged', () => {
+      const stored: StoredGameWizardDraft = {
+        draft: { ...sampleDraft, https: true, webPort: 30000, ports: [] },
+        stepIndex: 1,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      };
+      const service = new GameWizardDraftService(makeStore(stored));
+
+      const result = service.get();
+
+      expect(result?.draft.webPort).toBe(30000);
+      expect(result?.draft.ports).toEqual([]);
+    });
+
     it('should blank out healthCheck.secretArn while preserving secretSet before returning the draft', () => {
       const draftWithSecret: GameWizardDraft = {
         ...sampleDraft,

@@ -3,7 +3,7 @@ import type { DriftChangedField, DriftEntry, DriftReport, GameServer, StackOutpu
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
-import { errMessage } from '@hyveon/shared';
+import { errMessage, normalizeGameServer } from '@hyveon/shared';
 
 /**
  * Config fields compared for a `'config_drift'` finding, paired with the
@@ -14,7 +14,8 @@ const COMPARED_FIELDS: { field: DriftChangedField; get: (g: Omit<GameServer, 'na
   { field: 'image', get: (g) => g.image },
   { field: 'cpu', get: (g) => g.cpu },
   { field: 'memory', get: (g) => g.memory },
-  { field: 'ports', get: (g) => g.ports },
+  // `webPort` is folded into the `ports` finding (no separate DriftChangedField) as a marker entry.
+  { field: 'ports', get: (g) => (g.webPort === undefined ? g.ports : [...g.ports, { webPort: g.webPort }]) },
   { field: 'volumes', get: (g) => g.volumes },
 ];
 
@@ -76,9 +77,15 @@ function changedFields(
   declared: Omit<GameServer, 'name'>,
   applied: Omit<GameServer, 'name'>,
 ): DriftChangedField[] {
+  // Deprecated legacy shape: a snapshot applied before `webPort` existed still has `ports[0]` as the upstream.
+  const declaredNormalised = normalizeGameServer(declared);
+  const appliedNormalised = normalizeGameServer(applied);
   return COMPARED_FIELDS.filter(
     ({ field, get }) =>
-      !deepEqual(normalizeForComparison(field, get(declared)), normalizeForComparison(field, get(applied))),
+      !deepEqual(
+        normalizeForComparison(field, get(declaredNormalised)),
+        normalizeForComparison(field, get(appliedNormalised)),
+      ),
   ).map(({ field }) => field);
 }
 

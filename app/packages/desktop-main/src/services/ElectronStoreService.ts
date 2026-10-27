@@ -117,6 +117,11 @@ export interface GameWizardDraft {
   file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
   environment: { name: string; value: string }[];
   https: boolean;
+  /**
+   * Caddy upstream port for an https draft. Absent on a draft autosaved before this field existed —
+   * {@link GameWizardDraftService} normalises a legacy https draft (`ports[0]` as upstream) on read.
+   */
+  webPort?: number | null;
   /** Absent on a draft autosaved before this field existed — {@link GameWizardDraftService} backfills `[]` on read. */
   command?: string[];
   /** Absent when the "Pin hostname" switch is off. */

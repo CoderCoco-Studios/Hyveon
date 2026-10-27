@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ADD_GAME_WIZARD_STEPS, errMessage } from '@hyveon/shared';
+import { ADD_GAME_WIZARD_STEPS, errMessage, normalizeGameServer } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService, type GameWizardDraft, type StoredGameWizardDraft } from './ElectronStoreService.js';
 
@@ -41,7 +41,9 @@ export class GameWizardDraftService {
         }
         return null;
       }
-      return redactSecretFields(backfillCommand(backfillHealthCheck(backfillPortVisibility(stored))));
+      return redactSecretFields(
+        backfillCommand(backfillHealthCheck(backfillPortVisibility(backfillLegacyHttpsWebPort(stored)))),
+      );
     } catch (err) {
       logger.warn(`GameWizardDraftService: failed to read draft, treating as absent (${errorMessage(err)})`);
       return null;
@@ -285,6 +287,17 @@ function backfillHealthCheck(stored: StoredGameWizardDraft): StoredGameWizardDra
       healthCheck: { ...hc, authType: hc.secretSet ? 'raw' : 'none', username: '', password: '', token: '' },
     },
   };
+}
+
+/**
+ * Normalises a draft autosaved with the deprecated legacy https shape (no
+ * `webPort`, `ports[0]` as the upstream) via the shared `normalizeGameServer`.
+ */
+function backfillLegacyHttpsWebPort(stored: StoredGameWizardDraft): StoredGameWizardDraft {
+  const draft = normalizeGameServer(stored.draft);
+  if (draft === stored.draft) return stored;
+  logger.debug('GameWizardDraftService: normalised legacy https draft ports');
+  return { ...stored, draft };
 }
 
 /**

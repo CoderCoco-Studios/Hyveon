@@ -404,48 +404,76 @@ describe('validateGameServer', () => {
     });
   });
 
-  describe('https port rules', () => {
-    it('should reject an https game server declaring no ports', () => {
+  describe('https web port rules', () => {
+    it('should accept a Foundry-style https game with webPort and no ports', () => {
+      const result = validateGameServer('game', makeProposed({ https: true, webPort: 30000, ports: [] }), []);
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject an https game without webPort at webPort', () => {
       const result = validateGameServer('game', makeProposed({ https: true, ports: [] }), []);
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(
-          result.issues.some((i) => i.path === 'ports' && i.message.includes('at least one port')),
-        ).toBe(true);
+        expect(result.issues.some((i) => i.path === 'webPort' && i.message.includes('must declare webPort'))).toBe(true);
       }
     });
 
-    it('should reject an https game server whose first port is not protocol tcp', () => {
-      const result = validateGameServer(
-        'game',
-        makeProposed({ https: true, ports: [{ container: 8080, protocol: 'udp' }] }),
-        [],
-      );
+    it.each([443, 80])('should reject webPort %i and explain the Caddy reservation', (webPort) => {
+      const result = validateGameServer('game', makeProposed({ https: true, webPort, ports: [] }), []);
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.issues.some((i) => i.path === 'ports[0]')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'webPort' && i.message.includes('Caddy'))).toBe(true);
       }
     });
 
-    it('should reject an https game server whose first port protocol is uppercase TCP', () => {
-      const result = validateGameServer(
-        'game',
-        makeProposed({ https: true, ports: [{ container: 8080, protocol: 'TCP' }] }),
-        [],
-      );
+    it.each([0, 65536, 8080.5, -1])('should reject out-of-range or non-integer webPort %s', (webPort) => {
+      const result = validateGameServer('game', makeProposed({ https: true, webPort, ports: [] }), []);
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.issues.some((i) => i.path === 'ports[0]')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'webPort')).toBe(true);
       }
     });
 
-    it('should reject an https game server with a port protocol other than tcp or udp', () => {
+    it('should reject webPort on a non-https game', () => {
+      const result = validateGameServer('game', makeProposed({ https: false, webPort: 30000 }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'webPort' && i.message.includes('only valid when https'))).toBe(true);
+      }
+    });
+
+    it('should reject webPort when https is omitted', () => {
+      const result = validateGameServer('game', makeProposed({ webPort: 30000 }), []);
+      expect(result.success).toBe(false);
+    });
+
+    it('should report webPort feedback even when an unrelated field fails the schema', () => {
+      const result = validateGameServer('game', makeProposed({ https: true, volumes: [] }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'webPort')).toBe(true);
+      }
+    });
+  });
+
+  describe('https additional port rules', () => {
+    it('should accept an https game whose first extra port is udp', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, webPort: 30000, ports: [{ container: 27015, protocol: 'udp' }] }),
+        [],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject an https extra port with a protocol other than tcp or udp', () => {
       const result = validateGameServer(
         'game',
         makeProposed({
           https: true,
+          webPort: 8080,
           ports: [
-            { container: 8080, protocol: 'tcp' },
+            { container: 9000, protocol: 'tcp' },
             { container: 8081, protocol: 'sctp' },
           ],
         }),
@@ -457,10 +485,19 @@ describe('validateGameServer', () => {
       }
     });
 
-    it('should reject an https game server using container port 443 and point at the app port', () => {
+    it('should reject an uppercase TCP protocol on an https extra port', () => {
       const result = validateGameServer(
         'game',
-        makeProposed({ https: true, ports: [{ container: 443, protocol: 'tcp' }] }),
+        makeProposed({ https: true, webPort: 8080, ports: [{ container: 9000, protocol: 'TCP' }] }),
+        [],
+      );
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject an https extra port using container port 443 and point at the game port', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, webPort: 8080, ports: [{ container: 443, protocol: 'tcp' }] }),
         [],
       );
       expect(result.success).toBe(false);
@@ -470,13 +507,14 @@ describe('validateGameServer', () => {
       }
     });
 
-    it('should reject an https game server using container port 80', () => {
+    it('should reject an https extra port using container port 80', () => {
       const result = validateGameServer(
         'game',
         makeProposed({
           https: true,
+          webPort: 8080,
           ports: [
-            { container: 8080, protocol: 'tcp' },
+            { container: 9000, protocol: 'tcp' },
             { container: 80, protocol: 'tcp' },
           ],
         }),
@@ -486,6 +524,53 @@ describe('validateGameServer', () => {
       if (!result.success) {
         expect(result.issues.some((i) => i.path === 'ports[1]' && i.message.includes('80'))).toBe(true);
       }
+    });
+
+    it('should reject an extra tcp port duplicating webPort at that port entry', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          https: true,
+          webPort: 30000,
+          ports: [
+            { container: 27015, protocol: 'udp' },
+            { container: 30000, protocol: 'tcp' },
+          ],
+        }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'ports[1]' && i.message.includes('webPort'))).toBe(true);
+      }
+    });
+
+    it('should accept a udp extra sharing the webPort number', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, webPort: 30000, ports: [{ container: 30000, protocol: 'udp' }] }),
+        [],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should still reject an extra colliding with another game public port', () => {
+      const existing = makeExisting({ name: 'valheim', ports: [{ container: 2456, protocol: 'udp' }] });
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, webPort: 30000, ports: [{ container: 2456, protocol: 'udp' }] }),
+        [existing],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'ports[0]' && i.message.includes('valheim'))).toBe(true);
+      }
+    });
+
+    it('should allow two https games to share the same webPort', () => {
+      const existing = makeExisting({ name: 'a', https: true, webPort: 30000, ports: [] });
+      const result = validateGameServer('b', makeProposed({ https: true, webPort: 30000, ports: [] }), [existing]);
+      expect(result.success).toBe(true);
     });
 
     it('should not report any https rule when https is false, even with a violating port list', () => {
@@ -501,15 +586,6 @@ describe('validateGameServer', () => {
       const proposed = makeProposed({ ports: [{ container: 443, protocol: 'udp' }] });
       delete (proposed as Record<string, unknown>)['https'];
       const result = validateGameServer('game', proposed, []);
-      expect(result.success).toBe(true);
-    });
-
-    it('should accept a valid https game server with a first port of 8080/tcp', () => {
-      const result = validateGameServer(
-        'game',
-        makeProposed({ https: true, ports: [{ container: 8080, protocol: 'tcp' }] }),
-        [],
-      );
       expect(result.success).toBe(true);
     });
   });
@@ -535,10 +611,8 @@ describe('validateGameServer', () => {
         'game',
         makeProposed({
           https: true,
-          ports: [
-            { container: 443, protocol: 'tcp' },
-            { container: 8, protocol: 'icmp' },
-          ],
+          webPort: 8080,
+          ports: [{ container: 8, protocol: 'icmp' }],
         }),
         [],
       );
@@ -577,7 +651,7 @@ describe('validateGameServer', () => {
     ])(
       'should reject a non-https game declaring $container/$protocol when another game has https enabled',
       ({ container, protocol }) => {
-        const existing = makeExisting({ name: 'lobby', https: true, ports: [{ container: 8080, protocol: 'tcp' }] });
+        const existing = makeExisting({ name: 'lobby', https: true, webPort: 8080, ports: [] });
         const result = validateGameServer(
           'internal-proxy',
           makeProposed({ ports: [{ container, protocol, visibility: 'internal' }] }),
@@ -603,7 +677,7 @@ describe('validateGameServer', () => {
     });
 
     it('should not flag a non-tcp port on 443 even when another game has https enabled', () => {
-      const existing = makeExisting({ name: 'lobby', https: true, ports: [{ container: 8080, protocol: 'tcp' }] });
+      const existing = makeExisting({ name: 'lobby', https: true, webPort: 8080, ports: [] });
       const result = validateGameServer(
         'internal-proxy',
         makeProposed({ ports: [{ container: 443, protocol: 'udp' }] }),
@@ -615,7 +689,7 @@ describe('validateGameServer', () => {
     it('should still reject an https:true game declaring 443 in its own ports (within-game rule unchanged)', () => {
       const result = validateGameServer(
         'game',
-        makeProposed({ https: true, ports: [{ container: 443, protocol: 'tcp' }] }),
+        makeProposed({ https: true, webPort: 8080, ports: [{ container: 443, protocol: 'tcp' }] }),
         [],
       );
       expect(result.success).toBe(false);
@@ -627,7 +701,7 @@ describe('validateGameServer', () => {
     it('should report exactly one issue (not a duplicate) when an https:true game declares its own reserved port', () => {
       const result = validateGameServer(
         'game',
-        makeProposed({ https: true, ports: [{ container: 443, protocol: 'tcp' }] }),
+        makeProposed({ https: true, webPort: 8080, ports: [{ container: 443, protocol: 'tcp' }] }),
         [],
       );
       expect(result.success).toBe(false);
@@ -642,7 +716,7 @@ describe('validateGameServer', () => {
         https: false,
         ports: [{ container: 443, protocol: 'tcp', visibility: 'internal' }],
       });
-      const result = validateGameServer('lobby', makeProposed({ https: true, ports: [{ container: 8080, protocol: 'tcp' }] }), [
+      const result = validateGameServer('lobby', makeProposed({ https: true, webPort: 8080, ports: [] }), [
         existing,
       ]);
       expect(result.success).toBe(false);
@@ -655,17 +729,17 @@ describe('validateGameServer', () => {
 
     it('should accept enabling https when no sibling declares 443/80 tcp', () => {
       const existing = makeExisting({ name: 'valheim', ports: [{ container: 2456, protocol: 'udp' }] });
-      const result = validateGameServer('lobby', makeProposed({ https: true, ports: [{ container: 8080, protocol: 'tcp' }] }), [
+      const result = validateGameServer('lobby', makeProposed({ https: true, webPort: 8080, ports: [] }), [
         existing,
       ]);
       expect(result.success).toBe(true);
     });
 
     it('should not flag the entry being edited in place against itself when it already has https enabled', () => {
-      const existing = makeExisting({ name: 'lobby', https: true, ports: [{ container: 8080, protocol: 'tcp' }] });
+      const existing = makeExisting({ name: 'lobby', https: true, webPort: 8080, ports: [] });
       const result = validateGameServer(
         'lobby',
-        makeProposed({ https: true, ports: [{ container: 8080, protocol: 'tcp' }] }),
+        makeProposed({ https: true, webPort: 8080, ports: [] }),
         [existing],
       );
       expect(result.success).toBe(true);
@@ -673,6 +747,28 @@ describe('validateGameServer', () => {
   });
 
   describe('health check', () => {
+    it('should accept a healthCheck.port equal to the https webPort', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          https: true,
+          webPort: 30000,
+          ports: [],
+          healthCheck: {
+            kind: 'http',
+            scheme: 'http',
+            port: 30000,
+            path: '/api/status',
+            method: 'GET',
+            timeoutMs: 2000,
+            activeWhen: { jsonPath: 'active', operator: 'exists' },
+          },
+        }),
+        [],
+      );
+      expect(result.success).toBe(true);
+    });
+
     /** Build a minimal, fully-valid healthCheck object targeting container port 25565; override any fields per test. */
     function makeHealthCheck(overrides: Record<string, unknown> = {}): Record<string, unknown> {
       return {

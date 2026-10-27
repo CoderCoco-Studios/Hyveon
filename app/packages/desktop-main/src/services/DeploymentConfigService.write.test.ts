@@ -239,6 +239,45 @@ describe('DeploymentConfigService write path', () => {
     });
   });
 
+  describe('legacy https round trip', () => {
+    it('should persist webPort and the shortened ports on the next save, byte-identically on a repeat save', async () => {
+      const legacy: DeploymentConfig = {
+        ...FIXTURE_CONFIG,
+        gameServers: {
+          foundry: {
+            image: 'felddy/foundryvtt',
+            cpu: 1024,
+            memory: 2048,
+            ports: [
+              { container: 30000, protocol: 'tcp' },
+              { container: 27015, protocol: 'udp' },
+            ],
+            volumes: [{ name: 'data', container_path: '/data' }],
+            https: true,
+          },
+        },
+      };
+      stubCurrentConfig(remoteFileStore, JSON.stringify(legacy, null, 2) + '\n');
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
+
+      const [{ name, ...normalised }] = await service.getGameServers();
+      expect(name).toBe('foundry');
+      await service.updateGameServer('foundry', normalised);
+      const [, firstBody] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(firstBody)) as DeploymentConfig;
+      expect(written.gameServers.foundry?.webPort).toBe(30000);
+      expect(written.gameServers.foundry?.ports).toEqual([{ container: 27015, protocol: 'udp' }]);
+
+      stubCurrentConfig(remoteFileStore, new TextDecoder().decode(firstBody));
+      service.invalidateCache();
+      const [{ name: _name, ...again }] = await service.getGameServers();
+      await service.updateGameServer('foundry', again);
+      const [, secondBody] = remoteFileStore.put.mock.calls[1] as [string, Uint8Array];
+      expect(new TextDecoder().decode(secondBody)).toBe(new TextDecoder().decode(firstBody));
+    });
+  });
+
   describe('boolean round-trip', () => {
     it('should serialize https: true as a real JSON boolean (not the string "true") when enabling HTTPS on an entry that omits the field entirely', async () => {
       stubCurrentConfig(remoteFileStore);

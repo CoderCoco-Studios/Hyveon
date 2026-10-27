@@ -99,6 +99,7 @@ describe('buildDiagnosticsConfigSummary', () => {
         memory: 2048,
         portCount: 1,
         https: true,
+        hasWebPort: false,
         volumeCount: 1,
         hasHealthCheck: true,
         hasPinnedHostname: false,
@@ -123,6 +124,15 @@ describe('buildDiagnosticsConfigSummary', () => {
 
     expect(JSON.stringify(summary)).not.toContain('palworld-host');
     expect(Object.keys(summary.gameServers[0] ?? {})).not.toContain('pinnedHostname');
+  });
+
+  it('should record webPort presence without including its value', () => {
+    const withWebPort = buildDiagnosticsConfigSummary(makeSettings(), [makeGameServer({ https: true, webPort: 30000 })]);
+    const without = buildDiagnosticsConfigSummary(makeSettings(), [makeGameServer()]);
+
+    expect(withWebPort.gameServers[0]?.hasWebPort).toBe(true);
+    expect(without.gameServers[0]?.hasWebPort).toBe(false);
+    expect(JSON.stringify(withWebPort)).not.toContain('30000');
   });
 
   it('should treat an omitted https as false', () => {

@@ -43,10 +43,9 @@ export interface GameServerPort {
    * identically to `'public'` — mirrors the {@link GameServer.https}
    * `undefined ≡ false` contract — so every configuration written before
    * this field existed keeps its current `0.0.0.0/0` ingress unchanged.
-   * Only affects non-HTTPS games: an HTTPS game's container ports are
-   * never individually security-group-ingressed (the in-task Caddy
-   * sidecar proxies to them over localhost), so this field is a no-op
-   * there.
+   * Applies to an HTTPS game's additional `ports` too; its
+   * {@link GameServer.webPort} is never ingressed (reachable only via the
+   * in-task Caddy sidecar).
    */
   visibility?: 'public' | 'internal';
 }
@@ -224,8 +223,24 @@ export interface GameServer {
    * accepts for the paired {@link cpu} tier — see {@link cpu}'s doc.
    */
   memory: number;
-  /** Container ports to expose. An `https: true` entry has additional constraints on this list — see {@link https}. */
+  /**
+   * Container ports to expose. On an `https: true` game these are optional
+   * additional ports (e.g. UDP voice) that receive security-group ingress
+   * like any other; the Caddy upstream is {@link webPort}, not an entry here.
+   *
+   * Deprecated reading: treating `ports[0]` of an `https: true` game with no
+   * {@link webPort} as the implicit upstream. That legacy shape is only
+   * normalised on read (`normalizeGameServer`) and must not be written.
+   */
   ports: GameServerPort[];
+  /**
+   * Container port the game's web server listens on — the port the Caddy
+   * sidecar proxies to (`localhost:<webPort>`). Required, an integer in
+   * 1-65535 and neither 80 nor 443 when {@link https} is `true`; must be
+   * absent otherwise. Gets no security-group ingress: it is reachable only
+   * through Caddy on 443.
+   */
+  webPort?: number;
   /** Environment variables injected into the container. Default when omitted: `[]`. */
   environment?: GameServerEnvironmentVariable[];
   /**
@@ -256,12 +271,14 @@ export interface GameServer {
    * `false`), and every write path in the UI (`add-game-wizard`,
    * `edit-game-form`) always sets an explicit `boolean` before submission,
    * so `undefined` only ever arises on the read side (a hand-edited or
-   * pre-toggle config entry). When `true`, `gameServerValidator.ts`'s
-   * `checkHttpsPortRules` requires: at least one entry in {@link ports}; the
-   * first port's `protocol` is exactly `"tcp"`; every port's `protocol` is
-   * `"tcp"` or `"udp"`; and no port uses container port `80` or `443`
-   * (reserved for the sidecar) — mirroring the same rules the app's
-   * original, retired `game_servers` validation block used to enforce.
+   * pre-toggle config entry). When `true`, {@link webPort} is required and
+   * `gameServerValidator.ts`'s `checkHttpsPortRules` requires every entry in
+   * {@link ports} to be `"tcp"` or `"udp"`, not use container port `80` or
+   * `443` (reserved for the sidecar), and not duplicate {@link webPort}.
+   *
+   * Deprecated reading: treating `ports[0]` as the implicit upstream when this
+   * is `true` and {@link webPort} is absent; kept readable only via
+   * `normalizeGameServer`.
    */
   https?: boolean;
   /**
