@@ -2,7 +2,6 @@ import { createReadStream } from 'node:fs';
 import { Transform, type Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
 import { Agent, request } from 'undici';
-import { errMessage } from '@hyveon/shared';
 import { VolumeFileError, type VolumeEntry, type VolumeFileBackend, type VolumeStat } from '../volumeFiles/VolumeFileBackend.js';
 
 /** Where and how to reach one FileBrowser helper. */
@@ -278,14 +277,15 @@ export class FileBrowserClient implements FileBrowserApi, ReadableVolumeBackend 
     throw toVolumeError(res.statusCode, op, path);
   }
 
-  /** Issues one request, mapping TLS trust failures to {@link PinMismatchError} and other network errors to `unreachable`. */
+  /** Issues one request, mapping TLS trust failures to {@link PinMismatchError} and other network errors to `unreachable`
+   * with a fixed message, since the raw error text carries the helper's address (kept only in `cause`). */
   private async send(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, init: Parameters<typeof request>[1]) {
     try {
       return await request(`${this.origin}${path}`, { ...init, method, dispatcher: this.dispatcher });
     } catch (err) {
       if (err instanceof PinMismatchError || isTrustFailure(err)) throw new PinMismatchError();
       if (err instanceof Error && err.name === 'AbortError') throw err;
-      throw new VolumeFileError('unreachable', errMessage(err), undefined, { cause: err });
+      throw new VolumeFileError('unreachable', 'The file manager helper is unreachable', undefined, { cause: err });
     }
   }
 }

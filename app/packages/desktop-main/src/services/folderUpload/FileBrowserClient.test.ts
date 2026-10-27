@@ -212,7 +212,12 @@ describe('FileBrowserClient read operations', () => {
     const { server, options } = await setup(cert, cert);
     await server.close();
     const client = new FileBrowserClient(options);
-    await expect(client.connect()).rejects.toMatchObject({ name: 'VolumeFileError', code: 'unreachable' });
+    const failure = await client.connect().catch((err: unknown) => err);
+    expect(failure).toMatchObject({ name: 'VolumeFileError', code: 'unreachable' });
+    const message = (failure as Error).message;
+    expect(message).not.toContain('127.0.0.1');
+    expect(message).not.toContain(String(options.port));
+    expect((failure as Error).cause).toBeInstanceOf(Error);
     await client.close();
   });
 });
