@@ -1,8 +1,13 @@
+import { HTTPS_CONNECT_PORT, type ConnectPort } from './gameServerPorts.js';
 import type { GameStatus } from './types.js';
 
 /**
  * Render a connect-message template, substituting `{host}`, `{ip}`, `{port}`,
  * and `{game}` placeholders with the supplied values.
+ *
+ * @remarks
+ * When `port` is {@link HTTPS_CONNECT_PORT} and a host is known, `{host}:{port}` renders as
+ * `https://{host}`; any other `{port}` renders as `443`.
  *
  * @param template - The connect-message template (e.g. `'connect at {host}:{port}'`).
  * @param values - Substitution values; `host`/`ip` default to `''` and `port` to `undefined` (rendered empty) when omitted.
@@ -10,12 +15,16 @@ import type { GameStatus } from './types.js';
  */
 export function renderConnectMessage(
   template: string,
-  values: { host?: string; ip?: string; port?: number; game: string },
+  values: { host?: string; ip?: string; port?: ConnectPort; game: string },
 ): string {
-  return template
+  const isHttps = values.port === HTTPS_CONNECT_PORT;
+  const source =
+    isHttps && values.host ? template.replace(/\{host\}:\{port\}/g, 'https://{host}') : template;
+  const port = isHttps ? '443' : values.port !== undefined ? String(values.port) : '';
+  return source
     .replace(/\{host\}/g, values.host ?? '')
     .replace(/\{ip\}/g, values.ip ?? '')
-    .replace(/\{port\}/g, values.port !== undefined ? String(values.port) : '')
+    .replace(/\{port\}/g, port)
     .replace(/\{game\}/g, values.game);
 }
 
@@ -26,9 +35,9 @@ export function renderConnectMessage(
  * a second line with host, ip, port, and game placeholders substituted.
  * When absent, falls back to the original single-line address suffix.
  *
- * @param port - First exposed port for the port placeholder (optional).
+ * @param port - First exposed port for the port placeholder, or {@link HTTPS_CONNECT_PORT} (optional).
  */
-export function formatGameStatus(status: GameStatus, connectMessage?: string, port?: number): string {
+export function formatGameStatus(status: GameStatus, connectMessage?: string, port?: ConnectPort): string {
   const emoji =
     status.state === 'running' ? '🟢'
     : status.state === 'starting' ? '🟡'

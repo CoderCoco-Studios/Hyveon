@@ -16,7 +16,7 @@ import type { DeploymentConfig, GameServerConfig } from '@hyveon/shared';
  *  - `charlie` declares a distinct port (`7777/udp`) that must survive
  *    dedup as its own rule.
  *  - `delta` is the sole `https: true` entry, so it alone should trigger the
- *    443/80 Caddy-sidecar ingress rules; its own port (`8080/tcp`) must NOT
+ *    443/80 Caddy-sidecar ingress rules; its `webPort` (`8080`) must NOT
  *    get a direct ingress rule.
  */
 export const FIXTURE_GAME_SERVERS: Record<string, GameServerConfig> = {
@@ -46,7 +46,8 @@ export const FIXTURE_GAME_SERVERS: Record<string, GameServerConfig> = {
     image: 'example/delta:latest',
     cpu: 1024,
     memory: 2048,
-    ports: [{ container: 8080, protocol: 'tcp' }],
+    ports: [],
+    webPort: 8080,
     volumes: [{ name: 'saves', container_path: '/data' }],
     https: true,
   },

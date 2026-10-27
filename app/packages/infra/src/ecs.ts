@@ -27,7 +27,7 @@
 
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import { HOSTNAME_SHIM_MOUNT_PATH, fileManagerLogGroupName, isIcmpProtocol, type GameServerConfig, type GameServerEnvironmentVariable } from '@hyveon/shared';
+import { HOSTNAME_SHIM_MOUNT_PATH, fileManagerLogGroupName, ingressPorts, isIcmpProtocol, type GameServerConfig, type GameServerEnvironmentVariable } from '@hyveon/shared';
 import { HYVEON_ENV_TOKENS, substituteHyveonToken, valueUsesToken } from '@hyveon/shared/envTokens';
 import type { EfsResources } from './efs.js';
 import { buildIpv4WrapperScript } from './envTokenWrapper.js';
@@ -134,6 +134,14 @@ function resolveGameEnvironment(
       value: substituteHyveonToken(variable.value, HYVEON_ENV_TOKENS.publicAddress, `${game}.${strippedHostedZoneName}`),
     };
   });
+}
+
+/** Returns an https game's `webPort`; a missing one means the config skipped the normalising read path. */
+function requireWebPort(game: string, config: GameServerConfig): number {
+  if (config.webPort === undefined) {
+    throw new Error(`Game "${game}" has https: true but no webPort; read games via DeploymentConfigService.`);
+  }
+  return config.webPort;
 }
 
 /**
@@ -252,19 +260,23 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
         readOnly: true,
       });
     }
+    const webPort = isHttps ? requireWebPort(game, config) : undefined;
 
     const gameContainer: Record<string, unknown> = {
       name: game,
       image: config.image,
       essential: true,
       // icmp has no transport port; ECS's portMappings rejects non-tcp/udp, so only the SG rule represents it.
-      portMappings: config.ports
-        .filter((port) => !isIcmpProtocol(port.protocol))
-        .map((port) => ({
-          containerPort: port.container,
-          hostPort: port.container,
-          protocol: port.protocol,
-        })),
+      portMappings: [
+        ...(webPort === undefined ? [] : [{ containerPort: webPort, hostPort: webPort, protocol: 'tcp' }]),
+        ...ingressPorts(config)
+          .filter((port) => !isIcmpProtocol(port.protocol))
+          .map((port) => ({
+            containerPort: port.container,
+            hostPort: port.container,
+            protocol: port.protocol,
+          })),
+      ],
       environment: gameEnvironment,
       ...(usesIpv4Token
         ? {
@@ -296,7 +308,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
           { containerPort: 443, hostPort: 443, protocol: 'tcp' },
           { containerPort: 80, hostPort: 80, protocol: 'tcp' },
         ],
-        command: ['caddy', 'reverse-proxy', '--from', `${game}.${strippedHostedZoneName}`, '--to', `localhost:${config.ports[0].container}`],
+        command: ['caddy', 'reverse-proxy', '--from', `${game}.${strippedHostedZoneName}`, '--to', `localhost:${webPort}`],
         mountPoints: [
           {
             sourceVolume: `${game}-caddy-data`,

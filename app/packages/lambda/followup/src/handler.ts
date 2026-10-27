@@ -35,7 +35,7 @@ import {
   requireEnv,
   resolveEniPublicIp,
 } from '@hyveon/shared';
-import type { DiscordAction, DiscordConfig, GameStatus } from '@hyveon/shared';
+import type { ConnectPort, DiscordAction, DiscordConfig, GameStatus } from '@hyveon/shared';
 
 interface FollowupEvent {
   kind: 'start' | 'stop' | 'status' | 'list';
@@ -74,7 +74,7 @@ function getEc2(): EC2Client {
 const CONNECT_MESSAGES: Record<string, string> = parseGameMapEnv('CONNECT_MESSAGES');
 
 /** First container port per game, used to resolve the `{port}` placeholder. Parsed defensively — see {@link parseGameMapEnv}. */
-const GAME_PORTS: Record<string, number> = parseGameMapEnv('GAME_PORTS');
+const GAME_PORTS: Record<string, ConnectPort> = parseGameMapEnv('GAME_PORTS');
 
 async function findRunningTask(cluster: string, game: string): Promise<Task | null> {
   const list = await getEcs().send(

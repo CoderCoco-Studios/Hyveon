@@ -32,6 +32,7 @@ import {
   requireEnv,
   resolveEniPublicIp,
 } from '@hyveon/shared';
+import type { ConnectPort } from '@hyveon/shared';
 
 const HOSTED_ZONE_ID = requireEnv('HOSTED_ZONE_ID');
 const DOMAIN_NAME = requireEnv('DOMAIN_NAME');
@@ -43,7 +44,7 @@ const TABLE_NAME = process.env['TABLE_NAME'] ?? '';
 const CONNECT_MESSAGES: Record<string, string> = parseGameMapEnv('CONNECT_MESSAGES');
 
 /** First container port per game, used to resolve the `{port}` placeholder. Parsed defensively — see {@link parseGameMapEnv}. */
-const GAME_PORTS: Record<string, number> = parseGameMapEnv('GAME_PORTS');
+const GAME_PORTS: Record<string, ConnectPort> = parseGameMapEnv('GAME_PORTS');
 
 const FAMILY_TO_GAME = familyToGameMap(GAME_NAMES);
 

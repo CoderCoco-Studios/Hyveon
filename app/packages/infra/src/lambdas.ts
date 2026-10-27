@@ -42,7 +42,13 @@
 import path from 'node:path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import { isIcmpProtocol, type GameServerConfig, type GameServerHealthCheck } from '@hyveon/shared';
+import {
+  HTTPS_CONNECT_PORT,
+  isIcmpProtocol,
+  type ConnectPort,
+  type GameServerConfig,
+  type GameServerHealthCheck,
+} from '@hyveon/shared';
 import type { EfsResources } from './efs.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 import type { IamRoleResources } from './iam.js';
@@ -292,12 +298,19 @@ function connectMessagesByGame(gameServers: Record<string, GameServerConfig>): R
  * entry even if it's declared first (spec: "Connect-port surfaces exclude
  * ICMP entries").
  *
+ * `https: true` games map to {@link HTTPS_CONNECT_PORT} instead of a number —
+ * the player connects through the public 443 URL, not `webPort` or an extra.
+ *
  * @param gameServers - The configured game-server map.
- * @returns A game name → first-public-container-port record, omitting games with no connectable ports.
+ * @returns A game name → first-public-container-port (or https marker) record, omitting non-https games with no connectable ports.
  */
-function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<string, number> {
-  const result: Record<string, number> = {};
+function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<string, ConnectPort> {
+  const result: Record<string, ConnectPort> = {};
   for (const game of Object.keys(gameServers).sort()) {
+    if (gameServers[game].https === true) {
+      result[game] = HTTPS_CONNECT_PORT;
+      continue;
+    }
     const connectablePorts = gameServers[game].ports.filter((port) => !isIcmpProtocol(port.protocol));
     if (connectablePorts.length === 0) {
       continue;
