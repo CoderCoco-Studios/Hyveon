@@ -15,6 +15,7 @@
 8. **Fix the shipped #672 wrong-volume upload inside this stack**, in the PR where multi-volume mounting lands, with a regression test for a second-volume destination. See D13.
 9. **The read-only guard fails closed.** If the server-running check errors, mutations are refused and the page says it couldn't confirm the server is stopped, with Retry. See D7.
 10. **Execution is subagent-driven** (`plan.md`).
+11. **No release goes out partway through the stack.** Releases wait until PR 5 merges, so PR 2 carries no single-volume compatibility layout for the legacy external browse session.
 
 ## Context
 
