@@ -353,7 +353,7 @@ Two caveats to know before you rely on it:
 
 - **Turning it on for an existing game needs the EULA accepted once more.**
   A host that the license was previously signed for may avoid this, but that is unverified, so plan on accepting it.
-  After that one acceptance the license keeps verifying across restarts.
+  After that one acceptance, later starts should verify without a prompt, but that depends on the game version and how it checks its license.
 - **It depends on the game reading its host name through `os.hostname()`.**
   If a future release of the game stops doing that, the pin stops working and the game goes back to asking for the EULA on each start.
   Nothing is lost when that happens; your data is untouched.

@@ -54,6 +54,11 @@ const sampleDraft: GameWizardDraft = {
   },
 };
 
+/** Build a `StoredGameWizardDraft` around `sampleDraft`, overriding `draft` per case so new fields don't break every literal. */
+function makeStoredDraft(draft: GameWizardDraft = sampleDraft): StoredGameWizardDraft {
+  return { draft, stepIndex: 4, savedAt: '2026-08-09T00:00:00.000Z' };
+}
+
 describe('GameWizardDraftService', () => {
   describe('get', () => {
     it('should return null when no draft has been saved', () => {
@@ -203,32 +208,21 @@ describe('GameWizardDraftService', () => {
     });
 
     it('should accept a draft with a pinnedHostname string', () => {
-      const stored: StoredGameWizardDraft = {
-        draft: { ...sampleDraft, pinnedHostname: 'my_foundry_host' },
-        stepIndex: 4,
-        savedAt: '2026-08-09T00:00:00.000Z',
-      };
-      const service = new GameWizardDraftService(makeStore(stored));
+      const service = new GameWizardDraftService(makeStore(makeStoredDraft({ ...sampleDraft, pinnedHostname: 'my_foundry_host' })));
 
       expect(service.get()?.draft.pinnedHostname).toBe('my_foundry_host');
     });
 
     it('should accept a draft without pinnedHostname', () => {
-      const stored: StoredGameWizardDraft = { draft: sampleDraft, stepIndex: 4, savedAt: '2026-08-09T00:00:00.000Z' };
-      const service = new GameWizardDraftService(makeStore(stored));
+      const service = new GameWizardDraftService(makeStore(makeStoredDraft()));
 
       expect(service.get()).not.toBeNull();
       expect(service.get()?.draft.pinnedHostname).toBeUndefined();
     });
 
     it('should reject a draft whose pinnedHostname is not a string', () => {
-      const stored: StoredGameWizardDraft = {
-        // @ts-expect-error intentionally malformed to test runtime rejection
-        draft: { ...sampleDraft, pinnedHostname: 42 },
-        stepIndex: 4,
-        savedAt: '2026-08-09T00:00:00.000Z',
-      };
-      const service = new GameWizardDraftService(makeStore(stored));
+      // @ts-expect-error intentionally malformed to test runtime rejection
+      const service = new GameWizardDraftService(makeStore(makeStoredDraft({ ...sampleDraft, pinnedHostname: 42 })));
 
       expect(service.get()).toBeNull();
     });
