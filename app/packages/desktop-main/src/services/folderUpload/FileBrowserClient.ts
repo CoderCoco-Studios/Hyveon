@@ -197,13 +197,23 @@ export class FileBrowserClient implements FileBrowserApi, VolumeFileBackend {
     return this.connect(signal);
   }
 
-  /** {@inheritDoc VolumeFileBackend.mkdir} */
+  /**
+   * Creates a directory, including missing parents.
+   *
+   * @remarks
+   * FileBrowser creates directories with `MkdirAll`, so the server answers 200 for an existing directory. Without
+   * `existOk` the path is `stat`-ed first and an existing entry is reported as `conflict`; with `existOk` the check is
+   * skipped.
+   *
+   * @param path - Absolute directory path.
+   * @param options - `existOk` tolerates an existing directory; `signal` aborts the request.
+   * @throws {@link VolumeFileError} with `conflict` when something exists at `path` and `existOk` is not set.
+   */
   async mkdir(path: string, { existOk = false, signal }: { existOk?: boolean; signal?: AbortSignal } = {}): Promise<void> {
-    const res = await this.send('POST', `/api/resources${encodePath(path)}/`, { headers: this.authHeaders(), signal });
-    if (res.statusCode === 409 && existOk) {
-      await res.body.dump();
-      return;
+    if (!existOk && (await this.exists(path, signal))) {
+      throw new VolumeFileError('conflict', `mkdir ${path} failed: already exists`, 409);
     }
+    const res = await this.send('POST', `/api/resources${encodePath(path)}/`, { headers: this.authHeaders(), signal });
     await this.expectOk(res, 'mkdir', path);
     await res.body.dump();
   }
@@ -250,7 +260,8 @@ export class FileBrowserClient implements FileBrowserApi, VolumeFileBackend {
 
   /** {@inheritDoc VolumeFileBackend.move} */
   async move(from: string, to: string, signal?: AbortSignal): Promise<void> {
-    const query = `action=rename&destination=${encodeURIComponent(to)}&override=false&rename=false`;
+    // The server query-unescapes `destination` again, so it is path-encoded first and then query-encoded.
+    const query = `action=rename&destination=${encodeURIComponent(encodePath(to))}&override=false&rename=false`;
     const res = await this.send('PATCH', `/api/resources${encodePath(from)}?${query}`, { headers: this.authHeaders(), signal });
     await this.expectOk(res, 'move', from);
     await res.body.dump();
@@ -295,6 +306,17 @@ export class FileBrowserClient implements FileBrowserApi, VolumeFileBackend {
   /** Closes pooled connections. */
   async close(): Promise<void> {
     await this.dispatcher.close();
+  }
+
+  /** Whether anything exists at `path`; any failure other than `not-found` propagates. */
+  private async exists(path: string, signal?: AbortSignal): Promise<boolean> {
+    try {
+      await this.stat(path, signal);
+      return true;
+    } catch (err) {
+      if (err instanceof VolumeFileError && err.code === 'not-found') return false;
+      throw err;
+    }
   }
 
   private authHeaders(): Record<string, string> {

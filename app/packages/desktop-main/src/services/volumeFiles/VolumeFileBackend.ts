@@ -109,6 +109,10 @@ export interface VolumeFileBackend {
   /**
    * Creates a directory, including missing parents.
    *
+   * @remarks
+   * Backends whose server does not reject an existing directory check for it first, so `conflict` is reported
+   * consistently; `existOk` skips that check.
+   *
    * @param path - Absolute directory path.
    * @param options - `existOk` tolerates an existing directory; `signal` aborts the request.
    * @throws {@link VolumeFileError} with `conflict` when the directory exists and `existOk` is not set.

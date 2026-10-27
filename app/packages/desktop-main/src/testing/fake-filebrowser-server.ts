@@ -93,8 +93,8 @@ export async function startFakeFileBrowser(options: FakeFileBrowserOptions): Pro
     if (req.method === 'POST' && resource.endsWith('/')) {
       await drain(req);
       const dir = resource.replace(/\/+$/, '') || '/';
-      if (dirs.has(dir)) return void res.writeHead(409).end();
-      dirs.add(dir);
+      const parts = dir.split('/').filter(Boolean);
+      for (let i = 1; i <= parts.length; i += 1) dirs.add('/' + parts.slice(0, i).join('/'));
       return void res.writeHead(200).end();
     }
     if (req.method === 'POST') {
@@ -109,7 +109,13 @@ export async function startFakeFileBrowser(options: FakeFileBrowserOptions): Pro
       return void res.writeHead(200).end();
     }
     if (req.method === 'PATCH' && url.searchParams.get('action') === 'rename') {
-      const destination = url.searchParams.get('destination') ?? '';
+      let destination: string;
+      try {
+        // The real server query-unescapes `destination` a second time (Go `url.QueryUnescape`: `+` is a space).
+        destination = decodeURIComponent((url.searchParams.get('destination') ?? '').replace(/\+/g, ' '));
+      } catch {
+        return void res.writeHead(400).end();
+      }
       const from = resource.replace(/\/+$/, '');
       const to = destination.replace(/\/+$/, '');
       const isFile = files.has(from);

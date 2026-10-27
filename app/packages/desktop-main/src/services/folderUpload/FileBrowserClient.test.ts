@@ -276,6 +276,13 @@ describe('FileBrowserClient write operations', () => {
     expect([...server.files.keys()]).toEqual([NAME]);
   });
 
+  it('should round-trip names containing plus and percent escapes through the double-decoded destination', async () => {
+    const { server, client } = await connected({ '/src.txt': 3 });
+    await client.move('/src.txt', '/a+b %41.txt');
+    await client.close();
+    expect([...server.files.keys()]).toEqual(['/a+b %41.txt']);
+  });
+
   it('should refuse a rename onto an existing name', async () => {
     const { server, client } = await connected({ '/a.txt': 1, '/b.txt': 2 });
     await expect(client.move('/a.txt', '/b.txt')).rejects.toMatchObject({ code: 'conflict' });
