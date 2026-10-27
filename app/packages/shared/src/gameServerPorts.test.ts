@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { normalizeGameServer, ingressPorts, isReservedHttpsPort, HTTPS_RESERVED_PORTS } from './gameServerPorts.js';
 import type { GameServerConfig } from './gameServerConfig.js';
 
+/** Builds a minimal valid {@link GameServerConfig}, with `overrides` applied on top. */
 function makeGame(overrides: Partial<GameServerConfig> = {}): GameServerConfig {
   return {
     image: 'img',
@@ -14,6 +15,11 @@ function makeGame(overrides: Partial<GameServerConfig> = {}): GameServerConfig {
 }
 
 describe('normalizeGameServer', () => {
+  it('should return a malformed https game with no ports array untouched', () => {
+    const malformed = { ...makeGame({ https: true }), ports: undefined } as unknown as GameServerConfig;
+    expect(normalizeGameServer(malformed)).toBe(malformed);
+  });
+
   it('should promote ports[0] to webPort and keep the rest as extras for a legacy https game', () => {
     const legacy = makeGame({
       https: true,

@@ -274,7 +274,7 @@ export interface GameServer {
    * pre-toggle config entry). When `true`, {@link webPort} is required and
    * `gameServerValidator.ts`'s `checkHttpsPortRules` requires every entry in
    * {@link ports} to be `"tcp"` or `"udp"`, not use container port `80` or
-   * `443` (reserved for the sidecar), and not duplicate {@link webPort}.
+   * `443` (reserved for the sidecar), and no `"tcp"` entry may duplicate {@link webPort} (a `"udp"` entry may).
    *
    * Deprecated reading: treating `ports[0]` as the implicit upstream when this
    * is `true` and {@link webPort} is absent; kept readable only via

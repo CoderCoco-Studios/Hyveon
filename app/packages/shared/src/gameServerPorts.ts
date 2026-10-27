@@ -31,7 +31,7 @@ interface NormalizableGame {
  *
  * Pure and idempotent. Games that are not legacy-shaped are returned as the
  * same reference. A legacy game whose `ports[0]` is not `tcp` (or has no
- * container yet) is also returned untouched, so validation reports the
+ * container yet) or a malformed game with no `ports` array is also returned untouched, so validation reports the
  * missing `webPort` instead of this function guessing. A reserved `ports[0]`
  * (80/443) is promoted as-is and rejected by the validator on save.
  *
@@ -42,6 +42,9 @@ interface NormalizableGame {
  */
 export function normalizeGameServer<T extends NormalizableGame>(game: T): T {
   if (game.https !== true || (game.webPort !== undefined && game.webPort !== null)) {
+    return game;
+  }
+  if (!Array.isArray(game.ports)) {
     return game;
   }
   const [first, ...rest] = game.ports;
