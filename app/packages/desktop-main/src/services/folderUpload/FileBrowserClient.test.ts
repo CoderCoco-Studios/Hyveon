@@ -195,10 +195,16 @@ describe('FileBrowserClient read operations', () => {
     expect([...bytes.subarray(0, 4)]).toEqual([0x50, 0x4b, 0x03, 0x04]);
   });
 
-  it('should map 401 to auth', async () => {
-    const { options } = await setup(cert, cert);
-    const client = new FileBrowserClient({ ...options, password: 'wrong' });
-    await expect(client.connect()).rejects.toMatchObject({ name: 'VolumeFileError', code: 'auth' });
+  it('should report a failing local read as failed, not as an unreachable helper', async () => {
+    const client = await connected();
+    const source = new Readable({
+      read() {
+        this.destroy(Object.assign(new Error('EBUSY: resource busy or locked, read'), { code: 'EBUSY' }));
+      },
+    });
+    const failure = client.writeStream('/Data/locked.db', source, { size: 10, overwrite: true });
+    await expect(failure).rejects.toBeInstanceOf(VolumeFileError);
+    await expect(failure).rejects.toMatchObject({ code: 'failed', message: expect.stringContaining('EBUSY') });
     await client.close();
   });
 

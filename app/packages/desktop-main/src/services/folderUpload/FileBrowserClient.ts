@@ -1,6 +1,7 @@
 import { Transform, type Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
 import { Agent, request } from 'undici';
+import { errMessage } from '@hyveon/shared';
 import {
   VolumeFileError,
   type VolumeEntry,
@@ -126,7 +127,9 @@ export class FileBrowserClient implements VolumeFileBackend {
         ca: options.certPem,
         rejectUnauthorized: true,
         checkServerIdentity: (_host, cert) =>
-          cert.fingerprint256 === options.fingerprint256 ? undefined : Object.assign(new PinMismatchError(), { code: 'ERR_PIN_MISMATCH' }),
+          cert.fingerprint256 === options.fingerprint256
+            ? undefined
+            : Object.assign(new Error('The helper presented an unexpected TLS certificate; aborting without sending credentials.'), { code: 'ERR_PIN_MISMATCH' }),
       },
     });
   }
@@ -144,10 +147,7 @@ export class FileBrowserClient implements VolumeFileBackend {
       signal,
     });
     const text = await res.body.text();
-    if (res.statusCode !== 200) {
-      const code = res.statusCode === 401 || res.statusCode === 403 ? 'auth' : 'failed';
-      throw new VolumeFileError(code, `Login failed (${res.statusCode})`, res.statusCode);
-    }
+    if (res.statusCode !== 200) throw toVolumeError(res.statusCode, 'login', '/api/login');
     this.token = text.trim();
   }
 
@@ -181,7 +181,11 @@ export class FileBrowserClient implements VolumeFileBackend {
       },
     });
     const body = source.pipe(counter);
-    source.on('error', (err) => counter.destroy(err));
+    let sourceError: unknown;
+    source.on('error', (err) => {
+      sourceError = err;
+      counter.destroy(err);
+    });
     try {
       const res = await this.send('POST', `/api/resources${encodePath(path)}?override=${overwrite}`, {
         headers: { ...this.authHeaders(), 'content-length': String(size), 'content-type': 'application/octet-stream' },
@@ -190,6 +194,12 @@ export class FileBrowserClient implements VolumeFileBackend {
       });
       await this.expectOk(res, 'write', path);
       await res.body.dump();
+    } catch (err) {
+      // A failing local read aborts the request; report it as such rather than as an unreachable helper.
+      if (sourceError !== undefined) {
+        throw new VolumeFileError('failed', `Reading the local file failed: ${errMessage(sourceError)}`, undefined, { cause: sourceError });
+      }
+      throw err;
     } finally {
       source.destroy();
       counter.destroy();
@@ -269,8 +279,10 @@ export class FileBrowserClient implements VolumeFileBackend {
     throw toVolumeError(res.statusCode, op, path);
   }
 
-  /** Issues one request, mapping TLS trust failures to {@link PinMismatchError} and other network errors to `unreachable`
-   * with a fixed message, since the raw error text carries the helper's address (kept only in `cause`). */
+  /**
+   * Issues one request, mapping TLS trust failures to {@link PinMismatchError} and other network errors to
+   * `unreachable` with a fixed message, since the raw error text carries the helper's address (kept only in `cause`).
+   */
   private async send(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, init: Parameters<typeof request>[1]) {
     try {
       return await request(`${this.origin}${path}`, { ...init, method, dispatcher: this.dispatcher });

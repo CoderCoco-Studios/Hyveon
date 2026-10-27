@@ -54,7 +54,10 @@ describe('ensureDirs', () => {
   it('should create parents before children', async () => {
     const client = fakeBackend();
     await ensureDirs(client, [{ remotePath: '/a/b/c.txt' } as UploadItem]);
-    expect(vi.mocked(client.mkdir).mock.calls.map((c) => c[0])).toEqual(['/a', '/a/b']);
+    const calls = vi.mocked(client.mkdir).mock.calls;
+    expect(calls.map((c) => c[0])).toEqual(['/a', '/a/b']);
+    // Without existOk the real client stats first and throws `conflict` for existing directories, breaking resumes.
+    expect(calls.every((c) => c[1]?.existOk === true)).toBe(true);
   });
 });
 
