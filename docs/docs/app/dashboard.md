@@ -67,10 +67,10 @@ falling back to its raw public IP if DNS has not resolved yet, or the muted
 text `no hostname` if neither is known.
 
 When there is something to copy, a copy button sits next to it. Pressing it
-writes the hostname to your clipboard. **There is no visible confirmation** —
+writes the displayed connection value (the hostname, or the public IP when there is no hostname) to your clipboard. **There is no visible confirmation** —
 no toast, no icon change — so if nothing seems to happen, the copy most likely
-worked. When both a hostname and a public IP are known, the IP is also shown
-in parentheses; the button copies the hostname.
+worked. When both a hostname and a public IP are known, the IP is also shown on its own line below the hostname
+in parentheses; the button still copies the hostname.
 
 ### Stat tiles
 

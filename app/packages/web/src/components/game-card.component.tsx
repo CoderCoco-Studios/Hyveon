@@ -178,10 +178,10 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
             <h2 className="font-[var(--font-ui)] text-[17px] font-bold capitalize leading-tight text-[var(--color-foreground)]">
               {game}
             </h2>
-            <div className="mt-1 flex items-center gap-1.5 min-w-0">
+            <div className="mt-1 flex items-center gap-1.5">
               <span
                 className={cn(
-                  'font-[var(--font-mono)] text-xs truncate',
+                  'font-[var(--font-mono)] text-xs [overflow-wrap:anywhere]',
                   connectStr ? 'text-[var(--color-cyan-light)]' : 'text-[var(--color-muted-foreground)]',
                 )}
               >
@@ -191,19 +191,19 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="min-h-11 min-w-11 p-0 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+                  className="min-h-11 min-w-11 shrink-0 p-0 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
                   onClick={() => void navigator.clipboard.writeText(connectStr)}
                   aria-label="Copy connect string"
                 >
                   <Copy className="size-3" />
                 </Button>
               )}
-              {status.publicIp && status.hostname && (
-                <span className="font-[var(--font-mono)] text-[0.65rem] text-[var(--color-muted-foreground)] truncate">
-                  ({status.publicIp})
-                </span>
-              )}
             </div>
+            {status.publicIp && status.hostname && (
+              <div className="font-[var(--font-mono)] text-[0.65rem] text-[var(--color-muted-foreground)] [overflow-wrap:anywhere]">
+                ({status.publicIp})
+              </div>
+            )}
           </div>
           <Badge variant={badgeVariant} className="shrink-0 gap-1.5 text-[0.65rem]">
             <span className={dotClass} aria-hidden="true" />
