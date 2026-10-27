@@ -480,6 +480,117 @@ describe('defineEcs', () => {
     expect(containers[0]).not.toHaveProperty('entryPoint');
   });
 
+  describe('pinnedHostname', () => {
+    const ALPHA_ABSENT_FIELD_CONTAINERS =
+      '[{"name":"alpha","image":"example/alpha:latest","essential":true,"portMappings":[{"containerPort":25565,"hostPort":25565,"protocol":"tcp"}],"environment":[],"mountPoints":[{"sourceVolume":"alpha-saves","containerPath":"/data","readOnly":false}],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":"/ecs/alpha-server","awslogs-region":"us-east-1","awslogs-stream-prefix":"ecs"}}}]';
+    const DELTA_ABSENT_FIELD_CONTAINERS =
+      '[{"name":"delta","image":"example/delta:latest","essential":true,"portMappings":[{"containerPort":8080,"hostPort":8080,"protocol":"tcp"}],"environment":[],"mountPoints":[{"sourceVolume":"delta-saves","containerPath":"/data","readOnly":false}],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":"/ecs/delta-server","awslogs-region":"us-east-1","awslogs-stream-prefix":"ecs"}}},{"name":"caddy","image":"caddy:2-alpine","essential":true,"portMappings":[{"containerPort":443,"hostPort":443,"protocol":"tcp"},{"containerPort":80,"hostPort":80,"protocol":"tcp"}],"command":["caddy","reverse-proxy","--from","delta.example.com","--to","localhost:8080"],"mountPoints":[{"sourceVolume":"delta-caddy-data","containerPath":"/data","readOnly":false}],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":"/ecs/delta-server","awslogs-region":"us-east-1","awslogs-stream-prefix":"caddy"}}}]';
+    const SHIM_REQUIRE = '--require=/hyveon/hostname-shim/hostname-shim.js';
+
+    /** Builds the ECS resources for `gameServers` against fresh mocks and returns the recorder. */
+    async function arrangeDefineEcs(gameServers: Record<string, GameServerConfig>): Promise<RecordedResource[]> {
+      const provider = new aws.Provider('aws', { region: 'us-east-1' });
+      const efs = await arrangeEfs(gameServers, provider);
+      await runDefineEcs({
+        projectName: 'hyveon',
+        awsRegion: 'us-east-1',
+        hostedZoneName: 'example.com',
+        gameServers,
+        efs,
+        executionRoleArn: 'arn:aws:iam::123456789012:role/hyveon-task-execution',
+        provider,
+      });
+      return mocks.resources;
+    }
+
+    it('should give an opted-in game the init container, dependsOn, read-only mount, and ephemeral volume', async () => {
+      const resources = await arrangeDefineEcs({
+        ...FIXTURE_GAME_SERVERS,
+        alpha: { ...FIXTURE_GAME_SERVERS.alpha, pinnedHostname: 'foundry' },
+      });
+
+      const alphaTd = findByName(resources, 'alpha-server');
+      const containers = parsedContainerDefinitions(alphaTd);
+      expect(containers.map((container) => container.name)).toEqual(['alpha', 'hostname-shim']);
+
+      const [game, shim] = containers;
+      expect(game.dependsOn).toEqual([{ containerName: 'hostname-shim', condition: 'SUCCESS' }]);
+      expect(game.mountPoints).toEqual([
+        { sourceVolume: 'alpha-saves', containerPath: '/data', readOnly: false },
+        { sourceVolume: 'alpha-hostname-shim', containerPath: '/hyveon/hostname-shim', readOnly: true },
+      ]);
+      expect(game.environment).toEqual([{ name: 'NODE_OPTIONS', value: SHIM_REQUIRE }]);
+      expect(shim.essential).toBe(false);
+      expect(shim.logConfiguration).toEqual({
+        logDriver: 'awslogs',
+        options: {
+          'awslogs-group': '/ecs/alpha-server',
+          'awslogs-region': 'us-east-1',
+          'awslogs-stream-prefix': 'hostname-shim',
+        },
+      });
+
+      const shimVolume = (alphaTd.inputs.volumes as Array<Record<string, unknown>>).find(
+        (volume) => volume.name === 'alpha-hostname-shim',
+      );
+      expect(shimVolume).toEqual({ name: 'alpha-hostname-shim' });
+    });
+
+    it('should leave the caddy definition unchanged for an https game', async () => {
+      const resources = await arrangeDefineEcs({
+        ...FIXTURE_GAME_SERVERS,
+        delta: { ...FIXTURE_GAME_SERVERS.delta, pinnedHostname: 'foundry' },
+      });
+
+      const containers = parsedContainerDefinitions(findByName(resources, 'delta-server'));
+      const baseline = JSON.parse(DELTA_ABSENT_FIELD_CONTAINERS) as Array<Record<string, unknown>>;
+      expect(containers.find((container) => container.name === 'caddy')).toEqual(
+        baseline.find((container) => container.name === 'caddy'),
+      );
+    });
+
+    it('should not affect other games when one opts in', async () => {
+      const resources = await arrangeDefineEcs({
+        ...FIXTURE_GAME_SERVERS,
+        alpha: { ...FIXTURE_GAME_SERVERS.alpha, pinnedHostname: 'foundry' },
+      });
+
+      const bravoTd = findByName(resources, 'bravo-server');
+      expect(bravoTd.inputs.containerDefinitions).not.toContain('hostname-shim');
+      expect(bravoTd.inputs.containerDefinitions).not.toContain('NODE_OPTIONS');
+      expect(JSON.stringify(bravoTd.inputs.volumes)).not.toContain('hostname-shim');
+    });
+
+    it('should emit byte-identical container definitions and volumes when the field is absent', async () => {
+      const resources = await arrangeDefineEcs(FIXTURE_GAME_SERVERS);
+
+      const alphaTd = findByName(resources, 'alpha-server');
+      expect(alphaTd.inputs.containerDefinitions).toBe(ALPHA_ABSENT_FIELD_CONTAINERS);
+      expect(alphaTd.inputs.volumes).toHaveLength(1);
+      expect(findByName(resources, 'delta-server').inputs.containerDefinitions).toBe(DELTA_ABSENT_FIELD_CONTAINERS);
+      expect(findByName(resources, 'delta-server').inputs.volumes).toHaveLength(2);
+    });
+
+    it('should coexist with the ipv4 boot wrapper and keep the token in the merged NODE_OPTIONS', async () => {
+      const resources = await arrangeDefineEcs({
+        ...FIXTURE_GAME_SERVERS,
+        alpha: {
+          ...FIXTURE_GAME_SERVERS.alpha,
+          pinnedHostname: 'foundry',
+          command: ['/start.sh'],
+          environment: [{ name: 'NODE_OPTIONS', value: '--title=${hyveon.network.public-ipv4}' }],
+        },
+      });
+
+      const [game] = parsedContainerDefinitions(findByName(resources, 'alpha-server'));
+      expect(game.entryPoint).toEqual(['/bin/sh', '-c', expect.stringContaining('checkip.amazonaws.com')]);
+      expect(game.command).toEqual(['/start.sh']);
+      expect(game.environment).toEqual([
+        { name: 'NODE_OPTIONS', value: `${SHIM_REQUIRE} --title=\${hyveon.network.public-ipv4}` },
+      ]);
+    });
+  });
+
   it('should throw naming the game and token when a public-address token is used but the hosted zone is empty', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
