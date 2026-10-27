@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: In-app file browser page per game
-The application SHALL provide a page inside the desktop app, routed per game, for browsing and managing that game's EFS volume. The page SHALL be reachable from the dashboard game card's Files action and from the game detail page. The application SHALL NOT open the game's volume files in an external browser or in any embedded remote web content.
+The application SHALL provide a page inside the desktop app, routed per game, for browsing and managing every applied EFS volume of that game, with a volume picker that lists each volume's name and container path. The page SHALL be reachable from the dashboard game card's Files action and from the game detail page. The application SHALL NOT open the game's volume files in an external browser or in any embedded remote web content.
 
 #### Scenario: Opening files from the dashboard
 - **WHEN** the operator clicks Files on a deployed game's dashboard card
@@ -19,8 +19,16 @@ The application SHALL provide a page inside the desktop app, routed per game, fo
 - **WHEN** a helper session is running
 - **THEN** no control on the page opens the helper in the OS browser or loads the helper's web interface in any window
 
+#### Scenario: Choosing a volume
+- **WHEN** the game has more than one volume and the operator selects a different volume in the picker
+- **THEN** the listing shows that volume's root, and file operations and uploads apply to that volume
+
+#### Scenario: Volume not yet available to the helper
+- **WHEN** a volume's access point has not been recorded by an infrastructure apply yet
+- **THEN** the picker shows that volume as unavailable with an explanation to apply the infrastructure, and the other volumes remain browsable
+
 ### Requirement: Helper credentials and address stay in the main process
-The per-launch helper credential, the helper's network address and any authentication token SHALL exist only in the desktop main process. They SHALL NOT be returned over IPC, rendered, persisted or logged. The renderer SHALL receive only session state and file metadata (names, types, sizes, modification times) and operation results.
+The per-launch helper credential, the helper's network address and any authentication token SHALL exist only in the desktop main process. They SHALL NOT be returned over IPC, rendered, persisted or logged. The renderer SHALL receive only session state, the game's volume names and container paths, file metadata (names, types, sizes, modification times) and operation results.
 
 #### Scenario: Session start result
 - **WHEN** a helper session starts successfully
@@ -73,7 +81,7 @@ The application SHALL hold at most one helper session per game in the main proce
 - **THEN** the page reports the session as orphaned and offers only Restart, which stops that helper and launches a new session
 
 ### Requirement: Session readiness and state reporting
-The page SHALL show the session state (stopped, starting, running, stopping, orphaned, not deployed), the elapsed time and the time remaining before auto-stop. A session SHALL be reported running only after the helper task is running, has a reachable address, and has accepted the application's authentication over the pinned connection. While a session is starting, the page SHALL keep refreshing until it becomes running or fails. A failure SHALL surface its reason, including the task's stop reason when the helper exited.
+The page SHALL show the session state (stopped, starting, running, stopping, orphaned, failed, not deployed), the elapsed time and the time remaining before auto-stop. A session SHALL be reported running only after the helper task is running, has a reachable address, and has accepted the application's authentication over the pinned connection. While a session is starting, the page SHALL keep refreshing until it becomes running or fails. A failure SHALL surface its reason, including the task's stop reason when the helper exited.
 
 #### Scenario: Task running before address resolves
 - **WHEN** the helper task reports RUNNING but its public address is not yet available
@@ -83,12 +91,16 @@ The page SHALL show the session state (stopped, starting, running, stopping, orp
 - **WHEN** the helper task stops before becoming ready
 - **THEN** the session reports failed with the task's stop reason
 
+#### Scenario: Helper disappears during a session
+- **WHEN** a running session's helper task is no longer present in ECS (for example after its auto-stop fired)
+- **THEN** the session reports failed with the task's stop reason and offers Start
+
 #### Scenario: Auto-stop approaching
 - **WHEN** fewer than 10 minutes remain before the helper's auto-stop
 - **THEN** the page warns the operator
 
 ### Requirement: Browsing and file operations
-While a session is running, the page SHALL let the operator navigate directories with a breadcrumb path, and list each directory's entries with name, type, size and modification time, sortable by each column. The page SHALL also let the operator create a folder, rename an entry, delete an entry, upload local files or a local folder into the current directory, and download a file or a folder (as an archive). Every operation SHALL report success or a specific failure, and SHALL log in the main process.
+While a session is running, the page SHALL let the operator navigate directories with a breadcrumb path, and list each directory's entries with name, type, size and modification time, sortable by each column. The page SHALL also let the operator create a folder, rename an entry, delete an entry, upload local files or a local folder into the current directory of the selected volume, and download a file or a folder (as an archive). Every operation SHALL report success or a specific failure, and SHALL log in the main process.
 
 #### Scenario: Navigate into a folder
 - **WHEN** the operator opens a folder entry
@@ -104,7 +116,7 @@ While a session is running, the page SHALL let the operator navigate directories
 
 #### Scenario: Upload a folder into the current directory
 - **WHEN** the operator uploads a local folder from the page
-- **THEN** the folder-upload flow runs with the current directory as its destination and shows its progress meter
+- **THEN** the folder-upload flow runs with the selected volume's container path joined with the current directory as its destination, does not replace the game's saved folder-upload selection, and shows its progress meter
 
 #### Scenario: Drag and drop from the OS
 - **WHEN** the operator drops local files onto the listing
@@ -115,7 +127,7 @@ While a session is running, the page SHALL let the operator navigate directories
 - **THEN** the operation is refused with a message naming the conflict, and nothing is overwritten
 
 ### Requirement: Volume path safety
-The main process SHALL validate every volume path it receives before using it. A path SHALL be absolute within the volume root, SHALL NOT contain `..` segments or NUL bytes, and new entry names SHALL NOT contain path separators. Local file paths for upload and download SHALL come only from native dialogs or OS drag-and-drop resolved in the main process.
+The main process SHALL validate every volume path it receives before using it. Every request SHALL name a volume the current session mounted. A path SHALL be absolute within that volume's root, SHALL NOT contain `..` segments or NUL bytes, and new entry names SHALL NOT contain path separators. Local file paths for upload and download SHALL come only from native dialogs opened by the main process, or from OS drag-and-drop resolved to paths in the preload script; renderer code SHALL NOT supply local path strings.
 
 #### Scenario: Traversal attempt
 - **WHEN** a file operation is requested with a path containing a `..` segment
@@ -125,8 +137,12 @@ The main process SHALL validate every volume path it receives before using it. A
 - **WHEN** a rename or new-folder name contains `/`
 - **THEN** the operation is rejected with a validation message
 
+#### Scenario: Unknown volume
+- **WHEN** a file operation names a volume the current session did not mount
+- **THEN** the main process rejects it without contacting the helper
+
 ### Requirement: Read-only while the game server is running
-While the game's server task is starting or running, the page SHALL allow browsing and downloading. Creating, renaming, deleting, uploading and saving edits SHALL be disabled with an explanation, and the main process SHALL refuse those operations.
+While the game's server task is starting or running, the page SHALL allow browsing and downloading. Creating, renaming, deleting, uploading and saving edits SHALL be disabled with an explanation, and the main process SHALL refuse those operations. When the application cannot determine whether the server task is running, it SHALL treat the server as running for these operations.
 
 #### Scenario: Server running
 - **WHEN** the operator opens the page while the game's server is running
@@ -135,6 +151,10 @@ While the game's server task is starting or running, the page SHALL allow browsi
 #### Scenario: Server starts during a session
 - **WHEN** the game's server starts while the page is open
 - **THEN** mutating actions become disabled, and a mutating request already sent is refused by the main process
+
+#### Scenario: Server state cannot be confirmed
+- **WHEN** the check for a running server task fails
+- **THEN** the main process refuses the mutation, and the page shows that it couldn't confirm the server is stopped with a Retry action, while listing and download keep working
 
 ### Requirement: Small text file view and edit
 The page SHALL let the operator open a UTF-8 text file of at most 1 MiB in an in-app editor and save changes. Saving SHALL be refused if the file changed on the volume since it was opened. Larger or non-text files SHALL be offered for download instead.

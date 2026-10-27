@@ -9,6 +9,14 @@
 5. **Grace period before stopping an unheld session after leaving the page.** Default: 5 minutes. Alternatives: stop immediately, or rely only on the 2 h auto-stop.
 6. **Keep a "Open in external browser" escape hatch?** Default: no. It reintroduces the plaintext-credential and egress-mismatch problems this change removes.
 
+**Second round, decided by the operator 2026-10-26** (folded into the decisions below):
+
+7. **Every volume in v1, not only the first.** The helper mounts every applied volume of the game (one EFS access point each, under distinct mount directories), and the page gets a volume picker. "Upload folder here" targets the selected volume. See D12.
+8. **Fix the shipped #672 wrong-volume upload inside this stack**, in the PR where multi-volume mounting lands, with a regression test for a second-volume destination. See D13.
+9. **The read-only guard fails closed.** If the server-running check errors, mutations are refused and the page says it couldn't confirm the server is stopped, with Retry. See D7.
+10. **Execution is subagent-driven** (`plan.md`).
+11. **No release goes out partway through the stack.** Releases wait until PR 5 merges, so PR 2 carries no single-volume compatibility layout for the legacy external browse session.
+
 ## Context
 
 **Current flow.** The dashboard card's **Files** button (`game-card.component.tsx:266`) opens `FileManagerModal`, driven by `useFileManager`. **Launch** calls `files.start` → `FilesController` → `FileManagerService.launch`, which:
@@ -28,6 +36,8 @@ The investigation also found weaknesses in the external hop that this change rem
 
 The operator chose not to patch the current external-link flow, since the renderer swap in this change deletes it.
 
+**The helper only sees the first volume.** The stack output `efsAccessPoints` maps each game to its *first* volume's access point only (`infra/src/program.ts:406-408`, `buildStackOutputs`), and `FileManagerService.launch` mounts that one access point at `/srv` (`FileManagerService.ts:332`). The access points for every `(game, volume)` already exist (`infra/src/efs.ts`, `efs.gameAccessPoints["${game}-${volume.name}"]`, root `/${game}/${volume.name}`); they are just not exported. #672 inherited this: `toRemotePath` (`shared/src/folderUpload/paths.ts`) strips whichever volume's `container_path` matches the destination, but the bytes go to the one mounted access point, so an upload aimed at a second volume lands in the first volume.
+
 **FileBrowser is archived.** The helper image prints the project's wind-down notice at startup. The repo was archived 2026-09-01, the final release is v2.63.23, and advisories remain unfixed (non-revocable JWTs among them). `:latest` is frozen.
 
 **Constraints:**
@@ -44,7 +54,8 @@ The operator chose not to patch the current external-link flow, since the render
 ## Goals / Non-Goals
 
 **Goals:**
-- Browse and manage a game's volume files entirely inside the app: list, navigate, upload (files and folders), download, new folder, rename, delete, and view/edit small text files.
+- Browse and manage every applied volume of a game entirely inside the app: pick a volume, list, navigate, upload (files and folders), download, new folder, rename, delete, and view/edit small text files.
+- Uploads (folder or files) land in the volume their destination belongs to, including the shipped #672 folder upload.
 - desktop-main is the only client of the helper. Credentials and URLs never cross IPC.
 - All helper traffic is TLS with a per-launch pinned certificate, browse sessions included.
 - One app-owned helper session per game, shared by browse and upload, stopped when no longer used.
@@ -56,7 +67,7 @@ The operator chose not to patch the current external-link flow, since the render
 - Previews, search, share links, archive extraction, or multi-select bulk move in v1.
 - Browsing volumes of games whose infrastructure is not applied.
 - Removing the 30–60 s helper cold start.
-- Changing infra, IAM, or `deployment-config.json`.
+- Changing IAM, infra resources, or `deployment-config.json`. The only infra change is one additional stack output (D12).
 - Fixing or polishing the current external-link flow (focus, logging, Copy URL). It is deleted by this change.
 
 ## Decisions
@@ -83,9 +94,12 @@ The operator chose not to patch the current external-link flow, since the render
   - Lambda mounted on EFS. Deferred as a future `VolumeFileBackend` (Open Question 3).
 
 ### D3: Main-process helper session registry shared by browse and upload
-- **Choice**: Add a `HelperSessionRegistry` (desktop-main, singleton) keyed by game. Each entry is `{taskArn, ip, credentials, cert, backend, holders: Set<'browse'|uploadRunId>, state}`.
-  - `acquire(game, holder)` launches the helper if no entry exists (via the extracted `FileManagerService.launch`), or reuses the existing one.
+- **Choice**: Add a `HelperSessionRegistry` (desktop-main, singleton) keyed by game. Each entry is `{taskArn, ip, operatorIp, credentials, cert, backend, layout, holders: Set<'browse'|uploadRunId>, state}`, where `layout` is the launch's volume mount layout (D12).
+  - `acquire(game, holder)` launches the helper if no entry exists (via the extracted `FileManagerService.launchHelper`), or reuses the existing one. Concurrent acquires for one game share a single launch.
+  - `attach(game)` re-adds the browse holder to an existing session and cancels its grace timer; the page calls it on mount. `detach(game)` releases the browse holder; the page calls it on unmount.
   - `release(game, holder)` tears down (stop task, delete schedule, deregister task def, revoke orphaned `/32`) when `holders` empties. For the browse holder this happens after the grace period (Open Question 5).
+  - A launch that fails, or a session whose task disappears from ECS, moves to `failed` and carries the reason (including the ECS stop reason) until the next start.
+  - When an operation fails to connect and the operator's IP changed, the registry authorizes the new `/32`, re-tags the helper task's `OperatorIp` tag with the new address (new `EcsService.tagTask`; the deploy policy already grants `ecs:*`), and then runs the existing reference-counted revoke, which reads that tag to decide which rules are still needed.
   - `stop(game)` force-releases all holders and cancels any upload run first, with a confirm in the UI.
   - `before-quit` stops every registry-owned helper, best-effort with a bounded timeout.
   - A helper present in ECS with no registry entry is reported as `orphaned`. The only offered action is **Restart session** (stop, then start).
@@ -107,10 +121,15 @@ The operator chose not to patch the current external-link flow, since the render
 
 ### D5: IPC contract carries names, sizes, times and progress — never URLs or secrets
 - **Choice**: Add a new `volumeFiles` IPC namespace and preload API (`window.hyveon.volumeFiles`), so it can land additively next to the legacy `files.*` channels:
-  - Session channels: `volumeFiles.session.status|start|stop|restart`, plus a session-state event channel.
-  - Operations: `volumeFiles.list`, `.mkdir`, `.rename`, `.delete`, `.readText`, `.writeText`, `.download` (main opens the save dialog and streams, with a progress event), `.uploadFiles` (paths chosen via the native dialog or drag-drop), and `.uploadFolder` (delegates to #672's folder-upload flow targeted at the current directory).
+  - Session channels: `volumeFiles.session.status|start|attach|detach|stop|restart`, plus a session-state event channel. `attach`/`detach` mark entering and leaving the page (D3), which drives the grace stop and the "return within the grace period" reuse.
+  - Operations: `volumeFiles.list`, `.mkdir`, `.rename`, `.delete`, `.readText`, `.writeText`, `.download` (main opens the save dialog and streams, with a progress event), `.cancelTransfer`, `.uploadFiles` (paths chosen via the native dialog or drag-drop), and `.uploadFolder` (delegates to #672's folder-upload flow targeted at the current directory of the selected volume, with `persistSelection: false` so it does not overwrite the game card's saved seed selection).
+  - Every file operation names its volume: requests carry `{ game, volume, path }`, where `path` is relative to that volume's root. Main maps it to the helper path through the session's layout (D12) and rejects a volume the session did not mount. The session status lists the game's volumes with their container paths and whether each is mounted.
 
-  Shapes live in a `@hyveon/shared` subpath module. The legacy `files.list|start|stop` channels, `FileMgrResult.credentials` and `FileMgrStatus.url` are deleted in the renderer-swap PR. The preload exposes `webUtils.getPathForFile` for drag-and-drop, because Electron ≥ 32 removed `File.path`.
+  Shapes live in a `@hyveon/shared` subpath module. The legacy `files.list|start|stop` channels, `FileMgrResult.credentials` and `FileMgrStatus.url` are deleted in the renderer-swap PR, along with the folder-upload card's use of `files.stop` (its "stop the open session and retry" action calls `volumeFiles.session.stop` instead).
+
+  Drag-and-drop: Electron ≥ 32 removed `File.path`, and `webUtils.getPathForFile` is only available in the preload. The preload therefore exposes `uploadDropped(game, volume, dir, files)`, which resolves each dropped `File` to its path inside the preload and sends only the paths to main; renderer code never handles local path strings. A `File` the renderer constructed itself resolves to an empty path, which main rejects.
+
+  The open/save dialogs used by downloads and uploads go through one `NativeDialogService`, extracted from the two existing private copies in `FolderScanService` and `DiagnosticsController`, so the new code is not a third copy.
 - **Rationale**: Enforces the secrets-never-reach-the-renderer invariant structurally, and the renderer cannot open a connection to the helper even if it wanted to.
 - **Alternatives considered**: Streaming file bytes over IPC for upload/download. Rejected: main reads and writes local paths directly, so only paths and progress cross IPC.
 
@@ -121,22 +140,24 @@ The operator chose not to patch the current external-link flow, since the render
 
 ### D7: Read-only while the game server is running
 - **Choice**: The page reads game status (existing `games.status`). While the server task is STARTING/RUNNING, mutating IPC handlers refuse with a typed `server-running` result, and the UI disables those actions with an explanation. Upload already enforces this (#672).
-- **Rationale**: Concurrent EFS writes under a live server can corrupt saves. Reads are safe.
-- **Alternatives considered**: Allow writes with a warning (Open Question 2).
+  - **Fails closed** (Open Question 9). `EcsService.findRunningTask` swallows ECS errors and returns `null`, which reads as "not running". Its existing callers rely on that, so it is kept, but its body moves into a new `findRunningTaskOrThrow` that rethrows a plain `Error`; `findRunningTask` becomes a catch-and-log wrapper around it. The mutation guard uses `findRunningTaskOrThrow`; an error refuses the mutation with a typed `server-check-failed` result ("Couldn't confirm the server is stopped."), and the page shows that message with Retry. A game status of `error` in the renderer disables mutations the same way.
+  - The folder-upload preflight (`FolderUploadService.prepare`) switches to the same throwing check, so an upload is also refused when the server state can't be confirmed (designer's call: uploading is one of the mutations the read-only rule covers).
+- **Rationale**: Concurrent EFS writes under a live server can corrupt saves. Reads are safe. An unconfirmed state is treated as unsafe.
+- **Alternatives considered**: Allow writes with a warning (Open Question 2). Failing open on a check error (rejected by the operator, Open Question 9).
 
 ### D8: Text view/edit for small files
-- **Choice**: `files.readText` refuses files over 1 MiB or that are not valid UTF-8 (typed `too-large` / `binary` results). `files.writeText` takes the mtime the editor loaded and refuses on mismatch (`conflict`). The editor is a plain monospace textarea: no syntax highlighting, no new dependency.
+- **Choice**: `volumeFiles.readText` refuses files over 1 MiB or that are not valid UTF-8 (typed `too-large` / `binary` results). `volumeFiles.writeText` takes the mtime the editor loaded and refuses on mismatch (`conflict`). The editor is a plain monospace textarea: no syntax highlighting, no new dependency.
 - **Rationale**: Covers the common "tweak a config file" job without an editor dependency.
 - **Alternatives considered**: CodeMirror/Monaco. Rejected for v1: weight and dependency surface for a niche need.
 
 ### D9: Session lifecycle UX and cost
-- **Choice**: The session bar shows state (`stopped`/`starting`/`running`/`stopping`/`orphaned`/`not_deployed`), elapsed time and time until auto-stop. It offers Start/Stop/Restart. While `starting`, it polls via the shared `PollingProvider`, and keeps polling until the backend reports ready, not merely `RUNNING`. Ready means the task is RUNNING, it has a public IP, and the backend login succeeds over the pinned TLS. This fixes the stop-early bug by construction.
+- **Choice**: The session bar shows state (`stopped`/`starting`/`running`/`stopping`/`orphaned`/`failed`/`not_deployed`), elapsed time and time until auto-stop. It offers Start/Stop/Restart. While `starting`, it polls via the shared `PollingProvider`, and keeps polling until the backend reports ready, not merely `RUNNING`. Ready means the task is RUNNING, it has a public IP, and the backend login succeeds over the pinned TLS. This fixes the stop-early bug by construction.
 - **Rationale**: Sessions end with use, and "ready" is defined by an authenticated round-trip rather than an ECS status.
 - **Alternatives considered**: Auto-start on page entry (Open Question 1).
 
 ### D10: Testing approach
 - **Choice**:
-  - desktop-main unit tests: registry (acquire/release/refcount/grace/quit/orphan), path validation, backend against the existing `fake-filebrowser-server` (extended with raw, rename, delete, zip and TLS), service error normalization, IPC controller entry logs.
+  - desktop-main unit tests: volume mount layout (naming, fallback), the second-volume upload regression (D13), the fail-closed guard (D7), registry (acquire/release/refcount/grace/quit/orphan/failed), path validation, backend against the existing `fake-filebrowser-server` (extended with raw, rename, delete, zip and TLS), service error normalization, IPC controller entry logs.
   - web jsdom tests: the `use-volume-files` hook, and a routed-page test for `/games/:name/files` (navigation, disabled-while-running, delete confirm, editor conflict).
   - Playwright chromium: spec driving the page through `window.hyveon.__test.mock()`. Streaming download progress is asserted in jsdom, because the contextBridge cannot clone async generators.
   - Playwright electron: one smoke test that the route renders and Start calls `volumeFiles.session.start`.
@@ -150,6 +171,24 @@ The operator chose not to patch the current external-link flow, since the render
 - **Rationale**: The renderer-native approach avoids the `WebContentsView` platform quirks (Wayland, fractional scaling) entirely.
 - **Alternatives considered**: None.
 
+### D12: The helper mounts every applied volume; one new stack output
+- **Choice**:
+  - **New stack output** `efsVolumeAccessPoints: Record<game, Record<volumeName, accessPointId>>`, built in `buildStackOutputs` from the existing `efs.gameAccessPoints` (no new resources). It is mirrored on `StackOutputs` (`@hyveon/shared`) and projected by `PulumiService.projectStackOutputs` with an `{}` fallback. `efsAccessPoints` stays unchanged for its existing readers.
+  - **Mount layout** (pure helper `buildHelperVolumeLayout`): for each volume in the game's `deployment-config` entry that has an access point in `efsVolumeAccessPoints[game]`, one ECS task-definition volume (`vol-<index>`) mounted at `/srv/<dir>`. `<dir>` is the volume name when it matches `^[A-Za-z0-9._-]{1,64}$`, is not `.`/`..` and is unique among the game's volumes; otherwise `volume-<index>`. Volume names are free-form strings in the schema (`gameServerVolumeSchema`), so they can't be used as path segments unchecked. FileBrowser keeps `--root /srv`, so its root lists one directory per mounted volume.
+  - The layout is computed once per launch, held on the registry entry, and maps `{ volume, path }` to the helper path `/<dir><path>`. It never crosses IPC; the renderer sees volume names, container paths and a `mounted` flag.
+  - **Before the output is applied** (a stack applied by an older build): the layout falls back to the first volume only, via `efsAccessPoints[game]`, mounted at `/srv/<dir>` with the same naming rule. Other volumes are listed with `mounted: false`, and the page says "Apply the infrastructure to browse this volume." The rest of the feature works.
+  - **Volume picker**: the page shows the game's volumes (name and container path) and browses the selected one. The breadcrumb starts at the volume root; "Upload folder here" uses `selectedVolume.container_path + currentDir` as the folder-upload destination.
+- **Cost**: one infra-program output (`program.ts`, `StackOutputs`, `PulumiService` projection, fixtures), no new AWS resources, and no IAM change. EFS access is `iam: DISABLED` on the access points and the helper runs with the game's existing execution role. `HyveonDeployAll` already grants `elasticfilesystem:*` and `ecs:*`. Picking up the output needs one plan + apply from the Infrastructure page after the PR that adds it ships. That apply changes outputs only; the resource diff is empty.
+- **Rationale**: A game's config and saves often live on different volumes (e.g. a `config` volume and a `saves` volume), so first-volume-only browsing would hide files the operator needs. Exporting the existing access point IDs is the smallest change. Fargate supports several EFS volumes per task.
+- **Alternatives considered**:
+  - Discover access points at launch with `elasticfilesystem:DescribeAccessPoints`, matched by root path `/${game}/${volume}`. Rejected: it adds an EFS SDK client and couples the app to the infra program's internal path convention, where a stack output is already the contract.
+  - One helper per volume. Rejected: it breaks one-helper-per-game and multiplies cost and `/32` rules.
+
+### D13: Fix the shipped #672 wrong-volume upload in the multi-volume PR
+- **Choice**: Folder upload resolves the destination's owning volume (`validateDestination`, deepest matching `container_path`) and writes to `layout.toHelperPath(volume.name, toRemotePath(destination, volume.container_path, relPath))`, so the bytes go into that volume's mount. `toRemotePath` keeps returning a path relative to the volume root, and its TSDoc says so. If the destination's volume is not mounted (output not applied yet), the upload is refused before launch with "Apply the infrastructure to upload into '<volume>'." This ships in the same PR as D12, with a regression test that pins a second-volume destination to the second volume's mount.
+- **Rationale**: The bug and its fix both live in the mount layout; landing them together avoids an interim build that mounts several volumes but still writes to the wrong one.
+- **Alternatives considered**: A separate direct bug-fix PR. Rejected by the operator (Open Question 8); the fix needs the multi-volume mount to exist.
+
 ## Risks / Trade-offs
 
 - [Risk] More UI to build and maintain than an embed. → Mitigation: tight v1 scope (Non-Goals), reuse of the existing table/dialog/progress primitives and #672's upload engine and meter, and a component-size rule enforced in review.
@@ -159,16 +198,21 @@ The operator chose not to patch the current external-link flow, since the render
 - [Risk] Long downloads or uploads outlive the 2 h auto-stop. → Mitigation: the session bar warns at 10 minutes remaining. Extending the schedule is out of scope; upload already has Resume.
 - [Risk] Removing `credentials`/`url` from IPC breaks anything else reading them. → Mitigation: only `file-manager-modal` and `use-file-manager` consume them, and both are deleted in the same PR as the route swap.
 - [Trade-off] FileBrowser niceties (previews, search, share links) are dropped. → Accepted: not needed for the save/config-file jobs operators do, and they can be added on the native page later.
+- [Risk] The operator updates the app but doesn't apply, so `efsVolumeAccessPoints` is missing. → Mitigation: first-volume fallback with an explicit "apply to browse this volume" notice; uploads into an unmounted volume are refused rather than misrouted.
+- [Risk] Nested container paths (one volume mounted inside another's path, e.g. `/data` and `/data/mods`). → Accepted: `validateDestination` already picks the deepest matching volume, and the helper shows each volume as its own directory, so a destination maps to exactly one mount.
+- [Trade-off] Fail-closed mutations block edits whenever ECS can't be queried. → Accepted (Open Question 9): Retry is one click, and browsing/downloading still work.
 - [Trade-off] An orphaned helper can't be reattached after a restart. → Accepted: credentials are deliberately not persisted, and Restart costs ~30–60 s.
 
 ## Migration Plan
 
-1. Archive `add-folder-volume-upload` so `openspec/specs/game-volume-folder-upload/spec.md` exists for this change's delta.
+1. Archive `add-folder-volume-upload` so `openspec/specs/game-volume-folder-upload/spec.md` exists for this change's delta (done).
 2. Ship the PR stack in `tasks.md` order. Each PR passes lint, typecheck, unit, plus integration/e2e where relevant, on its own. The renderer swap (new page + removal of modal, link and credentials) lands in one PR so there is never a window where neither path works.
-3. No infra apply, IAM change or data migration. Helpers launched by an older build are handled by the orphan path (Restart) and the startup sweep.
-4. **Rollback:** revert the renderer-swap PR to restore the modal. The backend and registry PRs are additive and safe to leave in place. Browse-over-TLS would also need reverting, because the old modal links to `http://`.
+3. **Infra apply after PR 2 (multi-volume) ships:** the operator runs plan + apply once from the Infrastructure page so the stack records `efsVolumeAccessPoints`. The plan shows an output change only and an empty resource diff. The apply is **not** a prerequisite for merging or releasing PR 2 or later PRs: until it runs, the helper mounts the first volume only (the same coverage as today), other volumes show as "apply to browse", and uploads into an unmounted volume are refused instead of misrouted. No IAM change and no data migration. Helpers launched by an older build are handled by the orphan path (Restart) and the startup sweep.
+4. **Rollback:** revert the renderer-swap PR to restore the modal. The backend, multi-volume and registry PRs are safe to leave in place; the extra stack output is harmless to an older build, which ignores it. Browse-over-TLS would also need reverting, because the old modal links to `http://`.
 5. **Acceptance:**
-   - the operator opens Files, starts a session, navigates, uploads, downloads, renames, deletes and edits `options.json` on a real stack without leaving the app;
+   - the operator opens Files, starts a session, switches between the game's volumes, navigates, uploads, downloads, renames, deletes and edits `options.json` on a real stack without leaving the app;
+   - a folder upload into a second volume lands in that volume;
+   - with ECS unreachable, mutations are refused with "Couldn't confirm the server is stopped";
    - no credential or helper URL appears in the renderer (IPC payload assertions in tests);
    - leaving the page stops the helper after the grace period;
    - `npm run app:lint`, `app:typecheck`, `app:test`, `app:test:integration` and `app:test:e2e` all pass.
