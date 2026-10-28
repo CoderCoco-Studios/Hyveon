@@ -165,8 +165,9 @@ export class HelperSessionRegistry {
   }
 
   /**
-   * Drops `holder` from `game`'s session. The last `browse` holder starts the grace timer; the last upload holder
-   * stops the session immediately. An unknown game or holder is ignored.
+   * Drops `holder` from `game`'s session. Releasing `browse` always starts the grace timer, even while an upload still
+   * holds the session; the last holder leaving stops the session immediately unless a grace timer is pending, in which
+   * case the timer decides. An unknown game or holder is ignored.
    *
    * @param game - Game whose session to release.
    * @param holder - The holder to drop.
@@ -175,9 +176,9 @@ export class HelperSessionRegistry {
     const entry = this.entries.get(game);
     if (!entry || entry.state === 'stopping' || !entry.holders.delete(holder)) return;
     logger.debug('HelperSessionRegistry: release', { game, holder });
-    if (entry.holders.size > 0) return;
     if (holder === 'browse') this.startGrace(game, entry);
-    else void this.stopEntry(game, entry);
+    if (entry.holders.size > 0 || entry.graceTimer) return;
+    void this.stopEntry(game, entry);
   }
 
   /**
@@ -240,7 +241,7 @@ export class HelperSessionRegistry {
     }
     if (this.entries.get(game) !== entry || entry.state !== 'running') return this.status(game);
     if (task && task.taskArn === entry.taskArn) return this.snapshot(game, 'running', entry);
-    return this.failVanishedSession(game, entry);
+    return this.failVanishedSession(game, entry, task);
   }
 
   /**
@@ -381,8 +382,14 @@ export class HelperSessionRegistry {
     return { ok: false, code: 'failed', message };
   }
 
-  /** Handles a `running` entry whose ECS task vanished: fails it with ECS's stop reason and revokes its rules. */
-  private async failVanishedSession(game: string, entry: Entry): Promise<HelperSessionSnapshot> {
+  /**
+   * Handles a `running` entry whose ECS task is gone or replaced: fails it with ECS's stop reason.
+   *
+   * @remarks
+   * A gone task is stopped best-effort so its operator-IP rule is revoked. A different task is a helper this registry
+   * does not own: it is left running and reported `orphaned` by the next status call, never stopped silently.
+   */
+  private async failVanishedSession(game: string, entry: Entry, current: { taskArn?: string } | null): Promise<HelperSessionSnapshot> {
     let reason: string | null = null;
     try {
       reason = entry.taskArn ? await this.fileManager.getHelperStopReason(entry.taskArn) : null;
@@ -394,10 +401,10 @@ export class HelperSessionRegistry {
     await this.closeBackend(game, entry);
     if (this.entries.get(game) === entry) {
       this.dropEntry(game, entry);
-      this.lastError.set(game, error);
+      if (!current) this.lastError.set(game, error);
       this.emit(game, entry, 'failed', error);
     }
-    await this.stopBestEffort(game);
+    if (!current) await this.stopBestEffort(game);
     return this.snapshot(game, 'failed', entry, error);
   }
 

@@ -186,6 +186,49 @@ describe('HelperSessionRegistry', () => {
     expect(fm.stop).not.toHaveBeenCalled();
   });
 
+  it('should keep the helper for the browse grace period when an upload releases after the page left', async () => {
+    const { registry, fm } = harness();
+    await Promise.all([registry.acquire('mc', 'browse'), registry.acquire('mc', 'upload:r1')]);
+
+    registry.release('mc', 'browse');
+    await vi.advanceTimersByTimeAsync(60_000);
+    registry.release('mc', 'upload:r1');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fm.stop).not.toHaveBeenCalled();
+    expect(registry.attach('mc')).toBe(true);
+    await vi.advanceTimersByTimeAsync(GRACE_MS * 2);
+    expect(fm.stop).not.toHaveBeenCalled();
+    expect(await registry.status('mc')).toMatchObject({ state: 'running', browseHeld: true });
+  });
+
+  it('should stop once the remaining browse grace elapses after an upload releases', async () => {
+    const { registry, fm } = harness();
+    await Promise.all([registry.acquire('mc', 'browse'), registry.acquire('mc', 'upload:r1')]);
+
+    registry.release('mc', 'browse');
+    await vi.advanceTimersByTimeAsync(60_000);
+    registry.release('mc', 'upload:r1');
+    await vi.advanceTimersByTimeAsync(GRACE_MS - 60_000 - 1);
+    expect(fm.stop).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(fm.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('should stop immediately when the upload releases after the grace period already lapsed', async () => {
+    const { registry, fm } = harness();
+    await Promise.all([registry.acquire('mc', 'browse'), registry.acquire('mc', 'upload:r1')]);
+
+    registry.release('mc', 'browse');
+    await vi.advanceTimersByTimeAsync(GRACE_MS + 1);
+    expect(fm.stop).not.toHaveBeenCalled();
+    registry.release('mc', 'upload:r1');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fm.stop).toHaveBeenCalledTimes(1);
+  });
+
   it('should not let a stale grace timer stop a newer session', async () => {
     const { registry, fm } = harness();
     await registry.acquire('mc', 'browse');
@@ -286,6 +329,21 @@ describe('HelperSessionRegistry', () => {
     expect(backend.close).toHaveBeenCalledTimes(1);
     expect(fm.stop).toHaveBeenCalledWith('mc');
     expect(registry.ownedGames().has('mc')).toBe(false);
+  });
+
+  it('should not stop a foreign helper that replaced the session task', async () => {
+    const { registry, fm, backend } = harness();
+    await registry.acquire('mc', 'browse');
+    fm.listHelperTask.mockResolvedValue({ taskArn: 'arn:foreign' });
+    fm.getHelperStopReason.mockResolvedValue('Essential container exited');
+    fm.stop.mockClear();
+
+    expect(await registry.status('mc')).toMatchObject({ state: 'failed', error: expect.stringContaining('Essential container exited') });
+
+    expect(fm.stop).not.toHaveBeenCalled();
+    expect(backend.close).toHaveBeenCalledTimes(1);
+    expect(registry.ownedGames().has('mc')).toBe(false);
+    expect(await registry.status('mc')).toMatchObject({ state: 'orphaned' });
   });
 
   it('should keep reporting failed until the next acquire', async () => {
