@@ -288,7 +288,8 @@ export class HelperSessionRegistry {
     try {
       return await this.runOp(game, entry, op);
     } catch (err) {
-      if (!(err instanceof VolumeFileError) || err.code !== 'unreachable' || !(await this.recoverOperatorIp(game, entry))) throw err;
+      if (err instanceof NoSessionError || !(err instanceof VolumeFileError) || err.code !== 'unreachable') throw err;
+      if (!(await this.recoverOperatorIp(game, entry))) throw err;
       return this.runOp(game, entry, op);
     }
   }
@@ -307,6 +308,11 @@ export class HelperSessionRegistry {
       if (isPinMismatch(err)) await this.failOnPinMismatch(game, entry, errMessage(err));
       throw err;
     }
+  }
+
+  /** Whether `entry` is still the registered, running session; a new operator-IP rule is only safe then. */
+  private isLiveSession(game: string, entry: Entry): boolean {
+    return this.entries.get(game) === entry && entry.state === 'running';
   }
 
   /** Fails `entry`'s session once however many operations hit the mismatch at the same time. */
@@ -328,7 +334,7 @@ export class HelperSessionRegistry {
    * Never throws; a failed detection or re-authorization is logged and reported as "nothing recovered".
    */
   private async reauthorizeIfChanged(game: string, entry: Entry): Promise<boolean> {
-    if (!entry.taskArn) return false;
+    if (!entry.taskArn || !this.isLiveSession(game, entry)) return false;
     let current: string;
     try {
       current = await this.publicIp.detect();
@@ -336,7 +342,7 @@ export class HelperSessionRegistry {
       logger.warn('HelperSessionRegistry: could not detect the operator IP', { game, error: errMessage(err) });
       return false;
     }
-    if (current === entry.operatorIp) return false;
+    if (current === entry.operatorIp || !this.isLiveSession(game, entry)) return false;
     try {
       await this.fileManager.reauthorizeOperatorIp(game, entry.runId, entry.taskArn, current);
     } catch (err) {

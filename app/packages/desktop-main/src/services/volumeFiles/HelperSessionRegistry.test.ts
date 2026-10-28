@@ -690,6 +690,43 @@ describe('HelperSessionRegistry', () => {
       expect(fm.reauthorizeOperatorIp).toHaveBeenCalledTimes(1);
     });
 
+    it('should not recover the operator IP for a session that is stopping', async () => {
+      const { registry, fm, publicIp } = harness();
+      await registry.acquire('mc', 'browse');
+      publicIp.detect.mockResolvedValue('198.51.100.9');
+      let release!: () => void;
+      fm.stop.mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve({ success: true, message: 'stopping' }); }));
+      const stopping = registry.stop('mc');
+      await vi.advanceTimersByTimeAsync(0);
+      const op = vi.fn();
+
+      await expect(registry.withBackend('mc', op)).rejects.toBeInstanceOf(NoSessionError);
+      release();
+      await stopping;
+
+      expect(op).not.toHaveBeenCalled();
+      expect(publicIp.detect).not.toHaveBeenCalled();
+      expect(fm.reauthorizeOperatorIp).not.toHaveBeenCalled();
+    });
+
+    it('should not re-authorize when the session is dropped while the IP is being detected', async () => {
+      const { registry, fm, publicIp } = harness();
+      await registry.acquire('mc', 'browse');
+      let resolveDetect!: (ip: string) => void;
+      publicIp.detect.mockImplementation(() => new Promise<string>((resolve) => { resolveDetect = resolve; }));
+      const original = unreachable();
+      const op = vi.fn().mockRejectedValue(original);
+
+      const running = registry.withBackend('mc', op);
+      await vi.advanceTimersByTimeAsync(0);
+      await registry.stop('mc');
+      resolveDetect('198.51.100.9');
+
+      await expect(running).rejects.toBe(original);
+      expect(fm.reauthorizeOperatorIp).not.toHaveBeenCalled();
+      expect(op).toHaveBeenCalledTimes(1);
+    });
+
     it('should fail the session closed when an operation hits a pin mismatch', async () => {
       const { registry, fm, backend, publicIp } = harness();
       await registry.acquire('mc', 'browse');
