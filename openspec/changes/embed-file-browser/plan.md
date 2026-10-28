@@ -345,7 +345,7 @@ export function isVolumeMounted(layout: HelperVolumeLayout, volume: string): boo
 - [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/EcsService.test.ts packages/desktop-main/src/services/FolderUploadService.test.ts` → FAIL.
 - [x] **Step 3: Implement**.
 - [x] **Step 4: Run** → PASS; `npm run app:test:integration` → exit 0.
-- [ ] **Step 5: Docs** — `write-docs`: new output row in `infra.md`; multi-volume helper layout, first-volume fallback, wrong-volume fix and fail-closed upload preflight in `management-app.md`.
+- [x] **Step 5: Docs** — `write-docs`: new output row in `infra.md`; multi-volume helper layout, first-volume fallback, wrong-volume fix and fail-closed upload preflight in `management-app.md`.
 - [x] **Step 6: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration` → exit 0.
 - [ ] **Step 7: Commit** — `docs: document multi-volume helper mounts`. Open PR 2 with `/pr` (base: PR 1 branch). PR body: the operator runs plan + apply once after release (output-only change, empty resource diff); until then the helper mounts the first volume only and uploads into other volumes are refused.
 
