@@ -408,6 +408,11 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
    * — NOT every `(game, volume)` access point `efs.gameAccessPoints` holds.
    */
   efsAccessPoints: pulumi.Output<Record<string, string>>;
+  /**
+   * Mirrors {@link StackOutputs.efsVolumeAccessPoints} — game name → volume name → that volume's access point id
+   * (`efs.gameAccessPoints["${game}-${volumeName}"].id`), every volume of every game.
+   */
+  efsVolumeAccessPoints: pulumi.Output<Record<string, Record<string, string>>>;
   /** Mirrors {@link StackOutputs.domainName} — `config.hostedZoneName` directly. */
   domainName: string;
   /** Mirrors {@link StackOutputs.gameNames} — `Object.keys(config.gameServers)`, SORTED so the value is deterministic regardless of definition order. */
@@ -469,19 +474,24 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
  */
 export function buildStackOutputs(resources: InfraResources, config: DeploymentConfig): StackOutputValues {
   const gameAccessPointIds: Record<string, pulumi.Output<string>> = {};
+  const volumeAccessPointIds: Record<string, pulumi.Output<Record<string, string>>> = {};
   for (const [game, gameConfig] of Object.entries(config.gameServers)) {
     if (gameConfig.volumes.length === 0) {
       throw new Error(`buildStackOutputs: game "${game}" has no volumes configured — efs.gameAccessPoints has nothing to key off of.`);
     }
-    const firstVolumeName = gameConfig.volumes[0].name;
-    const key = `${game}-${firstVolumeName}`;
-    const accessPoint = resources.efs.gameAccessPoints[key];
-    if (!accessPoint) {
-      throw new Error(
-        `buildStackOutputs: no efs.gameAccessPoints entry for "${key}" — efs.gameAccessPoints and config.gameServers have drifted apart.`,
-      );
+    const idsByVolume: Record<string, pulumi.Output<string>> = {};
+    for (const volume of gameConfig.volumes) {
+      const key = `${game}-${volume.name}`;
+      const accessPoint = resources.efs.gameAccessPoints[key];
+      if (!accessPoint) {
+        throw new Error(
+          `buildStackOutputs: no efs.gameAccessPoints entry for "${key}" — efs.gameAccessPoints and config.gameServers have drifted apart.`,
+        );
+      }
+      idsByVolume[volume.name] = accessPoint.id;
     }
-    gameAccessPointIds[game] = accessPoint.id;
+    gameAccessPointIds[game] = idsByVolume[gameConfig.volumes[0].name];
+    volumeAccessPointIds[game] = pulumi.all(idsByVolume);
   }
 
   // `interactionsInvokeUrl`/`discordInteractionsUrl` share the exact same
@@ -498,6 +508,7 @@ export function buildStackOutputs(resources: InfraResources, config: DeploymentC
     fileManagerSecurityGroupId: resources.securityGroups.fileManager.id,
     efsFileSystemId: resources.efs.fileSystem.id,
     efsAccessPoints: pulumi.all(gameAccessPointIds),
+    efsVolumeAccessPoints: pulumi.all(volumeAccessPointIds),
     domainName: config.hostedZoneName,
     gameNames: Object.keys(config.gameServers).sort(),
     discordTableName: resources.dynamoDb.discordTable.name,

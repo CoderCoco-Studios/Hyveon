@@ -18,6 +18,7 @@ const DEFAULT_STACK_OUTPUTS: StackOutputs = {
   fileManagerSecurityGroupId: 'sg-files',
   efsFileSystemId: 'fs-1',
   efsAccessPoints: { minecraft: 'fsap-1' },
+  efsVolumeAccessPoints: { minecraft: { data: 'fsap-1' } },
   domainName: 'example.com',
   gameNames: ['minecraft'],
   discordTableName: 'discord-table',

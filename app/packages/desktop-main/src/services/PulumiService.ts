@@ -1039,6 +1039,7 @@ export class PulumiService {
       fileManagerSecurityGroupId: get('fileManagerSecurityGroupId', ''),
       efsFileSystemId: get('efsFileSystemId', ''),
       efsAccessPoints: get('efsAccessPoints', {}),
+      efsVolumeAccessPoints: get('efsVolumeAccessPoints', {}),
       domainName: get('domainName', ''),
       gameNames: get('gameNames', []),
       discordTableName: get('discordTableName', ''),

@@ -30,6 +30,7 @@ export const DEFAULT_STACK_OUTPUTS: StackOutputs = {
   fileManagerSecurityGroupId: 'sg-fm-test1234',
   efsFileSystemId: 'fs-test1234',
   efsAccessPoints: { minecraft: 'fsap-mc1234', valheim: 'fsap-vh1234' },
+  efsVolumeAccessPoints: { minecraft: { data: 'fsap-mc1234' }, valheim: { data: 'fsap-vh1234' } },
   domainName: 'test.example.com',
   gameNames: ['minecraft', 'valheim'],
   discordTableName: 'test-discord-table',
