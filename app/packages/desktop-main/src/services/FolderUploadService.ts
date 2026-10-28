@@ -331,12 +331,14 @@ export class FolderUploadService implements OnApplicationBootstrap {
     progress.start();
 
     const holder = `upload:${runId}` as const;
+    let acquired = false;
     let terminal: { phase: FolderUploadPhase; error?: string } = { phase: 'done' };
     try {
       progress.setPhase('starting-helper');
-      const acquired = await this.registry.acquire(game, holder, { tags: UPLOAD_TAGS, runId });
-      if (!acquired.ok) throw new Error(acquired.message);
       if (signal.aborted) throw new UploadCancelledError();
+      const opened = await this.rejectOnAbort(this.registry.acquire(game, holder, { tags: UPLOAD_TAGS, runId }), signal);
+      if (!opened.ok) throw new Error(opened.message);
+      acquired = true;
 
       const items = await this.resolveItems(prepared);
       const client = new RegistryUploadBackend(this.registry, game);
@@ -359,12 +361,33 @@ export class FolderUploadService implements OnApplicationBootstrap {
     } catch (err) {
       terminal = err instanceof UploadCancelledError || signal.aborted
         ? { phase: 'cancelled', error: err instanceof ConfirmationTimeoutError ? err.message : undefined }
-        : { phase: 'failed', error: errMessage(err) };
+        : { phase: 'failed', error: acquired ? await this.withSessionFailure(game, errMessage(err)) : errMessage(err) };
       if (terminal.phase === 'failed') logger.warn('FolderUploadService: upload failed', { game, runId, error: terminal.error });
     } finally {
       this.registry.release(game, holder);
       this.finish(game, runId, progress, terminal);
     }
+  }
+
+  /** Settles like `promise` unless `signal` aborts first, in which case it rejects with {@link UploadCancelledError}. */
+  private rejectOnAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = () => reject(new UploadCancelledError());
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+    });
+  }
+
+  /**
+   * Appends why the session died to `message` when the helper task vanished mid-run.
+   *
+   * @remarks
+   * The registry's status check owns the stop-reason lookup; a vanished session comes back `failed` with ECS's reason.
+   */
+  private async withSessionFailure(game: string, message: string): Promise<string> {
+    const snap = await this.registry.status(game).catch(() => null);
+    if (snap?.state !== 'failed' || !snap.error || message.includes(snap.error)) return message;
+    return `${message} (${snap.error})`;
   }
 
   /**

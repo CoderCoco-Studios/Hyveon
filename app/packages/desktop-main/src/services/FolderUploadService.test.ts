@@ -18,7 +18,7 @@ import { SafeStorageService } from './SafeStorageService.js';
 import type { EcsService } from './EcsService.js';
 import { UPLOAD_TAGS, type FileManagerService } from './FileManagerService.js';
 import type { AcquireResult, HelperSessionRegistry, HelperSessionSnapshot, HelperSessionState } from './volumeFiles/HelperSessionRegistry.js';
-import type { VolumeFileBackend, WriteOptions } from './volumeFiles/VolumeFileBackend.js';
+import { VolumeFileError, type VolumeFileBackend, type WriteOptions } from './volumeFiles/VolumeFileBackend.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
 import { configAndSavesVolumes, deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
@@ -411,17 +411,27 @@ describe('FolderUploadService runs', () => {
     expect(h.svc.getSelection('minecraft')?.lastRun?.status).toBe('cancelled');
   });
 
-  it('should cancel while waiting for the helper to boot and release its hold', async () => {
+  it('should cancel while the helper is still booting, without waiting for acquire, and release its hold', async () => {
     const h = harness();
-    let ready!: (result: AcquireResult) => void;
-    h.registry.acquire.mockReturnValue(new Promise<AcquireResult>((resolve) => { ready = resolve; }));
+    h.registry.acquire.mockReturnValue(new Promise<AcquireResult>(() => undefined));
     const runId = runIdOf(await h.svc.startUpload(await request(['Config'])));
     await vi.waitFor(() => expect(h.registry.acquire).toHaveBeenCalled());
     h.svc.cancel('minecraft');
-    ready({ ok: true });
     expect((await settled(h)).phase).toBe('cancelled');
     expect(h.registry.release).toHaveBeenCalledWith('minecraft', `upload:${runId}`);
     expect(h.client.writeStream).not.toHaveBeenCalled();
+  });
+
+  it('should append the helper stop reason when a run fails after the helper died', async () => {
+    const writeStream = vi.fn().mockRejectedValue(new VolumeFileError('failed', 'ECONNRESET'));
+    const h = harness({ client: fakeBackend({ writeStream }) });
+    h.registry.status.mockResolvedValue({ ...snapshot('failed'), error: 'The file manager helper stopped: OutOfMemoryError: Container killed' });
+    await h.svc.startUpload(await request(['Config']));
+    const last = await settled(h);
+    expect(last.phase).toBe('failed');
+    expect(last.error).toContain('ECONNRESET');
+    expect(last.error).toContain('The file manager helper stopped: OutOfMemoryError: Container killed');
+    expect(h.registry.release).toHaveBeenCalledTimes(1);
   });
 
   it('should cancel the run when the session is force-stopped', async () => {
