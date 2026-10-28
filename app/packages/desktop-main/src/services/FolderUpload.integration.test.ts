@@ -79,8 +79,8 @@ async function run(options: {
   const svc = new FolderUploadService(
     configServiceStub({ outputs }),
     deploymentConfigStub({ declared: [gameServer('minecraft', { volumes })] }),
-    { findRunningTaskOrThrow: vi.fn().mockResolvedValue(null) } as unknown as EcsService,
-    fm as unknown as FileManagerService,
+    { findRunningTaskOrThrow: vi.fn().mockResolvedValue(null) } satisfies Partial<EcsService> as EcsService,
+    fm as Partial<FileManagerService> as FileManagerService,
     scans,
     new ElectronStoreService(new SafeStorageService()),
     new FileBrowserClientFactory(),
