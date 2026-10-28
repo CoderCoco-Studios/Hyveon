@@ -99,6 +99,11 @@ export class GamesPage {
     return this.page.getByRole('heading', { name: label, level: 3, exact: true });
   }
 
+  /** The web port value (e.g. "30000") shown in the config panel of an https game. */
+  webPortValue(port: number): Locator {
+    return this.page.getByText(String(port));
+  }
+
   /** File-seeds `<summary>` toggle text, e.g. "2 files seeded at task start". */
   fileSeedsSummary(count: number): Locator {
     return this.page.getByText(new RegExp(`${count} file${count === 1 ? '' : 's'} seeded at task start`));

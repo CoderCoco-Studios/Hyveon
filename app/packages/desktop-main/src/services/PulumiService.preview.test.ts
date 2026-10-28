@@ -331,6 +331,28 @@ describe('PulumiService.preview spawning and artifact persistence', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  it('should reject a legacy config whose https webPort is another game\'s extra tcp port, before any Pulumi call', async () => {
+    const workspace = makeWorkspace(makeHappyPathPreview());
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            hostedZoneName: 'example.com',
+            gameServers: {
+              web: { https: true, ports: [{ container: 30000, protocol: 'tcp', visibility: 'public' }] },
+              other: { ports: [{ container: 30000, protocol: 'tcp', visibility: 'public' }] },
+            },
+          }),
+        ),
+        etag: 'etag-1',
+      }),
+    });
+    const service = makeService({ workspace, remoteFileStore });
+
+    await expect(collectPreviewChunks(service.preview())).rejects.toThrow(/collides with tcp port 30000 on game "other"/);
+    expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
+  });
+
   it('should throw and never call getOrCreateStack when configVersionId no longer matches the head version', async () => {
     const workspace = makeWorkspace(makeHappyPathPreview());
     const remoteFileStore = makeRemoteFileStore();

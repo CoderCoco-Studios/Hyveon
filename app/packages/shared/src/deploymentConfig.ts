@@ -407,32 +407,30 @@ const DEPLOYMENT_CONFIG_SCALAR_FIELDS: DeploymentConfigScalarField[] = [
 ];
 
 /**
+ * Serialises `value` to JSON with object keys sorted at every depth, so two structurally equal
+ * values stringify identically regardless of key order. Array order is preserved.
+ */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    typeof v === 'object' && v !== null && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))
+      : v,
+  );
+}
+
+/**
  * Compares two values for {@link diffDeploymentConfig}'s purposes. Scalars
  * (`string`/`number`/`boolean`) compare with `!==`; everything else (arrays
  * like {@link DeploymentConfig.baseAllowedGuilds}, and `gameServers` entry
- * objects) compares via `JSON.stringify` equality.
- *
- * `JSON.stringify` equality is a structural comparison, not a deep
- * value-equality one: it is sensitive to key order within an object (e.g.
- * `{a:1,b:2}` and `{b:2,a:1}` stringify to different strings and would be
- * reported as "changed" despite being the same value). For this function's
- * purpose — a best-effort rollback-confirmation SUMMARY, not a precise
- * patch — that false-positive rate is an acceptable tradeoff: it can only
- * ever report a field as changed when it wasn't (never miss a real change,
- * since two values that stringify identically ARE structurally identical),
- * and every {@link DeploymentConfig} field this function compares this way
- * is either a flat array of primitives (order-sensitive key ordering isn't a
- * concern — arrays don't have "key order" the way objects do) or a
- * `GameServerConfig` object written exclusively by this app's own JSON
- * serialization (`DeploymentConfigService`'s write path), which produces consistent
- * key order across writes rather than an externally-authored document with
- * arbitrary key ordering.
+ * objects) compares via key-order-insensitive JSON equality, so a read-time
+ * normalisation that reorders keys (e.g. appending `webPort`) is not reported
+ * as a change. Array element order still matters.
  */
 function valuesDiffer(a: unknown, b: unknown): boolean {
   if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) {
     return a !== b;
   }
-  return JSON.stringify(a) !== JSON.stringify(b);
+  return canonicalJson(a) !== canonicalJson(b);
 }
 
 /**
@@ -459,9 +457,8 @@ function valuesDiffer(a: unknown, b: unknown): boolean {
  *
  * Scalar fields (`string`/`number`/`boolean`) compare with `!==`. Array
  * fields (`baseAllowedGuilds`, `baseAdminUserIds`, `baseAdminRoleIds`) and
- * `gameServers` entry values compare via `JSON.stringify` equality — see
- * {@link valuesDiffer}'s own TSDoc for the full key-order-sensitivity
- * rationale.
+ * `gameServers` entry values compare via key-order-insensitive JSON equality —
+ * see {@link valuesDiffer}.
  *
  * @param previous - The earlier configuration (e.g. the historic rollback
  *   target).

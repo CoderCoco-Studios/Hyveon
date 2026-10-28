@@ -294,6 +294,23 @@ describe('diffDeploymentConfig', () => {
     });
   });
 
+  it('should not report a game as changed when only its key order differs', () => {
+    const game = buildHttpsGameServer();
+    const reordered = Object.fromEntries(Object.entries(game).reverse()) as unknown as GameServerConfig;
+    const previous: DeploymentConfig = { ...FULL_CONFIG, gameServers: { g: game } };
+    const current: DeploymentConfig = { ...FULL_CONFIG, gameServers: { g: reordered } };
+
+    expect(diffDeploymentConfig(previous, current).gameServers.changed).toEqual([]);
+  });
+
+  it('should still report a game as changed when a value differs', () => {
+    const game = buildHttpsGameServer();
+    const previous: DeploymentConfig = { ...FULL_CONFIG, gameServers: { g: game } };
+    const current: DeploymentConfig = { ...FULL_CONFIG, gameServers: { g: { ...game, cpu: game.cpu * 2 } } };
+
+    expect(diffDeploymentConfig(previous, current).gameServers.changed).toEqual(['g']);
+  });
+
   it('should report every top-level scalar and array field as changed when every one differs', () => {
     const previous = FULL_CONFIG;
     const current: DeploymentConfig = {

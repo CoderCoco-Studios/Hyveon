@@ -126,7 +126,7 @@ test.describe('game detail page', () => {
 
     // Web port (https), shown apart from the additional ports.
     await expect(games.panelTitle('Web port')).toBeVisible();
-    await expect(games.page.getByText('30000')).toBeVisible();
+    await expect(games.webPortValue(30000)).toBeVisible();
 
     // Additional ports.
     await expect(games.panelTitle('Additional ports')).toBeVisible();

@@ -80,7 +80,8 @@ export function normalizeDeploymentConfigGames(config: DeploymentConfig): Deploy
     return config;
   }
   let changed = false;
-  const gameServers: DeploymentConfig['gameServers'] = {};
+  // Null prototype so a legacy `__proto__` game key is stored as an own property, not swallowed by the prototype setter.
+  const gameServers = Object.create(null) as DeploymentConfig['gameServers'];
   for (const [name, game] of Object.entries(games)) {
     const normalised = normalizeGameServer(game);
     changed ||= normalised !== game;
@@ -103,4 +104,33 @@ export function ingressPorts(game: GameServerConfig): GameServerPort[] {
     return game.ports;
   }
   return game.ports.filter((port) => !(port.container === webPort && port.protocol.toLowerCase() === 'tcp'));
+}
+
+/**
+ * Finds `https` games whose `webPort` is also a `tcp` extra port of a different game. The security
+ * group is shared across games and ingress rules union, so that extra port's rule would expose the
+ * other game's Caddy upstream directly. The write path rejects this ({@link validateGameServer}
+ * in `gameServerValidator.ts`); this re-checks raw reads that bypass it, such as legacy configs.
+ *
+ * @param config - A normalised deployment config (see {@link normalizeDeploymentConfigGames}).
+ * @returns One human-readable message per collision; empty when there are none.
+ */
+export function findWebPortCollisions(config: DeploymentConfig): string[] {
+  const games = Object.entries(config.gameServers ?? {});
+  const messages: string[] = [];
+  for (const [owner, ownerGame] of games) {
+    const { webPort } = ownerGame;
+    if (ownerGame.https !== true || typeof webPort !== 'number') {
+      continue;
+    }
+    for (const [other, otherGame] of games) {
+      if (other === owner || !Array.isArray(otherGame.ports)) {
+        continue;
+      }
+      if (otherGame.ports.some((port) => port.container === webPort && port.protocol.toLowerCase() === 'tcp')) {
+        messages.push(`Game "${owner}" webPort ${webPort} collides with tcp port ${webPort} on game "${other}"; the shared security group would expose "${owner}"'s upstream directly, bypassing Caddy.`);
+      }
+    }
+  }
+  return messages;
 }

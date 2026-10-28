@@ -21,6 +21,7 @@ import {
   CONFIGURATION_OBJECT_KEY,
   diffDeploymentConfig,
   errMessage,
+  findWebPortCollisions,
   isApprovalExpired,
   normalizeDeploymentConfigGames,
 } from '@hyveon/shared';
@@ -3402,9 +3403,21 @@ export class PulumiService {
   /**
    * Decodes the raw S3 configuration object for a preview/apply. Normalises the deprecated legacy https
    * shape because this read bypasses `DeploymentConfigService`, and the infra program requires `webPort`.
+   * Also re-checks the cross-game `webPort` collision the write-time validator enforces, since a legacy
+   * config never went through it and normalising can surface one.
+   *
+   * @param body - The raw S3 object bytes.
+   * @returns The normalised configuration.
+   * @throws Error when one https game's `webPort` is another game's extra tcp port.
    */
   private static parseConfigurationObject(body: Uint8Array): DeploymentConfig {
-    return normalizeDeploymentConfigGames(JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig);
+    const config = normalizeDeploymentConfigGames(JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig);
+    const collisions = findWebPortCollisions(config);
+    if (collisions.length > 0) {
+      logger.warn('PulumiService: configuration rejected — webPort collides with another game\'s extra port', { collisions });
+      throw new Error(`Invalid configuration: ${collisions.join(' ')}`);
+    }
+    return config;
   }
 
   /**

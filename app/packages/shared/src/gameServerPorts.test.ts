@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeDeploymentConfigGames, normalizeGameServer, ingressPorts, isReservedHttpsPort, HTTPS_RESERVED_PORTS } from './gameServerPorts.js';
+import { findWebPortCollisions, normalizeDeploymentConfigGames, normalizeGameServer, ingressPorts, isReservedHttpsPort, HTTPS_RESERVED_PORTS } from './gameServerPorts.js';
+import type { DeploymentConfig } from './deploymentConfig.js';
+import { withDeploymentConfigDefaults } from './deploymentConfig.js';
 import type { GameServerConfig } from './gameServerConfig.js';
 
 /** Builds a minimal valid {@link GameServerConfig}, with `overrides` applied on top. */
@@ -12,6 +14,11 @@ function makeGame(overrides: Partial<GameServerConfig> = {}): GameServerConfig {
     volumes: [{ name: 'data', container_path: '/data' }],
     ...overrides,
   };
+}
+
+/** Builds a complete {@link DeploymentConfig} holding `gameServers`, defaults filling every other field. */
+function makeConfig(gameServers: Record<string, GameServerConfig>): DeploymentConfig {
+  return withDeploymentConfigDefaults({ hostedZoneName: 'example.com', gameServers });
 }
 
 describe('normalizeGameServer', () => {
@@ -128,7 +135,7 @@ describe('normalizeDeploymentConfigGames', () => {
   it('should normalise legacy https entries and leave other entries untouched', () => {
     const legacy = makeGame({ https: true, ports: [{ container: 8080, protocol: 'tcp' }, { container: 27015, protocol: 'udp' }] });
     const plain = makeGame({ https: false });
-    const config = { gameServers: { a: legacy, b: plain } } as unknown as Parameters<typeof normalizeDeploymentConfigGames>[0];
+    const config = makeConfig({ a: legacy, b: plain });
 
     const result = normalizeDeploymentConfigGames(config);
 
@@ -137,8 +144,39 @@ describe('normalizeDeploymentConfigGames', () => {
   });
 
   it('should return the same object when no entry needs normalising', () => {
-    const config = { gameServers: { b: makeGame({ https: false }) } } as unknown as Parameters<typeof normalizeDeploymentConfigGames>[0];
+    const config = makeConfig({ b: makeGame({ https: false }) });
 
     expect(normalizeDeploymentConfigGames(config)).toBe(config);
+  });
+
+  it('should keep a legacy __proto__ game key as an own property', () => {
+    const raw = JSON.parse(
+      '{"__proto__":{"image":"img","cpu":1,"memory":1,"https":true,"ports":[{"container":8080,"protocol":"tcp"}],"volumes":[]}}',
+    ) as DeploymentConfig['gameServers'];
+
+    const result = normalizeDeploymentConfigGames(makeConfig(raw));
+
+    expect(Object.keys(result.gameServers)).toEqual(['__proto__']);
+    expect(Object.getOwnPropertyDescriptor(result.gameServers, '__proto__')?.value).toMatchObject({ webPort: 8080, ports: [] });
+  });
+});
+
+describe('findWebPortCollisions', () => {
+  it('should report an https webPort that is another game\'s extra tcp port', () => {
+    const config = makeConfig({
+      web: makeGame({ https: true, webPort: 30000 }),
+      other: makeGame({ ports: [{ container: 30000, protocol: 'TCP' }] }),
+    });
+
+    expect(findWebPortCollisions(config)).toEqual([expect.stringContaining('"web" webPort 30000 collides with tcp port 30000 on game "other"')]);
+  });
+
+  it('should ignore udp ports, the same game\'s own ports, and non-colliding configs', () => {
+    const config = makeConfig({
+      web: makeGame({ https: true, webPort: 30000, ports: [{ container: 30000, protocol: 'tcp' }] }),
+      other: makeGame({ ports: [{ container: 30000, protocol: 'udp' }] }),
+    });
+
+    expect(findWebPortCollisions(config)).toEqual([]);
   });
 });
