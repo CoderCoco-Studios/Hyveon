@@ -255,13 +255,13 @@ Branch from PR 1's branch. Covers tasks.md 2.1–2.7. Decisions: design.md D7 (f
 **Interfaces:**
 - Produces: `StackOutputs.efsVolumeAccessPoints: Record<string, Record<string, string>>` (game → volume name → access point ID), required on the type; projected with fallback `{}`. `efsAccessPoints` is unchanged. Fixtures: desktop-main default `{ minecraft: { data: 'fsap-1' } }`; web e2e `{ minecraft: { data: 'fsap-mc1234' }, valheim: { data: 'fsap-vh1234' } }`.
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `program.test.ts`: `should export every volume's access point per game` — a game with volumes `config` and `saves` → resolved `efsVolumeAccessPoints` equals `{ <game>: { config: <id of efs.gameAccessPoints['<game>-config']>, saves: <id of '<game>-saves'> } }`, and `efsAccessPoints[<game>]` still equals the `config` id.
   - `PulumiService.test.ts`: `should project efsVolumeAccessPoints and default it to an empty map when absent`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/infra/src/program.test.ts packages/desktop-main/src/services/PulumiService.test.ts` → FAIL.
-- [ ] **Step 3: Implement**; loop over every volume in the existing `buildStackOutputs` loop (same drift `throw` for a missing key). `npm run app:typecheck` lists every inline `StackOutputs` literal to update; switch any such literal in tests to the fixture builder (`.claude/rules/testing-conventions.md` "Fixtures over per-spec scaffolding").
-- [ ] **Step 4: Run** the same command and `npm run app:typecheck` → PASS / clean.
-- [ ] **Step 5: Commit** — `feat(infra): export every volume's EFS access point`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/infra/src/program.test.ts packages/desktop-main/src/services/PulumiService.test.ts` → FAIL.
+- [x] **Step 3: Implement**; loop over every volume in the existing `buildStackOutputs` loop (same drift `throw` for a missing key). `npm run app:typecheck` lists every inline `StackOutputs` literal to update; switch any such literal in tests to the fixture builder (`.claude/rules/testing-conventions.md` "Fixtures over per-spec scaffolding").
+- [x] **Step 4: Run** the same command and `npm run app:typecheck` → PASS / clean.
+- [x] **Step 5: Commit** — `feat(infra): export every volume's EFS access point`.
 
 ### Task 7: Helper volume layout and multi-volume mounts (tasks.md 2.2, 2.3, 2.6)
 
@@ -290,22 +290,22 @@ export function toHelperPath(layout: HelperVolumeLayout, volume: string, volumeP
 export function isVolumeMounted(layout: HelperVolumeLayout, volume: string): boolean;
 ```
 
-  - `dir`: the volume name when it matches `/^[A-Za-z0-9._-]{1,64}$/`, is not `.`/`..`, and is unique among the game's volumes; otherwise `volume-<index>`. `taskVolumeName`: `vol-<index>`. Mount point `/srv/<dir>`.
+  - `dir`: the volume name when it matches `/^[A-Za-z0-9._-]{1,64}$/`, is not `.`/`..`, is unique among the game's volumes, and does not match `/^volume-\d+$/` (it could collide with another volume's fallback directory); otherwise `volume-<index>`. `taskVolumeName`: `vol-<index>`. Mount point `/srv/<dir>`.
   - Source of volumes: the game's `deployment-config` entry; if the game has no entry (deployed-only), the keys of `efsVolumeAccessPoints[game]` with `containerPath: ''`.
   - Fallback (`efsVolumeAccessPoints[game]` absent): only `volumes[0]` mounted via `efsAccessPoints[game]`, the rest in `unmounted`, `usedFallback: true`.
   - `FileManagerService.planHelperLayout(game: string): Promise<HelperVolumeLayout | null>` (null when not deployed) — used by `launch` and by `FolderUploadService.prepare` (Task 8) so both see the same layout. `launch` registers one `efsVolumeConfiguration` per mount (same `fileSystemId`, `transitEncryption: 'ENABLED'`, `iam: 'DISABLED'`) and one `mountPoints` entry per mount at `/srv/<dir>`; `--root /srv` is unchanged. A layout with zero mounts fails the launch with "No EFS access point found for '<game>'."
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `should mount each applied volume under its own directory` — volumes `config` `/data/config`, `saves` `/data/saves`; output `{ config: 'fsap-c', saves: 'fsap-s' }` → mounts `[{ volume: 'config', dir: 'config', accessPointId: 'fsap-c' }, { volume: 'saves', dir: 'saves', accessPointId: 'fsap-s' }]` (partial), `unmounted: []`.
   - `should fall back to an index directory for an unsafe or duplicate volume name` — names `'../x'`, `'a b'`, `'saves'`, `'saves'` → dirs `volume-0`, `volume-1`, `volume-2`, `volume-3`.
   - `should mount only the first volume when the per-volume output is missing` — `efsVolumeAccessPoints: {}`, `efsAccessPoints: { mc: 'fsap-1' }` → one mount `{ volume: 'config', accessPointId: 'fsap-1' }`, `unmounted: [{ volume: 'saves', containerPath: '/data/saves' }]`, `usedFallback: true`.
   - `should list a declared but unapplied volume as unmounted` — config adds `mods`, output lacks it.
   - `should map a volume path to its helper path and refuse an unmounted volume` — `toHelperPath(layout, 'saves', '/worlds')` → `/saves/worlds`; `toHelperPath(layout, 'mods', '/')` throws `VolumePathError`.
   - `FileManagerService.test.ts`: `should register one EFS volume and mount point per mounted volume` — `volumes` has two `efsVolumeConfiguration.authorizationConfig.accessPointId` values `fsap-c`, `fsap-s`; `mountPoints` container paths `/srv/config`, `/srv/saves`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles/helperVolumeLayout.test.ts packages/desktop-main/src/services/FileManagerService.test.ts` → FAIL.
-- [ ] **Step 3: Implement**.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `feat(desktop-main): mount every applied volume in the file manager helper`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles/helperVolumeLayout.test.ts packages/desktop-main/src/services/FileManagerService.test.ts` → FAIL.
+- [x] **Step 3: Implement**.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `feat(desktop-main): mount every applied volume in the file manager helper`.
 
 ### Task 8: Upload into the destination's volume (#672 fix) (tasks.md 2.4, 2.6)
 
@@ -317,15 +317,15 @@ export function isVolumeMounted(layout: HelperVolumeLayout, volume: string): boo
 - Consumes: Task 7 `planHelperLayout`, `toHelperPath`, `isVolumeMounted`; existing `validateDestination`, `toRemotePath`.
 - Produces: `UploadItem.remotePath = toHelperPath(layout, dest.volume.name, toRemotePath(request.destination, dest.volume.container_path, file.relPath))`. `prepare` throws `Error("Apply the infrastructure to upload into '<volume>'. Your selection is kept.")` when `!isVolumeMounted(layout, dest.volume.name)`, before any launch.
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `paths.test.ts`: `should return a path relative to the owning volume for a second-volume destination` — `toRemotePath('/data/saves/worlds', '/data/saves', 'a.db')` → `/worlds/a.db`.
   - `FolderUploadService.test.ts`: `should target the second volume's mount for a second-volume destination` — volumes `config` `/data/config`, `saves` `/data/saves`, destination `/data/saves/worlds`, relPath `a.db` → the planned remote path is `/saves/worlds/a.db` (assert via the fake backend's recorded upload path).
   - `should refuse before launch when the destination volume is not mounted` — fallback layout (only `config` mounted), destination `/data/saves` → `{ started: false, error: expect.stringContaining("Apply the infrastructure to upload into 'saves'") }`; launch not called.
   - `FolderUpload.integration.test.ts`: `should write a second-volume upload into that volume and nothing into the first` — against `startFakeFileBrowser`: fake `files` has `/saves/worlds/a.db` and no key starting with `/config/`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FolderUpload packages/shared/src/folderUpload` → FAIL (the second-volume path currently resolves to `/worlds/a.db`).
-- [ ] **Step 3: Implement**.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `fix(desktop-main): upload folders into the destination's own volume`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FolderUpload packages/shared/src/folderUpload` → FAIL (the second-volume path currently resolves to `/worlds/a.db`).
+- [x] **Step 3: Implement**.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `fix(desktop-main): upload folders into the destination's own volume`.
 
 ### Task 9: Fail-closed server check, tier-2 spec and PR 2 docs (tasks.md 2.5, 2.6, 2.7)
 
@@ -338,15 +338,15 @@ export function isVolumeMounted(layout: HelperVolumeLayout, volume: string): boo
 **Interfaces:**
 - Produces: `EcsService.findRunningTaskOrThrow(cluster: string, game: string): Promise<Task | null>` — the current body without the `catch`; logs and throws `new Error(errMessage(err))`. `findRunningTask` becomes `try { return await this.findRunningTaskOrThrow(...) } catch { return null }` with its existing `logger.error`, so its callers keep today's behaviour. `FolderUploadService.prepare` calls the throwing variant and maps a throw to `Error("Couldn't confirm '<game>' is stopped. Try again in a moment.")`.
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `EcsService.test.ts`: `should throw a plain Error when ListTasks fails in findRunningTaskOrThrow`; `should still return null from findRunningTask when ListTasks fails`.
   - `FolderUploadService.test.ts`: `should refuse the upload when the server state can't be confirmed` — `findRunningTaskOrThrow` rejects → `{ started: false, error: expect.stringContaining("Couldn't confirm") }`.
   - `volume-outputs.spec.ts` (tier 2, `{ test, expect }` from `./index.js`): `should project efsVolumeAccessPoints from the scripted stack outputs` — `ipc.mocks.pulumi.scriptStackOutputs({ ...DEFAULT_STACK_OUTPUTS, efsVolumeAccessPoints: { minecraft: { data: 'fsap-mc1234', mods: 'fsap-mods' } } })`, then resolve `ConfigService.getStackOutputs()` from the container and assert the map round-trips.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/EcsService.test.ts packages/desktop-main/src/services/FolderUploadService.test.ts` → FAIL.
-- [ ] **Step 3: Implement**.
-- [ ] **Step 4: Run** → PASS; `npm run app:test:integration` → exit 0.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/EcsService.test.ts packages/desktop-main/src/services/FolderUploadService.test.ts` → FAIL.
+- [x] **Step 3: Implement**.
+- [x] **Step 4: Run** → PASS; `npm run app:test:integration` → exit 0.
 - [ ] **Step 5: Docs** — `write-docs`: new output row in `infra.md`; multi-volume helper layout, first-volume fallback, wrong-volume fix and fail-closed upload preflight in `management-app.md`.
-- [ ] **Step 6: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration` → exit 0.
+- [x] **Step 6: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration` → exit 0.
 - [ ] **Step 7: Commit** — `docs: document multi-volume helper mounts`. Open PR 2 with `/pr` (base: PR 1 branch). PR body: the operator runs plan + apply once after release (output-only change, empty resource diff); until then the helper mounts the first volume only and uploads into other volumes are refused.
 
 ---
