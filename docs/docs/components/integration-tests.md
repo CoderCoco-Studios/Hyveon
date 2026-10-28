@@ -223,7 +223,7 @@ state `GuidedIamService.test.ts`'s unit tests target, scoped to the fresh
 ## Design Constraints
 
 - **`workers: 1`, `fullyParallel: false`** — the `MockStore` is an in-process singleton; concurrent tests would corrupt each other's queues.
-- **`serverMocks` resets before and after every test** — the fixture calls `mockStore.reset()` in-process in setup and teardown; there is no HTTP round-trip.
+- **The mock store resets before and after every test** — an automatic (`{ auto: true }`) test-scoped fixture, `resetMockStore`, calls `mockStore.reset()` in-process in setup and teardown, and Playwright sets automatic fixtures up before `beforeEach` hooks, so responses a hook queues through `serverMocks` or `ipc.mocks` are not wiped when the test later requests `ipc`; there is no HTTP round-trip.
 - **No HTTP server, no Vite build/preview, no `BrowserWindow`** — every integration spec dispatches directly to the `AppModule` DI container via the `ipc` fixture (`ipc-harness.ts`) and pushes mock ECS responses straight into the in-process `MockStore` singleton via the `serverMocks` fixture (`server-mocks.ts`), so there is no test-only route surface and nothing for Playwright to boot as a `webServer`.
 - **No real Pulumi engine, ever** — `createIpcHarness()` substitutes `PulumiServiceStub` for `PulumiService` at the DI seam (see [PulumiService DI-Seam Stub](#pulumiservice-di-seam-stub) above), so no integration spec can spawn the Pulumi CLI, download the engine binary, or reach real AWS through it — structurally, not just by convention.
 
