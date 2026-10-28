@@ -29,6 +29,27 @@ export interface HelperVolumeLayout {
 }
 
 /**
+ * Volumes of a game with no configuration entry, known only from the stack outputs.
+ *
+ * @remarks
+ * A stack applied by an older build has no per-volume output, so the game's single `efsAccessPoints` entry is
+ * represented by one unnamed volume; its name is not a safe directory, which gives it the `volume-0` directory.
+ *
+ * @param game - Game the helper is for.
+ * @param perVolume - The game's `efsVolumeAccessPoints` entry, when the stack exports one.
+ * @param efsAccessPoints - The stack's first-volume access point per game.
+ * @returns The volumes to plan from, empty when the stack knows nothing of the game.
+ */
+function volumesFromOutputs(
+  game: string,
+  perVolume: Record<string, string> | undefined,
+  efsAccessPoints: Record<string, string>,
+): { name: string; container_path: string }[] {
+  if (perVolume) return Object.keys(perVolume).map((name) => ({ name, container_path: '' }));
+  return efsAccessPoints[game] ? [{ name: '', container_path: '' }] : [];
+}
+
+/**
  * Plans which of a game's volumes the file-manager helper mounts and under which directory.
  *
  * @remarks
@@ -40,7 +61,8 @@ export interface HelperVolumeLayout {
  *
  * @param game - Game the helper is for.
  * @param volumes - The game's declared volumes; when empty (a deployed-only game) the volumes are taken from the keys of
- * `efsVolumeAccessPoints[game]`, with no container path.
+ * `efsVolumeAccessPoints[game]` (or, on a stack without that output, a single volume for `efsAccessPoints[game]`), with
+ * no container path.
  * @param outputs - The deployed stack's access point outputs.
  */
 export function buildHelperVolumeLayout(
@@ -49,8 +71,7 @@ export function buildHelperVolumeLayout(
   outputs: Pick<StackOutputs, 'efsAccessPoints' | 'efsVolumeAccessPoints'>,
 ): HelperVolumeLayout {
   const perVolume = outputs.efsVolumeAccessPoints[game];
-  const declared =
-    volumes.length > 0 ? volumes : Object.keys(perVolume ?? {}).map((name) => ({ name, container_path: '' }));
+  const declared = volumes.length > 0 ? volumes : volumesFromOutputs(game, perVolume, outputs.efsAccessPoints);
   const nameCounts = new Map<string, number>();
   for (const { name } of declared) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
   const isSafeDir = (name: string): boolean =>
@@ -90,6 +111,7 @@ export function isVolumeMounted(layout: HelperVolumeLayout, volume: string): boo
  * @param layout - The layout the helper was launched with.
  * @param volume - Volume name.
  * @param volumePath - Clean absolute path inside the volume.
+ * @returns The path under the helper's root.
  * @throws VolumePathError when the volume is not mounted or `volumePath` is not clean.
  */
 export function toHelperPath(layout: HelperVolumeLayout, volume: string, volumePath: string): string {

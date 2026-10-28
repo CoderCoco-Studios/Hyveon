@@ -74,6 +74,16 @@ describe('buildHelperVolumeLayout', () => {
     expect(layout.unmounted).toHaveLength(2);
   });
 
+  it('should mount the first access point for a deployed-only game on a stack without the per-volume output', () => {
+    const layout = buildHelperVolumeLayout('mc', [], { efsAccessPoints: { mc: 'fsap-1' }, efsVolumeAccessPoints: {} });
+
+    expect(layout.mounts).toEqual([
+      { volume: '', containerPath: '', dir: 'volume-0', accessPointId: 'fsap-1', taskVolumeName: 'vol-0' },
+    ]);
+    expect(layout.unmounted).toEqual([]);
+    expect(layout.usedFallback).toBe(true);
+  });
+
   it('should list a declared but unapplied volume as unmounted', () => {
     const volumes = [...CONFIG_AND_SAVES, { name: 'mods', container_path: '/data/mods' }];
     const layout = buildHelperVolumeLayout('mc', volumes, {

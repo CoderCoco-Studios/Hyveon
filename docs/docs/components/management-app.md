@@ -302,7 +302,7 @@ called out again in the `WindowController` row below.
   | Planner | `buildHelperVolumeLayout` (`services/volumeFiles/helperVolumeLayout.ts`) takes the game's declared volumes (from `DeploymentConfigService`) and the stack outputs. It returns `mounts`, `unmounted` (declared volumes with no access point yet) and `usedFallback`. |
   | Directory name `<dir>` | The volume's name when it matches `[A-Za-z0-9._-]{1,64}`, is not `.`/`..`, is unique among the game's volumes, and does not look like `volume-<n>` (that shape is reserved for the fallback). Otherwise `volume-<index>`. |
   | Access points | `efsVolumeAccessPoints[game][volume]`, a stack output that covers every volume. |
-  | Fallback | When `efsVolumeAccessPoints` has no entry for the game (a stack applied by an older build), only the first volume is mounted, via `efsAccessPoints[game]`; the others sit in `unmounted` until the operator runs plan + apply once. |
+  | Fallback | When `efsVolumeAccessPoints` has no entry for the game (a stack applied by an older build), only the first volume (for a game with no configuration entry, a single unnamed one in `volume-0`) is mounted, via `efsAccessPoints[game]`; the others sit in `unmounted` until the operator runs plan + apply once. |
   | No mounts | A launch whose layout has no mounts fails with `No EFS access point found for '<game>'.` |
 
   `startForUpload(game, runId, layout?)` mounts a caller-supplied layout as-is and plans one itself only when none is passed; the returned `UploadHelperSession` carries the `layout` it was launched with.
