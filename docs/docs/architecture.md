@@ -166,10 +166,20 @@ design.
 
 8. **The file-manager security group has no default ingress.**
    `securityGroups.ts` declares it with an empty `ingress` array.
-   When the desktop app launches a FileBrowser helper it detects the operator's current public IP and authorizes only `<ip>/32` on port 8080, then revokes that rule when the helper stops.
-   Folder-upload helpers are served over HTTPS with a per-launch self-signed certificate; the app pins that certificate's SHA-256 fingerprint rather than trusting a CA, and the one-time credential never leaves the main process.
-   Interactive Files sessions are still plain `http://` ([Dashboard](/app/dashboard)).
-   Leftovers are cleaned up two ways: the app sweeps for stray upload helpers (tagged `Purpose=seed-upload`) older than 15 minutes at startup, and the EventBridge Scheduler auto-stop ends any helper after 2 hours.
+   When the desktop app launches a FileBrowser helper it detects the operator's current public IP and authorizes only `<ip>/32` on port 8080, and tags the task `OperatorIp`.
+   If the operator's IP changes mid-session the app authorizes the new `/32` and re-tags the task.
+   Revoking is reference-counted by that tag: a rule is removed only when no remaining helper needs its CIDR, because two helpers on the same IP share one rule.
+
+9. **One app-owned helper session per game, and its secrets never leave the main process.** `HelperSessionRegistry` (in `desktop-main`) owns at most one FileBrowser helper per game, shared by file browsing and folder upload.
+   - **Encrypted and pinned.** Every helper the registry launches is served over HTTPS with a per-launch self-signed certificate. The app pins that certificate's SHA-256 fingerprint rather than trusting a CA, and a pin mismatch fails the session closed (the helper is stopped and its rule revoked).
+   - **Ready means reachable.** A session is ready only once the task is `RUNNING`, has a public IP, and a login over the pinned connection has succeeded.
+   - **Nothing sensitive crosses IPC.** The one-time credential, the helper's address, and the certificate stay in the main process; the session snapshot the registry produces carries none of them (only the game, state, who holds the session, start and auto-stop times, any error, whether folder archives are supported, and the volumes).
+   - **Holders, not timers, decide lifetime.** A session ends on an explicit stop, when its last holder (the browse page or an upload run) releases it — immediately for an upload, after a 5-minute grace for browsing — or when the app quits (a bounded `before-quit` hook stops owned helpers, then quits regardless). The 2-hour EventBridge Scheduler auto-stop is the backstop.
+   - **Orphans are reported, not adopted.** A helper running with no matching app session (its credential is unknown) is reported as `orphaned`; the registry never adopts it or stops it silently, so an orphan can only be replaced by a restart (stop, then a fresh session). The startup sweep in item 10 is separate: it stops unowned `filemgr-*` helpers older than 15 minutes.
+
+   The legacy dashboard file-manager modal (`files.start`) does not go through the registry: it still launches a plain `http://` helper ([Dashboard](/app/dashboard)) until a later change removes it.
+
+10. **Stray helpers are swept, by age.** At startup the app stops every running `filemgr-*` helper that is at least 15 minutes old, whatever its `Purpose` tag, and revokes the security-group rules no remaining helper needs. The operator-requested cleanup does the same with no age floor, but skips games with an active upload run or a registry-owned session so a live session is never swept out from under its holder. (At startup nothing is owned yet, so there is nothing to skip.) Whatever outlives a bounded quit is left to the next launch's sweep.
 
 See the [maintainer guide](/guides/maintainer) for
 what tends to break these and what the failure modes look like.

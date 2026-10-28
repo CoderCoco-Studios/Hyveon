@@ -29,7 +29,9 @@ Playwright test process (single Node process, no HTTP server, no BrowserWindow)
   │     └── get(Provider) ────────────────────────  resolves a provider (e.g. PulumiService) straight from the container
   ├── ipc.mocks.pulumi (PulumiServiceStub) ──────── the DI-substituted PulumiService — script*() setters control stack outputs, preview/apply/destroy chunks+result
   ├── serverMocks (ServerMocks) ────────────────── pushes into the shared MockStore singleton
-  │     └── aws-sdk-client-mock (ECSClient prototype patched) ── installEcsMock() reads from MockStore
+  │     ├── aws-sdk-client-mock (ECSClient prototype patched) ── installEcsMock() reads from MockStore
+  │     ├── aws-sdk-client-mock (EC2Client prototype patched) ─── installEc2Mock() reads DescribeNetworkInterfaces from MockStore
+  │     └── aws-sdk-client-mock (SchedulerClient prototype patched) ── installSchedulerMock(), fixed success responses
   ├── runRecordMockStore ────────────────────────── stateful pk=RUN / pk=LOCK item store
   │     └── aws-sdk-client-mock (DynamoDBDocumentClient prototype patched) ── installRunRecordDynamoMock()
   └── remoteFileStoreMockStore ───────────────────── single versioned configuration-object store
@@ -40,24 +42,26 @@ Playwright test process (single Node process, no HTTP server, no BrowserWindow)
 
 | File | Purpose |
 |------|---------|
-| `app/packages/desktop-main/src/test-mocks/mock-store.ts` | In-process `MockStore` singleton with per-command FIFO queues. |
-| `app/packages/desktop-main/src/test-mocks/ecs-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `ECSClient`, wired to `MockStore`. |
+| `app/packages/desktop-main/src/test-mocks/mock-store.ts` | In-process `MockStore` singleton with per-command FIFO queues (`ListTasks`, `DescribeTasks`, `RunTask`, `StopTask`, and EC2 `DescribeNetworkInterfaces`). |
+| `app/packages/desktop-main/src/test-mocks/ecs-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `ECSClient`. The four task commands read `MockStore`; `DescribeTaskDefinition`, `RegisterTaskDefinition`, `DeregisterTaskDefinition` and `TagResource` (the file-manager helper launch) return fixed responses with no queue — see [Fixed (unqueued) handlers](#fixed-unqueued-handlers). |
+| `app/packages/desktop-main/src/test-mocks/ec2-mock.ts` | `installEc2Mock()` — interceptors on `EC2Client` for the commands the file-manager helper issues. `DescribeNetworkInterfaces` reads the `MockStore` queue; the security-group commands (`AuthorizeSecurityGroupIngress`, `DescribeSecurityGroupRules`, `RevokeSecurityGroupIngress`) always succeed, with no rules present. |
+| `app/packages/desktop-main/src/test-mocks/scheduler-mock.ts` | `installSchedulerMock()` — interceptors on `SchedulerClient` so the helper's auto-stop schedule calls (`CreateSchedule`, `DeleteSchedule`) resolve `{}` without reaching AWS. |
 | `app/packages/desktop-main/src/test-mocks/run-record-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `DynamoDBDocumentClient`, backed by the stateful `runRecordMockStore` singleton (`pk = RUN` run records + the single `pk = LOCK` apply-lock item) — see [DynamoDB Run-Record Mock](#dynamodb-run-record-mock) below. |
 | `app/packages/desktop-main/src/test-mocks/remote-file-store-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `S3Client`, backed by the stateful `remoteFileStoreMockStore` singleton (a single versioned configuration object, keyed by `CONFIGURATION_OBJECT_KEY`) — see [Configuration-Bucket S3 Mock](#configuration-bucket-s3-mock) below. |
 | `app/packages/desktop-main/src/test-mocks/pulumi-mock.ts` | `PulumiServiceStub` — the class substituted for the real `PulumiService` at the DI seam. Exposes `script*` setters (`scriptStackOutputs`, `scriptPreview`/`scriptApply`/`scriptDestroy`, `scriptOperationInFlight`, `scriptDestroyToken`) plus `reset()` — see [PulumiService DI-Seam Stub](#pulumiservice-di-seam-stub) below. |
-| `app/packages/web/e2e/fixtures/ipc-harness.ts` | Builds the in-process IPC test harness (`createIpcHarness()`) via `Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PulumiService).useValue(pulumiStub).compile()`, deep-importing `@hyveon/desktop-main`'s compiled `dist/`, and dispatches directly to controller methods. Also exposes `get(Provider)` to resolve a provider (e.g. `PulumiService`) directly from the container, and `mocks.pulumi` to reach the scriptable stub. |
-| `app/packages/web/e2e/fixtures/server-mocks.ts` | `ServerMocks` class + extended `test` with `serverMocks` and `ipc` fixtures. |
+| `app/packages/web/e2e/fixtures/ipc-harness.ts` | Builds the in-process IPC test harness (`createIpcHarness()`) via `Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PulumiService).useValue(pulumiStub).compile()`, deep-importing `@hyveon/desktop-main`'s compiled `dist/`, and dispatches directly to controller methods. Installs the ECS, EC2 and Scheduler mocks (plus the run-record and S3 ones) before building the container. Also exposes `get(Provider)` to resolve a provider (e.g. `PulumiService`) directly from the container, and `mocks.pulumi` to reach the scriptable stub. `mocks.push*` (including `pushDescribeNetworkInterfaces`) are thin wrappers over `MockStore`. |
+| `app/packages/web/e2e/fixtures/server-mocks.ts` | `ServerMocks` class + extended `test` with `serverMocks` and `ipc` fixtures. Has one `push*` method per queue, including `pushDescribeNetworkInterfaces` for the EC2 ENI lookup. |
 | `app/packages/web/e2e/fixtures/stack-outputs.fixture.ts` | Exports `DEFAULT_STACK_OUTPUTS: StackOutputs` — a synthetic, fully-deployed stack-outputs value (`minecraft` + `valheim`, `us-east-1`, `test.example.com`) that specs script onto `ipc.mocks.pulumi` via `scriptStackOutputs()`. Replaces the deleted `tfstate.fixture.json`; re-exported from `integration-specs/index.ts`. Includes `efsVolumeAccessPoints` (game → volume → access point) alongside the first-volume-only `efsAccessPoints`. |
 | `app/packages/desktop-main/src/testing/fake-filebrowser-server.ts` | `startFakeFileBrowser()` — an in-process HTTPS server standing in for the FileBrowser helper, using a real ephemeral cert. It speaks the FileBrowser endpoints `FileBrowserClient` uses: login, directory create (missing parents included), upload (`override=false` on an existing file answers 409), listing and single-entry stat, raw download, zip archive, rename (the `destination` is query-decoded a second time, as the real server does) and delete. Options let a test reject an upload with a status code, drop the socket on a given attempt (`onUpload`), pre-seed files already on the "volume" (`seed`), set their modification times (`seedModified`) or give them exact content (`seedContent`). |
 | `app/packages/desktop-main/src/testing/fake-volume-backend.ts` | `fakeBackend()` — a scriptable in-memory `VolumeFileBackend` that records writes and serves listings from them (a directory with no recorded files rejects with `not-found`). `stat`, `readStream`, `move` and `remove` reject until a test overrides them; any method can be overridden. Used by unit specs that don't need a socket. |
-| `app/packages/desktop-main/src/services/FolderUpload.integration.test.ts` | Vitest spec that runs `FolderUploadService` through the real `FileBrowserClientFactory` (TLS pinning included) against the fake server; only the AWS-facing collaborators are stubbed. |
+| `app/packages/desktop-main/src/services/FolderUpload.integration.test.ts` | Vitest spec that runs `FolderUploadService` through a real `HelperSessionRegistry` and the real `FileBrowserClientFactory` (TLS pinning included) against the fake server, so browsing and upload share one helper session as in production; the AWS-facing collaborators (`FileManagerService`, `PublicIpService`, `EcsService`) and the config services (`ConfigService`, `DeploymentConfigService`) are stubbed, and the registry's `timings` are overridden (`helperPort` points at the fake server, `pollMs = 1`). |
 | `app/packages/web/e2e/fixtures/hyveon-http-bridge.ts` | Besides the HTTP bridge, carries an in-page `folderUpload` fake (folder upload has no HTTP route): it scans a canned folder and walks a run through starting-helper, uploading, verifying and done so e2e specs can drive the UI flow. Setting `window.__e2eFolderConflicts` before starting makes the run pause in `awaiting-confirmation` with a canned overwrite summary until the spec answers through `confirmOverwrite`. |
 | `app/packages/web/playwright.integration.config.ts` | Playwright config: `testDir: e2e/integration-specs`, `workers: 1`, no `webServer`, no `projects`. |
 | `app/packages/web/e2e/integration-specs/` | All integration specs; import `test`/`expect`/`DEFAULT_STACK_OUTPUTS` from `./index.js`, not `@playwright/test`. |
 
 ## How Mock Responses Work
 
-The in-process `MockStore` singleton holds separate FIFO queues for `ListTasks`, `DescribeTasks`, `RunTask`, and `StopTask`. When a queue is empty, the corresponding interceptor returns a safe default:
+The in-process `MockStore` singleton holds separate FIFO queues for `ListTasks`, `DescribeTasks`, `RunTask`, `StopTask`, and EC2 `DescribeNetworkInterfaces`. When a queue is empty, the corresponding interceptor returns a safe default:
 
 | Command | Default (empty queue) |
 |---------|-----------------------|
@@ -65,6 +69,7 @@ The in-process `MockStore` singleton holds separate FIFO queues for `ListTasks`,
 | `DescribeTasksCommand` | `{ tasks: [] }` |
 | `RunTaskCommand` | `{ tasks: [{ taskArn: 'arn:…/test-task-id' }], failures: [] }` |
 | `StopTaskCommand` | `{}` |
+| `DescribeNetworkInterfacesCommand` (EC2) | `{ NetworkInterfaces: [] }` → an ENI with no public IP |
 
 Push a response before dispatching the controller call that will consume it:
 
@@ -81,6 +86,15 @@ await serverMocks.pushDescribeTasks({
 const status = await ipc.dispatch(GamesController, 'getStatus', 'minecraft');
 ```
 
+Queue an ENI lookup the same way (`ipc.mocks.pushDescribeNetworkInterfaces(...)` on the harness, or `serverMocks.pushDescribeNetworkInterfaces(...)`); an `error` entry throws an error whose `name` is the given `code` (default `ServiceException`):
+
+```ts
+await serverMocks.pushDescribeNetworkInterfaces({
+  type: 'success',
+  data: { NetworkInterfaces: [{ NetworkInterfaceId: 'eni-helper1234', Association: { PublicIp: '198.51.100.4' } }] },
+});
+```
+
 Push an error to test propagation:
 
 ```ts
@@ -90,6 +104,21 @@ await serverMocks.pushRunTask({
   message: 'User is not authorized to perform ecs:RunTask',
 });
 ```
+
+### Fixed (unqueued) handlers
+
+Some commands have a single canned success response and no queue, so a spec cannot vary them per call. They exist so the file-manager helper launch path runs end to end without AWS:
+
+| Client | Command | Response |
+|--------|---------|----------|
+| ECS | `DescribeTaskDefinitionCommand` | `taskDefinition` with `cpu: '1024'`, `memory: '2048'` and an `executionRoleArn` |
+| ECS | `RegisterTaskDefinitionCommand` | `taskDefinition.taskDefinitionArn` of the helper's throwaway task definition |
+| ECS | `DeregisterTaskDefinitionCommand`, `TagResourceCommand` | `{}` |
+| EC2 | `AuthorizeSecurityGroupIngressCommand`, `RevokeSecurityGroupIngressCommand` | `{}` |
+| EC2 | `DescribeSecurityGroupRules` | `{ SecurityGroupRules: [] }` |
+| Scheduler | `CreateScheduleCommand`, `DeleteScheduleCommand` | `{}` |
+
+Because these mocks patch a client prototype, a command with no registered handler returns `undefined` rather than failing. Add a handler in the matching `test-mocks/*.ts` file before relying on a new command from a spec. The three client mock files are listed in the AWS-SDK-import allowlist in `app/eslint.config.js` (`ecs-mock.ts`, `ec2-mock.ts` and `scheduler-mock.ts` among the `test-mocks/` entries), so a new mock file that imports `@aws-sdk/*` needs an entry there too.
 
 ## Spec Inventory
 
@@ -103,6 +132,7 @@ await serverMocks.pushRunTask({
 | `discord-config.spec.ts` | `DiscordController.getConfig` never echoes the raw bot token or public key — only the redacted `botTokenSet`/`publicKeySet` booleans. |
 | `error-propagation.spec.ts` | `AccessDeniedException` from `RunTaskCommand` surfaces as `{ success: false, message: '…' }` from `GamesController.start`. |
 | `guided-iam.spec.ts` | Dispatches the five `wizard.guidedIam.*` channels through the real, DI-resolved `WizardController` → `GuidedIamService`, covering template rendering, console-URL fallback, bootstrap-key intake, the full mint→verify→revoke rotation, and the `delete-failed` manual-revoke retry. |
+| `helper-session.spec.ts` | `HelperSessionRegistry` (resolved via `ipc.get(...)`) against the mocked ECS/EC2 clients: `status()` reports `starting` (with `browseHeld: true`) while a launched helper's ENI lookup keeps returning no public IP, and `orphaned` when ECS lists a helper task the registry does not own. Each test overrides `PublicIpService.detect` on the DI-resolved instance to return a fixed IP, and scripts the stack outputs with an empty `fileBrowserCredentialSecretArn` so the launch never reaches Secrets Manager. The `starting` test queues 200 polls of ECS/EC2 responses and shortens `registry.timings` so the readiness loop is observable. |
 | `iac-apply-gates.spec.ts` | 9 scenarios covering `PulumiService.apply`'s gate stack (unapproved/expired/mismatched-hash/engine-version-mismatch/fresh-approved/missing-record/stale-artifact/config-moved/competing-applies), scripted via `PulumiServiceStub.scriptApply({ failure: <real gate-error class> })` and asserted against `IacController.apply`'s ack-shaping. |
 | `iac-destroy-token.spec.ts` | 6 scenarios covering `IacController.destroy`'s confirmation-token gate (no-token/consumed/fresh/wrong-target/expired-or-superseded/concurrent). |
 | `iac-plan.spec.ts` | 3 scenarios: plan artifact/planHash persistence, the structured change summary, and the failed-preview-no-hash path. |
