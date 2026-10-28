@@ -17,6 +17,7 @@ vi.mock('../logger.js', () => ({
 
 import { FolderUploadService } from './FolderUploadService.js';
 import { FolderScanService } from './FolderScanService.js';
+import { NativeDialogService } from './NativeDialogService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import type { EcsService } from './EcsService.js';
@@ -116,7 +117,7 @@ async function wire(options: {
   registry.timings.helperPort = server.port;
   registry.timings.pollMs = 1;
   if (options.browse) expect(await registry.acquire('minecraft', 'browse')).toEqual({ ok: true });
-  const scans = new FolderScanService();
+  const scans = new FolderScanService(new NativeDialogService());
   const svc = new FolderUploadService(
     configServiceStub({ outputs }),
     deploymentConfigStub({ declared: [gameServer('minecraft', { volumes })] }),

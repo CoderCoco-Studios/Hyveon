@@ -13,6 +13,7 @@ vi.mock('../logger.js', () => ({
 
 import { FolderUploadService } from './FolderUploadService.js';
 import { FolderScanService } from './FolderScanService.js';
+import { NativeDialogService } from './NativeDialogService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import type { EcsService } from './EcsService.js';
@@ -36,7 +37,7 @@ beforeEach(async () => {
   await writeFile(join(root, 'Config', 'a.json'), 'aaaa');
   await writeFile(join(root, 'Data', 'b.db'), 'bbbbbbbb');
   await writeFile(join(root, 'Logs', 'c.log'), 'cc');
-  scans = new FolderScanService();
+  scans = new FolderScanService(new NativeDialogService());
 });
 afterEach(() => rm(root, { recursive: true, force: true }));
 

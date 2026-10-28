@@ -563,11 +563,11 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
 **Interfaces:**
 - Produces: `NativeDialogService.pickDirectory(): Promise<string | null>`, `pickFiles(): Promise<string[]>`, `pickSavePath(defaultName: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null>`. Each returns the cancelled value outside Electron (`!process.versions.electron`), using the same dynamic `import('electron')` pattern.
 
-- [ ] **Step 1: Write the failing tests** — `should return null outside Electron` for each method; `should pass the default name to showSaveDialog` (mock the dynamic import via `vi.mock('electron', ...)` with `process.versions.electron` stubbed).
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/NativeDialogService.test.ts` → FAIL.
-- [ ] **Step 3: Implement**; migrate both call sites (third dialog consumer is Task 18 → extraction now per the duplication rule). Existing `FolderScanService`/`diagnostics.controller` tests stay green.
-- [ ] **Step 4: Run** `cd app && npx vitest run packages/desktop-main/src` → PASS.
-- [ ] **Step 5: Commit** — `refactor(desktop-main): extract NativeDialogService`. PR body names this extraction.
+- [x] **Step 1: Write the failing tests** — `should return null outside Electron` for each method; `should pass the default name to showSaveDialog` (mock the dynamic import via `vi.mock('electron', ...)` with `process.versions.electron` stubbed).
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/NativeDialogService.test.ts` → FAIL.
+- [x] **Step 3: Implement**; migrate both call sites (third dialog consumer is Task 18 → extraction now per the duplication rule). Existing `FolderScanService`/`diagnostics.controller` tests stay green.
+- [x] **Step 4: Run** `cd app && npx vitest run packages/desktop-main/src` → PASS.
+- [x] **Step 5: Commit** — `refactor(desktop-main): extract NativeDialogService`. PR body names this extraction.
 
 ### Task 17: `VolumeFilesService` session and file operations (tasks.md 4.3, 4.8)
 
