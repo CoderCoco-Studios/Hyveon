@@ -7,7 +7,7 @@ import type { GameStatus } from './types.js';
  *
  * @remarks
  * When `port` is {@link HTTPS_CONNECT_PORT} and a host is known, `{host}:{port}` renders as
- * `https://{host}`; any other `{port}` renders as `443`.
+ * `https://{host}` (a template already carrying `http(s)://` keeps its scheme); any other `{port}` renders as `443`.
  *
  * @param template - The connect-message template (e.g. `'connect at {host}:{port}'`).
  * @param values - Substitution values; `host`/`ip` default to `''` and `port` to `undefined` (rendered empty) when omitted.
@@ -19,7 +19,9 @@ export function renderConnectMessage(
 ): string {
   const isHttps = values.port === HTTPS_CONNECT_PORT;
   const source =
-    isHttps && values.host ? template.replace(/\{host\}:\{port\}/g, 'https://{host}') : template;
+    isHttps && values.host
+      ? template.replace(/(https?:\/\/)?\{host\}:\{port\}/g, (_match, scheme?: string) => `${scheme ?? 'https://'}{host}`)
+      : template;
   const port = isHttps ? '443' : values.port !== undefined ? String(values.port) : '';
   return source
     .replace(/\{host\}/g, values.host ?? '')
@@ -33,7 +35,8 @@ export function renderConnectMessage(
  *
  * When `connectMessage` is provided and state is `running`, it is rendered on
  * a second line with host, ip, port, and game placeholders substituted.
- * When absent, falls back to the original single-line address suffix.
+ * When absent, falls back to the original single-line address suffix, rendered as `https://{host}` for
+ * {@link HTTPS_CONNECT_PORT} games.
  *
  * @param port - First exposed port for the port placeholder, or {@link HTTPS_CONNECT_PORT} (optional).
  */
@@ -51,6 +54,7 @@ export function formatGameStatus(status: GameStatus, connectMessage?: string, po
     return `${statusLine}\n${rendered}`;
   }
 
-  const addr = host ? ` — \`${host}\`` : '';
+  const shown = host && port === HTTPS_CONNECT_PORT ? `https://${host}` : host;
+  const addr = shown ? ` — \`${shown}\`` : '';
   return `${statusLine}${addr}`;
 }

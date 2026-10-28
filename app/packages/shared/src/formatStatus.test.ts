@@ -19,6 +19,22 @@ describe('formatGameStatus https connect target', () => {
     expect(renderConnectMessage('{host}:{port}', { port: HTTPS_CONNECT_PORT, game: 'foundry' })).toBe(':443');
   });
 
+  it('should not double the scheme when the template already starts with https://', () => {
+    const line = formatGameStatus(running, 'join at https://{host}:{port}/vtt', HTTPS_CONNECT_PORT);
+    expect(line).toBe('🟢 **foundry**: running\njoin at https://foundry.example.com/vtt');
+  });
+
+  it('should keep an http:// scheme already present in the template', () => {
+    const line = formatGameStatus(running, 'http://{host}:{port}', HTTPS_CONNECT_PORT);
+    expect(line).toBe('🟢 **foundry**: running\nhttp://foundry.example.com');
+  });
+
+  it('should render the fallback address as https://{host} when no connect message is set', () => {
+    expect(formatGameStatus(running, undefined, HTTPS_CONNECT_PORT)).toBe(
+      '🟢 **foundry**: running — `https://foundry.example.com`',
+    );
+  });
+
   it('should leave a numeric 443 port on a non-https game untouched', () => {
     const line = formatGameStatus(running, 'join at {host}:{port}', 443);
     expect(line).toBe('🟢 **foundry**: running\njoin at foundry.example.com:443');
