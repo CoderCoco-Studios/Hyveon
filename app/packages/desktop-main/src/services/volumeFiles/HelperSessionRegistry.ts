@@ -4,6 +4,8 @@ import { logger } from '../../logger.js';
 import { BROWSE_RUN_ID, FileManagerService, type FileMgrCredentials } from '../FileManagerService.js';
 import type { EphemeralCert } from '../folderUpload/ephemeralCert.js';
 import { FileBrowserClientFactory } from '../folderUpload/FileBrowserClient.js';
+import { abortableSleep } from '../folderUpload/uploadEngine.js';
+import { PublicIpService } from '../PublicIpService.js';
 import type { HelperVolumeLayout } from './helperVolumeLayout.js';
 import { VolumeFileError, type VolumeFileBackend } from './VolumeFileBackend.js';
 
@@ -67,6 +69,10 @@ interface Entry {
   cert?: EphemeralCert;
   operatorIp?: string;
   graceTimer?: NodeJS.Timeout;
+  /** In-flight operator-IP recovery, shared by concurrent operations that all saw `unreachable`. */
+  recovery?: Promise<boolean>;
+  /** In-flight pin-mismatch failure, so concurrent operations fail the session once. */
+  failing?: Promise<AcquireResult>;
   /** Set once teardown begins; concurrent stops and acquires wait on it. */
   teardown?: Promise<{ success: boolean; message: string }>;
 }
@@ -74,6 +80,20 @@ interface Entry {
 type SessionVolumes = HelperSessionSnapshot['volumes'];
 
 const STOPPED_BEFORE_READY = 'The file manager session was stopped before it was ready.';
+
+/** No file manager session is running for the requested game. */
+export class NoSessionError extends VolumeFileError {
+  /** @param game - Game that has no running session. */
+  constructor(game: string) {
+    super('unreachable', `No file manager session is running for '${game}'.`);
+    this.name = 'NoSessionError';
+  }
+}
+
+/** Whether `err` is a failed certificate pin, which must fail the session closed rather than be retried. */
+function isPinMismatch(err: unknown): boolean {
+  return err instanceof VolumeFileError && err.code === 'pin-mismatch';
+}
 
 /** Projects a layout onto the declared volumes a snapshot reports. */
 function volumesOf(layout: HelperVolumeLayout): SessionVolumes {
@@ -114,6 +134,7 @@ export class HelperSessionRegistry {
   constructor(
     private readonly fileManager: FileManagerService,
     private readonly clients: FileBrowserClientFactory,
+    private readonly publicIp: PublicIpService,
   ) {}
 
   /**
@@ -247,20 +268,84 @@ export class HelperSessionRegistry {
   /**
    * Runs `op` against the live backend of `game`'s session.
    *
+   * @remarks
+   * When `op` fails with `unreachable`, the operator's current public IP is detected; if it changed, the helper's
+   * security-group rule is re-authorized for the new IP and `op` is retried exactly once. Concurrent operations that
+   * all fail share one re-authorization. A certificate-pin mismatch fails the session closed (the helper is stopped so
+   * its rule is revoked) and is rethrown. A recovery that cannot run rethrows the original error.
+   *
    * @param game - Game whose session to use.
    * @param op - Receives the backend and the session's volume layout.
    * @returns Whatever `op` returns.
-   * @throws {@link VolumeFileError} with `unreachable` when there is no running session.
+   * @throws {@link NoSessionError} when there is no running session.
    */
   async withBackend<T>(
     game: string,
     op: (backend: VolumeFileBackend, layout: HelperVolumeLayout) => Promise<T>,
   ): Promise<T> {
     const entry = this.entries.get(game);
-    if (!entry || entry.state !== 'running' || !entry.backend || !entry.layout) {
-      throw new VolumeFileError('unreachable', `No file manager session is running for '${game}'.`);
+    if (!entry) throw new NoSessionError(game);
+    try {
+      return await this.runOp(game, entry, op);
+    } catch (err) {
+      if (!(err instanceof VolumeFileError) || err.code !== 'unreachable' || !(await this.recoverOperatorIp(game, entry))) throw err;
+      return this.runOp(game, entry, op);
     }
-    return op(entry.backend, entry.layout);
+  }
+
+  /** Runs `op` on `entry`'s running backend; a pin mismatch fails the session before it is rethrown. */
+  private async runOp<T>(
+    game: string,
+    entry: Entry,
+    op: (backend: VolumeFileBackend, layout: HelperVolumeLayout) => Promise<T>,
+  ): Promise<T> {
+    const { backend, layout } = entry;
+    if (this.entries.get(game) !== entry || entry.state !== 'running' || !backend || !layout) throw new NoSessionError(game);
+    try {
+      return await op(backend, layout);
+    } catch (err) {
+      if (isPinMismatch(err)) await this.failOnPinMismatch(game, entry, errMessage(err));
+      throw err;
+    }
+  }
+
+  /** Fails `entry`'s session once however many operations hit the mismatch at the same time. */
+  private failOnPinMismatch(game: string, entry: Entry, message: string): Promise<AcquireResult> {
+    entry.failing ??= this.failSession(game, entry, message);
+    return entry.failing;
+  }
+
+  /** Shares one {@link HelperSessionRegistry.reauthorizeIfChanged} per entry; resolves whether `op` is worth retrying. */
+  private recoverOperatorIp(game: string, entry: Entry): Promise<boolean> {
+    entry.recovery ??= this.reauthorizeIfChanged(game, entry).finally(() => {
+      entry.recovery = undefined;
+    });
+    return entry.recovery;
+  }
+
+  /**
+   * Detects the operator's current IP and, when it differs from the one the helper allows, re-authorizes the new one.
+   * Never throws; a failed detection or re-authorization is logged and reported as "nothing recovered".
+   */
+  private async reauthorizeIfChanged(game: string, entry: Entry): Promise<boolean> {
+    if (!entry.taskArn) return false;
+    let current: string;
+    try {
+      current = await this.publicIp.detect();
+    } catch (err) {
+      logger.warn('HelperSessionRegistry: could not detect the operator IP', { game, error: errMessage(err) });
+      return false;
+    }
+    if (current === entry.operatorIp) return false;
+    try {
+      await this.fileManager.reauthorizeOperatorIp(game, entry.runId, entry.taskArn, current);
+    } catch (err) {
+      logger.warn('HelperSessionRegistry: could not re-authorize the operator IP', { game, runId: entry.runId, error: errMessage(err) });
+      return false;
+    }
+    entry.operatorIp = current;
+    logger.info('HelperSessionRegistry: operator IP re-authorized', { game, runId: entry.runId, taskArn: entry.taskArn });
+    return true;
   }
 
   /** The games this registry currently owns a session for. */
@@ -310,7 +395,7 @@ export class HelperSessionRegistry {
       const outcome = await this.fileManager.launchHelper(game, { runId: entry.runId, tls: true, tags: options.tags, layout: planned });
       if (!outcome.ok) {
         if (outcome.code === 'helper-open') return this.abandon(game, entry, 'orphaned', outcome.message);
-        return this.failLaunch(game, entry, outcome.message);
+        return this.failSession(game, entry, outcome.message);
       }
       Object.assign(entry, {
         taskArn: outcome.taskArn,
@@ -325,12 +410,12 @@ export class HelperSessionRegistry {
       if (this.isStopping(entry)) return { ok: false, code: 'failed', message: STOPPED_BEFORE_READY };
 
       await this.waitUntilReady(game, entry);
-      if (this.isStopping(entry)) return { ok: false, code: 'failed', message: STOPPED_BEFORE_READY };
+      if (this.isSuperseded(game, entry)) return { ok: false, code: 'failed', message: STOPPED_BEFORE_READY };
       entry.state = 'running';
       this.emit(game, entry);
       return { ok: true };
     } catch (err) {
-      return this.failLaunch(game, entry, errMessage(err));
+      return this.failSession(game, entry, await this.withStopReason(entry, errMessage(err)));
     }
   }
 
@@ -339,12 +424,20 @@ export class HelperSessionRegistry {
     return entry.state === 'stopping';
   }
 
-  /** Builds the pinned-TLS backend for the launched helper and logs in. */
+  /** Whether the entry was stopped or replaced; the readiness loops bail out so a stop never waits out their timeouts. */
+  private isSuperseded(game: string, entry: Entry): boolean {
+    return this.isStopping(entry) || this.entries.get(game) !== entry;
+  }
+
+  /**
+   * Waits for the helper's public IP, builds the pinned-TLS backend, and retries login until it succeeds. Returns early,
+   * unconnected, when the entry is stopped meanwhile; a pin mismatch aborts without retrying.
+   */
   private async waitUntilReady(game: string, entry: Entry): Promise<void> {
     const { credentials, cert } = entry;
     if (!credentials || !cert) throw new Error('The file manager helper launched without a credential or certificate.');
-    const host = await this.fileManager.getHelperPublicIp(game, entry.taskArn);
-    if (!host) throw new Error('The file manager helper did not get a public IP in time.');
+    const host = await this.waitForHelperIp(game, entry);
+    if (!host) return;
     entry.backend = this.clients.create({
       host,
       port: this.timings.helperPort,
@@ -353,7 +446,47 @@ export class HelperSessionRegistry {
       certPem: cert.certPem,
       fingerprint256: cert.fingerprint256,
     });
-    await entry.backend.connect();
+    await this.waitForLogin(game, entry, entry.backend);
+  }
+
+  /** Polls until the task exposes a public IP; `null` when the entry was superseded. A task that stopped first throws. */
+  private async waitForHelperIp(game: string, entry: Entry): Promise<string | null> {
+    const deadline = Date.now() + this.timings.helperIpTimeoutMs;
+    logger.info('HelperSessionRegistry: waiting for the helper public IP', { game, runId: entry.runId, taskArn: entry.taskArn });
+    for (;;) {
+      if (this.isSuperseded(game, entry)) return null;
+      const ip = await this.fileManager.getHelperPublicIp(game, entry.taskArn);
+      if (ip) return ip;
+      if (Date.now() > deadline) throw new Error('The file manager helper did not get a public IP in time.');
+      await abortableSleep(this.timings.pollMs);
+    }
+  }
+
+  /** Retries login while the container boots until `loginTimeoutMs`; a pin mismatch throws immediately (fail closed). */
+  private async waitForLogin(game: string, entry: Entry, backend: VolumeFileBackend): Promise<void> {
+    const deadline = Date.now() + this.timings.loginTimeoutMs;
+    for (;;) {
+      if (this.isSuperseded(game, entry)) return;
+      try {
+        await backend.connect();
+        return;
+      } catch (err) {
+        if (isPinMismatch(err) || Date.now() > deadline) throw err;
+      }
+      await abortableSleep(this.timings.pollMs);
+    }
+  }
+
+  /** Appends the helper container's ECS stop reason to `message` when the task died, so the failure names its cause. */
+  private async withStopReason(entry: Entry, message: string): Promise<string> {
+    if (!entry.taskArn || message.includes('stopped before it was reachable')) return message;
+    try {
+      const reason = await this.fileManager.getHelperStopReason(entry.taskArn);
+      return reason ? `${message} (helper task stopped: ${reason})` : message;
+    } catch (err) {
+      logger.warn('HelperSessionRegistry: could not read the helper stop reason', { error: errMessage(err) });
+      return message;
+    }
   }
 
   /** Drops an entry that never launched (an orphan or an undeployed stack) and reports why. */
@@ -367,11 +500,11 @@ export class HelperSessionRegistry {
   }
 
   /**
-   * Records a failed launch or readiness wait: closes the backend, stops a task that did launch so its operator-IP
-   * rule is revoked, removes the entry, and keeps the error for {@link HelperSessionRegistry.status}.
+   * Records a failed launch, readiness wait, or live session: closes the backend, stops a task that did launch so its
+   * operator-IP rule is revoked, removes the entry, and keeps the error for {@link HelperSessionRegistry.status}.
    */
-  private async failLaunch(game: string, entry: Entry, message: string): Promise<AcquireResult> {
-    logger.warn('HelperSessionRegistry: session failed to open', { game, runId: entry.runId, taskArn: entry.taskArn, error: message });
+  private async failSession(game: string, entry: Entry, message: string): Promise<AcquireResult> {
+    logger.warn('HelperSessionRegistry: session failed', { game, runId: entry.runId, taskArn: entry.taskArn, error: message });
     await this.closeBackend(game, entry);
     if (entry.taskArn) await this.stopBestEffort(game);
     if (entry.state !== 'stopping' && this.entries.get(game) === entry) {

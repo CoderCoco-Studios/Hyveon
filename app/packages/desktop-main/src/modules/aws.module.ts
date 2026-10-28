@@ -54,6 +54,7 @@ import { PublicIpService } from '../services/PublicIpService.js';
     LogsService,
     CostService,
     SchedulerService,
+    PublicIpService,
     FileManagerService,
   ],
 })

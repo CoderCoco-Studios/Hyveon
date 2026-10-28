@@ -454,15 +454,15 @@ export class HelperSessionRegistry {
   - on `VolumeFileError` code `unreachable` from `op`: `detect()` the IP; if it differs from the entry's `operatorIp`, `reauthorizeOperatorIp`, update the entry, retry `op` once; otherwise rethrow.
   - a `pin-mismatch` error fails the session (`failed`, backend dropped) and rethrows.
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `should stay starting until the backend accepts the login` — `connect` rejects `unreachable` twice then resolves; snapshot during the wait is `starting`; final `running`.
   - `should stay starting while the task has no public IP` — `getHelperPublicIp` → `null`, `null`, `'127.0.0.1'`.
   - `should fail with the stop reason when the task exits during start` — `getHelperPublicIp` throws `Error('The file manager helper stopped before it was reachable: CannotPullContainerError')` → `{ ok: false, code: 'failed', message: expect.stringContaining('CannotPullContainerError') }` and snapshot `failed`.
   - `should fail closed on a pin mismatch without retrying login` — `connect` rejects `PinMismatchError` → one `connect` call, `failed`.
   - `should re-authorize and retry once when the operator IP changed` — `op` rejects `unreachable` once; `detect` → new IP; `reauthorizeOperatorIp` called with it; `op` called twice; result returned.
   - `should not retry when the IP is unchanged` — `op` called once; rejects `unreachable`.
-- [ ] **Step 2: Run to verify failure**, **Step 3: implement**, **Step 4: run** — same command as Task 11 → PASS.
-- [ ] **Step 5: Commit** — `feat(desktop-main): define helper readiness as an authenticated pinned round-trip`.
+- [x] **Step 2: Run to verify failure**, **Step 3: implement**, **Step 4: run** — same command as Task 11 → PASS.
+- [x] **Step 5: Commit** — `feat(desktop-main): define helper readiness as an authenticated pinned round-trip`.
 
 ### Task 13: Folder upload on the registry, sweep exclusion, quit hook (tasks.md 3.5, 3.6, 3.7, 3.8)
 

@@ -5,9 +5,10 @@ vi.mock('../../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { HelperSessionRegistry, type HelperSessionSnapshot } from './HelperSessionRegistry.js';
+import { HelperSessionRegistry, NoSessionError, type HelperSessionSnapshot } from './HelperSessionRegistry.js';
 import type { FileManagerService, HelperLaunchOutcome } from '../FileManagerService.js';
-import type { FileBrowserClientFactory } from '../folderUpload/FileBrowserClient.js';
+import { PinMismatchError, type FileBrowserClientFactory } from '../folderUpload/FileBrowserClient.js';
+import type { PublicIpService } from '../PublicIpService.js';
 import { buildHelperVolumeLayout, type HelperVolumeLayout } from './helperVolumeLayout.js';
 import { VolumeFileError } from './VolumeFileBackend.js';
 import { fakeBackend, type FakeBackend } from '../../testing/fake-volume-backend.js';
@@ -48,7 +49,9 @@ interface Harness {
     getHelperPublicIp: ReturnType<typeof vi.fn<FileManagerService['getHelperPublicIp']>>;
     getHelperStopReason: ReturnType<typeof vi.fn<FileManagerService['getHelperStopReason']>>;
     planHelperLayout: ReturnType<typeof vi.fn<FileManagerService['planHelperLayout']>>;
+    reauthorizeOperatorIp: ReturnType<typeof vi.fn<FileManagerService['reauthorizeOperatorIp']>>;
   };
+  publicIp: { detect: ReturnType<typeof vi.fn<PublicIpService['detect']>> };
   backend: FakeBackend;
   create: ReturnType<typeof vi.fn>;
   /** Games for which ECS reports a helper task; a game joins once `launchHelper` runs and leaves on `stop`. */
@@ -75,10 +78,16 @@ function harness(): Harness {
     getHelperPublicIp: vi.fn(async () => '127.0.0.1'),
     getHelperStopReason: vi.fn(async () => null),
     planHelperLayout: vi.fn(async () => LAYOUT),
+    reauthorizeOperatorIp: vi.fn(async () => undefined),
   };
+  const publicIp: Harness['publicIp'] = { detect: vi.fn(async () => '203.0.113.7') };
   const create = vi.fn().mockReturnValue(backend);
-  const registry = new HelperSessionRegistry(fm as Partial<FileManagerService> as FileManagerService, { create } as Partial<FileBrowserClientFactory> as FileBrowserClientFactory);
-  return { registry, fm, backend, create, ecs };
+  const registry = new HelperSessionRegistry(
+    fm as Partial<FileManagerService> as FileManagerService,
+    { create } as Partial<FileBrowserClientFactory> as FileBrowserClientFactory,
+    publicIp as Partial<PublicIpService> as PublicIpService,
+  );
+  return { registry, fm, publicIp, backend, create, ecs };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -378,7 +387,10 @@ describe('HelperSessionRegistry', () => {
     const { registry, fm, backend } = harness();
     vi.mocked(backend.connect).mockRejectedValue(new VolumeFileError('unreachable', 'connect refused'));
 
-    expect(await registry.acquire('mc', 'browse')).toMatchObject({ ok: false, code: 'failed', message: 'connect refused' });
+    const acquiring = registry.acquire('mc', 'browse');
+    await vi.advanceTimersByTimeAsync(registry.timings.loginTimeoutMs + registry.timings.pollMs);
+
+    expect(await acquiring).toMatchObject({ ok: false, code: 'failed', message: 'connect refused' });
 
     expect(fm.stop).toHaveBeenCalledWith('mc');
     expect(backend.close).toHaveBeenCalledTimes(1);
@@ -461,11 +473,247 @@ describe('HelperSessionRegistry', () => {
 
   it('should run an operation against the live backend and refuse without a session', async () => {
     const { registry, backend } = harness();
-    await expect(registry.withBackend('mc', async () => 1)).rejects.toMatchObject({ code: 'unreachable' });
+    await expect(registry.withBackend('mc', async () => 1)).rejects.toThrow(new NoSessionError('mc'));
+    await expect(registry.withBackend('mc', async () => 1)).rejects.toMatchObject({
+      code: 'unreachable',
+      message: "No file manager session is running for 'mc'.",
+    });
 
     await registry.acquire('mc', 'browse');
 
     await expect(registry.withBackend('mc', async (b, layout) => [b === backend, layout === LAYOUT])).resolves.toEqual([true, true]);
+  });
+
+  describe('readiness', () => {
+    it('should stay starting until the backend accepts the login', async () => {
+      const { registry, backend } = harness();
+      vi.mocked(backend.connect)
+        .mockRejectedValueOnce(new VolumeFileError('unreachable', 'booting'))
+        .mockRejectedValueOnce(new VolumeFileError('unreachable', 'booting'))
+        .mockResolvedValue(undefined);
+
+      const acquiring = registry.acquire('mc', 'browse');
+      await vi.advanceTimersByTimeAsync(registry.timings.pollMs);
+      expect(await registry.status('mc')).toMatchObject({ state: 'starting' });
+      await vi.advanceTimersByTimeAsync(registry.timings.pollMs);
+
+      expect(await acquiring).toEqual({ ok: true });
+      expect(backend.connect).toHaveBeenCalledTimes(3);
+      expect(await registry.status('mc')).toMatchObject({ state: 'running' });
+    });
+
+    it('should stay starting while the task has no public IP', async () => {
+      const { registry, fm, create } = harness();
+      fm.getHelperPublicIp.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValue('127.0.0.1');
+
+      const acquiring = registry.acquire('mc', 'browse');
+      await vi.advanceTimersByTimeAsync(registry.timings.pollMs);
+      expect(await registry.status('mc')).toMatchObject({ state: 'starting' });
+      expect(create).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(registry.timings.pollMs);
+
+      expect(await acquiring).toEqual({ ok: true });
+      expect(fm.getHelperPublicIp).toHaveBeenCalledTimes(3);
+    });
+
+    it('should fail when the task never gets a public IP in time', async () => {
+      const { registry, fm } = harness();
+      fm.getHelperPublicIp.mockResolvedValue(null);
+      fm.getHelperStopReason.mockResolvedValue('OutOfMemoryError: container killed');
+
+      const acquiring = registry.acquire('mc', 'browse');
+      await vi.advanceTimersByTimeAsync(registry.timings.helperIpTimeoutMs + registry.timings.pollMs);
+
+      expect(await acquiring).toEqual({
+        ok: false,
+        code: 'failed',
+        message: 'The file manager helper did not get a public IP in time. (helper task stopped: OutOfMemoryError: container killed)',
+      });
+      expect(fm.getHelperStopReason).toHaveBeenCalledWith(TASK_ARN);
+      expect(fm.stop).toHaveBeenCalledWith('mc');
+    });
+
+    it('should fail with the stop reason when the task exits during start', async () => {
+      const { registry, fm } = harness();
+      fm.getHelperPublicIp.mockRejectedValue(new Error('The file manager helper stopped before it was reachable: CannotPullContainerError'));
+
+      expect(await registry.acquire('mc', 'browse')).toEqual({
+        ok: false,
+        code: 'failed',
+        message: expect.stringContaining('CannotPullContainerError'),
+      });
+
+      expect(fm.getHelperStopReason).not.toHaveBeenCalled();
+      expect(await registry.status('mc')).toMatchObject({ state: 'failed', error: expect.stringContaining('CannotPullContainerError') });
+    });
+
+    it('should fail closed on a pin mismatch without retrying login', async () => {
+      const { registry, fm, backend } = harness();
+      vi.mocked(backend.connect).mockRejectedValue(new PinMismatchError());
+
+      expect(await registry.acquire('mc', 'browse')).toMatchObject({ ok: false, code: 'failed' });
+
+      expect(backend.connect).toHaveBeenCalledTimes(1);
+      expect(backend.close).toHaveBeenCalledTimes(1);
+      expect(fm.stop).toHaveBeenCalledWith('mc');
+      expect(await registry.status('mc')).toMatchObject({ state: 'failed' });
+    });
+
+    it('should stop promptly when stop() arrives while the task has no public IP', async () => {
+      const { registry, fm } = harness();
+      fm.getHelperPublicIp.mockResolvedValue(null);
+      const acquiring = registry.acquire('mc', 'browse');
+      await vi.advanceTimersByTimeAsync(0);
+
+      const stopping = registry.stop('mc');
+      await vi.advanceTimersByTimeAsync(registry.timings.pollMs);
+
+      expect(await stopping).toEqual({ success: true, message: 'stopping' });
+      expect(await acquiring).toEqual({ ok: false, code: 'failed', message: 'The file manager session was stopped before it was ready.' });
+      expect(fm.getHelperPublicIp.mock.calls.length).toBeLessThanOrEqual(2);
+    });
+
+    it('should stop promptly when stop() arrives while the login keeps failing', async () => {
+      const { registry, backend } = harness();
+      vi.mocked(backend.connect).mockRejectedValue(new VolumeFileError('unreachable', 'booting'));
+      const acquiring = registry.acquire('mc', 'browse');
+      await vi.advanceTimersByTimeAsync(0);
+
+      const stopping = registry.stop('mc');
+      await vi.advanceTimersByTimeAsync(registry.timings.pollMs);
+
+      expect(await stopping).toMatchObject({ success: true });
+      expect(await acquiring).toMatchObject({ ok: false, code: 'failed' });
+      expect(backend.close).toHaveBeenCalled();
+    });
+  });
+
+  describe('operator IP recovery', () => {
+    const unreachable = () => new VolumeFileError('unreachable', 'timed out');
+
+    it('should re-authorize and retry once when the operator IP changed', async () => {
+      const { registry, fm, publicIp } = harness();
+      await registry.acquire('mc', 'browse');
+      publicIp.detect.mockResolvedValue('198.51.100.9');
+      const op = vi.fn().mockRejectedValueOnce(unreachable()).mockResolvedValue('listed');
+
+      await expect(registry.withBackend('mc', op)).resolves.toBe('listed');
+
+      expect(fm.reauthorizeOperatorIp).toHaveBeenCalledWith('mc', 'browse', TASK_ARN, '198.51.100.9');
+      expect(op).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not retry when the IP is unchanged', async () => {
+      const { registry, fm } = harness();
+      await registry.acquire('mc', 'browse');
+      const op = vi.fn().mockRejectedValue(unreachable());
+
+      await expect(registry.withBackend('mc', op)).rejects.toMatchObject({ code: 'unreachable' });
+
+      expect(op).toHaveBeenCalledTimes(1);
+      expect(fm.reauthorizeOperatorIp).not.toHaveBeenCalled();
+    });
+
+    it('should retry only once and rethrow the second failure', async () => {
+      const { registry, publicIp } = harness();
+      await registry.acquire('mc', 'browse');
+      publicIp.detect.mockResolvedValue('198.51.100.9');
+      const op = vi.fn().mockRejectedValue(unreachable());
+
+      await expect(registry.withBackend('mc', op)).rejects.toMatchObject({ code: 'unreachable' });
+
+      expect(op).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not detect the IP for an error other than unreachable', async () => {
+      const { registry, publicIp } = harness();
+      await registry.acquire('mc', 'browse');
+      const op = vi.fn().mockRejectedValue(new VolumeFileError('not-found', 'nope'));
+
+      await expect(registry.withBackend('mc', op)).rejects.toMatchObject({ code: 'not-found' });
+
+      expect(publicIp.detect).not.toHaveBeenCalled();
+    });
+
+    it('should rethrow the original error when the IP cannot be detected', async () => {
+      const { registry, fm, publicIp } = harness();
+      await registry.acquire('mc', 'browse');
+      publicIp.detect.mockRejectedValue(new Error('offline'));
+      const original = unreachable();
+      const op = vi.fn().mockRejectedValue(original);
+
+      await expect(registry.withBackend('mc', op)).rejects.toBe(original);
+
+      expect(fm.reauthorizeOperatorIp).not.toHaveBeenCalled();
+      expect(op).toHaveBeenCalledTimes(1);
+    });
+
+    it('should rethrow the original error when re-authorization fails', async () => {
+      const { registry, fm, publicIp } = harness();
+      await registry.acquire('mc', 'browse');
+      publicIp.detect.mockResolvedValue('198.51.100.9');
+      fm.reauthorizeOperatorIp.mockRejectedValue(new Error('AuthorizeSecurityGroupIngress denied'));
+      const original = unreachable();
+      const op = vi.fn().mockRejectedValue(original);
+
+      await expect(registry.withBackend('mc', op)).rejects.toBe(original);
+
+      expect(op).toHaveBeenCalledTimes(1);
+    });
+
+    it('should share one re-authorization between concurrent operations', async () => {
+      const { registry, fm, publicIp } = harness();
+      await registry.acquire('mc', 'browse');
+      publicIp.detect.mockResolvedValue('198.51.100.9');
+      const op = () => {
+        let calls = 0;
+        return vi.fn(async () => {
+          if (calls++ === 0) throw unreachable();
+          return 'ok';
+        });
+      };
+
+      const results = await Promise.all([registry.withBackend('mc', op()), registry.withBackend('mc', op())]);
+
+      expect(results).toEqual(['ok', 'ok']);
+      expect(fm.reauthorizeOperatorIp).toHaveBeenCalledTimes(1);
+    });
+
+    it('should remember the new IP so a later failure does not re-authorize again', async () => {
+      const { registry, fm, publicIp } = harness();
+      await registry.acquire('mc', 'browse');
+      publicIp.detect.mockResolvedValue('198.51.100.9');
+      await registry.withBackend('mc', vi.fn().mockRejectedValueOnce(unreachable()).mockResolvedValue(1));
+
+      await expect(registry.withBackend('mc', vi.fn().mockRejectedValue(unreachable()))).rejects.toMatchObject({ code: 'unreachable' });
+
+      expect(fm.reauthorizeOperatorIp).toHaveBeenCalledTimes(1);
+    });
+
+    it('should fail the session closed when an operation hits a pin mismatch', async () => {
+      const { registry, fm, backend, publicIp } = harness();
+      await registry.acquire('mc', 'browse');
+      const op = vi.fn().mockRejectedValue(new PinMismatchError());
+
+      await expect(registry.withBackend('mc', op)).rejects.toBeInstanceOf(PinMismatchError);
+
+      expect(op).toHaveBeenCalledTimes(1);
+      expect(publicIp.detect).not.toHaveBeenCalled();
+      expect(backend.close).toHaveBeenCalledTimes(1);
+      expect(fm.stop).toHaveBeenCalledWith('mc');
+      expect(registry.ownedGames().has('mc')).toBe(false);
+      expect(await registry.status('mc')).toMatchObject({ state: 'failed' });
+    });
+
+    it('should stop the helper once when concurrent operations all hit a pin mismatch', async () => {
+      const { registry, fm } = harness();
+      await registry.acquire('mc', 'browse');
+      const op = () => vi.fn().mockRejectedValue(new PinMismatchError());
+
+      await Promise.allSettled([registry.withBackend('mc', op()), registry.withBackend('mc', op())]);
+
+      expect(fm.stop).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('should not expose credentials, cert or address in a snapshot', async () => {
