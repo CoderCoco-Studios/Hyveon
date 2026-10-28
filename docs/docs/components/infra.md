@@ -176,7 +176,7 @@ means the count depends on `config.gameServers`.
 
 With only `efsAccessPoints[game]` the helper can mount just the first volume, and an upload aimed at a second volume lands in the first (#672). The helper's mount layout (`buildHelperVolumeLayout`, `desktop-main/src/services/volumeFiles/helperVolumeLayout.ts`) therefore reads `efsVolumeAccessPoints[game]`.
 
-**Upgrading:** a stack applied by an older build has no `efsVolumeAccessPoints` output, so `PulumiService` projects `{}` and the helper falls back to mounting only the first volume (via `efsAccessPoints`) for browsing, and folder upload is refused for every volume because that access point's volume identity can't be confirmed. Run one plan and apply from the Infrastructure page after upgrading to pick the output up. That apply changes outputs only; the resource diff is empty.
+**Upgrading:** a stack applied by an older build has no `efsVolumeAccessPoints` output, so `PulumiService` projects `{}` and the helper falls back to mounting only the first volume (via `efsAccessPoints`) for browsing, and folder upload is refused for every volume because that access point's volume identity can't be confirmed. Run one plan and apply from the Infrastructure page after upgrading to pick the output up. The new output by itself adds no resource changes, so the plan shows only an output diff unless the configuration has other pending changes.
 
 ## Cost allocation tags
 
