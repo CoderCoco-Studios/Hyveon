@@ -552,7 +552,8 @@ After you run plan and apply from [Infrastructure](/app/iac), open the game page
 | The app can't confirm the server is stopped | The upload is refused with `Couldn't confirm '<game>' is stopped. Try again in a moment.` The app never assumes a server it can't reach is stopped |
 | A file manager session the app doesn't hold is already open for the game (for example one opened from the dashboard's Files modal, or left behind by an earlier run of the app) | The upload is refused with `A file manager session is already open for '<game>'. Restart it, then retry.` Stop that session from the dashboard's Files modal, then retry. A session the app itself opened, whether for browsing or for another upload, is reused rather than refused |
 
-The app launches its own file manager helper task for the upload and stops it when the run finishes, fails or is cancelled.
+The upload takes its own hold on the game's file manager helper, launching one if none is running, and releases only that hold when the run finishes, fails or is cancelled.
+A helper the upload launched is stopped then, because nothing else holds it; a browse session the app already held and the upload reused stays open until the file browser page releases it and its grace period ends.
 The upload lands in the volume that owns the destination: a destination inside the second volume's path is written to the second volume, not the first.
 The helper mounts all of the game's applied volumes, but only the destination's volume is written to.
 The helper accepts connections only from your current public IP, over TLS with a certificate created for that one launch.
@@ -585,10 +586,10 @@ If there are no conflicts, the upload starts without a prompt.
 If there are, the meter shows "N files on the volume would be overwritten (M identical files will be skipped, K new)", lists up to 20 conflicting paths with their size on the volume and their new size, and offers two buttons:
 
 - **Overwrite and upload** continues the run and replaces those files.
-- **Cancel** ends the run as **Cancelled** with nothing written; the helper is stopped and its IP rule revoked.
+- **Cancel** ends the run as **Cancelled** with nothing written; the upload releases its hold, and a helper it launched is stopped and its IP rule revoked.
 
 The helper stays up while the warning is open, but only for 10 minutes.
-If you do not answer in that time, the run is cancelled, the meter says so, and the helper is stopped.
+If you do not answer in that time, the run is cancelled, the meter says so, and the upload releases its hold on the helper (a helper it launched is stopped).
 
 Resuming your own interrupted run does not prompt: when the last run for the same folder, includes and destination failed or was cancelled after copying files, up to four conflicts (the number of files that can be in flight) are treated as that run's partial files.
 More conflicts than that, a different selection or destination, or a previous run that finished all prompt as usual.

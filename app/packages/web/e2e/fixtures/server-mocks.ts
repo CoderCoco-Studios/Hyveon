@@ -53,9 +53,16 @@ type IntegrationFixtures = {
 export const test = base.extend<IntegrationFixtures>({
   // eslint-disable-next-line no-empty-pattern -- Playwright fixture signature requires the deps param even when unused.
   ipc: async ({}, use) => {
+    // The mock store is a process-wide singleton and `ipc.mocks.push*` feeds it, so a spec that never requests
+    // `serverMocks` must still start clean and leave nothing queued behind.
+    mockStore.reset();
     const harness = await createIpcHarness();
-    await use(harness);
-    await harness.close();
+    try {
+      await use(harness);
+    } finally {
+      await harness.close();
+      mockStore.reset();
+    }
   },
 
   // eslint-disable-next-line no-empty-pattern -- Playwright fixture signature requires the deps param even when unused.
