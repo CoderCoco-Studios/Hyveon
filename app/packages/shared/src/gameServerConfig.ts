@@ -287,6 +287,13 @@ export interface GameServer {
    * exactly one verdict source applies to this game.
    */
   healthCheck?: GameServerHealthCheck;
+  /**
+   * Node.js only: the exact value `os.hostname()` returns inside the game's Node process, for games whose license is
+   * bound to the hostname (e.g. Foundry VTT). Patched through a `NODE_OPTIONS` preload, so it has no effect on games
+   * that don't run on Node. Must match `PINNED_HOSTNAME_PATTERN`. Enabling it on an existing game requires accepting
+   * the EULA one more time. Default when omitted: hostname not pinned.
+   */
+  pinnedHostname?: string;
 }
 
 /**

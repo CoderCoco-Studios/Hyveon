@@ -16,7 +16,7 @@
 
 ### Requirement: Pinned hostname validation
 
-Validation SHALL reject a `pinnedHostname` that does not match `^[A-Za-z0-9]([A-Za-z0-9._-]{0,61}[A-Za-z0-9])?$`, reporting the issue at path `pinnedHostname`. When `pinnedHostname` is set, validation MUST also reject any volume whose `container_path` equals `/hyveon/hostname-shim` or begins with `/hyveon/hostname-shim/`, reporting the issue at that volume's `container_path` path. The wizard and the server-side validator SHALL use the same pattern and the same message text.
+Validation SHALL reject a `pinnedHostname` that does not match `^[A-Za-z0-9]([A-Za-z0-9._-]{0,61}[A-Za-z0-9])?$`, reporting the issue at path `pinnedHostname`. When `pinnedHostname` is set, validation MUST also reject any volume whose `container_path` equals `/hyveon/hostname-shim` or begins with `/hyveon/hostname-shim/`, reporting the issue at that volume's `container_path` path. When `pinnedHostname` is set, validation MUST also reject a game named `hostname-shim` (issue at path `name`) and a volume named `hostname-shim` (issue at that volume's `name` path), because each collides with the generated init container or its task volume. The wizard and the server-side validator SHALL use the same pattern and the same message text.
 
 #### Scenario: Valid hostname accepted
 
@@ -37,6 +37,11 @@ Validation SHALL reject a `pinnedHostname` that does not match `^[A-Za-z0-9]([A-
 
 - **WHEN** a game declares `pinnedHostname: "foundry"` and a volume with `container_path: "/hyveon/hostname-shim"`
 - **THEN** validation reports an issue at that volume's `container_path` path
+
+#### Scenario: Reserved shim names collide with the init container and volume
+
+- **WHEN** a game declares `pinnedHostname` and is itself named `hostname-shim`, or declares a volume named `hostname-shim`
+- **THEN** validation reports an issue at path `name`, or at that volume's `name` path, respectively
 
 #### Scenario: Reserved path is free when the field is absent
 

@@ -110,6 +110,10 @@ describe('stepForIssuePath', () => {
     expect(stepForIssuePath('command')).toBe('environment');
     expect(stepForIssuePath('command[0]')).toBe('environment');
   });
+
+  it('should map pinnedHostname issues to the environment step', () => {
+    expect(stepForIssuePath('pinnedHostname')).toBe('environment');
+  });
 });
 
 describe('validateWizardDraft', () => {
@@ -519,6 +523,26 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
     expect(draftToPayload({ ...draft, name: 'g', image: 'img', cpu: 1024, memory: 2048 }).config.command).toBeUndefined();
   });
 
+  it('should omit pinnedHostname from the payload when the switch is off', () => {
+    const payload = draftToPayload(makeValidDraft({ pinnedHostname: undefined }));
+    expect('pinnedHostname' in payload.config).toBe(false);
+  });
+
+  it('should round-trip an underscore pinnedHostname through draftFromGameServer and draftToPayload', () => {
+    const draft = draftFromGameServer(makeExistingGame({ pinnedHostname: 'my_foundry_host' }));
+    expect(draft.pinnedHostname).toBe('my_foundry_host');
+    expect(draftToPayload(draft).config.pinnedHostname).toBe('my_foundry_host');
+  });
+
+  it('should pass an empty pinnedHostname through to the payload so validation blocks it instead of dropping it', () => {
+    expect(draftToPayload(makeValidDraft({ pinnedHostname: '' })).config.pinnedHostname).toBe('');
+  });
+
+  it('should not add pinnedHostname to the payload of an untouched edit of a game that never had it', () => {
+    const payload = draftToPayload(draftFromGameServer(makeExistingGame()));
+    expect('pinnedHostname' in payload.config).toBe(false);
+  });
+
   it('should default https to false when the declared GameServer omits the flag', () => {
     const game = makeExistingGame({ name: 'valheim', https: undefined });
 
@@ -705,6 +729,27 @@ describe('validateEnvironmentStep — token validation', () => {
       [],
     );
     expect(issues).toEqual([]);
+  });
+});
+
+describe('validateEnvironmentStep — pinned hostname', () => {
+  it('should surface the shared validation message at pinnedHostname for an invalid value and block advancing', () => {
+    const draft = makeValidDraft({ pinnedHostname: 'foundry host' });
+    const issues = validateEnvironmentStep(draft, []);
+    expect(issues).toEqual([
+      expect.objectContaining({ path: 'pinnedHostname', message: expect.stringContaining('pinnedHostname must be') }),
+    ]);
+    expect(canAdvance('environment', draft, [])).toBe(false);
+  });
+
+  it('should report an empty pinnedHostname rather than silently saving it', () => {
+    const issues = validateEnvironmentStep(makeValidDraft({ pinnedHostname: '' }), []);
+    expect(issues.some((issue) => issue.path === 'pinnedHostname')).toBe(true);
+  });
+
+  it('should pass the environment step for a valid pinnedHostname and when the switch is off', () => {
+    expect(validateEnvironmentStep(makeValidDraft({ pinnedHostname: 'my_foundry_host' }), [])).toEqual([]);
+    expect(validateEnvironmentStep(makeValidDraft({ pinnedHostname: undefined }), [])).toEqual([]);
   });
 });
 

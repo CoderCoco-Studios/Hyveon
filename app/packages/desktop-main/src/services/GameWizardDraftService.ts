@@ -144,6 +144,8 @@ function isGameWizardDraft(value: unknown): value is GameWizardDraft {
     typeof candidate.https === 'boolean' &&
     // Accept pre-upgrade drafts that were saved before `command` existed.
     (candidate.command === undefined || (Array.isArray(candidate.command) && candidate.command.every((entry) => typeof entry === 'string'))) &&
+    // `pinnedHostname` is optional: absent means the switch is off.
+    (candidate.pinnedHostname === undefined || typeof candidate.pinnedHostname === 'string') &&
     // `healthCheck` was added after this draft slot shipped — a draft
     // autosaved before then has no such field, and that must still be
     // treated as valid rather than discarding the whole draft as malformed.

@@ -101,9 +101,28 @@ describe('buildDiagnosticsConfigSummary', () => {
         https: true,
         volumeCount: 1,
         hasHealthCheck: true,
+        hasPinnedHostname: false,
       },
     ]);
     expect(JSON.stringify(summary)).not.toContain('super-secret-value');
+  });
+
+  it('should report hasPinnedHostname true only when a pinnedHostname is set', () => {
+    const summary = buildDiagnosticsConfigSummary(makeSettings(), [
+      makeGameServer({ pinnedHostname: 'palworld-host' }),
+      makeGameServer({ name: 'valheim' }),
+    ]);
+
+    expect(summary.gameServers.map((g) => g.hasPinnedHostname)).toEqual([true, false]);
+  });
+
+  it('should never include the pinnedHostname value in the bundle', () => {
+    const summary = buildDiagnosticsConfigSummary(makeSettings(), [
+      makeGameServer({ pinnedHostname: 'palworld-host' }),
+    ]);
+
+    expect(JSON.stringify(summary)).not.toContain('palworld-host');
+    expect(Object.keys(summary.gameServers[0] ?? {})).not.toContain('pinnedHostname');
   });
 
   it('should treat an omitted https as false', () => {

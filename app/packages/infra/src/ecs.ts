@@ -27,11 +27,17 @@
 
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import { fileManagerLogGroupName, isIcmpProtocol, type GameServerConfig, type GameServerEnvironmentVariable } from '@hyveon/shared';
+import { HOSTNAME_SHIM_MOUNT_PATH, fileManagerLogGroupName, isIcmpProtocol, type GameServerConfig, type GameServerEnvironmentVariable } from '@hyveon/shared';
 import { HYVEON_ENV_TOKENS, substituteHyveonToken, valueUsesToken } from '@hyveon/shared/envTokens';
 import type { EfsResources } from './efs.js';
 import { buildIpv4WrapperScript } from './envTokenWrapper.js';
 import { stripTrailingDots } from './hostedZoneName.js';
+import {
+  HOSTNAME_SHIM_CONTAINER_NAME,
+  buildHostnameShimContainer,
+  hostnameShimVolumeName,
+  mergeNodeOptions,
+} from './hostnameShim.js';
 import { LOG_RETENTION_DAYS } from './logGroups.js';
 
 /** Every resource {@link defineEcs} declares, keyed by role. */
@@ -74,18 +80,19 @@ export interface DefineEcsArgs {
 }
 
 /**
- * Builds the `logConfiguration` block shared by a game's container and its
- * Caddy sidecar, differing only in `awslogs-stream-prefix` between them.
+ * Builds the `logConfiguration` block shared by a game's container, its Caddy sidecar, and its hostname-shim init
+ * container, differing only in `awslogs-stream-prefix` between them.
  *
  * @param logGroupName - The container's log group name (`aws_cloudwatch_log_group.game[each.key].name`).
  * @param awsRegion - The region embedded in `awslogs-region`.
- * @param streamPrefix - `"ecs"` for a game's own container, `"caddy"` for its sidecar.
+ * @param streamPrefix - `"ecs"` for a game's own container, `"caddy"` for its sidecar, `"hostname-shim"` for its init
+ *   container.
  * @returns The `logConfiguration` object, ready to embed in a container definition.
  */
 function logConfiguration(
   logGroupName: pulumi.Input<string>,
   awsRegion: string,
-  streamPrefix: 'ecs' | 'caddy',
+  streamPrefix: 'ecs' | 'caddy' | 'hostname-shim',
 ): Record<string, unknown> {
   return {
     logDriver: 'awslogs',
@@ -221,10 +228,30 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
       });
     }
 
+    const pinnedHostname = config.pinnedHostname;
+    if (pinnedHostname !== undefined) {
+      // No efsVolumeConfiguration: Fargate backs the volume with task ephemeral storage.
+      volumes.push({ name: hostnameShimVolumeName(game) });
+    }
+
     const resolvedEnvironment = resolveGameEnvironment(game, config.environment ?? [], strippedHostedZoneName);
-    const usesIpv4Token = resolvedEnvironment.some((variable) =>
+    const gameEnvironment = pinnedHostname === undefined ? resolvedEnvironment : mergeNodeOptions(resolvedEnvironment);
+    const usesIpv4Token = gameEnvironment.some((variable) =>
       valueUsesToken(variable.value, HYVEON_ENV_TOKENS.publicIpv4),
     );
+
+    const gameMountPoints: Record<string, unknown>[] = config.volumes.map((volume) => ({
+      sourceVolume: `${game}-${volume.name}`,
+      containerPath: volume.container_path,
+      readOnly: false,
+    }));
+    if (pinnedHostname !== undefined) {
+      gameMountPoints.push({
+        sourceVolume: hostnameShimVolumeName(game),
+        containerPath: HOSTNAME_SHIM_MOUNT_PATH,
+        readOnly: true,
+      });
+    }
 
     const gameContainer: Record<string, unknown> = {
       name: game,
@@ -238,24 +265,24 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
           hostPort: port.container,
           protocol: port.protocol,
         })),
-      environment: resolvedEnvironment,
+      environment: gameEnvironment,
       ...(usesIpv4Token
         ? {
             entryPoint: [
               '/bin/sh',
               '-c',
-              buildIpv4WrapperScript({ environment: resolvedEnvironment, command: config.command ?? [] }),
+              buildIpv4WrapperScript({ environment: gameEnvironment, command: config.command ?? [] }),
             ],
           }
         : {}),
       ...(config.command !== undefined && config.command.length > 0 ? { command: config.command } : {}),
-      mountPoints: config.volumes.map((volume) => ({
-        sourceVolume: `${game}-${volume.name}`,
-        containerPath: volume.container_path,
-        readOnly: false,
-      })),
+      mountPoints: gameMountPoints,
       logConfiguration: logConfiguration(logGroupName, awsRegion, 'ecs'),
     };
+
+    if (pinnedHostname !== undefined) {
+      gameContainer.dependsOn = [{ containerName: HOSTNAME_SHIM_CONTAINER_NAME, condition: 'SUCCESS' }];
+    }
 
     const containerDefs: Record<string, unknown>[] = [gameContainer];
 
@@ -279,6 +306,16 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
         ],
         logConfiguration: logConfiguration(logGroupName, awsRegion, 'caddy'),
       });
+    }
+
+    if (pinnedHostname !== undefined) {
+      containerDefs.push(
+        buildHostnameShimContainer({
+          game,
+          hostname: pinnedHostname,
+          logConfiguration: logConfiguration(logGroupName, awsRegion, 'hostname-shim'),
+        }),
+      );
     }
 
     taskDefinitions[game] = new aws.ecs.TaskDefinition(

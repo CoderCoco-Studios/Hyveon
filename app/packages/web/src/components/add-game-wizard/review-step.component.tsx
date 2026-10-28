@@ -159,6 +159,8 @@ export function ReviewStep({ draft, issues = [], submitError = null }: ReviewSte
               </ul>
             </div>
           )}
+
+          {draft.pinnedHostname !== undefined && <SummaryRow label="Pinned hostname" value={draft.pinnedHostname || '—'} />}
         </div>
       </SectionCard>
 

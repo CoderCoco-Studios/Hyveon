@@ -6,7 +6,8 @@ import type { DeploymentConfig, GameServer } from '@hyveon/shared';
  * operator-supplied secret-shaped values), {@link GameServer.file_seeds}
  * (arbitrary file content), and {@link GameServer.healthCheck}'s `auth`
  * field (a Secrets Manager ARN reference) — `hasHealthCheck` reports only
- * whether a health check is configured, never its contents.
+ * whether a health check is configured, never its contents. Likewise `hasPinnedHostname` reports only whether
+ * {@link GameServer.pinnedHostname} is set — never the hostname itself — so a failed hostname-shim start is visible.
  */
 export interface DiagnosticsGameServerSummary {
   name: string;
@@ -17,6 +18,7 @@ export interface DiagnosticsGameServerSummary {
   https: boolean;
   volumeCount: number;
   hasHealthCheck: boolean;
+  hasPinnedHostname: boolean;
 }
 
 /**
@@ -58,6 +60,7 @@ function summarizeGameServer(game: GameServer): DiagnosticsGameServerSummary {
     https: game.https ?? false,
     volumeCount: game.volumes.length,
     hasHealthCheck: game.healthCheck != null,
+    hasPinnedHostname: game.pinnedHostname != null,
   };
 }
 

@@ -94,6 +94,19 @@ describe('ReviewStep — empty optional sections', () => {
     expect(screen.queryByText('Environment variables')).not.toBeInTheDocument();
   });
 
+  it('should list the pinned hostname when set', () => {
+    render(<ReviewStep draft={makeDraft({ pinnedHostname: 'foundry' })} />);
+
+    expect(screen.getByText('Pinned hostname')).toBeInTheDocument();
+    expect(screen.getByText('foundry')).toBeInTheDocument();
+  });
+
+  it('should omit the pinned hostname row when undefined', () => {
+    render(<ReviewStep draft={makeDraft({ pinnedHostname: undefined })} />);
+
+    expect(screen.queryByText('Pinned hostname')).not.toBeInTheDocument();
+  });
+
   it('should show a "no ports configured" placeholder when ports is empty', () => {
     render(<ReviewStep draft={makeFullDraft({ ports: [] })} />);
 

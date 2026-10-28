@@ -136,4 +136,88 @@ describe('EnvironmentStep', () => {
     expect(screen.getByText('command[1] must not be empty.')).toBeInTheDocument();
     expect(screen.getByLabelText('Command argument 2')).toHaveAttribute('aria-invalid', 'true');
   });
+
+  describe('Pin hostname', () => {
+    it('should state the Node.js requirement in the helper text', () => {
+      render(<EnvironmentStep draft={makeDraft()} issues={[]} onChange={vi.fn()} />);
+
+      expect(screen.getByText(/Node\.js game servers only/)).toBeInTheDocument();
+    });
+
+    it('should render the switch off and hide the field when pinnedHostname is undefined', () => {
+      render(<EnvironmentStep draft={makeDraft()} issues={[]} onChange={vi.fn()} />);
+
+      expect(screen.getByRole('switch', { name: 'Pin hostname' })).not.toBeChecked();
+      expect(screen.queryByLabelText('Hostname')).not.toBeInTheDocument();
+    });
+
+    it('should call onChange with the game name when the switch is turned on', async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(<EnvironmentStep draft={makeDraft({ name: 'foundry' })} issues={[]} onChange={onChange} />);
+
+      await user.click(screen.getByRole('switch', { name: 'Pin hostname' }));
+
+      expect(onChange).toHaveBeenCalledWith({ pinnedHostname: 'foundry' });
+    });
+
+    it('should call onChange with an empty value when the switch is turned on before a name is entered', async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(<EnvironmentStep draft={makeDraft({ name: '' })} issues={[]} onChange={onChange} />);
+
+      await user.click(screen.getByRole('switch', { name: 'Pin hostname' }));
+
+      expect(onChange).toHaveBeenCalledWith({ pinnedHostname: '' });
+    });
+
+    it('should show the pinned value in an editable field when the switch is on', async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(<EnvironmentStep draft={makeDraft({ pinnedHostname: 'foundry' })} issues={[]} onChange={onChange} />);
+
+      expect(screen.getByRole('switch', { name: 'Pin hostname' })).toBeChecked();
+      const field = screen.getByLabelText('Hostname');
+      expect(field).toHaveValue('foundry');
+
+      await user.type(field, 'x');
+
+      expect(onChange).toHaveBeenCalledWith({ pinnedHostname: 'foundryx' });
+    });
+
+    it('should clear the value when the switch is turned off', async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(<EnvironmentStep draft={makeDraft({ pinnedHostname: 'foundry' })} issues={[]} onChange={onChange} />);
+
+      await user.click(screen.getByRole('switch', { name: 'Pin hostname' }));
+
+      expect(onChange).toHaveBeenCalledWith({ pinnedHostname: undefined });
+    });
+
+    it('should show the validation issue next to the field when the value is empty', () => {
+      render(
+        <EnvironmentStep
+          draft={makeDraft({ name: '', pinnedHostname: '' })}
+          issues={[{ path: 'pinnedHostname', message: 'pinnedHostname must be a hostname, got "".' }]}
+          onChange={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByText('pinnedHostname must be a hostname, got "".')).toBeInTheDocument();
+      expect(screen.getByLabelText('Hostname')).toHaveAttribute('aria-invalid', 'true');
+    });
+
+    it('should show the issue message for an invalid value', () => {
+      render(
+        <EnvironmentStep
+          draft={makeDraft({ pinnedHostname: 'foundry host' })}
+          issues={[{ path: 'pinnedHostname', message: 'pinnedHostname must be a hostname, got "foundry host".' }]}
+          onChange={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByRole('alert')).toHaveTextContent('got "foundry host"');
+    });
+  });
 });

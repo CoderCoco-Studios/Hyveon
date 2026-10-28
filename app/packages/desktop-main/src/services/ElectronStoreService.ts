@@ -119,6 +119,8 @@ export interface GameWizardDraft {
   https: boolean;
   /** Absent on a draft autosaved before this field existed — {@link GameWizardDraftService} backfills `[]` on read. */
   command?: string[];
+  /** Absent when the "Pin hostname" switch is off. */
+  pinnedHostname?: string;
   /** Absent on a draft autosaved before this field existed — {@link GameWizardDraftService} backfills a default on read. */
   healthCheck?: {
     enabled: boolean;
