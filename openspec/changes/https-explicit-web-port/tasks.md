@@ -9,11 +9,11 @@
 
 ## 2. PR 2 — infra and lambdas (stacked on PR 1)
 
-- [ ] 2.1 `ecs.ts`: Caddy `--to localhost:<webPort>`; port mappings for `webPort` + extras
-- [ ] 2.2 `securityGroups.ts`: ingress for https extras honoring `visibility`; none for `webPort`; health-check ingress follows target
-- [ ] 2.3 `lambdas.ts` `firstPortByGame` / `shared/src/formatStatus.ts`: https games render the 443 URL
-- [ ] 2.4 Update infra fixtures (`delta`) and tests (`ecs`, `securityGroups`, `efs`, lambdas)
-- [ ] 2.5 Run `app:lint`, `app:typecheck`, `app:test`, `app:test:integration`
+- [x] 2.1 `ecs.ts`: Caddy `--to localhost:<webPort>`; port mappings for `webPort` + extras
+- [x] 2.2 `securityGroups.ts`: ingress for https extras honoring `visibility`; none for `webPort`; health-check ingress follows target
+- [x] 2.3 `lambdas.ts` `firstPortByGame` / `shared/src/formatStatus.ts`: https games render the 443 URL
+- [x] 2.4 Update infra fixtures (`delta`) and tests (`ecs`, `securityGroups`, `efs`, lambdas)
+- [x] 2.5 Run `app:lint`, `app:typecheck`, `app:test`, `app:test:integration`
 
 ## 3. PR 3 — wizard, docs, specs (stacked on PR 2)
 

@@ -40,7 +40,7 @@
 
 import * as aws from '@pulumi/aws';
 import type * as pulumi from '@pulumi/pulumi';
-import { isIcmpProtocol, type GameServerConfig } from '@hyveon/shared';
+import { ingressPorts, isIcmpProtocol, type GameServerConfig } from '@hyveon/shared';
 import { gamesWithFileSeeds, gamesWithHealthChecks } from './iam.js';
 
 /** Every resource {@link defineSecurityGroups} declares, keyed by role. */
@@ -111,7 +111,8 @@ export interface GamePort {
 
 /**
  * Deduplicated set of container port/protocol pairs across every
- * non-HTTPS game server whose {@link GameServerPort.visibility} is
+ * game server (HTTPS games contribute their extra `ports`, never
+ * `webPort`) whose {@link GameServerPort.visibility} is
  * `'public'` or omitted, mirroring the legacy tool's `local.direct_game_ports`
  * local — a `distinct(flatten(...))` over every game's `ports`, filtered to
  * entries where `https` is falsy. Two games declaring the same port and
@@ -143,7 +144,8 @@ export function dedupedDirectGamePorts(gameServers: Record<string, GameServerCon
 
 /**
  * Deduplicated set of container port/protocol pairs across every
- * non-HTTPS game server whose {@link GameServerPort.visibility} is exactly
+ * game server (HTTPS games contribute their extra `ports`, never
+ * `webPort`) whose {@link GameServerPort.visibility} is exactly
  * `'internal'` — the counterpart to {@link dedupedDirectGamePorts}. Ports
  * cannot appear in both functions' results on the validated write path:
  * `checkPortCollisions` (`@hyveon/shared`'s `gameServerValidator.ts`) already
@@ -168,10 +170,7 @@ function dedupedGamePortsByVisibility(
 ): GamePort[] {
   const seen = new Map<string, GamePort>();
   for (const config of Object.values(gameServers)) {
-    if (config.https) {
-      continue;
-    }
-    for (const port of config.ports) {
+    for (const port of ingressPorts(config)) {
       if (!include(port.visibility)) {
         continue;
       }

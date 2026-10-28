@@ -9,6 +9,16 @@ export function isReservedHttpsPort(port: number): boolean {
 }
 
 /**
+ * Marker the `GAME_PORTS` env map carries for an `https: true` game in place of
+ * a port number: the player-facing connect target is the public 443 URL, never
+ * `webPort` or an extra port. {@link renderConnectMessage} expands it.
+ */
+export const HTTPS_CONNECT_PORT = 'https' as const;
+
+/** A `GAME_PORTS` entry: a container port number, or {@link HTTPS_CONNECT_PORT} for https games. */
+export type ConnectPort = number | typeof HTTPS_CONNECT_PORT;
+
+/**
  * Structural minimum {@link normalizeGameServer} reads. Looser than
  * {@link GameServerConfig} so wizard drafts (`container: number | null`)
  * share the one implementation.

@@ -1,5 +1,45 @@
 import { describe, it, expect } from 'vitest';
-import { formatGameStatus } from './formatStatus.js';
+import { formatGameStatus, renderConnectMessage } from './formatStatus.js';
+import { HTTPS_CONNECT_PORT } from './gameServerPorts.js';
+
+describe('formatGameStatus https connect target', () => {
+  const running = { game: 'foundry', state: 'running', hostname: 'foundry.example.com' } as const;
+
+  it('should render the https URL for a "{host}:{port}" template when the port is the https marker', () => {
+    const line = formatGameStatus(running, 'join at {host}:{port}', HTTPS_CONNECT_PORT);
+    expect(line).toBe('🟢 **foundry**: running\njoin at https://foundry.example.com');
+  });
+
+  it('should render a bare {port} as 443 for an https game', () => {
+    const line = formatGameStatus(running, 'host {host} port {port}', HTTPS_CONNECT_PORT);
+    expect(line).toBe('🟢 **foundry**: running\nhost foundry.example.com port 443');
+  });
+
+  it('should fall back to host:443 when no host is known yet', () => {
+    expect(renderConnectMessage('{host}:{port}', { port: HTTPS_CONNECT_PORT, game: 'foundry' })).toBe(':443');
+  });
+
+  it('should not double the scheme when the template already starts with https://', () => {
+    const line = formatGameStatus(running, 'join at https://{host}:{port}/vtt', HTTPS_CONNECT_PORT);
+    expect(line).toBe('🟢 **foundry**: running\njoin at https://foundry.example.com/vtt');
+  });
+
+  it('should keep an http:// scheme already present in the template', () => {
+    const line = formatGameStatus(running, 'http://{host}:{port}', HTTPS_CONNECT_PORT);
+    expect(line).toBe('🟢 **foundry**: running\nhttp://foundry.example.com');
+  });
+
+  it('should render the fallback address as https://{host} when no connect message is set', () => {
+    expect(formatGameStatus(running, undefined, HTTPS_CONNECT_PORT)).toBe(
+      '🟢 **foundry**: running — `https://foundry.example.com`',
+    );
+  });
+
+  it('should leave a numeric 443 port on a non-https game untouched', () => {
+    const line = formatGameStatus(running, 'join at {host}:{port}', 443);
+    expect(line).toBe('🟢 **foundry**: running\njoin at foundry.example.com:443');
+  });
+});
 
 describe('formatGameStatus', () => {
   it('should render running state with a green emoji and the hostname', () => {

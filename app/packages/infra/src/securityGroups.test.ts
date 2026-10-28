@@ -74,18 +74,35 @@ describe('dedupedDirectGamePorts', () => {
     expect(dedupedDirectGamePorts(gameServers)).toEqual([{ port: 1234, protocol: 'tcp' }]);
   });
 
-  it('should exclude ports belonging to an https: true game', () => {
+  it('should include an https game\'s extra ports but never its webPort', () => {
     const gameServers: Record<string, GameServerConfig> = {
       httpsGame: {
         image: 'example/game:latest',
         cpu: 1024,
         memory: 2048,
-        ports: [{ container: 8080, protocol: 'tcp' }],
+        webPort: 30000,
+        ports: [{ container: 30001, protocol: 'udp' }],
         volumes: [{ name: 'saves', container_path: '/data' }],
         https: true,
       },
     };
-    expect(dedupedDirectGamePorts(gameServers)).toEqual([]);
+    expect(dedupedDirectGamePorts(gameServers)).toEqual([{ port: 30001, protocol: 'udp' }]);
+  });
+
+  it('should dedupe an extra port shared by two https games into one entry', () => {
+    const base = {
+      image: 'example/game:latest',
+      cpu: 1024,
+      memory: 2048,
+      ports: [{ container: 30001, protocol: 'udp' as const }],
+      volumes: [{ name: 'saves', container_path: '/data' }],
+      https: true,
+    };
+    const gameServers: Record<string, GameServerConfig> = {
+      one: { ...base, webPort: 30000 },
+      two: { ...base, webPort: 30010 },
+    };
+    expect(dedupedDirectGamePorts(gameServers)).toEqual([{ port: 30001, protocol: 'udp' }]);
   });
 
   it('should exclude ports declared visibility: "internal"', () => {
@@ -148,18 +165,19 @@ describe('dedupedInternalGamePorts', () => {
     expect(dedupedInternalGamePorts(gameServers)).toEqual([{ port: 8212, protocol: 'tcp' }]);
   });
 
-  it('should exclude ports belonging to an https: true game', () => {
+  it('should include an https game\'s internal extra port', () => {
     const gameServers: Record<string, GameServerConfig> = {
       httpsGame: {
         image: 'example/game:latest',
         cpu: 1024,
         memory: 2048,
+        webPort: 30000,
         ports: [{ container: 8212, protocol: 'tcp', visibility: 'internal' }],
         volumes: [{ name: 'saves', container_path: '/data' }],
         https: true,
       },
     };
-    expect(dedupedInternalGamePorts(gameServers)).toEqual([]);
+    expect(dedupedInternalGamePorts(gameServers)).toEqual([{ port: 8212, protocol: 'tcp' }]);
   });
 
   it('should return an empty array when no game declares an internal port', () => {
@@ -562,6 +580,54 @@ describe('defineSecurityGroups', () => {
     expect(healthCheckIngress).toBeDefined();
     expect(healthCheckIngress?.fromPort).toBe(8211);
     expect(healthCheckIngress?.securityGroups).toEqual([await promiseOf(result.healthCheck!.id)]);
+  });
+
+  it('should ingress https extras by visibility, give webPort none, and keep one 443/80 pair across two https games', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const common = { image: 'example/game:latest', cpu: 1024, memory: 2048, https: true, volumes: [{ name: 'saves', container_path: '/data' }] };
+    const gameServers: Record<string, GameServerConfig> = {
+      web1: { ...common, webPort: 30000, ports: [{ container: 30001, protocol: 'udp' }] },
+      web2: { ...common, webPort: 30010, ports: [{ container: 8212, protocol: 'tcp', visibility: 'internal' }] },
+    };
+    await runDefineSecurityGroups({ projectName: 'hyveon', gameServers, vpcId: 'vpc-mock', provider });
+
+    const ingress = findByName(mocks.resources, 'hyveon-sg').inputs.ingress as Array<{ fromPort: number; protocol: string; cidrBlocks?: string[] }>;
+    expect(ingress.find((rule) => rule.fromPort === 30001)).toMatchObject({ protocol: 'udp', cidrBlocks: ['0.0.0.0/0'] });
+    expect(ingress.find((rule) => rule.fromPort === 8212)?.cidrBlocks).toEqual(['10.0.0.0/16']);
+    expect(ingress.some((rule) => rule.fromPort === 30000 || rule.fromPort === 30010)).toBe(false);
+    expect(ingress.filter((rule) => rule.fromPort === 443)).toHaveLength(1);
+    expect(ingress.filter((rule) => rule.fromPort === 80)).toHaveLength(1);
+  });
+
+  it('should add only the health-check Lambda source rule when an https game health-checks its webPort', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      web: {
+        image: 'example/web:latest',
+        cpu: 1024,
+        memory: 2048,
+        https: true,
+        webPort: 30000,
+        ports: [],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+        healthCheck: {
+          kind: 'http',
+          scheme: 'http',
+          port: 30000,
+          path: '/api/status',
+          method: 'GET',
+          timeoutMs: 2000,
+          activeWhen: { jsonPath: 'users', operator: 'greaterThan', value: 0 },
+        },
+      },
+    };
+    const result = await runDefineSecurityGroups({ projectName: 'hyveon', gameServers, vpcId: 'vpc-mock', provider });
+
+    const ingress = findByName(mocks.resources, 'hyveon-sg').inputs.ingress as Array<{ fromPort: number; cidrBlocks?: string[]; securityGroups?: string[] }>;
+    const rules = ingress.filter((rule) => rule.fromPort === 30000);
+    expect(rules).toHaveLength(1);
+    expect(rules[0].cidrBlocks).toBeUndefined();
+    expect(rules[0].securityGroups).toEqual([await promiseOf(result.healthCheck!.id)]);
   });
 
   it('should scope the health-check security group egress to declared ports only, via a standalone rule per port', async () => {

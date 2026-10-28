@@ -245,7 +245,7 @@ describe('defineLambdas', () => {
         DOMAIN_NAME: 'example.com',
         GAME_NAMES: 'alpha,bravo,charlie,delta',
         CONNECT_MESSAGES: '{}',
-        GAME_PORTS: JSON.stringify({ alpha: 25565, bravo: 25565, charlie: 7777, delta: 8080 }),
+        GAME_PORTS: JSON.stringify({ alpha: 25565, bravo: 25565, charlie: 7777, delta: 'https' }),
       });
       expect('AWS_REGION' in variables).toBe(false);
     });
@@ -452,7 +452,7 @@ describe('defineLambdas', () => {
         AWS_REGION_: 'us-east-1',
         TABLE_NAME: DEFERRED_VALUES.dynamodbDiscordTableName,
         CONNECT_MESSAGES: '{}',
-        GAME_PORTS: JSON.stringify({ alpha: 25565, bravo: 25565, charlie: 7777, delta: 8080 }),
+        GAME_PORTS: JSON.stringify({ alpha: 25565, bravo: 25565, charlie: 7777, delta: 'https' }),
       });
     });
 
@@ -493,6 +493,33 @@ describe('defineLambdas', () => {
       const variables = (fn.inputs.environment as { variables: Record<string, unknown> }).variables;
       expect(JSON.parse(variables.CONNECT_MESSAGES as string)).toEqual({ withMessage: 'Connect at {host}:{port}' });
       expect(JSON.parse(variables.GAME_PORTS as string)).toEqual({ withMessage: 25565, noMessage: 7777 });
+    });
+
+    it('should advertise the https marker for an https game, never its webPort or a udp extra', async () => {
+      const gameServers: Record<string, GameServerConfig> = {
+        foundry: {
+          image: 'example/foundry:latest',
+          cpu: 1024,
+          memory: 2048,
+          https: true,
+          webPort: 30000,
+          ports: [{ container: 30001, protocol: 'udp' }],
+          volumes: [{ name: 'saves', container_path: '/data' }],
+        },
+        palworld: {
+          image: 'example/palworld:latest',
+          cpu: 1024,
+          memory: 2048,
+          ports: [{ container: 8211, protocol: 'udp' }],
+          volumes: [{ name: 'saves', container_path: '/data' }],
+        },
+      };
+      const { provider, roles, efs } = await arrangeDependencies(gameServers);
+      await runDefineLambdas(buildArgs({ gameServers, roles, efs, provider }));
+
+      const fn = findByName(mocks.resources, 'hyveon-followup');
+      const variables = (fn.inputs.environment as { variables: Record<string, unknown> }).variables;
+      expect(JSON.parse(variables.GAME_PORTS as string)).toEqual({ foundry: 'https', palworld: 8211 });
     });
 
     it('should advertise the first public port in GAME_PORTS, not an internal-visibility port declared first', async () => {

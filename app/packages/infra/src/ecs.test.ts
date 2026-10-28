@@ -368,6 +368,37 @@ describe('defineEcs', () => {
     );
   });
 
+  it('should map webPort plus tcp/udp extras (not icmp) and proxy each https game to its own webPort', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const common = { image: 'example/game:latest', cpu: 1024, memory: 2048, https: true, volumes: [{ name: 'saves', container_path: '/data' }] };
+    const gameServers: Record<string, GameServerConfig> = {
+      web1: { ...common, webPort: 30000, ports: [{ container: 30001, protocol: 'udp' }] },
+      web2: { ...common, webPort: 30010, ports: [{ container: 30010, protocol: 'tcp' }] },
+    };
+    const efs = await arrangeEfs(gameServers, provider);
+    await runDefineEcs({
+      projectName: 'hyveon',
+      awsRegion: 'us-east-1',
+      hostedZoneName: 'example.com',
+      gameServers,
+      efs,
+      executionRoleArn: 'arn:aws:iam::123456789012:role/hyveon-task-execution',
+      provider,
+    });
+
+    const web1 = parsedContainerDefinitions(findByName(mocks.resources, 'web1-server'));
+    expect(web1[0].portMappings).toEqual([
+      { containerPort: 30000, hostPort: 30000, protocol: 'tcp' },
+      { containerPort: 30001, hostPort: 30001, protocol: 'udp' },
+    ]);
+    expect(web1[1].command).toContain('localhost:30000');
+
+    // A tcp extra duplicating webPort is mapped once.
+    const web2 = parsedContainerDefinitions(findByName(mocks.resources, 'web2-server'));
+    expect(web2[0].portMappings).toEqual([{ containerPort: 30010, hostPort: 30010, protocol: 'tcp' }]);
+    expect(web2[1].command).toContain('localhost:30010');
+  });
+
   it('should declare no Caddy sidecar container or cert volume for a non-https game', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
