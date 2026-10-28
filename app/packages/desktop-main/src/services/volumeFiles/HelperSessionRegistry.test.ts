@@ -272,6 +272,48 @@ describe('HelperSessionRegistry', () => {
     expect(order).toEqual(['listener', 'close', 'stop']);
   });
 
+  it('should not call beforeStop listeners when the last holder releases or the grace timer expires', async () => {
+    const { registry, fm } = harness();
+    const listener = vi.fn();
+    registry.onBeforeStop(listener);
+
+    await registry.acquire('mc', 'upload:r1');
+    registry.release('mc', 'upload:r1');
+    await vi.waitFor(() => expect(fm.stop).toHaveBeenCalledTimes(1));
+
+    await registry.acquire('mc', 'browse');
+    registry.release('mc', 'browse');
+    await vi.advanceTimersByTimeAsync(GRACE_MS + 1);
+    await vi.waitFor(() => expect(fm.stop).toHaveBeenCalledTimes(2));
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('should call beforeStop listeners before a starting session finishes launching when stop() is explicit', async () => {
+    const { registry, fm } = harness();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const order: string[] = [];
+    const launch = fm.launchHelper.getMockImplementation()!;
+    fm.launchHelper.mockImplementation(async (game, options) => {
+      await gate;
+      order.push('launch-done');
+      return launch(game, options);
+    });
+    registry.onBeforeStop(() => {
+      order.push('listener');
+    });
+
+    const acquiring = registry.acquire('mc', 'browse');
+    await vi.waitFor(() => expect(fm.launchHelper).toHaveBeenCalled());
+    const stopping = registry.stop('mc');
+    await vi.waitFor(() => expect(order).toEqual(['listener']));
+    release();
+    await Promise.all([acquiring, stopping]);
+
+    expect(order).toEqual(['listener', 'launch-done']);
+  });
+
   it('should still tear down when a beforeStop listener throws', async () => {
     const { registry, fm } = harness();
     registry.onBeforeStop(() => {

@@ -206,13 +206,18 @@ export class HelperSessionRegistry {
    * Stops `game`'s helper: runs the before-stop listeners, closes the backend, and stops the ECS task. With no owned
    * session it stops an orphaned helper instead.
    *
+   * @remarks
+   * Only an explicit stop notifies the before-stop listeners, and it does so first, even while the session is still
+   * starting. A teardown caused by the last holder releasing (or the grace timer) notifies no one: nothing holds the
+   * session, so there is nothing to cancel.
+   *
    * @param game - Game whose helper to stop.
    * @returns Whether the helper is stopping, with a message for the operator.
    */
   async stop(game: string): Promise<{ success: boolean; message: string }> {
     logger.debug('HelperSessionRegistry: stop', { game });
     const entry = this.entries.get(game);
-    if (entry) return this.stopEntry(game, entry);
+    if (entry) return this.stopEntry(game, entry, true);
 
     this.lastError.delete(game);
     try {
@@ -371,8 +376,9 @@ export class HelperSessionRegistry {
   }
 
   /**
-   * Subscribes to the moment a session is about to be torn down, before its backend closes; a throwing listener is
-   * logged and does not stop the teardown.
+   * Subscribes to the moment a session is about to be force-stopped by {@link HelperSessionRegistry.stop} or
+   * {@link HelperSessionRegistry.stopAll}, before its backend closes; a throwing listener is logged and does not stop
+   * the teardown. A teardown from the last holder releasing, or from the grace timer, does not call listeners.
    *
    * @param listener - Receives the game being stopped.
    * @returns The unsubscribe function.
@@ -548,26 +554,25 @@ export class HelperSessionRegistry {
   }
 
   /** Begins (or joins) the teardown of `entry`; resolves with the ECS stop result. */
-  private stopEntry(game: string, entry: Entry): Promise<{ success: boolean; message: string }> {
+  private stopEntry(game: string, entry: Entry, notifyListeners = false): Promise<{ success: boolean; message: string }> {
     if (entry.teardown) return entry.teardown;
     this.cancelGrace(entry);
     const wasStarting = entry.state === 'starting';
     entry.state = 'stopping';
     this.lastError.delete(game);
     this.emit(game, entry);
-    entry.teardown = this.runTeardown(game, entry, wasStarting);
+    entry.teardown = this.runTeardown(game, entry, wasStarting, notifyListeners);
     return entry.teardown;
   }
 
-  private async runTeardown(game: string, entry: Entry, wasStarting: boolean): Promise<{ success: boolean; message: string }> {
+  private async runTeardown(
+    game: string,
+    entry: Entry,
+    wasStarting: boolean,
+    notifyListeners: boolean,
+  ): Promise<{ success: boolean; message: string }> {
+    if (notifyListeners) await this.notifyBeforeStop(game);
     if (wasStarting) await entry.ready;
-    for (const listener of [...this.beforeStopListeners]) {
-      try {
-        await listener(game);
-      } catch (err) {
-        logger.warn('HelperSessionRegistry: before-stop listener failed', { game, error: errMessage(err) });
-      }
-    }
     await this.closeBackend(game, entry);
     let result: { success: boolean; message: string };
     try {
@@ -581,6 +586,17 @@ export class HelperSessionRegistry {
     if (this.entries.get(game) === entry) this.dropEntry(game, entry);
     this.emit(game, entry, 'stopped');
     return result;
+  }
+
+  /** Calls every before-stop listener in turn; a failing listener is logged and skipped. */
+  private async notifyBeforeStop(game: string): Promise<void> {
+    for (const listener of [...this.beforeStopListeners]) {
+      try {
+        await listener(game);
+      } catch (err) {
+        logger.warn('HelperSessionRegistry: before-stop listener failed', { game, error: errMessage(err) });
+      }
+    }
   }
 
   /** Stops `game`'s ECS helper, logging rather than throwing; used where the caller is already reporting another failure. */

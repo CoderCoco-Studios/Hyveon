@@ -48,7 +48,7 @@ afterEach(async () => {
 });
 
 /** Wires the service to the fake helper, presenting `presentedCert` while the session pins `pinnedCert`. */
-async function run(options: {
+async function wire(options: {
   presentedCert?: EphemeralCert;
   seed?: Record<string, number>;
   onUpload?: Parameters<typeof startFakeFileBrowser>[0]['onUpload'];
@@ -62,6 +62,8 @@ async function run(options: {
   destination?: string;
   /** Open a browse session before the upload starts. */
   browse?: boolean;
+  /** Holds the first helper launch until this settles, so a test can act while the session is still starting. */
+  firstLaunchGate?: Promise<void>;
 }) {
   const pinned = await generateEphemeralCert();
   server = await startFakeFileBrowser({ cert: options.presentedCert ?? pinned, onUpload: options.onUpload, seed: options.seed });
@@ -84,9 +86,12 @@ async function run(options: {
   };
   /** Whether ECS reports a helper task; true once `launchHelper` runs and false again after `stop`. */
   let helperTask = false;
+  let launches = 0;
   const fm = {
     planHelperLayout: vi.fn(async () => layout),
     launchHelper: vi.fn(async () => {
+      launches += 1;
+      if (launches === 1) await options.firstLaunchGate;
       helperTask = true;
       return launched;
     }),
@@ -125,10 +130,20 @@ async function run(options: {
     if (p.phase === 'awaiting-confirmation' && options.answer !== undefined) svc.confirmOverwrite('minecraft', options.answer);
   });
   const scan = await scans.scan(root);
-  const res = await svc.startUpload({ game: 'minecraft', scanId: scan.scanId, include: options.include ?? ['Data'], destination: options.destination ?? '/data' });
-  expect(res.started).toBe(true);
-  await vi.waitFor(() => expect(['done', 'failed', 'cancelled']).toContain(progress.at(-1)?.phase));
-  return { svc, fm, registry, progress, last: progress.at(-1)!, server };
+  /** Starts one upload and checks it was accepted. */
+  const start = async () => {
+    const res = await svc.startUpload({ game: 'minecraft', scanId: scan.scanId, include: options.include ?? ['Data'], destination: options.destination ?? '/data' });
+    expect(res.started).toBe(true);
+  };
+  return { svc, fm, registry, progress, start, server };
+}
+
+/** Wires the service and runs one upload to its terminal phase. */
+async function run(options: Parameters<typeof wire>[0]) {
+  const w = await wire(options);
+  await w.start();
+  await vi.waitFor(() => expect(['done', 'failed', 'cancelled']).toContain(w.progress.at(-1)?.phase));
+  return { ...w, last: w.progress.at(-1)! };
 }
 
 describe('folder upload against a fake FileBrowser helper', () => {
@@ -147,6 +162,25 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(r.fm.stop).not.toHaveBeenCalled();
     expect((await r.registry.status('minecraft')).state).toBe('running');
     await r.registry.stop('minecraft');
+  });
+
+  it('should not cancel a retry that starts while the cancelled run\'s session is still being torn down', async () => {
+    let openGate!: () => void;
+    const firstLaunchGate = new Promise<void>((resolve) => { openGate = resolve; });
+    const w = await wire({ firstLaunchGate });
+    await w.start();
+    await vi.waitFor(() => expect(w.fm.launchHelper).toHaveBeenCalledTimes(1));
+    w.svc.cancel('minecraft');
+    await vi.waitFor(() => expect(w.progress.at(-1)?.phase).toBe('cancelled'));
+
+    await w.start();
+    openGate();
+    await vi.waitFor(() => expect(['done', 'failed']).toContain(w.progress.at(-1)?.phase), { timeout: 5000 });
+
+    expect(w.progress.at(-1)?.phase).toBe('done');
+    expect(w.server.files.get('/saves/Data/b.txt')).toBe(5);
+    expect(w.fm.launchHelper).toHaveBeenCalledTimes(2);
+    await w.registry.stop('minecraft');
   });
 
   it('should write a second-volume upload into that volume and nothing into the first', async () => {
