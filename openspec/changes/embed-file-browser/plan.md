@@ -424,7 +424,7 @@ export class HelperSessionRegistry {
 - `status()` with no entry: `not_deployed` when stack outputs are absent, `orphaned` when `listHelperTask(game)` returns a task, else `stopped`. With an entry in `running`: if `listHelperTask` returns null or a different `taskArn`, transition to `failed` with `getHelperStopReason(taskArn)` and drop the backend.
 - Teardown (last holder gone, `stop`, `stopAll`): close backend, `fileManager.stop(game)`, delete entry, emit `stopped`. A `failed` launch removes the entry and emits `failed` with the error; the next `status()` reports `failed` once (kept in a `lastError` map until the next `acquire`).
 
-- [ ] **Step 1: Write the failing tests** with a `Partial<FileManagerService>` stub (`launchHelper` resolves `{ ok: true, taskArn: 'arn:t1', credentials, cert, operatorIp: '203.0.113.7', startedAt: 0, autoStopAt: 7_200_000, scheduleWarning: '' }`), `getHelperPublicIp` → `'127.0.0.1'`, a `fakeBackend()` factory, and fake timers:
+- [x] **Step 1: Write the failing tests** with a `Partial<FileManagerService>` stub (`launchHelper` resolves `{ ok: true, taskArn: 'arn:t1', credentials, cert, operatorIp: '203.0.113.7', startedAt: 0, autoStopAt: 7_200_000, scheduleWarning: '' }`), `getHelperPublicIp` → `'127.0.0.1'`, a `fakeBackend()` factory, and fake timers:
   - `should share one launch between concurrent acquires` — two `acquire('mc','browse')` + `acquire('mc','upload:r1')` in parallel → `launchHelper` called once; snapshot `{ state: 'running', browseHeld: true, uploadHolders: 1 }`.
   - `should keep the helper while another holder remains` — release `upload:r1` → `fileManager.stop` not called.
   - `should stop the helper after the browse grace period` — release `browse` as last holder; advance `5 * 60 * 1000 - 1` → not stopped; advance `1` → `fileManager.stop('mc')` called once, snapshot `stopped`.
@@ -436,10 +436,10 @@ export class HelperSessionRegistry {
   - `should restart an orphan by stopping it and launching a fresh session` — `restart('mc')` → `fileManager.stop` then `launchHelper`.
   - `should report failed when the session task disappears from ECS` — running entry, `listHelperTask` → null, `getHelperStopReason` → `'Essential container exited'` → `{ state: 'failed', error: expect.stringContaining('Essential container exited') }`.
   - `should not expose credentials, cert or address in a snapshot` — `JSON.stringify(await status('mc'))` matches none of `/password|credential|cert|fingerprint|127\.0\.0\.1|https?:/i`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles/HelperSessionRegistry.test.ts` → FAIL.
-- [ ] **Step 3: Implement** (readiness can call a private `waitUntilReady` that Task 12 fills in; for this task it resolves after `connect()`).
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `feat(desktop-main): add the helper session registry`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles/HelperSessionRegistry.test.ts` → FAIL.
+- [x] **Step 3: Implement** (readiness can call a private `waitUntilReady` that Task 12 fills in; for this task it resolves after `connect()`).
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `feat(desktop-main): add the helper session registry`.
 
 ### Task 12: Readiness over pinned TLS and operator-IP recovery (tasks.md 3.3, 3.4, 3.8)
 
