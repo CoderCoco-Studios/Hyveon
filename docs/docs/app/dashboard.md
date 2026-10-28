@@ -146,7 +146,7 @@ game's* EFS volumes read-write, then hands you a link to it.
 
 **One folder per volume.** The helper mounts every applied volume of the game, each through its own EFS access point, and FileBrowser's root lists one folder per volume. A folder is named after the volume when that name is a safe folder name (letters, digits, `.`, `_` and `-`, up to 64 characters) and no other volume of the game shares it; otherwise it is called `volume-<n>`, where `<n>` is the volume's position in the game's volume list, counting from 0. A volume named like `volume-1` itself also falls back to its index so it cannot collide with another volume's fallback folder. A volume that has not been applied yet has no folder.
 
-**After upgrading.** The per-volume access points are a new stack output. Until you run a plan and apply once from [Infrastructure](/app/iac) (an outputs-only change, no resources are created or changed), the helper mounts only the game's first volume.
+**After upgrading.** The per-volume access points are a new stack output. Until you run a plan and apply once from [Infrastructure](/app/iac) (an outputs-only change, no resources are created or changed), the helper mounts only the game's first volume, and folder uploads are refused for every volume, including the first.
 
 | Button | Behaviour |
 |---|---|

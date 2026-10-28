@@ -250,7 +250,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     if (!server) throw new Error(`Unknown game '${game}'.`);
     const dest = validateDestination(request.destination, server.volumes);
     if (!dest.ok) throw new Error(dest.error);
-    if (!isVolumeMounted(layout, dest.volume.name)) {
+    if (layout.usedFallback || !isVolumeMounted(layout, dest.volume.name)) {
       throw new Error(`Apply the infrastructure to upload into '${dest.volume.name}'. Your selection is kept.`);
     }
 

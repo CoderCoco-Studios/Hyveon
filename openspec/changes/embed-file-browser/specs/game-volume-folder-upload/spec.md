@@ -27,6 +27,10 @@ The system SHALL upload the selected files into the EFS volume that owns the des
 - **WHEN** the destination belongs to a volume the helper cannot mount because the infrastructure has not been applied since that volume's access point was exported
 - **THEN** the upload is refused before any helper is launched, with an explanation to apply the infrastructure first, and the selection is kept
 
+#### Scenario: Stack applied before per-volume access points were exported
+- **WHEN** the operator starts an upload for a game whose stack was applied by a build that did not export per-volume access points, even if the destination is in the game's first volume
+- **THEN** the upload is refused before any helper is launched, with an explanation to apply the infrastructure first, because the legacy access point's volume cannot be confirmed, and the selection is kept
+
 #### Scenario: Application-held session already open for this game
 - **WHEN** the operator starts an upload while the application holds a browse session for the game
 - **THEN** the upload uses that session's helper, and the helper keeps running after the upload ends for as long as the browse page holds it

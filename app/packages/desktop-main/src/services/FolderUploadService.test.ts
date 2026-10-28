@@ -150,6 +150,17 @@ describe('FolderUploadService guards', () => {
     expect(h.fm.startForUpload).not.toHaveBeenCalled();
   });
 
+  it('should refuse an upload into the first volume when the layout is the legacy fallback', async () => {
+    const h = await harness({
+      volumes: configAndSavesVolumes(),
+      outputs: stackOutputs({ efsAccessPoints: { minecraft: 'fsap' }, efsVolumeAccessPoints: {} }),
+    });
+    const res = await h.svc.startUpload(await request(['Config'], '/data/config'));
+    expect(res).toMatchObject({ started: false, error: expect.stringContaining("Apply the infrastructure to upload into 'config'") });
+    expect(h.ecs.findRunningTaskOrThrow).not.toHaveBeenCalled();
+    expect(h.fm.startForUpload).not.toHaveBeenCalled();
+  });
+
   it('should refuse when the game server task is running', async () => {
     const h = await harness();
     h.ecs.findRunningTaskOrThrow.mockResolvedValue({ taskArn: 'x' });

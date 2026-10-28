@@ -24,7 +24,10 @@ export interface HelperVolumeLayout {
   mounts: HelperVolumeMount[];
   /** Declared volumes with no exported access point yet (apply needed). */
   unmounted: { volume: string; containerPath: string }[];
-  /** True when the per-volume output was missing and only the first volume was mounted via `efsAccessPoints`. */
+  /**
+   * True when the per-volume output was missing and only the first volume was mounted via `efsAccessPoints`.
+   * That access point's volume identity is not confirmed (the config may have been reordered since the last apply), so writers must refuse.
+   */
   usedFallback: boolean;
 }
 
