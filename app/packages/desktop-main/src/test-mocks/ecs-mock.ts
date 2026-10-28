@@ -26,7 +26,7 @@ const MOCK_HELPER_TASK_DEFINITION_ARN = 'arn:aws:ecs:us-east-1:123456789012:task
  * fixed success responses and no queue.
  *
  * Extracted so the in-process IPC test harness (`e2e/fixtures/ipc-harness.ts`)
- * can patch `ECSClient` without duplicating the four command handlers.
+ * can patch `ECSClient` without duplicating the command handlers.
  *
  * `EcsService` creates its `ECSClient` lazily (on first request), so patching
  * the *prototype* is sufficient — this only needs to run once, before the

@@ -69,7 +69,7 @@ The in-process `MockStore` singleton holds separate FIFO queues for `ListTasks`,
 | `DescribeTasksCommand` | `{ tasks: [] }` |
 | `RunTaskCommand` | `{ tasks: [{ taskArn: 'arn:…/test-task-id' }], failures: [] }` |
 | `StopTaskCommand` | `{}` |
-| `DescribeNetworkInterfacesCommand` (EC2) | `{ NetworkInterfaces: [] }` → an ENI with no public IP |
+| `DescribeNetworkInterfacesCommand` (EC2) | `{ NetworkInterfaces: [] }` → no ENI is returned, so `Ec2Service.getPublicIp` yields `null` |
 
 Push a response before dispatching the controller call that will consume it:
 

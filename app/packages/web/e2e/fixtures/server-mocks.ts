@@ -17,7 +17,7 @@ export type { MockResponse };
  * before and after every test.
  */
 export class ServerMocks {
-  /** Clear all ECS command queues — called automatically before and after each test. */
+  /** Clear every queued mock response (the ECS command queues and the EC2 `DescribeNetworkInterfaces` queue) — called automatically before and after each test. */
   async reset(): Promise<void> { mockStore.reset(); }
 
   /** Queue a response for the next ListTasksCommand call. */

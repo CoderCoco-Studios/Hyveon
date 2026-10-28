@@ -23,7 +23,7 @@ export interface MockResponse {
  *  - DescribeTasks → \{ tasks: [] \}
  *  - RunTask      → \{ tasks: [\{ taskArn: 'arn:aws:ecs:us-east-1:123:task/test-cluster/test-task-id' \}] \}
  *  - StopTask     → \{\}
- *  - DescribeNetworkInterfaces → \{ NetworkInterfaces: [] \} (an ENI with no public IP)
+ *  - DescribeNetworkInterfaces → \{ NetworkInterfaces: [] \} (no ENI is returned, so `Ec2Service.getPublicIp` yields `null`)
  */
 class MockStore {
   private listTasksQueue: MockResponse[] = [];

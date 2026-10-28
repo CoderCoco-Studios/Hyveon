@@ -1,3 +1,4 @@
+import { errMessage } from '@hyveon/shared';
 import { logger } from './logger.js';
 import type { HelperSessionRegistry } from './services/volumeFiles/HelperSessionRegistry.js';
 
@@ -46,7 +47,7 @@ export function installHelperQuitHook(
         else logger.warn('Quit: stopping file manager helpers timed out', { games: owned.size, timeoutMs });
       })
       .catch((err: unknown) => {
-        logger.warn('Quit: stopping file manager helpers failed', { error: err instanceof Error ? err.message : String(err) });
+        logger.warn('Quit: stopping file manager helpers failed', { error: errMessage(err) });
       })
       .finally(() => {
         clearTimeout(timer);

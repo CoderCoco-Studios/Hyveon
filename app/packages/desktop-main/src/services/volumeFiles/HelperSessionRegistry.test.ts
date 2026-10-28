@@ -225,6 +225,37 @@ describe('HelperSessionRegistry', () => {
     expect(fm.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('should keep the browse grace running when an upload joins and leaves within it', async () => {
+    const { registry, fm } = harness();
+    await registry.acquire('mc', 'browse');
+
+    registry.release('mc', 'browse');
+    await vi.advanceTimersByTimeAsync(60_000);
+    await registry.acquire('mc', 'upload:r1');
+    registry.release('mc', 'upload:r1');
+    await vi.advanceTimersByTimeAsync(GRACE_MS - 60_000 - 1);
+
+    expect(fm.stop).not.toHaveBeenCalled();
+    expect(registry.attach('mc')).toBe(true);
+    await vi.advanceTimersByTimeAsync(GRACE_MS * 2);
+    expect(fm.stop).not.toHaveBeenCalled();
+  });
+
+  it('should stop once the original grace elapses after an upload joined and left within it', async () => {
+    const { registry, fm } = harness();
+    await registry.acquire('mc', 'browse');
+
+    registry.release('mc', 'browse');
+    await vi.advanceTimersByTimeAsync(60_000);
+    await registry.acquire('mc', 'upload:r1');
+    registry.release('mc', 'upload:r1');
+    await vi.advanceTimersByTimeAsync(GRACE_MS - 60_000 - 1);
+    expect(fm.stop).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(fm.stop).toHaveBeenCalledTimes(1);
+  });
+
   it('should stop immediately when the upload releases after the grace period already lapsed', async () => {
     const { registry, fm } = harness();
     await Promise.all([registry.acquire('mc', 'browse'), registry.acquire('mc', 'upload:r1')]);

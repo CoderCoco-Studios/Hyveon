@@ -158,6 +158,19 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(r.fm.stop).toHaveBeenCalledWith('minecraft');
   });
 
+  it('should never publish or persist the helper credential', async () => {
+    const r = await run({});
+    expect(r.last.phase).toBe('done');
+
+    expect(r.svc.getSelection('minecraft')).not.toBeNull();
+    const published = JSON.stringify(r.progress);
+    const stored = JSON.stringify(r.svc.getSelection('minecraft'));
+    for (const text of [published, stored]) {
+      expect(text).not.toContain('secret');
+      expect(text).not.toContain('admin');
+    }
+  });
+
   it('should leave an existing browse session running after the upload', async () => {
     const r = await run({ browse: true });
     expect(r.last.phase).toBe('done');
@@ -250,7 +263,7 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(r.last.phase).toBe('cancelled');
     expect(r.server.requests.filter((q) => q.method === 'POST' && q.url.startsWith('/api/resources'))).toEqual([]);
     expect(r.server.files.get('/saves/Data/b.txt')).toBe(2);
-    expect(r.fm.stop).toHaveBeenCalledWith('minecraft');
+    await vi.waitFor(() => expect(r.fm.stop).toHaveBeenCalledWith('minecraft'));
   });
 
   it('should not prompt when the volume has no differing files', async () => {

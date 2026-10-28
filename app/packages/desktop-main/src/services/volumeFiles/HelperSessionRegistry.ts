@@ -159,7 +159,7 @@ export class HelperSessionRegistry {
         continue;
       }
       existing.holders.add(holder);
-      this.cancelGrace(existing);
+      if (holder === 'browse') this.cancelGrace(existing);
       return existing.ready;
     }
 
@@ -427,7 +427,7 @@ export class HelperSessionRegistry {
       this.emit(game, entry);
       return { ok: true };
     } catch (err) {
-      return this.failSession(game, entry, await this.withStopReason(entry, errMessage(err)));
+      return this.failSession(game, entry, await this.withStopReason(game, entry, errMessage(err)));
     }
   }
 
@@ -490,13 +490,13 @@ export class HelperSessionRegistry {
   }
 
   /** Appends the helper container's ECS stop reason to `message` when the task died, so the failure names its cause. */
-  private async withStopReason(entry: Entry, message: string): Promise<string> {
+  private async withStopReason(game: string, entry: Entry, message: string): Promise<string> {
     if (!entry.taskArn || message.includes('stopped before it was reachable')) return message;
     try {
       const reason = await this.fileManager.getHelperStopReason(entry.taskArn);
       return reason ? `${message} (helper task stopped: ${reason})` : message;
     } catch (err) {
-      logger.warn('HelperSessionRegistry: could not read the helper stop reason', { error: errMessage(err) });
+      logger.warn('HelperSessionRegistry: could not read the helper stop reason', { game, error: errMessage(err) });
       return message;
     }
   }
@@ -565,6 +565,7 @@ export class HelperSessionRegistry {
     return entry.teardown;
   }
 
+  /** Stops the helper and releases `entry`'s backend, then drops the entry; resolves with the ECS stop result. */
   private async runTeardown(
     game: string,
     entry: Entry,
@@ -627,6 +628,7 @@ export class HelperSessionRegistry {
     this.entries.delete(game);
   }
 
+  /** Starts the browse grace timer, which stops the session if no holder remains when it fires. */
   private startGrace(game: string, entry: Entry): void {
     this.cancelGrace(entry);
     entry.graceTimer = setTimeout(() => {
@@ -637,6 +639,7 @@ export class HelperSessionRegistry {
     }, this.timings.browseGraceMs);
   }
 
+  /** Clears `entry`'s pending grace timer, if any. */
   private cancelGrace(entry: Entry): void {
     if (entry.graceTimer) clearTimeout(entry.graceTimer);
     entry.graceTimer = undefined;
