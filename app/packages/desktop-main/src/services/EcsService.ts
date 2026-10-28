@@ -228,9 +228,17 @@ export class EcsService {
    * task-definition family the infra program provisions. `ListTasks` is filtered to
    * `desiredStatus: RUNNING` and STOPPED/DEPROVISIONING tasks are filtered
    * out of the describe result — leaving the single active task, if any.
+   *
+   * @remarks
+   * Fail-closed counterpart of {@link findRunningTask}: an unconfirmable answer throws instead of reading as "no task".
+   *
+   * @param cluster - ECS cluster name.
+   * @param game - Game whose `{game}-server` family is searched.
+   * @returns The active task, or `null` when none is running.
+   * @throws A plain `Error` carrying only the failure message when ECS can't be queried.
    */
-  async findRunningTask(cluster: string, game: string): Promise<Task | null> {
-    logger.debug('EcsService.findRunningTask: looking up running task', { cluster, game });
+  async findRunningTaskOrThrow(cluster: string, game: string): Promise<Task | null> {
+    logger.debug('EcsService.findRunningTaskOrThrow: looking up running task', { cluster, game });
     try {
       const listResp = await this.getClient().send(
         new ListTasksCommand({ cluster, family: `${game}-server`, desiredStatus: 'RUNNING' }),
@@ -246,7 +254,26 @@ export class EcsService {
         ) ?? null
       );
     } catch (err) {
-      logger.error('Failed to find running task', { err, game });
+      const message = errMessage(err);
+      logger.error('Failed to find running task', { error: message, game });
+      throw new Error(message);
+    }
+  }
+
+  /**
+   * {@link findRunningTaskOrThrow}, but a failed lookup reads as `null` (no running task).
+   *
+   * @remarks
+   * Only for callers where "unknown" may safely be treated as "none"; anything that must refuse on an unknown server
+   * state uses the throwing variant.
+   *
+   * @param cluster - ECS cluster name.
+   * @param game - Game whose `{game}-server` family is searched.
+   */
+  async findRunningTask(cluster: string, game: string): Promise<Task | null> {
+    try {
+      return await this.findRunningTaskOrThrow(cluster, game);
+    } catch {
       return null;
     }
   }

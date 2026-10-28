@@ -264,9 +264,14 @@ export class FolderUploadService implements OnApplicationBootstrap {
       mtimeMs: scan.mtimes.get(file.relPath) ?? 0,
     }));
 
-    if (await this.ecs.findRunningTask(outputs.ecsClusterName, game)) {
-      throw new Error(`'${game}' is running. Stop the server before uploading.`);
+    let serverRunning: boolean;
+    try {
+      serverRunning = (await this.ecs.findRunningTaskOrThrow(outputs.ecsClusterName, game)) !== null;
+    } catch {
+      // EcsService already logged the cause; a server that can't be confirmed stopped is never assumed stopped.
+      throw new Error(`Couldn't confirm '${game}' is stopped. Try again in a moment.`);
     }
+    if (serverRunning) throw new Error(`'${game}' is running. Stop the server before uploading.`);
     const helper = await this.fileManager.getStatus(game);
     if (helper.state === 'running' || helper.state === 'starting') {
       throw new Error(`A file manager session is already open for '${game}'. Stop it first, then retry.`);

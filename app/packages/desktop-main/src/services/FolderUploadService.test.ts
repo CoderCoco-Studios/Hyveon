@@ -46,7 +46,7 @@ interface Harness {
   svc: FolderUploadService;
   client: FakeBackend;
   fm: { planHelperLayout: ReturnType<typeof vi.fn>; startForUpload: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; getStatus: ReturnType<typeof vi.fn>; getHelperPublicIp: ReturnType<typeof vi.fn>; getHelperStopReason: ReturnType<typeof vi.fn>; sweepStrayHelpers: ReturnType<typeof vi.fn> };
-  ecs: { findRunningTask: ReturnType<typeof vi.fn> };
+  ecs: { findRunningTaskOrThrow: ReturnType<typeof vi.fn> };
   store: ElectronStoreService;
   progress: FolderUploadProgress[];
   create: ReturnType<typeof vi.fn>;
@@ -77,7 +77,7 @@ async function harness(
     getHelperStopReason: vi.fn().mockResolvedValue(null),
     sweepStrayHelpers: vi.fn().mockResolvedValue({ stopped: [], skipped: 0, revokedRules: 0, errors: [] }),
   };
-  const ecs = { findRunningTask: vi.fn().mockResolvedValue(null) };
+  const ecs = { findRunningTaskOrThrow: vi.fn().mockResolvedValue(null) };
   const create = vi.fn().mockReturnValue(client);
   const store = new ElectronStoreService(new SafeStorageService());
   const svc = new FolderUploadService(
@@ -152,14 +152,24 @@ describe('FolderUploadService guards', () => {
     });
     const res = await h.svc.startUpload(await request(['Config'], '/data/saves'));
     expect(res).toMatchObject({ started: false, error: expect.stringContaining("Apply the infrastructure to upload into 'saves'") });
-    expect(h.ecs.findRunningTask).not.toHaveBeenCalled();
+    expect(h.ecs.findRunningTaskOrThrow).not.toHaveBeenCalled();
     expect(h.fm.startForUpload).not.toHaveBeenCalled();
   });
 
   it('should refuse when the game server task is running', async () => {
     const h = await harness();
-    h.ecs.findRunningTask.mockResolvedValue({ taskArn: 'x' });
+    h.ecs.findRunningTaskOrThrow.mockResolvedValue({ taskArn: 'x' });
     expect(await h.svc.startUpload(await request(['Config']))).toMatchObject({ started: false, error: expect.stringMatching(/Stop the server/) });
+    expect(h.fm.startForUpload).not.toHaveBeenCalled();
+  });
+
+  it("should refuse the upload when the server state can't be confirmed", async () => {
+    const h = await harness();
+    h.ecs.findRunningTaskOrThrow.mockRejectedValue(new Error('ListTasks failed'));
+    expect(await h.svc.startUpload(await request(['Config']))).toEqual({
+      started: false,
+      error: "Couldn't confirm 'minecraft' is stopped. Try again in a moment.",
+    });
     expect(h.fm.startForUpload).not.toHaveBeenCalled();
   });
 
@@ -173,7 +183,7 @@ describe('FolderUploadService guards', () => {
   it('should refuse a second overlapping start for the same game while the first is still preparing', async () => {
     const h = await harness();
     let release!: (task: null) => void;
-    h.ecs.findRunningTask.mockReturnValueOnce(new Promise<null>((resolve) => { release = resolve; }));
+    h.ecs.findRunningTaskOrThrow.mockReturnValueOnce(new Promise<null>((resolve) => { release = resolve; }));
     const req = await request(['Config']);
     const first = h.svc.startUpload(req);
     const second = await h.svc.startUpload(req);
@@ -186,7 +196,7 @@ describe('FolderUploadService guards', () => {
 
   it('should allow a new start after a refused one released the reservation', async () => {
     const h = await harness();
-    h.ecs.findRunningTask.mockResolvedValueOnce({ taskArn: 'x' });
+    h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce({ taskArn: 'x' });
     const req = await request(['Config']);
     expect(await h.svc.startUpload(req)).toMatchObject({ started: false, error: expect.stringMatching(/Stop the server/) });
     expect(await h.svc.startUpload(req)).toMatchObject({ started: true });
