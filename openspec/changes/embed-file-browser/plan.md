@@ -550,9 +550,9 @@ export const VOLUME_FILES_SESSION_CHANNEL = 'volumeFiles.session';
 export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
 ```
 
-- [ ] **Step 1: Add the types** (no runtime test beyond typecheck; constants are covered by Task 17/16 tests).
-- [ ] **Step 2: Run** `npm run app:typecheck` → clean.
-- [ ] **Step 3: Commit** — `feat(shared): add volumeFiles IPC types`.
+- [x] **Step 1: Add the types** (no runtime test beyond typecheck; constants are covered by Task 17/16 tests).
+- [x] **Step 2: Run** `npm run app:typecheck` → clean.
+- [x] **Step 3: Commit** — `feat(shared): add volumeFiles IPC types`.
 
 ### Task 16: `NativeDialogService` extraction (tasks.md 4.2)
 

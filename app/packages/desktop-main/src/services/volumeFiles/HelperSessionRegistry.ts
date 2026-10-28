@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { errMessage } from '@hyveon/shared';
+import type { VolumeInfo, VolumeSessionState } from '@hyveon/shared/volumeFiles';
 import { logger } from '../../logger.js';
 import { BROWSE_RUN_ID, FileManagerService, type FileMgrCredentials } from '../FileManagerService.js';
 import type { EphemeralCert } from '../folderUpload/ephemeralCert.js';
@@ -13,7 +14,7 @@ import { VolumeFileError, type VolumeFileBackend } from './VolumeFileBackend.js'
 export type HelperHolder = 'browse' | `upload:${string}`;
 
 /** Lifecycle of one game's helper session as reported to callers. */
-export type HelperSessionState = 'not_deployed' | 'stopped' | 'starting' | 'running' | 'stopping' | 'orphaned' | 'failed';
+export type HelperSessionState = VolumeSessionState;
 
 /** What callers may see of a session. Never carries credentials, the certificate, or the helper's address. */
 export interface HelperSessionSnapshot {
@@ -26,7 +27,7 @@ export interface HelperSessionSnapshot {
   error?: string;
   supportsArchive: boolean;
   /** Every declared volume; `mounted` is false for volumes the session's layout could not mount (apply needed). */
-  volumes: { name: string; containerPath: string; mounted: boolean }[];
+  volumes: VolumeInfo[];
 }
 
 /** Outcome of {@link HelperSessionRegistry.acquire}. */

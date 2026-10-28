@@ -46,7 +46,7 @@ Execution is subagent-driven (plan.md).
 
 ## 4. PR 4 — `feat(app)`: volumeFiles IPC surface and preload API
 
-- [ ] 4.1 Add shared request/result/event types for `volumeFiles` in the `@hyveon/shared/volumeFiles` subpath, not the barrel. Requests carry `{ game, volume, path }`; the session status lists volumes (name, container path, mounted). They must contain no credential, token, IP or URL fields.
+- [x] 4.1 Add shared request/result/event types for `volumeFiles` in the `@hyveon/shared/volumeFiles` subpath, not the barrel. Requests carry `{ game, volume, path }`; the session status lists volumes (name, container path, mounted). They must contain no credential, token, IP or URL fields.
 - [ ] 4.2 Extract `NativeDialogService` (open file(s)/directory, save) from the private dialog code in `FolderScanService` and `DiagnosticsController` before adding a third consumer; name the extraction in the PR body.
 - [ ] 4.3 Add `VolumeFilesService`: session start/attach/detach/stop/restart/status through the registry, and list/mkdir/rename/delete/readText/writeText through the backend. Validate every path and that the volume is mounted. Refuse mutations with `server-running` while the game's server task is STARTING/RUNNING, and with `server-check-failed` when `findRunningTaskOrThrow` errors (fail closed). Enforce the 1 MiB/UTF-8 text limits and the mtime conflict check. Normalize and log errors per `.claude/rules/logging.md`.
 - [ ] 4.4 Implement downloads: a native save dialog, streaming to disk with progress events and cancel, deletion of the partial file on cancel/failure, Windows-reserved local filename sanitization, and folder archive only when the backend supports it.
