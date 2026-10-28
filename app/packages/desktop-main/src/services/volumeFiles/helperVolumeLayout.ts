@@ -8,7 +8,7 @@ const INDEX_DIR_NAME = /^volume-\d+$/;
 
 /** One declared volume the helper mounts. */
 export interface HelperVolumeMount {
-  /** The volume's name in the game's configuration. */
+  /** The volume's name in the game's configuration; `''` for a volume synthesized from the stack outputs of a deployed-only game. */
   volume: string;
   /** The volume's mount path inside the game container (`''` for a volume known only from the stack outputs). */
   containerPath: string;

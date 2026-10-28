@@ -34,7 +34,7 @@ Execution is subagent-driven (plan.md).
 
 ## 3. PR 3 — `feat(desktop-main)`: helper session registry with TLS browse sessions
 
-- [ ] 3.1 Extract the launch/teardown bodies of `FileManagerService` (`launchHelper`, `listHelperTask`) so both the legacy `start()` and the registry call them, with no duplicated launch code.
+- [x] 3.1 Extract the launch/teardown bodies of `FileManagerService` (`launchHelper`, `listHelperTask`) so both the legacy `start()` and the registry call them, with no duplicated launch code.
 - [ ] 3.2 Add `HelperSessionRegistry` with `acquire(game, holder)` (concurrent acquires share one launch), `attach(game)`/`release(game, holder)` (the browse holder's grace timer is configurable, default 5 min; attach cancels it), `stop(game)`, `restart(game)`, `status(game)`, the `orphaned` detection for an ECS helper with no registry entry, and the `failed` state (launch failure or a session task that disappeared, with the ECS stop reason). Each entry holds the launch's volume layout.
 - [ ] 3.3 Registry-launched sessions always use `buildTlsContainerSettings`. Readiness = task RUNNING, public IP present, and a successful backend login over the pinned connection. Surface the stop reason on early exit.
 - [ ] 3.4 On connect failure, re-detect the operator IP. If it changed, authorize the new `/32`, re-tag the helper task's `OperatorIp` with the new address (new `EcsService.tagTask`), revoke the orphaned rules through the existing reference-counted revoke, and retry once.

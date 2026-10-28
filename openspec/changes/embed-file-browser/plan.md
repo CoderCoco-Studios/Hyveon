@@ -371,16 +371,16 @@ Branch from PR 2's branch. Covers tasks.md 3.1–3.9.
 - Produces on `EcsService`: `tagTask(cluster: string, taskArn: string, tags: { key: string; value: string }[]): Promise<void>` (`TagResourceCommand`; logs and rethrows a plain `Error`).
 - `start()` calls `launchHelper(game, { runId: BROWSE_RUN_ID, tls: false })` (legacy modal, deleted in PR 5). `startForUpload` is deleted in Task 12.
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `should launch with TLS container settings when tls is true` — `containerDefinitions[0].entryPoint` equals `['sh', '-c']` and outcome carries `cert.fingerprint256`.
   - `should apply the given tags plus the operator IP tag` — `runTask` tags equal `[{ key: 'Purpose', value: 'seed-upload' }, { key: 'Project', value: 'hyveon' }, { key: 'OperatorIp', value: '203.0.113.7' }]` for `tags: UPLOAD_TAGS`.
   - `should report autoStopAt two hours after launch` — with `vi.setSystemTime`, `autoStopAt - startedAt === 2 * 60 * 60 * 1000`.
   - `should re-authorize a new operator IP and revoke the old rule` — two helpers tagged `198.51.100.1`; after `reauthorizeOperatorIp(game, 'browse', arn, '198.51.100.2')`: `authorizeIngress` called with `'198.51.100.2/32'`, `tagTask` with `OperatorIp=198.51.100.2`, and the `198.51.100.1/32` rule kept only while the other helper still carries that tag.
   - `EcsService`: `should tag a task` / `should throw a plain Error when tagging fails` (aws-sdk-client-mock on `TagResourceCommand`).
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FileManagerService.test.ts packages/desktop-main/src/services/EcsService.test.ts` → FAIL.
-- [ ] **Step 3: Implement**; keep exactly one launch body (no copy for browse vs upload).
-- [ ] **Step 4: Run** → PASS (existing browse/upload launch tests updated to the new entry point).
-- [ ] **Step 5: Commit** — `refactor(desktop-main): expose helper launch and IP re-authorization primitives`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FileManagerService.test.ts packages/desktop-main/src/services/EcsService.test.ts` → FAIL.
+- [x] **Step 3: Implement**; keep exactly one launch body (no copy for browse vs upload).
+- [x] **Step 4: Run** → PASS (existing browse/upload launch tests updated to the new entry point).
+- [x] **Step 5: Commit** — `refactor(desktop-main): expose helper launch and IP re-authorization primitives`.
 
 ### Task 11: `HelperSessionRegistry` core: holders, grace, stop, orphan (tasks.md 3.2, 3.8)
 

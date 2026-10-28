@@ -7,7 +7,7 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { FileManagerService } from './FileManagerService.js';
+import { FileManagerService, UPLOAD_TAGS, BROWSE_RUN_ID, FILEBROWSER_AUTO_STOP_MS } from './FileManagerService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { EcsService } from './EcsService.js';
 import type { Ec2Service } from './Ec2Service.js';
@@ -64,6 +64,7 @@ type EcsStub = Pick<
   | 'stopTask'
   | 'deregisterTaskDefinition'
   | 'listTasksByStartedByPrefix'
+  | 'tagTask'
 >;
 
 /**
@@ -95,6 +96,7 @@ function makeEcs(overrides: Partial<EcsStub> = {}): { stub: EcsStub; service: Ec
     stopTask: vi.fn().mockResolvedValue(undefined),
     deregisterTaskDefinition: vi.fn().mockResolvedValue(true),
     listTasksByStartedByPrefix: vi.fn().mockResolvedValue([]),
+    tagTask: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
   return { stub, service: stub as EcsService };
@@ -802,6 +804,158 @@ describe('FileManagerService', () => {
       const container = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0].containerDefinitions![0]!;
       expect(container.entryPoint).toBeUndefined();
       expect(container.environment).toBeUndefined();
+    });
+  });
+
+  describe('launchHelper', () => {
+    it('should launch with TLS container settings when tls is true', async () => {
+      const { stub, service: ecs } = makeEcs();
+      const outcome = await buildService({ ecs }).launchHelper('minecraft', { runId: 'run-1', tls: true });
+      if (!outcome.ok) throw new Error('expected launch to succeed');
+      const container = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0].containerDefinitions![0]!;
+      expect(container.entryPoint).toEqual(['sh', '-c']);
+      expect(outcome.cert!.fingerprint256).toMatch(/^[0-9A-F:]+$/);
+    });
+
+    it('should not generate a certificate or wrap the container when tls is false', async () => {
+      const { stub, service: ecs } = makeEcs();
+      const outcome = await buildService({ ecs }).launchHelper('minecraft', { runId: BROWSE_RUN_ID, tls: false });
+      if (!outcome.ok) throw new Error('expected launch to succeed');
+      expect(outcome.cert).toBeUndefined();
+      expect(vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0].containerDefinitions![0]!.entryPoint).toBeUndefined();
+    });
+
+    it('should apply the given tags plus the operator IP tag', async () => {
+      const { stub, service: ecs } = makeEcs();
+      await buildService({ ecs }).launchHelper('minecraft', { runId: 'run-1', tls: true, tags: UPLOAD_TAGS });
+      expect(vi.mocked(stub.runTask).mock.calls[0]![0].tags).toEqual([
+        { key: 'Purpose', value: 'seed-upload' },
+        { key: 'Project', value: 'hyveon' },
+        { key: 'OperatorIp', value: '203.0.113.7' },
+      ]);
+    });
+
+    it('should report autoStopAt two hours after launch', async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date('2026-10-28T12:00:00Z'));
+        const outcome = await buildService().launchHelper('minecraft', { runId: BROWSE_RUN_ID, tls: false });
+        if (!outcome.ok) throw new Error('expected launch to succeed');
+        expect(outcome.autoStopAt - outcome.startedAt).toBe(2 * 60 * 60 * 1000);
+        expect(outcome.startedAt).toBe(Date.parse('2026-10-28T12:00:00Z'));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should schedule the auto-stop for the reported autoStopAt', async () => {
+      const { stub, service: scheduler } = makeScheduler();
+      const outcome = await buildService({ scheduler }).launchHelper('minecraft', { runId: BROWSE_RUN_ID, tls: false });
+      if (!outcome.ok) throw new Error('expected launch to succeed');
+      expect(vi.mocked(stub.createStopSchedule).mock.calls[0]![0].at.getTime()).toBe(outcome.autoStopAt);
+      expect(FILEBROWSER_AUTO_STOP_MS).toBe(2 * 60 * 60 * 1000);
+    });
+
+    it('should return the credential, operator IP and planned layout', async () => {
+      const outcome = await buildService().launchHelper('minecraft', { runId: BROWSE_RUN_ID, tls: false });
+      if (!outcome.ok) throw new Error('expected launch to succeed');
+      expect(outcome).toMatchObject({ taskArn: 'arn-fm', operatorIp: '203.0.113.7', scheduleWarning: '' });
+      expect(outcome.credentials.username).toBe('admin');
+      expect(outcome.credentials.password.length).toBeGreaterThan(10);
+      expect(outcome.layout.mounts.map((m) => m.accessPointId)).toEqual(['fsap-mc']);
+    });
+
+    it('should name the run in the security-group rule description', async () => {
+      const ec2 = makeEc2();
+      await buildService({ ec2 }).launchHelper('minecraft', { runId: 'sess-9', tls: false });
+      expect(ec2.authorizeIngress).toHaveBeenCalledWith('sg-files', '203.0.113.7/32', 8080, 'hyveon-filemgr:minecraft:sess-9');
+    });
+
+    it('should refuse with helper-open when a helper is already running', async () => {
+      const { stub, service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'existing' }]) });
+      const outcome = await buildService({ ecs }).launchHelper('minecraft', { runId: BROWSE_RUN_ID, tls: false });
+      expect(outcome).toMatchObject({ ok: false, code: 'helper-open' });
+      expect(stub.runTask).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listHelperTask', () => {
+    it('should return null when the stack is not deployed', async () => {
+      expect(await buildService({ config: makeConfig(null) }).listHelperTask('minecraft')).toBeNull();
+    });
+
+    it('should return null when no helper is running', async () => {
+      expect(await buildService().listHelperTask('minecraft')).toBeNull();
+    });
+
+    it('should return the first helper task looked up by the game startedBy key', async () => {
+      const first = helperTask('minecraft', '198.51.100.1');
+      const { stub, service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([first, helperTask('other', null)]) });
+      expect(await buildService({ ecs }).listHelperTask('minecraft')).toBe(first);
+      expect(stub.listTasksByStartedBy).toHaveBeenCalledWith('game-cluster', 'filemgr-minecraft');
+    });
+  });
+
+  describe('reauthorizeOperatorIp', () => {
+    const OLD_IP = '198.51.100.1';
+    const NEW_IP = '198.51.100.2';
+
+    it('should authorize the new IP with the run rule description and re-tag the task', async () => {
+      const ec2 = makeEc2();
+      const { stub, service: ecs } = makeEcs();
+      await buildService({ ec2, ecs }).reauthorizeOperatorIp('minecraft', BROWSE_RUN_ID, 'arn-minecraft', NEW_IP);
+      expect(ec2.authorizeIngress).toHaveBeenCalledWith('sg-files', `${NEW_IP}/32`, 8080, 'hyveon-filemgr:minecraft:browse');
+      expect(stub.tagTask).toHaveBeenCalledWith('game-cluster', 'arn-minecraft', [{ key: 'OperatorIp', value: NEW_IP }]);
+    });
+
+    it('should revoke the old rule when no other helper still carries the old IP', async () => {
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([sgRule('minecraft', OLD_IP)]) });
+      const { service: ecs } = makeEcs({ listTasksByStartedByPrefix: vi.fn().mockResolvedValue([helperTask('minecraft', NEW_IP)]) });
+      await buildService({ ec2, ecs }).reauthorizeOperatorIp('minecraft', BROWSE_RUN_ID, 'arn-minecraft', NEW_IP);
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', [`sgr-minecraft-${OLD_IP}`]);
+    });
+
+    it('should keep the old rule while another helper still carries the old IP', async () => {
+      const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([sgRule('minecraft', OLD_IP)]) });
+      const { service: ecs } = makeEcs({
+        listTasksByStartedByPrefix: vi.fn().mockResolvedValue([helperTask('minecraft', NEW_IP), helperTask('valheim', OLD_IP)]),
+      });
+      await buildService({ ec2, ecs }).reauthorizeOperatorIp('minecraft', BROWSE_RUN_ID, 'arn-minecraft', NEW_IP);
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', []);
+    });
+
+    it('should keep the new IP rule even when the helper listing has not picked up the re-tag', async () => {
+      const ec2 = makeEc2('1.2.3.4', {
+        listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([sgRule('minecraft', OLD_IP), sgRule('minecraft', NEW_IP)]),
+      });
+      const { service: ecs } = makeEcs({ listTasksByStartedByPrefix: vi.fn().mockResolvedValue([helperTask('valheim', '198.51.100.9')]) });
+      await buildService({ ec2, ecs }).reauthorizeOperatorIp('minecraft', BROWSE_RUN_ID, 'arn-minecraft', NEW_IP);
+      expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', [`sgr-minecraft-${OLD_IP}`]);
+    });
+
+    it('should keep every rule when the helper listing fails', async () => {
+      const ec2 = makeEc2();
+      const { service: ecs } = makeEcs({ listTasksByStartedByPrefix: vi.fn().mockRejectedValue(new Error('throttled')) });
+      await buildService({ ec2, ecs }).reauthorizeOperatorIp('minecraft', BROWSE_RUN_ID, 'arn-minecraft', NEW_IP);
+      expect(ec2.revokeIngressRules).not.toHaveBeenCalled();
+    });
+
+    it('should throw a plain Error and skip the re-tag when authorizing the new IP fails', async () => {
+      const ec2 = makeEc2('1.2.3.4', { authorizeIngress: vi.fn().mockRejectedValue(new Error('rule limit')) });
+      const { stub, service: ecs } = makeEcs();
+      await expect(buildService({ ec2, ecs }).reauthorizeOperatorIp('minecraft', BROWSE_RUN_ID, 'arn-minecraft', NEW_IP)).rejects.toThrow('rule limit');
+      expect(stub.tagTask).not.toHaveBeenCalled();
+    });
+
+    it('should throw a plain Error when re-tagging the task fails', async () => {
+      const { service: ecs } = makeEcs({ tagTask: vi.fn().mockRejectedValue(new Error('tag denied')) });
+      await expect(buildService({ ecs }).reauthorizeOperatorIp('minecraft', BROWSE_RUN_ID, 'arn-minecraft', NEW_IP)).rejects.toThrow('tag denied');
+    });
+
+    it('should throw when the stack is not deployed', async () => {
+      await expect(
+        buildService({ config: makeConfig(null) }).reauthorizeOperatorIp('minecraft', BROWSE_RUN_ID, 'arn-minecraft', NEW_IP),
+      ).rejects.toThrow('Infrastructure not deployed.');
     });
   });
 

@@ -41,17 +41,17 @@ const FILEBROWSER_BCRYPT_ROUNDS = 10;
  * hours is generous for an interactive file-browsing session while still
  * bounding the worst case if an operator forgets to click Stop.
  */
-const FILEBROWSER_AUTO_STOP_MS = 2 * 60 * 60 * 1000;
+export const FILEBROWSER_AUTO_STOP_MS = 2 * 60 * 60 * 1000;
 /** Prefix for the auto-stop schedule's name — combined with the game name, so `stop()` can recompute it without persisting extra state (see this file's "one file manager per game at a time" invariant). */
 const AUTO_STOP_SCHEDULE_PREFIX = 'filemgr-stop-';
 /** Prefix of the description on every security-group rule the app adds for a helper, so cleanup can find them. */
 const SG_RULE_DESCRIPTION_PREFIX = 'hyveon-filemgr:';
 /** Run id used in the rule description for ordinary (dashboard) browse sessions. */
-const BROWSE_RUN_ID = 'browse';
+export const BROWSE_RUN_ID = 'browse';
 /** ECS task tag recording the operator IP a helper's security-group rule was opened for. */
 const OPERATOR_IP_TAG = 'OperatorIp';
 /** Tags applied to upload helpers so they are identifiable as upload sessions. */
-const UPLOAD_TAGS = [
+export const UPLOAD_TAGS: readonly { key: string; value: string }[] = [
   { key: 'Purpose', value: 'seed-upload' },
   { key: 'Project', value: 'hyveon' },
 ];
@@ -98,9 +98,36 @@ export type UploadHelperLaunch =
   | { ok: true; session: UploadHelperSession }
   | { ok: false; code: 'helper-open' | 'failed'; message: string };
 
-/** Internal outcome of a launch, before it is shaped into a public result. */
-type LaunchOutcome =
-  | { ok: true; taskArn: string; password: string; scheduleWarning: string; layout: HelperVolumeLayout; cert?: EphemeralCert }
+/** Options for {@link FileManagerService.launchHelper}. */
+export interface HelperLaunchOptions {
+  /** Identifies the session; embedded in the security-group rule description. */
+  runId: string;
+  /** Serve over HTTPS with a per-launch certificate (returned on the outcome) instead of plain HTTP. */
+  tls: boolean;
+  /** Tags applied to the task in addition to the operator IP tag. */
+  tags?: readonly { key: string; value: string }[];
+  /** A layout from {@link FileManagerService.planHelperLayout} to mount as-is; planned inside when omitted. */
+  layout?: HelperVolumeLayout;
+}
+
+/**
+ * Outcome of {@link FileManagerService.launchHelper}. The success shape carries the plaintext credential, so it exists
+ * only in main-process memory: never return it over IPC and never log it.
+ */
+export type HelperLaunchOutcome =
+  | {
+      ok: true;
+      taskArn: string;
+      credentials: FileMgrCredentials;
+      cert?: EphemeralCert;
+      operatorIp: string;
+      /** Epoch ms at which the launch succeeded. */
+      startedAt: number;
+      /** Epoch ms at which the auto-stop schedule fires. */
+      autoStopAt: number;
+      scheduleWarning: string;
+      layout: HelperVolumeLayout;
+    }
   | { ok: false; code: 'helper-open' | 'failed'; message: string };
 
 /** Start/stop result shape — mirrors {@link EcsService}'s `StartResult`. */
@@ -212,14 +239,16 @@ export class FileManagerService {
    *
    * @param remaining - Helpers that will still be running after the caller's stop or sweep.
    * @param keepGames - Games whose rules are never revoked (an upload run owns them even before its helper is listed).
+   * @param keepCidrs - CIDRs that are always treated as needed (e.g. a just-authorized IP the helper listing may not show yet).
    * @returns How many rules were revoked.
    */
   private async revokeOrphanedRules(
     outputs: StackOutputs,
     remaining: readonly Task[],
     keepGames: ReadonlySet<string> = new Set(),
+    keepCidrs: readonly string[] = [],
   ): Promise<number> {
-    const needed = new Set<string>();
+    const needed = new Set<string>(keepCidrs);
     for (const task of remaining) {
       const ip = task.tags?.find((t) => t.key === OPERATOR_IP_TAG)?.value;
       if (!ip) {
@@ -261,14 +290,9 @@ export class FileManagerService {
     const outputs = await this.config.getStackOutputs();
     if (!outputs) return { game, state: 'not_deployed' };
 
-    const tasks = await this.ecs.listTasksByStartedBy(
-      outputs.ecsClusterName,
-      this.startedByKey(game),
-    );
+    const task = await this.listHelperTask(game);
+    if (!task) return { game, state: 'stopped' };
 
-    if (!tasks.length) return { game, state: 'stopped' };
-
-    const task = tasks[0]!;
     if (task.lastStatus === 'RUNNING') {
       const publicIp = await this.publicIpOf(task);
       const url = publicIp ? `http://${publicIp}:${FILEBROWSER_PORT}` : undefined;
@@ -277,6 +301,19 @@ export class FileManagerService {
     }
 
     return { game, state: 'starting', taskArn: task.taskArn };
+  }
+
+  /**
+   * The running helper task for `game`, looked up by its `startedBy` tag.
+   *
+   * @param game - Game whose helper to look up.
+   * @returns The first matching task, or `null` when none is running or the stack is not deployed.
+   */
+  async listHelperTask(game: string): Promise<Task | null> {
+    const outputs = await this.config.getStackOutputs();
+    if (!outputs) return null;
+    const tasks = await this.ecs.listTasksByStartedBy(outputs.ecsClusterName, this.startedByKey(game));
+    return tasks[0] ?? null;
   }
 
   /** Resolves the public IPv4 of a running helper task, or `null` while its ENI has no public address yet. */
@@ -321,13 +358,13 @@ export class FileManagerService {
    * `/32` rule). Refuses to start a second task if one is already running.
    */
   async start(game: string): Promise<FileMgrResult> {
-    const outcome = await this.launch(game, null);
+    const outcome = await this.launchHelper(game, { runId: BROWSE_RUN_ID, tls: false });
     if (!outcome.ok) return { success: false, message: outcome.message };
     return {
       success: true,
       message: `File manager for '${game}' is starting. It will be ready in ~30 seconds.${outcome.scheduleWarning}`,
       taskArn: outcome.taskArn,
-      credentials: { username: FILEBROWSER_USERNAME, password: outcome.password },
+      credentials: outcome.credentials,
     };
   }
 
@@ -344,28 +381,42 @@ export class FileManagerService {
    * @param layout - A layout from {@link FileManagerService.planHelperLayout} to mount as-is; planned here when omitted.
    */
   async startForUpload(game: string, runId: string, layout?: HelperVolumeLayout): Promise<UploadHelperLaunch> {
-    const outcome = await this.launch(game, { runId }, layout);
+    const outcome = await this.launchHelper(game, { runId, tls: true, tags: UPLOAD_TAGS, layout });
     if (!outcome.ok) return outcome;
     return {
       ok: true,
       session: {
         taskArn: outcome.taskArn,
         runId,
-        credentials: { username: FILEBROWSER_USERNAME, password: outcome.password },
+        credentials: outcome.credentials,
         cert: outcome.cert!,
         layout: outcome.layout,
       },
     };
   }
 
-  /** Shared launch body for browse (`upload === null`) and upload sessions; mounts `precomputed` or plans a layout itself. */
-  private async launch(game: string, upload: { runId: string } | null, precomputed?: HelperVolumeLayout): Promise<LaunchOutcome> {
-    const fail = (message: string, code: 'helper-open' | 'failed' = 'failed'): LaunchOutcome => ({ ok: false, code, message });
+  /**
+   * Launches a FileBrowser helper for `game`: registers a throwaway task definition, opens the operator's `/32`, runs
+   * the task and schedules its auto-stop. This is the single launch body behind {@link FileManagerService.start} and
+   * {@link FileManagerService.startForUpload}.
+   *
+   * @remarks
+   * If a helper for `game` is already open the launch is refused with `code: 'helper-open'`, because the credential of
+   * that session is unknown here. The caller is responsible for {@link FileManagerService.stop}, which also revokes the
+   * IP rule and deregisters the task definition. The outcome carries the plaintext credential, so it must stay in-process.
+   *
+   * @param game - Game to launch the helper for.
+   * @param options - Run id, TLS and tag choices, and an optional precomputed layout.
+   * @returns The launched task, its credential and timings, or a modeled failure.
+   */
+  async launchHelper(game: string, options: HelperLaunchOptions): Promise<HelperLaunchOutcome> {
+    const { runId, tls: useTls, tags = [] } = options;
+    const fail = (message: string, code: 'helper-open' | 'failed' = 'failed'): HelperLaunchOutcome => ({ ok: false, code, message });
 
     const outputs = await this.config.getStackOutputs();
     if (!outputs) return fail('Infrastructure not deployed. Deploy first.');
 
-    const layout = precomputed ?? (await this.planLayout(game, outputs));
+    const layout = options.layout ?? (await this.planLayout(game, outputs));
     if (layout.mounts.length === 0) {
       logger.error('No EFS access point for game', { game, available: outputs.efsAccessPoints, volumes: outputs.efsVolumeAccessPoints });
       return fail(`No EFS access point found for '${game}'.`);
@@ -380,9 +431,9 @@ export class FileManagerService {
     const existing = await this.ecs.listTasksByStartedBy(outputs.ecsClusterName, this.startedByKey(game));
     if (existing.length) {
       return fail(
-        upload
-          ? `A file manager session is already open for '${game}'. Stop it first, then retry the upload.`
-          : `File manager for '${game}' is already running.`,
+        runId === BROWSE_RUN_ID
+          ? `File manager for '${game}' is already running.`
+          : `A file manager session is already open for '${game}'. Stop it first, then retry the upload.`,
         'helper-open',
       );
     }
@@ -425,7 +476,6 @@ export class FileManagerService {
     } catch (err) {
       return fail(errMessage(err));
     }
-    const runId = upload?.runId ?? BROWSE_RUN_ID;
     try {
       await this.ec2.authorizeIngress(filemgrSg, `${operatorIp}/32`, FILEBROWSER_PORT, this.ruleDescription(game, runId));
     } catch (err) {
@@ -446,15 +496,15 @@ export class FileManagerService {
       '--address', '0.0.0.0',
       '--database', '/tmp/filebrowser.db',
     ];
-    const cert = upload ? await generateEphemeralCert() : undefined;
-    const tls = cert ? buildTlsContainerSettings(filebrowserArgs, cert) : undefined;
+    const cert = useTls ? await generateEphemeralCert() : undefined;
+    const tlsSettings = cert ? buildTlsContainerSettings(filebrowserArgs, cert) : undefined;
 
     logger.info('Registering FileBrowser task definition', {
       game,
       family,
       accessPoints: layout.mounts.map((m) => m.accessPointId),
       logGroup,
-      upload: !!upload,
+      tls: useTls,
     });
 
     registeredArn = await this.ecs.registerTaskDefinition({
@@ -481,7 +531,7 @@ export class FileManagerService {
           // versions, and FileBrowser's own `--password` flag docs confirm it
           // takes an already-hashed value, so the bcrypt hash computed above
           // goes straight in with no extra plaintext-handling step.
-          ...(tls ?? { command: filebrowserArgs }),
+          ...(tlsSettings ?? { command: filebrowserArgs }),
           portMappings: [
             { containerPort: FILEBROWSER_PORT, hostPort: FILEBROWSER_PORT, protocol: 'tcp' },
           ],
@@ -516,7 +566,7 @@ export class FileManagerService {
       count: 1,
       launchType: 'FARGATE',
       startedBy: this.startedByKey(game),
-      tags: [...(upload ? UPLOAD_TAGS : []), { key: OPERATOR_IP_TAG, value: operatorIp }],
+      tags: [...tags, { key: OPERATOR_IP_TAG, value: operatorIp }],
       networkConfiguration: {
         awsvpcConfiguration: {
           subnets,
@@ -531,15 +581,28 @@ export class FileManagerService {
       return fail(`Failed to launch file manager for '${game}'. Check server logs for details.`);
     }
 
-    return { ok: true, taskArn: result.taskArn, password, cert, layout, scheduleWarning: await this.scheduleAutoStop(outputs, game, result.taskArn) };
+    const startedAt = Date.now();
+    const autoStopAt = startedAt + FILEBROWSER_AUTO_STOP_MS;
+    return {
+      ok: true,
+      taskArn: result.taskArn,
+      credentials: { username: FILEBROWSER_USERNAME, password },
+      cert,
+      operatorIp,
+      startedAt,
+      autoStopAt,
+      scheduleWarning: await this.scheduleAutoStop(outputs, game, result.taskArn, new Date(autoStopAt)),
+      layout,
+    };
   }
 
   /**
    * Creates the one-time auto-stop schedule for a freshly launched task.
    *
+   * @param at - When the schedule fires.
    * @returns A warning suffix for the operator-facing message, or `''` when the schedule exists.
    */
-  private async scheduleAutoStop(outputs: StackOutputs, game: string, taskArn: string): Promise<string> {
+  private async scheduleAutoStop(outputs: StackOutputs, game: string, taskArn: string, at: Date): Promise<string> {
     if (!outputs.fileBrowserSchedulerRoleArn) {
       logger.warn('fileBrowserSchedulerRoleArn not in the deployed stack outputs — FileBrowser task will not auto-stop', { game });
       return ' Warning: auto-stop is not configured for this deployment — remember to stop it manually.';
@@ -553,7 +616,7 @@ export class FileManagerService {
       cluster: outputs.ecsClusterName,
       taskArn,
       roleArn: outputs.fileBrowserSchedulerRoleArn,
-      at: new Date(Date.now() + FILEBROWSER_AUTO_STOP_MS),
+      at,
     });
     return scheduled ? '' : ' Warning: failed to schedule auto-stop — remember to stop it manually.';
   }
@@ -605,6 +668,43 @@ export class FileManagerService {
     } finally {
       await this.revokeOrphanedRulesExcluding(outputs, game);
     }
+  }
+
+  /**
+   * Opens `newIp` for `game`'s helper after the operator's public IP changed: authorizes `${newIp}/32`, re-tags the task
+   * `OperatorIp=newIp`, then revokes every app rule no running helper needs any more.
+   *
+   * @remarks
+   * The revoke is reference-counted over all running helpers (no exclusion) and always keeps `${newIp}/32`, since
+   * `DescribeTasks` may not have reflected the re-tag yet. A failed helper listing keeps every rule.
+   *
+   * @param game - Game whose helper is being re-authorized.
+   * @param runId - Run id for the new rule's description.
+   * @param taskArn - The helper task to re-tag.
+   * @param newIp - The operator's new public IPv4.
+   * @throws Error carrying only a message when the stack is not deployed, or the authorize or re-tag step fails.
+   */
+  async reauthorizeOperatorIp(game: string, runId: string, taskArn: string, newIp: string): Promise<void> {
+    logger.debug('FileManagerService.reauthorizeOperatorIp: re-authorizing operator IP', { game, runId, taskArn });
+    const outputs = await this.config.getStackOutputs();
+    if (!outputs) throw new Error('Infrastructure not deployed.');
+    const cidr = `${newIp}/32`;
+    try {
+      await this.ec2.authorizeIngress(outputs.fileManagerSecurityGroupId, cidr, FILEBROWSER_PORT, this.ruleDescription(game, runId));
+      await this.ecs.tagTask(outputs.ecsClusterName, taskArn, [{ key: OPERATOR_IP_TAG, value: newIp }]);
+    } catch (err) {
+      const message = errMessage(err);
+      logger.warn('Could not re-authorize the operator IP for the file manager helper', { game, runId, taskArn, error: message });
+      throw new Error(message);
+    }
+    let remaining: Task[];
+    try {
+      remaining = await this.ecs.listTasksByStartedByPrefix(outputs.ecsClusterName, STARTED_BY_PREFIX);
+    } catch (err) {
+      logger.warn('Could not list file manager helpers; keeping security-group rules', { game, error: errMessage(err) });
+      return;
+    }
+    await this.revokeOrphanedRules(outputs, remaining, new Set(), [cidr]);
   }
 
   /**

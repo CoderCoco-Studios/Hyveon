@@ -7,6 +7,7 @@ import {
   DescribeTasksCommand,
   RunTaskCommand,
   StopTaskCommand,
+  TagResourceCommand,
   DescribeTaskDefinitionCommand,
   RegisterTaskDefinitionCommand,
   DeregisterTaskDefinitionCommand,
@@ -580,6 +581,31 @@ describe('EcsService', () => {
       await expect(service.stopTask('cluster', 'arn', 'because')).rejects.toThrow('access-denied');
 
       expect(loggerErrorSpy).toHaveBeenCalledWith('EcsService.stopTask: failed to stop task', {
+        cluster: 'cluster',
+        taskArn: 'arn',
+        error: 'access-denied',
+      });
+    });
+  });
+
+  describe('tagTask', () => {
+    it('should tag a task', async () => {
+      ecsMock.on(TagResourceCommand).resolves({});
+      const service = makeService(makeConfig(), makeEc2());
+      await service.tagTask('cluster', 'arn', [{ key: 'OperatorIp', value: '198.51.100.2' }]);
+      const input = ecsMock.commandCalls(TagResourceCommand)[0]!.args[0].input;
+      expect(input.resourceArn).toBe('arn');
+      expect(input.tags).toEqual([{ key: 'OperatorIp', value: '198.51.100.2' }]);
+    });
+
+    it('should throw a plain Error when tagging fails', async () => {
+      ecsMock.on(TagResourceCommand).rejects(new Error('access-denied'));
+      const service = makeService(makeConfig(), makeEc2());
+      const loggerErrorSpy = vi.spyOn(logger, 'error');
+
+      await expect(service.tagTask('cluster', 'arn', [{ key: 'k', value: 'v' }])).rejects.toThrow('access-denied');
+
+      expect(loggerErrorSpy).toHaveBeenCalledWith('EcsService.tagTask: failed to tag task', {
         cluster: 'cluster',
         taskArn: 'arn',
         error: 'access-denied',
