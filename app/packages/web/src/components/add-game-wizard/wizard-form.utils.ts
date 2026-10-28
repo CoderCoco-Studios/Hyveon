@@ -398,6 +398,7 @@ export function stepForIssuePath(path: string): WizardStep {
     case 'memory':
       return 'resources';
     case 'ports':
+    case 'webPort':
     case 'healthCheck':
       return 'networking';
     case 'volumes':

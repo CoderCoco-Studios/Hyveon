@@ -8,6 +8,7 @@ export * from './gameServerConfig.js';
 export * from './deploymentConfig.js';
 export * from './awsRegions.js';
 export * from './stackOutputs.js';
+export * from './gameServerPorts.js';
 export * from './gameServerValidator.js';
 export * from './gamesWrite.js';
 export * from './deploymentSettingsWrite.js';

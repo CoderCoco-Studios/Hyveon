@@ -643,6 +643,71 @@ describe('DeploymentConfigService', () => {
     });
   });
 
+  describe('legacy https normalisation on read', () => {
+    /** A config whose `foundry` game uses the legacy shape (https, no `webPort`, `ports[0]` as upstream). */
+    function legacyConfigJson(foundryPorts: { container: number; protocol: string }[]): string {
+      const config: DeploymentConfig = {
+        ...FIXTURE_CONFIG,
+        gameServers: {
+          ...FIXTURE_CONFIG.gameServers,
+          foundry: {
+            image: 'felddy/foundryvtt',
+            cpu: 1024,
+            memory: 2048,
+            ports: foundryPorts,
+            volumes: [{ name: 'data', container_path: '/data' }],
+            https: true,
+          },
+        },
+      };
+      return JSON.stringify(config, null, 2) + '\n';
+    }
+
+    async function readGames(json: string) {
+      remoteFileStore.get.mockResolvedValue({ body: new TextEncoder().encode(json), etag: 'etag-1' });
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
+      return service.getGameServers();
+    }
+
+    it('should return a legacy https game with ports[0] as webPort and the rest as extras', async () => {
+      const games = await readGames(
+        legacyConfigJson([
+          { container: 30000, protocol: 'tcp' },
+          { container: 27015, protocol: 'udp' },
+        ]),
+      );
+      const foundry = games.find((g) => g.name === 'foundry');
+      expect(foundry?.webPort).toBe(30000);
+      expect(foundry?.ports).toEqual([{ container: 27015, protocol: 'udp' }]);
+    });
+
+    it('should return an empty ports list for a legacy https game with a single port', async () => {
+      const games = await readGames(legacyConfigJson([{ container: 30000, protocol: 'tcp' }]));
+      const foundry = games.find((g) => g.name === 'foundry');
+      expect(foundry?.webPort).toBe(30000);
+      expect(foundry?.ports).toEqual([]);
+    });
+
+    it('should leave games that are not legacy-shaped identical', async () => {
+      const games = await readGames(legacyConfigJson([{ container: 30000, protocol: 'tcp' }]));
+      expect(games.find((g) => g.name === 'palworld')).toEqual(EXPECTED_GAME_SERVERS[0]);
+    });
+
+    it('should log one debug line naming only the game for each normalised game', async () => {
+      vi.mocked(logger.debug).mockClear();
+      await readGames(legacyConfigJson([{ container: 30000, protocol: 'tcp' }]));
+      const calls = vi.mocked(logger.debug).mock.calls.filter(([message]) => String(message).includes('legacy'));
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual([expect.stringContaining('foundry')]);
+    });
+
+    it('should not log a normalisation line when no game needed it', async () => {
+      vi.mocked(logger.debug).mockClear();
+      await readGames(FIXTURE_JSON);
+      expect(vi.mocked(logger.debug).mock.calls.some(([message]) => String(message).includes('legacy'))).toBe(false);
+    });
+  });
+
   describe('caching', () => {
     it('should be a cache miss on the first call, reading the source once', async () => {
       remoteFileStore.get.mockResolvedValue({

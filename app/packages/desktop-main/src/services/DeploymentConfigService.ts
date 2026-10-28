@@ -49,6 +49,7 @@ import type { DeploymentConfig, GameServer, GameServerConfig, RemoteFileStore } 
 import {
   GAME_NAME_PATTERN,
   GAME_NAME_PATTERN_DESCRIPTION,
+  normalizeGameServer,
   OptimisticLockError,
   RemoteFileConflictError,
   resolveRunsTableName,
@@ -824,9 +825,13 @@ export class DeploymentConfigService {
       return [];
     }
 
-    return Object.entries(gameServers as unknown as Record<string, RawGameServerEntry>).map(([name, entry]) => ({
-      name,
-      ...entry,
-    }));
+    return Object.entries(gameServers as unknown as Record<string, RawGameServerEntry>).map(([name, entry]) => {
+      // Deprecated legacy shape (https, no `webPort`, `ports[0]` as upstream): read-time compatibility only.
+      const normalised = normalizeGameServer(entry);
+      if (normalised !== entry) {
+        logger.debug(`DeploymentConfigService: normalised legacy https ports for game "${name}"`);
+      }
+      return { name, ...normalised };
+    });
   }
 }

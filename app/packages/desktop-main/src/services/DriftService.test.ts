@@ -140,6 +140,36 @@ describe('computeDrift', () => {
     expect(result).toEqual({ entries: [] });
   });
 
+  it('should not report config_drift between a legacy applied https snapshot and its normalised declared form', () => {
+    const declared = buildGameServer('foundry', {
+      https: true,
+      webPort: 30000,
+      ports: [{ container: 27015, protocol: 'udp' }],
+    });
+    const applied = {
+      image: declared.image,
+      cpu: declared.cpu,
+      memory: declared.memory,
+      https: true,
+      ports: [
+        { container: 30000, protocol: 'tcp' },
+        { container: 27015, protocol: 'udp' },
+      ],
+      volumes: declared.volumes,
+    };
+
+    expect(computeDrift([declared], { foundry: applied }, ['foundry'])).toEqual({ entries: [] });
+  });
+
+  it('should report ports drift when only webPort changed', () => {
+    const declared = buildGameServer('foundry', { https: true, webPort: 30001, ports: [] });
+    const applied = { ...declared, webPort: 30000 };
+
+    expect(computeDrift([declared], { foundry: applied }, ['foundry'])).toEqual({
+      entries: [{ game: 'foundry', kind: 'config_drift', changedFields: ['ports'] }],
+    });
+  });
+
   it('should order entries as declared config order first, then deployed-only entries in deployedNames order', () => {
     const ark = buildGameServer('ark');
 
