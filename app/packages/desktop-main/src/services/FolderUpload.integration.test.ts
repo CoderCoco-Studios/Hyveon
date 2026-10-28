@@ -23,7 +23,7 @@ import type { FileManagerService } from './FileManagerService.js';
 import { FileBrowserClientFactory } from './folderUpload/FileBrowserClient.js';
 import { generateEphemeralCert, type EphemeralCert } from './folderUpload/ephemeralCert.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
-import { deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
+import { configAndSavesVolumes, deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { startFakeFileBrowser, type FakeFileBrowser } from '../testing/fake-filebrowser-server.js';
 import { buildHelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
@@ -111,10 +111,7 @@ describe('folder upload against a fake FileBrowser helper', () => {
 
   it('should write a second-volume upload into that volume and nothing into the first', async () => {
     const r = await run({
-      volumes: [
-        { name: 'config', container_path: '/data/config' },
-        { name: 'saves', container_path: '/data/saves' },
-      ],
+      volumes: configAndSavesVolumes(),
       accessPoints: { config: 'fsap-c', saves: 'fsap-s' },
       include: ['a.db'],
       destination: '/data/saves/worlds',

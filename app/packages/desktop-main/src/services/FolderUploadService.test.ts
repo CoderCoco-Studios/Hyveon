@@ -22,7 +22,7 @@ import { PinMismatchError } from './folderUpload/FileBrowserClient.js';
 import type { WriteOptions } from './volumeFiles/VolumeFileBackend.js';
 import { generateEphemeralCert } from './folderUpload/ephemeralCert.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
-import { deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
+import { configAndSavesVolumes, deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { fakeBackend, type FakeBackend } from '../testing/fake-volume-backend.js';
 import { buildHelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
@@ -122,10 +122,7 @@ describe('FolderUploadService guards', () => {
   it("should target the second volume's mount for a second-volume destination", async () => {
     await writeFile(join(root, 'a.db'), 'x');
     const h = await harness({
-      volumes: [
-        { name: 'config', container_path: '/data/config' },
-        { name: 'saves', container_path: '/data/saves' },
-      ],
+      volumes: configAndSavesVolumes(),
       outputs: stackOutputs({ efsVolumeAccessPoints: { minecraft: { config: 'fsap-c', saves: 'fsap-s' } } }),
     });
     expect((await h.svc.startUpload(await request(['a.db'], '/data/saves/worlds'))).started).toBe(true);
@@ -144,10 +141,7 @@ describe('FolderUploadService guards', () => {
 
   it('should refuse before launch when the destination volume is not mounted', async () => {
     const h = await harness({
-      volumes: [
-        { name: 'config', container_path: '/data/config' },
-        { name: 'saves', container_path: '/data/saves' },
-      ],
+      volumes: configAndSavesVolumes(),
       outputs: stackOutputs({ efsAccessPoints: { minecraft: 'fsap' }, efsVolumeAccessPoints: {} }),
     });
     const res = await h.svc.startUpload(await request(['Config'], '/data/saves'));

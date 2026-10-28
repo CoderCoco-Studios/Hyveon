@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { VolumePathError } from '@hyveon/shared/volumeFiles';
 import { buildHelperVolumeLayout, isVolumeMounted, toHelperPath } from './helperVolumeLayout.js';
+import { configAndSavesVolumes } from '../../testing/deployment-config.fixture.js';
 
-const CONFIG_AND_SAVES = [
-  { name: 'config', container_path: '/data/config' },
-  { name: 'saves', container_path: '/data/saves' },
-];
+const CONFIG_AND_SAVES = configAndSavesVolumes();
 
 describe('buildHelperVolumeLayout', () => {
   it('should mount each applied volume under its own directory', () => {

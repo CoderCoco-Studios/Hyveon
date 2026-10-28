@@ -269,6 +269,7 @@ export class EcsService {
    *
    * @param cluster - ECS cluster name.
    * @param game - Game whose `{game}-server` family is searched.
+   * @returns The active task, or `null` when none is running or the lookup failed.
    */
   async findRunningTask(cluster: string, game: string): Promise<Task | null> {
     try {

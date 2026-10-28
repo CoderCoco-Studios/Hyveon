@@ -16,7 +16,7 @@ import type { PublicIpService } from './PublicIpService.js';
 import type { StackOutputs } from '@hyveon/shared';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
-import { deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
+import { configAndSavesVolumes, deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
 import type { DeploymentConfigService } from './DeploymentConfigService.js';
 import { buildHelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
 
@@ -200,10 +200,7 @@ function sgRule(game: string, ip: string, runId = 'browse') {
 }
 
 /** A game's `config` and `saves` volumes, both applied in {@link TWO_VOLUME_OUTPUTS}. */
-const TWO_VOLUMES = [
-  { name: 'config', container_path: '/data/config' },
-  { name: 'saves', container_path: '/data/saves' },
-];
+const TWO_VOLUMES = configAndSavesVolumes();
 const TWO_VOLUME_OUTPUTS: StackOutputs = {
   ...DEFAULT_OUTPUTS,
   efsVolumeAccessPoints: { minecraft: { config: 'fsap-c', saves: 'fsap-s' } },
