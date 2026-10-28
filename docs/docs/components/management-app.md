@@ -40,6 +40,7 @@ types and permission logic.
 | `canRun.ts` | The pure permission-check function. Order: **guild allowlist → admin user/role → per-game user/role + action**. Imported verbatim by the Nest server and both Discord Lambdas. |
 | `commands.ts` | `COMMAND_DESCRIPTORS` — static JSON for the four slash commands. `actionForCommand(name)` maps to the `start`/`stop`/`status` bucket used by `canRun()`. |
 | `sanitize.ts` | `isSafeGameKey()` (blocks `__proto__`, `constructor`, `prototype`), `asString()`, `asStringArray()`, `sanitizeGamePermission()`. Applied on DDB reads where input is operator-provided. |
+| `gameServerPorts.ts` | `HTTPS_CONNECT_PORT` / `ConnectPort`, `ingressPorts(game)` (ports that get ingress — excludes a tcp duplicate of `webPort`), and the deprecated `normalizeGameServer` read-time normaliser for legacy https configs (`ports[0]` → `webPort`). `normalizeDeploymentConfigGames` applies it to a whole config. Applied in `DeploymentConfigService` reads, `PulumiService`'s raw preview/apply/rollback-diff reads, `GameWizardDraftService`'s draft backfill and `DriftService`'s comparison. |
 | `formatStatus.ts` | `formatGameStatus(status)` — Discord-ready one-liner with emoji and hostname. |
 | `ddb/client.ts` | Lazy DynamoDB DocumentClient. Region fallback: `AWS_REGION_` → `AWS_REGION` → `AWS_DEFAULT_REGION` → `us-east-1`. |
 | `ddb/configStore.ts` | `getDiscordConfig()` / `putDiscordConfig()` for the `CONFIG#discord` row. |
@@ -47,7 +48,7 @@ types and permission logic.
 | `secrets/secretsStore.ts` | Secrets Manager wrapper with a 5-minute in-process cache. Recognises the infra program's `"placeholder"` seed value as "not configured". `invalidateSecretsCache()` is called by the Nest credentials endpoint. Also owns the app-owned health-check credential secret's full write lifecycle — `healthCheckAuthSecretName(gameId)` (deterministic name `hyveon-{gameId}-healthcheck-auth`, one per game), `upsertHealthCheckAuthSecret()` (tries `PutSecretValueCommand` first, falls back to `CreateSecretCommand` only on `ResourceNotFoundException` — no separate existence check; if the same name is still within its recovery window from a prior `deleteHealthCheckAuthSecret()`, both commands instead fail with `InvalidRequestException`, confirmed via `DescribeSecretCommand`'s `DeletedDate`, so this un-schedules the deletion with `RestoreSecretCommand` and retries the put once), and `deleteHealthCheckAuthSecret()` (default recovery window, no-op if already absent). See [Games](/app/games#health-check-optional) for the operator-facing credential-type model this backs. |
 | `deploymentConfig.ts` | `DeploymentConfig` — the app's configuration source of truth, persisted verbatim as `deployment-config.json` in the operator's S3 configuration bucket. `gameServers: Record<string, GameServerConfig>` is the single source of truth every per-game resource fans out from. |
 | `gameServerConfig.ts` | `GameServerConfig` (aliased `GameServer`) — the canonical per-game container configuration shape embedded in `DeploymentConfig.gameServers`; deliberately reuses `snake_case` field names already load-bearing across the validator, `DeploymentConfigService`'s JSON read/write paths, and the Games UI. |
-| `gameServerValidator.ts` | `gameServerSchema` (zod structural schema for one `game_servers` entry) plus `validateGameServer` (cross-entry business rules — port collisions, Fargate CPU/memory pairing, absolute paths, connect-message placeholders, HTTPS port constraints) — shared by the desktop-main API and the web client's form validation. |
+| `gameServerValidator.ts` | `gameServerSchema` (zod structural schema for one `game_servers` entry) plus `validateGameServer` (cross-entry business rules — port collisions, Fargate CPU/memory pairing, absolute paths, connect-message placeholders, HTTPS port constraints, `webPort` rules) — shared by the desktop-main API and the web client's form validation. |
 | `cloud.ts` | The cloud-agnostic contracts (`CloudProvider`, `SecretsStore`, and the other five tokens `CloudProviderModule` binds) — no `@aws-sdk/*` shapes appear here; concrete implementations live in `@hyveon/cloud-aws`. |
 | `iamPolicy.ts` | `HYVEON_DEPLOY_ALL_ACTIONS` — the flattened, deduplicated action set mirroring the `HyveonDeployAll` inline IAM policy documented in `docs/docs/setup.md`; drives the first-run wizard's `iam:SimulatePrincipalPolicy` permission check. |
 | `stackOutputs.ts` | `StackOutputs` — the typed contract for every value the app reads back off a deployed Pulumi stack (`PulumiService.getStackOutputs()`), including `domainName`, cluster/subnet/security-group IDs, and per-game `appliedGameServers` for drift detection. |
@@ -500,7 +501,9 @@ Per game, the pure `computeDrift()` function classifies:
   listing exactly which. `ports`/`volumes` comparisons are order-insensitive
   (canonicalized before comparing), since JSON key order isn't guaranteed
   stable and reordering entries in the configuration isn't a real config
-  change.
+  change. A `webPort` change is reported under `ports` (there is no separate
+  field), and both sides pass through `normalizeGameServer` before comparing,
+  so a snapshot applied in the legacy https shape does not show as drift.
 - Games matching on every compared field produce no entry — the report only
   lists what's out of sync.
 

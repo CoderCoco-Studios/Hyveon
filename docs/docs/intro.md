@@ -17,7 +17,7 @@ is silent except for a handful of near-free Lambdas.
 - **EFS with per-game access points** so each world is isolated yet persistent.
 - **Auto-DNS** — a Lambda UPSERTs `{game}.{yourdomain}` on task start and
   DELETEs it on stop. HTTPS-fronted games terminate TLS via an in-task Caddy
-  sidecar (Let's Encrypt automatic HTTPS) — no load balancer or ACM
+  sidecar (Let's Encrypt automatic HTTPS) that proxies 443 to the game's declared web port, and any additional ports stay reachable per their visibility — no load balancer or ACM
   certificate for game traffic. (The Discord custom domain is separate: it
   fronts a Lambda Function URL with CloudFront and does use an ACM
   certificate — see [Infra program](/components/infra).)

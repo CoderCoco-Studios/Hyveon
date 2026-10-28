@@ -330,6 +330,8 @@ export function AddGameWizard({
               onChange={(ports) => patchDraft({ ports })}
               https={draft.https}
               onHttpsChange={(https) => patchDraft({ https })}
+              webPort={draft.webPort}
+              onWebPortChange={(webPort) => patchDraft({ webPort })}
               healthCheck={draft.healthCheck}
               onHealthCheckChange={patchHealthCheck}
             />

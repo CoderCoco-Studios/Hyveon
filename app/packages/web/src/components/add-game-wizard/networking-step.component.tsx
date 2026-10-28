@@ -15,10 +15,11 @@
  *
  * The step also renders the `https` toggle: enabling it terminates TLS for
  * this game via an in-task Caddy sidecar (see `replace-alb-with-caddy-sidecar`),
- * which is why it lives alongside the ports it constrains — rule 1 of the
- * four HTTPS port rules (`ports` must be non-empty) is pathed at `ports`
- * with no row to anchor to, so it's surfaced next to the toggle instead of
- * inside a port row.
+ * which is why it lives alongside the ports it constrains. When HTTPS is on, a
+ * dedicated web-port field (the port the game's web server listens on, which
+ * Caddy serves on 443) appears above the port list, and the list is relabeled
+ * as optional additional ports; a `webPort`-pathed issue is anchored to that
+ * field.
  */
 
 import { AlertTriangle } from 'lucide-react';
@@ -30,7 +31,7 @@ import { Label } from '@/components/ui/label.component';
 import { NativeSelect } from '@/components/ui/native-select.component';
 import { cn } from '@/lib/utils.utils';
 import { HealthCheckFields } from './health-check-fields.component.js';
-import { type WizardDraftHealthCheck, type WizardDraftPort } from './wizard-form.utils.js';
+import { messageFor, type WizardDraftHealthCheck, type WizardDraftPort } from './wizard-form.utils.js';
 
 /** Protocol options offered in each row's dropdown; `game_servers[].ports[].protocol` is a plain string server-side, but only these three are meaningful for an ECS/Fargate task definition (`icmp` opens an ICMP ingress rule rather than a TCP/UDP port). */
 const PROTOCOL_OPTIONS = ['tcp', 'udp', 'icmp'] as const;
@@ -48,7 +49,7 @@ const VISIBILITY_OPTIONS = ['public', 'internal'] as const;
 export interface NetworkingStepProps {
   /** Current draft port rows. */
   ports: WizardDraftPort[];
-  /** Validation issues for this step (e.g. from `validateNetworkingStep()`), positioned via `ports[N]` / `ports[N].field` paths, or `ports` itself for the no-ports HTTPS rule. */
+  /** Validation issues for this step (e.g. from `validateNetworkingStep()`), positioned via `ports[N]` / `ports[N].field` paths, or `webPort` for the web-port field. */
   issues: GameServerValidationIssue[];
   /** Called with the full replacement `ports` array on every add/remove/edit. */
   onChange: (ports: WizardDraftPort[]) => void;
@@ -56,6 +57,10 @@ export interface NetworkingStepProps {
   https: boolean;
   /** Called with the new value whenever the HTTPS toggle is flipped. */
   onHttpsChange: (https: boolean) => void;
+  /** Current draft value of the web port the game's web server listens on; `null` until entered. Only rendered while `https` is on. */
+  webPort: number | null;
+  /** Called with the new web port (`null` when cleared) on every edit of the web-port field. */
+  onWebPortChange: (webPort: number | null) => void;
   /** Current draft value of the optional `healthCheck` declaration. */
   healthCheck: WizardDraftHealthCheck;
   /** Called with a partial patch whenever a health-check field changes. */
@@ -86,6 +91,8 @@ export function NetworkingStep({
   onChange,
   https,
   onHttpsChange,
+  webPort,
+  onWebPortChange,
   healthCheck,
   onHealthCheckChange,
 }: NetworkingStepProps) {
@@ -101,18 +108,14 @@ export function NetworkingStep({
     onChange(ports.map((port, i) => (i === index ? { ...port, ...patch } : port)));
   }
 
-  // The "at least one port" HTTPS rule has no port row to anchor to, so it's
-  // surfaced next to the toggle itself rather than via `rowError`.
-  const noPortsIssue = issues.find((issue) => issue.path === 'ports');
-  const describedBy =
-    [https ? 'https-callout' : null, noPortsIssue ? 'https-error' : null].filter(Boolean).join(' ') || undefined;
+  const webPortError = messageFor(issues, 'webPort');
 
   return (
     <div className="space-y-4">
       <div>
         <h3 className="text-sm font-semibold text-[var(--color-foreground)]">Networking</h3>
         <p className="text-xs text-[var(--color-muted-foreground)]">
-          Declare every container port the server listens on.
+          Declare the container ports the server listens on.
         </p>
       </div>
 
@@ -122,8 +125,7 @@ export function NetworkingStep({
             id="https-toggle"
             type="checkbox"
             checked={https}
-            aria-invalid={Boolean(noPortsIssue)}
-            aria-describedby={describedBy}
+            aria-describedby={https ? 'https-callout' : undefined}
             onChange={(event) => onHttpsChange(event.target.checked)}
             className="size-3.5 rounded border-[var(--color-border)] bg-[var(--color-surface-2)] accent-[var(--color-primary)]"
           />
@@ -132,12 +134,6 @@ export function NetworkingStep({
           </Label>
         </div>
 
-        {noPortsIssue && (
-          <p id="https-error" role="alert" className="text-xs text-[var(--color-red)]">
-            {noPortsIssue.message}
-          </p>
-        )}
-
         {https && (
           <div
             id="https-callout"
@@ -145,17 +141,55 @@ export function NetworkingStep({
           >
             <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
             <span>
-              Enabling HTTPS opens ports 443 and 80 to the internet for the whole stack, not only this game. This
-              game&apos;s raw container port loses its public ingress rule — reaching the game goes through the
-              sidecar instead. On first boot, the task performs a Let&apos;s Encrypt (ACME) issuance, which requires
-              this game&apos;s hostname to resolve to the running task.
+              Enabling HTTPS opens ports 443 and 80 to the internet for the whole stack, not only this game. The
+              web port is not directly reachable from outside — reaching it goes through the sidecar on 443.
+              Additional ports follow their own visibility. On first boot, the task performs a Let&apos;s Encrypt
+              (ACME) issuance, which requires this game&apos;s hostname to resolve to the running task.
             </span>
           </div>
         )}
+
+        {https && (
+          <FormField
+            id="web-port"
+            label="Web port"
+            errors={webPortError}
+            hint={
+              <p className="text-xs text-[var(--color-muted-foreground)]">
+                The port your game&apos;s web server listens on (for example 30000). Caddy serves it publicly on 443
+                and proxies to this port; 80 and 443 are reserved.
+              </p>
+            }
+          >
+            {(fieldProps) => (
+              <Input
+                {...fieldProps}
+                type="number"
+                value={webPort ?? ''}
+                onChange={(event) => {
+                  const raw = event.target.value;
+                  onWebPortChange(raw === '' ? null : Number(raw));
+                }}
+              />
+            )}
+          </FormField>
+        )}
       </div>
 
+      {https && (
+        <div>
+          <h4 className="text-sm font-semibold text-[var(--color-foreground)]">Additional ports (optional)</h4>
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            Extra ports that are reachable on their own, such as a UDP game or voice port. Each follows its
+            visibility setting.
+          </p>
+        </div>
+      )}
+
       {ports.length === 0 && (
-        <p className="text-xs text-[var(--color-muted-foreground)]">No ports configured yet.</p>
+        <p className="text-xs text-[var(--color-muted-foreground)]">
+          {https ? 'No additional ports.' : 'No ports configured yet.'}
+        </p>
       )}
 
       <div className="space-y-3">
@@ -257,7 +291,7 @@ export function NetworkingStep({
       </div>
 
       <Button type="button" variant="secondary" size="sm" onClick={addRow}>
-        Add port
+        {https ? 'Add additional port' : 'Add port'}
       </Button>
 
       <div className="space-y-3 border-t border-[var(--color-border)] pt-4">
@@ -283,7 +317,7 @@ export function NetworkingStep({
         </div>
 
         {healthCheck.enabled && (
-          <HealthCheckFields healthCheck={healthCheck} ports={ports} issues={issues} onChange={onHealthCheckChange} />
+          <HealthCheckFields healthCheck={healthCheck} ports={ports} webPort={https ? webPort : null} issues={issues} onChange={onHealthCheckChange} />
         )}
       </div>
     </div>

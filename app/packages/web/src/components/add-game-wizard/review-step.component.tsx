@@ -72,10 +72,13 @@ export function ReviewStep({ draft, issues = [], submitError = null }: ReviewSte
       <SectionCard title="Networking">
         <div className="space-y-3">
           <SummaryRow label="HTTPS" value={draft.https ? 'Enabled' : 'Disabled'} />
+          {draft.https && <SummaryRow label="Web port" value={draft.webPort ?? '—'} />}
           {draft.ports.length === 0 ? (
-            <p className="text-sm text-[var(--color-muted-foreground)]">No ports configured.</p>
+            <p className="text-sm text-[var(--color-muted-foreground)]">
+              {draft.https ? 'No additional ports.' : 'No ports configured.'}
+            </p>
           ) : (
-            <ul className="space-y-1">
+            <ul className="space-y-1" aria-label={draft.https ? 'Additional ports' : 'Ports'}>
               {draft.ports.map((port, index) => (
                 <li key={index} className="flex items-center justify-between gap-4 py-1 text-sm">
                   <span className="flex items-center gap-2">

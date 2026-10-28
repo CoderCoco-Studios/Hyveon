@@ -358,10 +358,9 @@ describe('EditGameForm', () => {
       );
     });
 
-    // Skipped until PR 3 of https-explicit-web-port (wizard web-port field): the draft carries no `webPort` yet, so the validator rejects an https save.
-    it.skip('should still send https: true when only an unrelated field (image) is edited on an https: true game', async () => {
+    it('should still send https: true when only an unrelated field (image) is edited on an https: true game', async () => {
       apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
-      renderForm(<EditGameForm game={sampleGame({ https: true })} />);
+      renderForm(<EditGameForm game={sampleGame({ https: true, webPort: 30000 })} />);
 
       const imageField = await screen.findByLabelText('Image');
       await userEvent.clear(imageField);
@@ -371,9 +370,36 @@ describe('EditGameForm', () => {
       await waitFor(() =>
         expect(apiMock.updateGame).toHaveBeenCalledWith({
           name: 'mygame',
-          config: { ...samplePayloadConfig(), image: 'itzg/minecraft-server-2', https: true },
+          config: { ...samplePayloadConfig(), image: 'itzg/minecraft-server-2', https: true, webPort: 30000 },
         }),
       );
+    });
+  });
+  describe('https web port', () => {
+    it('should prefill the web-port field from the declared game and keep it out of the additional ports', async () => {
+      renderForm(<EditGameForm game={sampleGame({ https: true, webPort: 30000, ports: [] })} />);
+
+      expect(await screen.findByLabelText('Web port')).toHaveValue(30000);
+      expect(screen.getByText('No additional ports.')).toBeInTheDocument();
+    });
+
+    it('should block saving when the web port is cleared and unblock it once re-entered', async () => {
+      renderForm(<EditGameForm game={sampleGame({ https: true, webPort: 30000 })} />);
+
+      const field = await screen.findByLabelText('Web port');
+      await userEvent.clear(field);
+      expect(await screen.findByText(/must declare webPort/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+
+      await userEvent.type(field, '30000');
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled());
+    });
+
+    it('should not render the web-port field for a non-https game', async () => {
+      renderForm(<EditGameForm game={sampleGame()} />);
+
+      await screen.findByLabelText('Image');
+      expect(screen.queryByLabelText('Web port')).not.toBeInTheDocument();
     });
   });
 });

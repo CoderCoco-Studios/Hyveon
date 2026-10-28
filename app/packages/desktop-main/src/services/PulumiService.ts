@@ -17,7 +17,14 @@ import type {
   UpResult,
 } from '@pulumi/pulumi/automation/index.js';
 import { createInfraProgram } from '@hyveon/infra';
-import { CONFIGURATION_OBJECT_KEY, diffDeploymentConfig, errMessage, isApprovalExpired } from '@hyveon/shared';
+import {
+  CONFIGURATION_OBJECT_KEY,
+  diffDeploymentConfig,
+  errMessage,
+  findWebPortCollisions,
+  isApprovalExpired,
+  normalizeDeploymentConfigGames,
+} from '@hyveon/shared';
 import type {
   ChangeSummary,
   DeploymentConfig,
@@ -1590,7 +1597,7 @@ export class PulumiService {
       }
       // Always defined by the time `startedAt` is set below, so it's safe to record on every outcome.
       const observedConfigVersionId = head.versionId;
-      const deploymentConfig = JSON.parse(new TextDecoder().decode(obj.body)) as DeploymentConfig;
+      const deploymentConfig = PulumiService.parseConfigurationObject(obj.body);
       const redactedEnvironmentValues = PulumiService.buildEnvironmentRedactionSet(deploymentConfig);
 
       if (internalController.signal.aborted) {
@@ -2255,7 +2262,7 @@ export class PulumiService {
         if (!obj) {
           throw new Error(`Configuration object "${key}" not found in S3 bucket "${bucket}".`);
         }
-        const deploymentConfig = JSON.parse(new TextDecoder().decode(obj.body)) as DeploymentConfig;
+        const deploymentConfig = PulumiService.parseConfigurationObject(obj.body);
         const redactedEnvironmentValues = PulumiService.buildEnvironmentRedactionSet(deploymentConfig);
 
         const stateBucket = this.store.get('bootstrap')?.stateBucket;
@@ -3394,6 +3401,26 @@ export class PulumiService {
   }
 
   /**
+   * Decodes the raw S3 configuration object for a preview/apply. Normalises the deprecated legacy https
+   * shape because this read bypasses `DeploymentConfigService`, and the infra program requires `webPort`.
+   * Also re-checks the cross-game `webPort` collision the write-time validator enforces, since a legacy
+   * config never went through it and normalising can surface one.
+   *
+   * @param body - The raw S3 object bytes.
+   * @returns The normalised configuration.
+   * @throws Error when one https game's `webPort` is another game's extra tcp port.
+   */
+  private static parseConfigurationObject(body: Uint8Array): DeploymentConfig {
+    const config = normalizeDeploymentConfigGames(JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig);
+    const collisions = findWebPortCollisions(config);
+    if (collisions.length > 0) {
+      logger.warn('PulumiService: configuration rejected — webPort collides with another game\'s extra port', { collisions });
+      throw new Error(`Invalid configuration: ${collisions.join(' ')}`);
+    }
+    return config;
+  }
+
+  /**
    * Best-effort parse of a raw configuration-object JSON document into a
    * {@link DeploymentConfig}. Mirrors `DeploymentConfigService.parseConfigContents`'s
    * body exactly (`JSON.parse` plus an object-shape check — HCL parsing was
@@ -3419,7 +3446,7 @@ export class PulumiService {
       logger.warn('PulumiService: configuration JSON did not decode to an object for a rollback diff', {});
       return undefined;
     }
-    return parsed as DeploymentConfig;
+    return normalizeDeploymentConfigGames(parsed as DeploymentConfig);
   }
 
   /**

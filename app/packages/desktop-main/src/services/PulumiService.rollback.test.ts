@@ -380,6 +380,27 @@ describe('PulumiService.computeRollbackDiff', () => {
     });
   });
 
+  it('should not report a game as changed when only its legacy https shape differs from the normalised one', async () => {
+    const game = { image: 'a', cpu: 1, memory: 1, volumes: [], https: true };
+    const legacy = { ...game, ports: [{ container: 8080, protocol: 'tcp' }, { container: 27015, protocol: 'udp' }] };
+    // Key order matches the normaliser's output (valuesDiffer compares via JSON.stringify).
+    const explicit = { ...game, ports: [{ container: 27015, protocol: 'udp' }], webPort: 8080 };
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(JSON.stringify({ hostedZoneName: 'example.com', gameServers: { g: explicit } })),
+        etag: 'e',
+      }),
+      getVersion: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(JSON.stringify({ hostedZoneName: 'example.com', gameServers: { g: legacy } })),
+      }),
+    });
+    const service = makeService({ remoteFileStore });
+
+    const diff = await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID);
+
+    expect(diff?.gameServers.changed).toEqual([]);
+  });
+
   it('should return undefined without throwing when the target version bytes cannot be read', async () => {
     const remoteFileStore = makeRemoteFileStore({
       getVersion: vi.fn().mockResolvedValue(undefined),

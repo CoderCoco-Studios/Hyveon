@@ -399,10 +399,21 @@ Rules worth knowing before you save:
 - **`https = true`** (optional; the Networking step's toggle) adds an in-task Caddy
   reverse-proxy sidecar that terminates TLS via Let's Encrypt automatic
   HTTPS, opening 443/tcp and 80/tcp publicly on the game's security group.
+  An https game must also set **`webPort`** (the Networking step's web port
+  field): the port the game's own web server listens on, which Caddy proxies
+  443 to (e.g. `30000` for Foundry VTT). `webPort` must be 1–65535 and cannot be
+  80 or 443 (Caddy binds those), and it is never opened to the internet — only
+  Caddy is public. `ports` then lists only *additional* ports (for example UDP
+  voice), which are opened per their `visibility` and may be empty; a tcp entry
+  repeating `webPort`, or any 80/443, is rejected. `webPort` is forbidden when
+  `https` is false. Configs saved before `webPort` existed are read with
+  `ports[0]` treated as `webPort` and the rest as extras (deprecated
+  compatibility): former `ports[1..]` of such games become publicly ingressed on
+  the next apply, so review the plan.
   Only set it on games that actually serve HTTP(S); UDP games (most game
   servers) must stay `false`. On a game's first-ever boot, expect the
   sidecar to take a couple of minutes after the server reaches RUNNING
-  before HTTPS is live — it can't request a certificate until the
+  before HTTPS is live — it can't request a certificate (ACME needs 80/tcp reachable) until the
   update-dns Lambda's DNS record for the game propagates. Certificates
   persist on EFS, so this delay does not recur on subsequent restarts.
 - **Pin hostname** (optional; the Environment step's switch) makes a game's Node.js process see a fixed `os.hostname()` on every start, for Node-based games whose license is bound to the hostname (e.g. Foundry VTT). It has no effect on games that don't run on Node.js. Details, including the extra EULA acceptance when you enable it on an existing game, are in [Games](/app/games#pin-hostname-nodejs-only).

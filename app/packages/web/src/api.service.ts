@@ -156,6 +156,8 @@ export interface GameWizardDraft {
   /** Absent when the "Pin hostname" switch is off. */
   pinnedHostname?: string;
   https: boolean;
+  /** Absent on a draft autosaved before this field existed; consumers treat a missing value as `null`. */
+  webPort?: number | null;
   healthCheck: {
     enabled: boolean;
     scheme: string;

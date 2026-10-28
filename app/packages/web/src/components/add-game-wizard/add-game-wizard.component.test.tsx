@@ -202,6 +202,66 @@ describe('AddGameWizard — submit success path', () => {
   });
 });
 
+describe('AddGameWizard — https web port', () => {
+  beforeEach(resetApiMocks);
+
+  /** Advances from a fresh dialog to the Networking step. */
+  async function goToNetworking() {
+    await openWizard();
+    await fillIdentityStep();
+    await goNext(); // -> resources
+    fillResourcesStep();
+    await goNext(); // -> networking
+  }
+
+  it('should block Next until a web port is entered once HTTPS is enabled, then submit it as webPort', async () => {
+    apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
+    await goToNetworking();
+
+    await userEvent.click(screen.getByLabelText('Enable HTTPS (Caddy sidecar)'));
+    expect(await screen.findByText(/must declare webPort/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText('Web port'), '30000');
+    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
+
+    await goNext(); // -> storage
+    await fillStorageStep();
+    await goNext(); // -> environment
+    await goNext(); // -> review
+    await screen.findByText('Step 6 of 6: Review');
+    expect(screen.getByText('Web port')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() =>
+      expect(apiMock.createGame).toHaveBeenCalledWith(
+        expect.objectContaining({ config: expect.objectContaining({ https: true, webPort: 30000, ports: [] }) }),
+      ),
+    );
+  });
+
+  it('should omit webPort from the payload when HTTPS is switched back off', async () => {
+    apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
+    await goToNetworking();
+
+    await userEvent.click(screen.getByLabelText('Enable HTTPS (Caddy sidecar)'));
+    await userEvent.type(screen.getByLabelText('Web port'), '30000');
+    await userEvent.click(screen.getByLabelText('Enable HTTPS (Caddy sidecar)'));
+    expect(screen.queryByLabelText('Web port')).not.toBeInTheDocument();
+
+    await goNext(); // -> storage
+    await fillStorageStep();
+    await goNext(); // -> environment
+    await goNext(); // -> review
+    await screen.findByText('Step 6 of 6: Review');
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() => expect(apiMock.createGame).toHaveBeenCalled());
+    expect(apiMock.createGame.mock.calls[0][0].config).not.toHaveProperty('webPort');
+  });
+});
+
 describe('AddGameWizard — seed from folder', () => {
   beforeEach(resetApiMocks);
 

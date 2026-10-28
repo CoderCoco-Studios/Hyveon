@@ -127,6 +127,29 @@ describe('GamesPage', () => {
     expect(screen.getByText('2048')).toBeInTheDocument();
   });
 
+  it('should list an https game\'s web port ahead of its additional ports', async () => {
+    apiMock.games.mockResolvedValue({
+      games: [
+        {
+          ...declaredDeployed,
+          config: { ...declaredDeployed.config, https: true, webPort: 30000, ports: [{ container: 30001, protocol: 'udp' }] },
+        },
+      ],
+    });
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+
+    expect(await screen.findByText('30000 (web), 30001/udp')).toBeInTheDocument();
+  });
+
+  it('should list just the web port for an https game with no additional ports', async () => {
+    apiMock.games.mockResolvedValue({
+      games: [{ ...declaredDeployed, config: { ...declaredDeployed.config, https: true, webPort: 30000, ports: [] } }],
+    });
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+
+    expect(await screen.findByText('30000 (web)')).toBeInTheDocument();
+  });
+
   it('should render a "Pending deploy" chip for a declared-only game', async () => {
     renderPage(<GamesPage />, { initialEntries: ['/games'] });
 

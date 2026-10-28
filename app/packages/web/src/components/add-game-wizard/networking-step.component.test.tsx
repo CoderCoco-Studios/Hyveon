@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { ComponentProps } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NetworkingStep } from './networking-step.component.js';
@@ -17,7 +18,7 @@ const DISABLED_HEALTH_CHECK = createEmptyWizardDraft().healthCheck;
 
 describe('NetworkingStep', () => {
   it('should render "No ports configured yet" when the ports array is empty', () => {
-    render(<NetworkingStep ports={[]} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()}
+    render(<NetworkingStep ports={[]} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()} />);
 
@@ -33,7 +34,7 @@ describe('NetworkingStep', () => {
         issues={[]}
         onChange={onChange}
         https={false}
-        onHttpsChange={vi.fn()}
+        onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()}
       />,
@@ -57,7 +58,7 @@ describe('NetworkingStep', () => {
         issues={[]}
         onChange={onChange}
         https={false}
-        onHttpsChange={vi.fn()}
+        onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()}
       />,
@@ -77,7 +78,7 @@ describe('NetworkingStep', () => {
         issues={[]}
         onChange={onChange}
         https={false}
-        onHttpsChange={vi.fn()}
+        onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()}
       />,
@@ -103,7 +104,7 @@ describe('NetworkingStep', () => {
         issues={[]}
         onChange={onChange}
         https={false}
-        onHttpsChange={vi.fn()}
+        onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()}
       />,
@@ -126,7 +127,7 @@ describe('NetworkingStep', () => {
         issues={[]}
         onChange={onChange}
         https={false}
-        onHttpsChange={vi.fn()}
+        onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()}
       />,
@@ -149,7 +150,7 @@ describe('NetworkingStep', () => {
         issues={[{ path: 'ports[1]', message: 'Port 25566/udp collides with ports[0].' }]}
         onChange={vi.fn()}
         https={false}
-        onHttpsChange={vi.fn()}
+        onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()}
       />,
@@ -170,7 +171,7 @@ describe('NetworkingStep', () => {
         issues={[{ path: 'ports[0].container', message: 'Expected number, received null' }]}
         onChange={vi.fn()}
         https={false}
-        onHttpsChange={vi.fn()}
+        onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()}
       />,
@@ -186,7 +187,7 @@ describe('NetworkingStep', () => {
 
   describe('HTTPS toggle', () => {
     it('should render unchecked and without a callout by default', () => {
-      render(<NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()}
+      render(<NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()} />);
 
@@ -203,7 +204,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={vi.fn()}
           https={false}
-          onHttpsChange={onHttpsChange}
+          onHttpsChange={onHttpsChange} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()}
         />,
@@ -223,7 +224,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={vi.fn()}
           https={true}
-          onHttpsChange={onHttpsChange}
+          onHttpsChange={onHttpsChange} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()}
         />,
@@ -236,20 +237,22 @@ describe('NetworkingStep', () => {
 
     it('should render the warning callout, describing all three consequences, only when enabled', () => {
       render(
-        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={true} onHttpsChange={vi.fn()}
+        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={true} onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()} />,
       );
 
       const callout = screen.getByText(/opens ports 443 and 80/);
       expect(callout).toHaveTextContent('opens ports 443 and 80 to the internet for the whole stack');
-      expect(callout).toHaveTextContent('loses its public ingress rule');
+      expect(callout).toHaveTextContent('web port is not directly reachable');
+      expect(callout).toHaveTextContent('Additional ports follow their own visibility');
+      expect(callout).not.toHaveTextContent('raw container port');
       expect(callout).toHaveTextContent("Let's Encrypt (ACME) issuance");
     });
 
     it('should reference the callout via aria-describedby on the toggle while it is shown', () => {
       render(
-        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={true} onHttpsChange={vi.fn()}
+        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={true} onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
         healthCheck={DISABLED_HEALTH_CHECK}
         onHealthCheckChange={vi.fn()} />,
       );
@@ -257,31 +260,84 @@ describe('NetworkingStep', () => {
       const toggle = screen.getByLabelText('Enable HTTPS (Caddy sidecar)');
       expect(toggle).toHaveAttribute('aria-describedby', expect.stringContaining('https-callout'));
     });
+  });
 
-    it('should mark the toggle invalid and surface the message when the no-ports HTTPS rule is violated', () => {
+  describe('web port field', () => {
+    const renderStep = (overrides: Partial<ComponentProps<typeof NetworkingStep>> = {}) =>
       render(
         <NetworkingStep
           ports={[]}
-          issues={[{ path: 'ports', message: 'An https = true game server must declare at least one port.' }]}
+          issues={[]}
           onChange={vi.fn()}
           https={true}
           onHttpsChange={vi.fn()}
-        healthCheck={DISABLED_HEALTH_CHECK}
-        onHealthCheckChange={vi.fn()}
+          webPort={null}
+          onWebPortChange={vi.fn()}
+          healthCheck={DISABLED_HEALTH_CHECK}
+          onHealthCheckChange={vi.fn()}
+          {...overrides}
         />,
       );
 
-      const toggle = screen.getByLabelText('Enable HTTPS (Caddy sidecar)');
-      expect(toggle).toHaveAttribute('aria-invalid', 'true');
-      expect(toggle).toHaveAttribute('aria-describedby', expect.stringContaining('https-error'));
-      expect(screen.getByText('An https = true game server must declare at least one port.')).toBeInTheDocument();
+    it('should render a labeled web-port field stating Caddy serves it on 443 when https is on', () => {
+      renderStep();
+
+      expect(screen.getByLabelText('Web port')).toBeInTheDocument();
+      expect(screen.getByText(/Caddy serves it publicly on 443/)).toBeInTheDocument();
+      expect(screen.getByText(/for example 30000/)).toBeInTheDocument();
+    });
+
+    it('should not render the web-port field or the additional-ports heading when https is off', () => {
+      renderStep({ https: false });
+
+      expect(screen.queryByLabelText('Web port')).not.toBeInTheDocument();
+      expect(screen.queryByText('Additional ports (optional)')).not.toBeInTheDocument();
+    });
+
+    it('should label the port list as optional additional ports and allow it to be empty when https is on', () => {
+      renderStep();
+
+      expect(screen.getByText('Additional ports (optional)')).toBeInTheDocument();
+      expect(screen.getByText('No additional ports.')).toBeInTheDocument();
+    });
+
+    it('should fire onWebPortChange with the number typed, and null when cleared', () => {
+      const onWebPortChange = vi.fn();
+      renderStep({ onWebPortChange, webPort: 30000 });
+
+      const field = screen.getByLabelText('Web port');
+      expect(field).toHaveValue(30000);
+      fireEvent.change(field, { target: { value: '8080' } });
+      fireEvent.change(field, { target: { value: '' } });
+
+      expect(onWebPortChange).toHaveBeenNthCalledWith(1, 8080);
+      expect(onWebPortChange).toHaveBeenNthCalledWith(2, null);
+    });
+
+    it('should surface a webPort-pathed issue against the web-port field', () => {
+      renderStep({ issues: [{ path: 'webPort', message: 'An https = true game server must declare webPort' }] });
+
+      const field = screen.getByLabelText('Web port');
+      expect(field).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByRole('alert')).toHaveTextContent('must declare webPort');
+    });
+
+    it('should offer the web port as a health-check target ahead of the additional ports', () => {
+      renderStep({
+        webPort: 30000,
+        ports: [{ container: 30001, protocol: 'tcp', visibility: 'public' }],
+        healthCheck: { ...DISABLED_HEALTH_CHECK, enabled: true },
+      });
+
+      const options = within(screen.getByLabelText('Port')).getAllByRole('option').map((o) => o.textContent);
+      expect(options).toEqual(['Select a declared port…', '30000/tcp (web port)', '30001/tcp']);
     });
   });
 
   describe('icmp protocol option', () => {
     it('should offer icmp in the protocol dropdown', () => {
       render(
-        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()}
+        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={DISABLED_HEALTH_CHECK}
           onHealthCheckChange={vi.fn()} />,
       );
@@ -299,7 +355,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={onChange}
           https={false}
-          onHttpsChange={vi.fn()}
+          onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={DISABLED_HEALTH_CHECK}
           onHealthCheckChange={vi.fn()}
         />,
@@ -319,7 +375,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={onChange}
           https={false}
-          onHttpsChange={vi.fn()}
+          onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={DISABLED_HEALTH_CHECK}
           onHealthCheckChange={vi.fn()}
         />,
@@ -337,7 +393,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={vi.fn()}
           https={false}
-          onHttpsChange={vi.fn()}
+          onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={DISABLED_HEALTH_CHECK}
           onHealthCheckChange={vi.fn()}
         />,
@@ -348,7 +404,7 @@ describe('NetworkingStep', () => {
 
     it('should not render the icmp hint for a tcp/udp row', () => {
       render(
-        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()}
+        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={DISABLED_HEALTH_CHECK}
           onHealthCheckChange={vi.fn()} />,
       );
@@ -363,7 +419,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={vi.fn()}
           https={false}
-          onHttpsChange={vi.fn()}
+          onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={DISABLED_HEALTH_CHECK}
           onHealthCheckChange={vi.fn()}
         />,
@@ -394,7 +450,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={vi.fn()}
           https={false}
-          onHttpsChange={vi.fn()}
+          onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={baseHealthCheck()}
           onHealthCheckChange={vi.fn()}
         />,
@@ -412,7 +468,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={vi.fn()}
           https={false}
-          onHttpsChange={vi.fn()}
+          onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={baseHealthCheck({ authType: 'raw' })}
           onHealthCheckChange={vi.fn()}
         />,
@@ -428,7 +484,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={vi.fn()}
           https={false}
-          onHttpsChange={vi.fn()}
+          onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={baseHealthCheck({ authType: 'basic' })}
           onHealthCheckChange={vi.fn()}
         />,
@@ -444,7 +500,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={vi.fn()}
           https={false}
-          onHttpsChange={vi.fn()}
+          onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={baseHealthCheck({ authType: 'bearer' })}
           onHealthCheckChange={vi.fn()}
         />,
@@ -460,7 +516,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={vi.fn()}
           https={false}
-          onHttpsChange={vi.fn()}
+          onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={baseHealthCheck()}
           onHealthCheckChange={onHealthCheckChange}
         />,
@@ -476,7 +532,7 @@ describe('NetworkingStep', () => {
           issues={[]}
           onChange={vi.fn()}
           https={false}
-          onHttpsChange={vi.fn()}
+          onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
           healthCheck={baseHealthCheck({ authType: 'basic', secretSet: true })}
           onHealthCheckChange={vi.fn()}
         />,

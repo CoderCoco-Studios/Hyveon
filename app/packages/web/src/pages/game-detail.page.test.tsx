@@ -126,6 +126,39 @@ describe('GameDetailPage', () => {
       expect(screen.getByText('tcp')).toBeInTheDocument();
     });
 
+    it('should show an https game\'s web port separately from its additional ports', async () => {
+      apiMock.games.mockResolvedValue({
+        games: [
+          {
+            ...DECLARED_GAME,
+            config: {
+              ...DECLARED_GAME.config,
+              https: true,
+              webPort: 30000,
+              ports: [{ container: 30001, protocol: 'udp' }],
+            },
+          },
+        ],
+      });
+      renderDetailPage('minecraft');
+
+      expect(await screen.findByRole('heading', { name: 'Web port' })).toBeInTheDocument();
+      expect(screen.getByText('30000')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Additional ports' })).toBeInTheDocument();
+      expect(screen.getByText('30001')).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Ports' })).not.toBeInTheDocument();
+    });
+
+    it('should omit the additional-ports table for an https game with none', async () => {
+      apiMock.games.mockResolvedValue({
+        games: [{ ...DECLARED_GAME, config: { ...DECLARED_GAME.config, https: true, webPort: 30000, ports: [] } }],
+      });
+      renderDetailPage('minecraft');
+
+      await screen.findByRole('heading', { name: 'Web port' });
+      expect(screen.queryByRole('heading', { name: 'Additional ports' })).not.toBeInTheDocument();
+    });
+
     it('should show "VPC-only" for an internal-visibility port', async () => {
       renderDetailPage('minecraft');
 

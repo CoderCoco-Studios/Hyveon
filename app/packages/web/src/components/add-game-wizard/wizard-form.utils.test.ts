@@ -58,6 +58,7 @@ describe('createEmptyWizardDraft', () => {
       environment: [],
       command: [],
       https: false,
+      webPort: null,
       healthCheck: {
         enabled: false,
         scheme: 'http',
@@ -289,6 +290,49 @@ describe('validateNetworkingStep', () => {
   });
 });
 
+describe('validateNetworkingStep — web port', () => {
+  it('should flag a null webPort on an https draft at webPort', () => {
+    const issues = validateNetworkingStep(makeValidDraft({ https: true, webPort: null, ports: [] }), []);
+    expect(issues.filter((issue) => issue.path === 'webPort')).toHaveLength(1);
+  });
+
+  it('should accept an https draft with a webPort and no additional ports', () => {
+    expect(validateNetworkingStep(makeValidDraft({ https: true, webPort: 30000, ports: [] }), [])).toEqual([]);
+  });
+
+  it('should accept an https draft whose first additional port is udp', () => {
+    const ports = [{ container: 30001, protocol: 'udp', visibility: 'public' as const }];
+    expect(validateNetworkingStep(makeValidDraft({ https: true, webPort: 30000, ports }), [])).toEqual([]);
+  });
+
+  it.each([80, 443])('should flag reserved webPort %i at webPort', (webPort) => {
+    const issues = validateNetworkingStep(makeValidDraft({ https: true, webPort }), []);
+    expect(issues.some((issue) => issue.path === 'webPort' && issue.message.includes('reserved'))).toBe(true);
+  });
+
+  it('should flag an additional tcp port that duplicates the webPort at that row', () => {
+    const ports = [{ container: 30000, protocol: 'tcp', visibility: 'public' as const }];
+    const issues = validateNetworkingStep(makeValidDraft({ https: true, webPort: 30000, ports }), []);
+    expect(issues.some((issue) => issue.path === 'ports[0]')).toBe(true);
+  });
+
+  it('should ignore a leftover webPort once https is turned off', () => {
+    expect(validateNetworkingStep(makeValidDraft({ https: false, webPort: 30000 }), [])).toEqual([]);
+  });
+});
+
+describe('webPort draft conversion', () => {
+  it('should carry webPort into the payload only while https is on', () => {
+    expect(draftToPayload(makeValidDraft({ https: true, webPort: 30000 })).config.webPort).toBe(30000);
+    expect('webPort' in draftToPayload(makeValidDraft({ https: false, webPort: 30000 })).config).toBe(false);
+  });
+
+  it('should seed the draft webPort from the declared game, null when absent', () => {
+    expect(draftFromGameServer(makeExistingGame({ https: true, webPort: 8080, ports: [] })).webPort).toBe(8080);
+    expect(draftFromGameServer(makeExistingGame()).webPort).toBeNull();
+  });
+});
+
 describe('validateStorageStep', () => {
   it('should flag an empty volumes array (volumes-min-1 rule)', () => {
     const issues = validateStorageStep(makeValidDraft({ volumes: [] }), []);
@@ -352,6 +396,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
       connect_message: 'Connect at {ip}:{port}',
       file_seeds: [{ path: '/data/config.yml', content: 'foo: bar', content_base64: 'Zm9v', mode: '0644' }],
       https: true,
+      webPort: 30000,
     });
 
     const draft = draftFromGameServer(game);
@@ -368,6 +413,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
         connect_message: game.connect_message,
         file_seeds: game.file_seeds,
         https: true,
+        webPort: 30000,
       },
     });
   });
@@ -408,6 +454,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
       environment: [],
       command: [],
       https: false,
+      webPort: null,
       healthCheck: {
         enabled: false,
         scheme: 'http',

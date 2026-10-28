@@ -198,20 +198,37 @@ export function GameDetailPage() {
                 </CardContent>
               </Card>
 
+              {/* Web port (https games): the Caddy upstream, shown apart from the independently reachable extras */}
+              {config.https === true && config.webPort !== undefined && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Web port</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1">
+                    <Field label="Container port" value={String(config.webPort)} />
+                    <p className="text-xs text-[var(--color-muted-foreground)]">
+                      Served publicly on 443 through the Caddy sidecar; not directly reachable.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Ports */}
-              <ConfigTableCard
-                title="Ports"
-                rows={config.ports}
-                rowKey={(port) => `${port.container}-${port.protocol}`}
-                columns={[
-                  { header: 'Container port', className: 'font-[var(--font-mono)]', cell: (port) => port.container },
-                  { header: 'Protocol', className: 'uppercase', cell: (port) => port.protocol },
-                  {
-                    header: 'Visibility',
-                    cell: (port) => (port.visibility === 'internal' ? 'VPC-only' : 'Public'),
-                  },
-                ]}
-              />
+              {(config.https !== true || config.ports.length > 0) && (
+                <ConfigTableCard
+                  title={config.https === true ? 'Additional ports' : 'Ports'}
+                  rows={config.ports}
+                  rowKey={(port) => `${port.container}-${port.protocol}`}
+                  columns={[
+                    { header: 'Container port', className: 'font-[var(--font-mono)]', cell: (port) => port.container },
+                    { header: 'Protocol', className: 'uppercase', cell: (port) => port.protocol },
+                    {
+                      header: 'Visibility',
+                      cell: (port) => (port.visibility === 'internal' ? 'VPC-only' : 'Public'),
+                    },
+                  ]}
+                />
+              )}
 
               {/* Volumes */}
               <ConfigTableCard

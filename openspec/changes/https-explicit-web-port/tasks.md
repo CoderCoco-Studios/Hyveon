@@ -17,7 +17,7 @@
 
 ## 3. PR 3 — wizard, docs, specs (stacked on PR 2)
 
-- [ ] 3.1 `networking-step.component.tsx`: dedicated web-port field, optional extras list, updated warning callout; wire through `wizard-form.utils.ts`, add/edit flows, review step, games/game-detail pages
-- [ ] 3.2 Update web tests, e2e specs, and `demo-data.ts` (palworld becomes valid https with `webPort` + UDP extras)
-- [ ] 3.3 Docs via `write-docs`: `docs/docs/app/games.md`, `components/infra.md`, `architecture.md`, `setup.md`, `guides/user.md`
-- [ ] 3.4 Run deployment-config-field-auditor; `/opsx:sync` delta specs; run full gate incl. `app:test:e2e`
+- [x] 3.1 `networking-step.component.tsx`: dedicated web-port field, optional extras list, updated warning callout; wire through `wizard-form.utils.ts`, add/edit flows, review step, games/game-detail pages
+- [x] 3.2 Update web tests, e2e specs, and `demo-data.ts` (palworld becomes valid https with `webPort` + UDP extras)
+- [x] 3.3 Docs via `write-docs`: `docs/docs/app/games.md`, `components/infra.md`, `architecture.md`, `setup.md`, `guides/user.md`
+- [x] 3.4 Run deployment-config-field-auditor; `/opsx:sync` delta specs; run full gate incl. `app:test:e2e`

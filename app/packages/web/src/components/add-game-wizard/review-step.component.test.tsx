@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { createEmptyWizardDraft, type WizardDraft } from './wizard-form.utils.js';
 import { ReviewStep } from './review-step.component.js';
 
@@ -193,5 +193,37 @@ describe('ReviewStep — submit errors', () => {
     render(<ReviewStep draft={makeFullDraft()} submitError={message} />);
 
     expect(screen.getByRole('alert')).toHaveTextContent(message);
+  });
+});
+
+describe('ReviewStep — https web port', () => {
+  it('should show the web port apart from the additional ports when https is on', () => {
+    render(
+      <ReviewStep
+        draft={makeDraft({
+          https: true,
+          webPort: 30000,
+          ports: [{ container: 30001, protocol: 'udp', visibility: 'public' }],
+        })}
+      />,
+    );
+
+    expect(screen.getByText('Web port')).toBeInTheDocument();
+    expect(screen.getByText('30000')).toBeInTheDocument();
+    const extras = screen.getByRole('list', { name: 'Additional ports' });
+    expect(within(extras).getByText('30001')).toBeInTheDocument();
+    expect(within(extras).queryByText('30000')).not.toBeInTheDocument();
+  });
+
+  it('should say there are no additional ports for an https draft with an empty list', () => {
+    render(<ReviewStep draft={makeDraft({ https: true, webPort: 30000, ports: [] })} />);
+
+    expect(screen.getByText('No additional ports.')).toBeInTheDocument();
+  });
+
+  it('should not render a Web port row when https is off', () => {
+    render(<ReviewStep draft={makeDraft({ https: false, webPort: 30000 })} />);
+
+    expect(screen.queryByText('Web port')).not.toBeInTheDocument();
   });
 });

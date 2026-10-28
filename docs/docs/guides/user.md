@@ -70,9 +70,14 @@ Once a game is RUNNING:
   `dnsTtl` seconds (default 30).
 - Ports: whatever the operator configured under `ports`. UDP/TCP games
   connect directly to that port on the resolved hostname. HTTPS games
-  (`https = true`) connect over 443 — TLS terminates in-task via a Caddy
-  sidecar with an automatically-issued Let's Encrypt certificate; there is
-  no load balancer involved anywhere in the path.
+  (`https = true`) connect over 443 at `https://{game}.yourdomain.com` — TLS
+  terminates in-task via a Caddy sidecar with an automatically-issued Let's
+  Encrypt certificate, and the sidecar proxies to the game's `webPort`
+  (never directly reachable); there is no load balancer involved anywhere
+  in the path. An HTTPS game can also declare additional ports (for example a
+  UDP voice port) that you connect to directly, subject to their visibility.
+  The Discord connect message for an HTTPS game shows the `https://` URL
+  rather than a port number.
 - Reconnect if the task restarts: the new task has a different public IP,
   but the DNS record is re-UPSERTed within seconds of RUNNING. Use the
   hostname, not the IP.

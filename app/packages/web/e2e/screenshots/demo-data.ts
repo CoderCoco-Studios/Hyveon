@@ -161,6 +161,8 @@ const PALWORLD_CONFIG: RedactedGameServer = {
   image: 'thijsvanloef/palworld-server-docker:latest',
   cpu: 4096,
   memory: 8192,
+  // Valid https shape: `webPort` is the Caddy upstream; `ports` are independently reachable extras.
+  webPort: 8212,
   ports: [
     { container: 8211, protocol: 'udp' },
     { container: 27015, protocol: 'udp' },

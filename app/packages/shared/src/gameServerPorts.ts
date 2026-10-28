@@ -1,3 +1,4 @@
+import type { DeploymentConfig } from './deploymentConfig.js';
 import type { GameServerConfig, GameServerPort } from './gameServerConfig.js';
 
 /** Container ports the in-task Caddy sidecar binds publicly on any `https: true` game. */
@@ -42,7 +43,7 @@ interface NormalizableGame {
  * Pure and idempotent. Games that are not legacy-shaped are returned as the
  * same reference. A legacy game whose `ports[0]` is not `tcp` (or has no
  * container yet) or a malformed game with no `ports` array is also returned untouched, so validation reports the
- * missing `webPort` instead of this function guessing. A reserved `ports[0]`
+ * missing `webPort` instead of this function guessing. A `null` `webPort` is a draft's "not entered yet", not legacy, so it is left alone. A reserved `ports[0]`
  * (80/443) is promoted as-is and rejected by the validator on save.
  *
  * @typeParam T - The game shape; returned as the same type.
@@ -51,7 +52,7 @@ interface NormalizableGame {
  * @deprecated Handles the legacy implicit-upstream (`ports[0]`) https shape only.
  */
 export function normalizeGameServer<T extends NormalizableGame>(game: T): T {
-  if (game.https !== true || (game.webPort !== undefined && game.webPort !== null)) {
+  if (game.https !== true || game.webPort !== undefined) {
     return game;
   }
   if (!Array.isArray(game.ports)) {
@@ -62,6 +63,31 @@ export function normalizeGameServer<T extends NormalizableGame>(game: T): T {
     return game;
   }
   return { ...game, webPort: first.container, ports: rest };
+}
+
+/**
+ * Applies {@link normalizeGameServer} to every entry of `config.gameServers`.
+ * For readers that consume the raw S3 object directly (the Pulumi preview/apply
+ * path and rollback diffs) rather than via `DeploymentConfigService`.
+ *
+ * @param config - A parsed deployment config, possibly holding legacy https entries.
+ * @returns `config` itself when nothing changed, otherwise a copy with normalised games.
+ * @deprecated Handles the legacy implicit-upstream (`ports[0]`) https shape only; removable with {@link normalizeGameServer}.
+ */
+export function normalizeDeploymentConfigGames(config: DeploymentConfig): DeploymentConfig {
+  const games = config.gameServers;
+  if (typeof games !== 'object' || games === null) {
+    return config;
+  }
+  let changed = false;
+  // Null prototype so a legacy `__proto__` game key is stored as an own property, not swallowed by the prototype setter.
+  const gameServers = Object.create(null) as DeploymentConfig['gameServers'];
+  for (const [name, game] of Object.entries(games)) {
+    const normalised = normalizeGameServer(game);
+    changed ||= normalised !== game;
+    gameServers[name] = normalised;
+  }
+  return changed ? { ...config, gameServers } : config;
 }
 
 /**
@@ -78,4 +104,33 @@ export function ingressPorts(game: GameServerConfig): GameServerPort[] {
     return game.ports;
   }
   return game.ports.filter((port) => !(port.container === webPort && port.protocol.toLowerCase() === 'tcp'));
+}
+
+/**
+ * Finds `https` games whose `webPort` is also a `tcp` extra port of a different game. The security
+ * group is shared across games and ingress rules union, so that extra port's rule would expose the
+ * other game's Caddy upstream directly. The write path rejects this ({@link validateGameServer}
+ * in `gameServerValidator.ts`); this re-checks raw reads that bypass it, such as legacy configs.
+ *
+ * @param config - A normalised deployment config (see {@link normalizeDeploymentConfigGames}).
+ * @returns One human-readable message per collision; empty when there are none.
+ */
+export function findWebPortCollisions(config: DeploymentConfig): string[] {
+  const games = Object.entries(config.gameServers ?? {});
+  const messages: string[] = [];
+  for (const [owner, ownerGame] of games) {
+    const { webPort } = ownerGame;
+    if (ownerGame.https !== true || typeof webPort !== 'number') {
+      continue;
+    }
+    for (const [other, otherGame] of games) {
+      if (other === owner || !Array.isArray(otherGame.ports)) {
+        continue;
+      }
+      if (otherGame.ports.some((port) => port.container === webPort && port.protocol.toLowerCase() === 'tcp')) {
+        messages.push(`Game "${owner}" webPort ${webPort} collides with tcp port ${webPort} on game "${other}"; the shared security group would expose "${owner}"'s upstream directly, bypassing Caddy.`);
+      }
+    }
+  }
+  return messages;
 }
