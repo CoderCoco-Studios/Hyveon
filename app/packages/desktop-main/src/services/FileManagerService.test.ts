@@ -18,7 +18,7 @@ import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
 import { configAndSavesVolumes, deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
 import type { DeploymentConfigService } from './DeploymentConfigService.js';
-import { buildHelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
+import { buildHelperVolumeLayout, type HelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
 
 /**
  * A canonical set of stack outputs used by most tests. Individual tests
@@ -715,14 +715,18 @@ describe('FileManagerService', () => {
     });
   });
 
-  describe('startForUpload', () => {
+  describe('launchHelper with TLS and upload tags', () => {
+    /** Launches the way an upload run does: over TLS, tagged as a seed-upload session. */
+    const launchUpload = (svc: FileManagerService, layout?: HelperVolumeLayout) =>
+      svc.launchHelper('minecraft', { runId: 'run-1', tls: true, tags: UPLOAD_TAGS, layout });
+
     it('should return the credential and certificate in-process and tag the task as a seed-upload session', async () => {
       const { stub, service: ecs } = makeEcs();
-      const result = await buildService({ ecs }).startForUpload('minecraft', 'run-1');
+      const result = await launchUpload(buildService({ ecs }));
       if (!result.ok) throw new Error('expected launch to succeed');
-      expect(result.session.credentials.username).toBe('admin');
-      expect(result.session.credentials.password.length).toBeGreaterThan(10);
-      expect(result.session.cert.fingerprint256).toMatch(/^[0-9A-F:]+$/);
+      expect(result.credentials.username).toBe('admin');
+      expect(result.credentials.password.length).toBeGreaterThan(10);
+      expect(result.cert!.fingerprint256).toMatch(/^[0-9A-F:]+$/);
       const runArgs = vi.mocked(stub.runTask).mock.calls[0]![0];
       expect(runArgs.startedBy).toBe('filemgr-minecraft');
       expect(runArgs.tags).toEqual([
@@ -734,14 +738,14 @@ describe('FileManagerService', () => {
 
     it('should serve over TLS through a sh -c wrapper that writes the env-provided certificate and key', async () => {
       const { stub, service: ecs } = makeEcs();
-      const result = await buildService({ ecs }).startForUpload('minecraft', 'run-1');
+      const result = await launchUpload(buildService({ ecs }));
       if (!result.ok) throw new Error('expected launch to succeed');
       const container = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0].containerDefinitions![0]!;
       expect(container.entryPoint).toEqual(['sh', '-c']);
       expect(container.command![0]).toContain('exec filebrowser --cert /tmp/tls.crt --key /tmp/tls.key "$@"');
       const env = Object.fromEntries(container.environment!.map((e) => [e.name, e.value]));
-      expect(Buffer.from(env['FB_TLS_CERT_B64']!, 'base64').toString()).toBe(result.session.cert.certPem);
-      expect(Buffer.from(env['FB_TLS_KEY_B64']!, 'base64').toString()).toBe(result.session.cert.keyPem);
+      expect(Buffer.from(env['FB_TLS_CERT_B64']!, 'base64').toString()).toBe(result.cert!.certPem);
+      expect(Buffer.from(env['FB_TLS_KEY_B64']!, 'base64').toString()).toBe(result.cert!.keyPem);
       expect(container.command).toContain('--username');
     });
 
@@ -753,10 +757,10 @@ describe('FileManagerService', () => {
         efsVolumeAccessPoints: { minecraft: { saves: 'fsap-s' } },
       });
       const svc = buildService({ config: makeConfig(TWO_VOLUME_OUTPUTS), ecs, deploymentConfig });
-      const result = await svc.startForUpload('minecraft', 'run-1', layout);
+      const result = await launchUpload(svc, layout);
       if (!result.ok) throw new Error('expected launch to succeed');
 
-      expect(result.session.layout).toBe(layout);
+      expect(result.layout).toBe(layout);
       expect(deploymentConfig.getGameServers).not.toHaveBeenCalled();
       const regArgs = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0];
       expect(regArgs.volumes!.map((v) => v.efsVolumeConfiguration!.authorizationConfig!.accessPointId)).toEqual(['fsap-s']);
@@ -764,37 +768,37 @@ describe('FileManagerService', () => {
     });
 
     it('should return the layout it planned itself on the session', async () => {
-      const result = await buildService().startForUpload('minecraft', 'run-1');
+      const result = await launchUpload(buildService());
       if (!result.ok) throw new Error('expected launch to succeed');
-      expect(result.session.layout.mounts.map((m) => m.accessPointId)).toEqual(['fsap-mc']);
+      expect(result.layout.mounts.map((m) => m.accessPointId)).toEqual(['fsap-mc']);
     });
 
     it('should fail a precomputed layout with no mounts without registering a task definition', async () => {
       const { stub, service: ecs } = makeEcs();
       const empty = buildHelperVolumeLayout('minecraft', TWO_VOLUMES, { efsAccessPoints: {}, efsVolumeAccessPoints: {} });
-      const result = await buildService({ ecs }).startForUpload('minecraft', 'run-1', empty);
+      const result = await launchUpload(buildService({ ecs }), empty);
       expect(result).toMatchObject({ ok: false, code: 'failed', message: "No EFS access point found for 'minecraft'." });
       expect(stub.registerTaskDefinition).not.toHaveBeenCalled();
     });
 
     it('should name the run in the security-group rule description', async () => {
       const ec2 = makeEc2();
-      await buildService({ ec2 }).startForUpload('minecraft', 'run-1');
+      await launchUpload(buildService({ ec2 }));
       expect(ec2.authorizeIngress).toHaveBeenCalledWith('sg-files', '203.0.113.7/32', 8080, 'hyveon-filemgr:minecraft:run-1');
     });
 
     it('should refuse with helper-open when a session is already running, without launching', async () => {
       const { stub, service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'existing' }]) });
-      const result = await buildService({ ecs }).startForUpload('minecraft', 'run-1');
+      const result = await launchUpload(buildService({ ecs }));
       expect(result).toMatchObject({ ok: false, code: 'helper-open' });
       expect(stub.runTask).not.toHaveBeenCalled();
     });
 
     it('should never put the plaintext password in the task definition', async () => {
       const { stub, service: ecs } = makeEcs();
-      const result = await buildService({ ecs }).startForUpload('minecraft', 'run-1');
+      const result = await launchUpload(buildService({ ecs }));
       if (!result.ok) throw new Error('expected launch to succeed');
-      expect(JSON.stringify(vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0])).not.toContain(result.session.credentials.password);
+      expect(JSON.stringify(vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0])).not.toContain(result.credentials.password);
     });
 
     it('should only record the operator IP on, and not wrap, ordinary browse launches', async () => {

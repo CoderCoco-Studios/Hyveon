@@ -80,24 +80,6 @@ export interface FileMgrCredentials {
   password: string;
 }
 
-/**
- * A launched upload helper. Carries the plaintext credential, so it exists only in main-process memory: never return
- * it over IPC and never log it.
- */
-export interface UploadHelperSession {
-  taskArn: string;
-  runId: string;
-  credentials: FileMgrCredentials;
-  cert: EphemeralCert;
-  /** The volume layout the helper was launched with; maps `{ volume, path }` to helper paths. */
-  layout: HelperVolumeLayout;
-}
-
-/** Outcome of {@link FileManagerService.startForUpload}. */
-export type UploadHelperLaunch =
-  | { ok: true; session: UploadHelperSession }
-  | { ok: false; code: 'helper-open' | 'failed'; message: string };
-
 /** Options for {@link FileManagerService.launchHelper}. */
 export interface HelperLaunchOptions {
   /** Identifies the session; embedded in the security-group rule description. */
@@ -191,8 +173,8 @@ export class FileManagerService {
    * Plans which of `game`'s volumes a helper mounts and under which directory.
    *
    * @remarks
-   * Upload preparation calls this once and hands the result to {@link FileManagerService.startForUpload}, so the
-   * launch mounts exactly the layout the remote paths were computed from.
+   * Upload preparation uses it to validate the destination before a session exists; the helper session's own layout
+   * is what upload paths are finally resolved against.
    *
    * @param game - Game to plan for.
    * @returns The layout, or `null` when the stack is not deployed.
@@ -369,36 +351,9 @@ export class FileManagerService {
   }
 
   /**
-   * Launches an upload helper for `game`: tagged `Purpose=seed-upload`/`Project=hyveon`, served over HTTPS with a
-   * per-launch certificate the caller pins. The credential is returned in-process only.
-   *
-   * @remarks
-   * If a helper for `game` is already open the launch is refused with `code: 'helper-open'`, because the credential of
-   * that session is unknown here. The caller is responsible for {@link FileManagerService.stop}, which also revokes the
-   * IP rule and deregisters the task definition.
-   *
-   * @param runId - Identifies the upload run; embedded in the security-group rule description.
-   * @param layout - A layout from {@link FileManagerService.planHelperLayout} to mount as-is; planned here when omitted.
-   */
-  async startForUpload(game: string, runId: string, layout?: HelperVolumeLayout): Promise<UploadHelperLaunch> {
-    const outcome = await this.launchHelper(game, { runId, tls: true, tags: UPLOAD_TAGS, layout });
-    if (!outcome.ok) return outcome;
-    return {
-      ok: true,
-      session: {
-        taskArn: outcome.taskArn,
-        runId,
-        credentials: outcome.credentials,
-        cert: outcome.cert!,
-        layout: outcome.layout,
-      },
-    };
-  }
-
-  /**
    * Launches a FileBrowser helper for `game`: registers a throwaway task definition, opens the operator's `/32`, runs
-   * the task and schedules its auto-stop. This is the single launch body behind {@link FileManagerService.start} and
-   * {@link FileManagerService.startForUpload}.
+   * the task and schedules its auto-stop. This is the single launch body behind {@link FileManagerService.start} and the
+   * helper session registry.
    *
    * @remarks
    * If a helper for `game` is already open the launch is refused with `code: 'helper-open'`, because the credential of

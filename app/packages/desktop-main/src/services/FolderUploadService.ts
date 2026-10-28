@@ -20,14 +20,13 @@ import { ConfigService } from './ConfigService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
 import { EcsService } from './EcsService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { FileManagerService, type UploadHelperSession } from './FileManagerService.js';
+import { FileManagerService, UPLOAD_TAGS } from './FileManagerService.js';
 import { FolderScanService, type HeldScan } from './FolderScanService.js';
-import { isVolumeMounted, toHelperPath, type HelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
-import { FileBrowserClientFactory, PinMismatchError } from './folderUpload/FileBrowserClient.js';
-import type { VolumeFileBackend } from './volumeFiles/VolumeFileBackend.js';
+import { isVolumeMounted, toHelperPath } from './volumeFiles/helperVolumeLayout.js';
+import { HelperSessionRegistry } from './volumeFiles/HelperSessionRegistry.js';
 import { ProgressAggregator } from './folderUpload/ProgressAggregator.js';
+import { RegistryUploadBackend } from './folderUpload/RegistryUploadBackend.js';
 import {
-  abortableSleep,
   classifyUpload,
   ConfirmationTimeoutError,
   DEFAULT_ENGINE_OPTIONS,
@@ -46,16 +45,8 @@ const STARTUP_SWEEP_MIN_AGE_MS = 15 * 60 * 1000;
 /** Most paths named in a verification-failure message; the rest are summarized as a count. */
 const MAX_PATHS_IN_MESSAGE = 5;
 
-/** Waits and polling cadence; production values by default, shortened by tests. */
+/** Waits of the upload run itself; the helper's own waits live on {@link HelperSessionRegistry.timings}. */
 export interface FolderUploadTimings {
-  /** Port FileBrowser listens on inside the helper. */
-  helperPort: number;
-  /** Poll interval while waiting for the helper's public IP and for HTTPS to answer. */
-  pollMs: number;
-  /** Give up waiting for the helper's task to expose a public IP after this long. */
-  helperIpTimeoutMs: number;
-  /** Give up waiting for FileBrowser to accept a login after this long. */
-  loginTimeoutMs: number;
   /** Cancel the run when the operator has not answered the overwrite warning after this long. */
   confirmationTimeoutMs: number;
 }
@@ -66,15 +57,25 @@ interface ActiveRun {
   controller: AbortController;
 }
 
+/** One file of the plan, addressed by its path inside the destination volume until a session layout maps it. */
+interface PlannedFile {
+  relPath: string;
+  localPath: string;
+  /** Path inside the destination volume. */
+  volumePath: string;
+  size: number;
+  mtimeMs: number;
+}
+
 /** Everything resolved by the preflight guards that the run needs. */
 interface PreparedRun {
   game: string;
   scan: HeldScan;
   request: FolderUploadRequest;
-  items: UploadItem[];
+  files: PlannedFile[];
   bytesTotal: number;
-  /** The layout `items`' remote paths were computed from; the helper is launched with exactly this one. */
-  layout: HelperVolumeLayout;
+  /** Destination volume resolved in preflight; the session's layout must mount it. */
+  volume: string;
   /** The previous run for this same selection was cut short, so a few existing files are our own partial uploads. */
   resumesOwnRun: boolean;
 }
@@ -84,14 +85,14 @@ interface PreparedRun {
  * progress/last-run reporting.
  *
  * @remarks
- * The helper's credential lives only in this process: it is handed to the {@link VolumeFileBackend} client and never
- * returned over IPC or logged. The helper is stopped in a `finally` on every exit path, which also revokes the
- * operator-IP rule.
+ * The run holds the game's {@link HelperSessionRegistry} session as an `upload:<runId>` holder and releases it in a
+ * `finally` on every exit path; the registry stops a helper the run launched (revoking the operator-IP rule) and leaves
+ * a browse session that predates the run running.
  */
 @Injectable()
 export class FolderUploadService implements OnApplicationBootstrap {
   /** Overridable by tests. */
-  readonly timings: FolderUploadTimings = { helperPort: 8080, pollMs: 3000, helperIpTimeoutMs: 3 * 60 * 1000, loginTimeoutMs: 2 * 60 * 1000, confirmationTimeoutMs: 10 * 60 * 1000 };
+  readonly timings: FolderUploadTimings = { confirmationTimeoutMs: 10 * 60 * 1000 };
 
   /** Concurrency/retry tunables; overridable by tests. */
   readonly engine: UploadEngineOptions = { ...DEFAULT_ENGINE_OPTIONS };
@@ -110,8 +111,12 @@ export class FolderUploadService implements OnApplicationBootstrap {
     private readonly fileManager: FileManagerService,
     private readonly scans: FolderScanService,
     private readonly store: ElectronStoreService,
-    private readonly clients: FileBrowserClientFactory,
-  ) {}
+    private readonly registry: HelperSessionRegistry,
+  ) {
+    this.registry.onBeforeStop((game) => {
+      this.cancel(game);
+    });
+  }
 
   /** Sweeps stray helpers left by a previous app session; best-effort and Electron-only. */
   onApplicationBootstrap(): void {
@@ -181,16 +186,19 @@ export class FolderUploadService implements OnApplicationBootstrap {
     return { resolved: !!answer };
   }
 
-  /** Operator-requested cleanup: stops every file-manager helper no active run here owns, regardless of age. */
+  /** Operator-requested cleanup: stops every file-manager helper neither an active run nor the session registry owns. */
   cleanupStrayHelpers(): Promise<StrayHelperReport> {
-    return this.fileManager.sweepStrayHelpers({ activeGames: new Set(this.active.keys()), minAgeMs: 0 });
+    return this.fileManager.sweepStrayHelpers({
+      activeGames: new Set([...this.active.keys(), ...this.registry.ownedGames()]),
+      minAgeMs: 0,
+    });
   }
 
   /**
    * Validates the request and, if every guard passes, starts the run in the background.
    *
    * @returns `{ started: true, runId }`, or `{ started: false, error }` for a failed guard (not deployed, server
-   * running, helper already open, bad destination or path, scan expired).
+   * running, an unmanaged helper already open, bad destination or path, scan expired).
    */
   async startUpload(request: FolderUploadRequest): Promise<FolderUploadStartResult> {
     const { game } = request;
@@ -219,7 +227,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     } finally {
       this.preparing.delete(game);
     }
-    logger.info('FolderUploadService: upload started', { game, runId, files: prepared.items.length, bytes: prepared.bytesTotal });
+    logger.info('FolderUploadService: upload started', { game, runId, files: prepared.files.length, bytes: prepared.bytesTotal });
     void this.execute(prepared, runId, controller.signal);
     return { started: true, runId };
   }
@@ -256,10 +264,10 @@ export class FolderUploadService implements OnApplicationBootstrap {
 
     const plan = planUpload(scan.tree, request.include);
     if (plan.length === 0) throw new Error('Nothing is selected to upload.');
-    const items: UploadItem[] = plan.map((file) => ({
+    const files: PlannedFile[] = plan.map((file) => ({
       relPath: file.relPath,
       localPath: join(scan.rootPath, ...file.relPath.split('/')),
-      remotePath: toHelperPath(layout, dest.volume.name, toRemotePath(request.destination, dest.volume.container_path, file.relPath)),
+      volumePath: toRemotePath(request.destination, dest.volume.container_path, file.relPath),
       size: file.size,
       mtimeMs: scan.mtimes.get(file.relPath) ?? 0,
     }));
@@ -272,18 +280,17 @@ export class FolderUploadService implements OnApplicationBootstrap {
       throw new Error(`Couldn't confirm '${game}' is stopped. Try again in a moment.`);
     }
     if (serverRunning) throw new Error(`'${game}' is running. Stop the server before uploading.`);
-    const helper = await this.fileManager.getStatus(game);
-    if (helper.state === 'running' || helper.state === 'starting') {
-      throw new Error(`A file manager session is already open for '${game}'. Stop it first, then retry.`);
+    if ((await this.registry.status(game)).state === 'orphaned') {
+      throw new Error(`A file manager session is already open for '${game}'. Restart it, then retry.`);
     }
 
     return {
       game,
       scan,
       request,
-      items,
-      bytesTotal: items.reduce((sum, i) => sum + i.size, 0),
-      layout,
+      files,
+      bytesTotal: files.reduce((sum, f) => sum + f.size, 0),
+      volume: dest.volume.name,
       resumesOwnRun: this.isOwnPartialRun(this.store.getFolderUploadState(game), scan.rootPath, request),
     };
   }
@@ -310,34 +317,32 @@ export class FolderUploadService implements OnApplicationBootstrap {
     for (const listener of this.listeners) listener(progress);
   }
 
-  /** The run body: launch, upload, verify, and always stop the helper before reporting the terminal phase. */
+  /**
+   * The run body: holds the helper session, uploads, verifies, and always releases the session before reporting the
+   * terminal phase.
+   *
+   * @remarks
+   * Remote paths come from the session's own layout, because a reused browse session may predate an infrastructure
+   * apply and not mount the destination volume.
+   */
   private async execute(prepared: PreparedRun, runId: string, signal: AbortSignal): Promise<void> {
-    const { game, items, bytesTotal } = prepared;
-    const progress = new ProgressAggregator(game, bytesTotal, items.length, (p) => this.publish(p));
+    const { game, files, bytesTotal } = prepared;
+    const progress = new ProgressAggregator(game, bytesTotal, files.length, (p) => this.publish(p));
     progress.start();
 
-    let session: UploadHelperSession | undefined;
-    let client: VolumeFileBackend | undefined;
+    const holder = `upload:${runId}` as const;
     let terminal: { phase: FolderUploadPhase; error?: string } = { phase: 'done' };
     try {
       progress.setPhase('starting-helper');
-      const launch = await this.fileManager.startForUpload(game, runId, prepared.layout);
-      if (!launch.ok) throw new Error(launch.message);
-      session = launch.session;
+      const acquired = await this.registry.acquire(game, holder, { tags: UPLOAD_TAGS, runId });
+      if (!acquired.ok) throw new Error(acquired.message);
+      if (signal.aborted) throw new UploadCancelledError();
 
-      const host = await this.waitForHelperIp(game, runId, session.taskArn, signal);
-      client = this.clients.create({
-        host,
-        port: this.timings.helperPort,
-        username: session.credentials.username,
-        password: session.credentials.password,
-        certPem: session.cert.certPem,
-        fingerprint256: session.cert.fingerprint256,
-      });
-      await this.waitForLogin(client, signal);
+      const items = await this.resolveItems(prepared);
+      const client = new RegistryUploadBackend(this.registry, game);
 
       const existing = remoteSizesOf(await listPlannedDirs(client, items, signal, this.engine.concurrency));
-      await this.confirmOverwrites(prepared, runId, existing, progress, signal);
+      await this.confirmOverwrites(items, prepared, runId, existing, progress, signal);
 
       progress.setPhase('uploading');
       await ensureDirs(client, items, signal);
@@ -354,12 +359,32 @@ export class FolderUploadService implements OnApplicationBootstrap {
     } catch (err) {
       terminal = err instanceof UploadCancelledError || signal.aborted
         ? { phase: 'cancelled', error: err instanceof ConfirmationTimeoutError ? err.message : undefined }
-        : { phase: 'failed', error: await this.withStopReason(errMessage(err), session) };
+        : { phase: 'failed', error: errMessage(err) };
       if (terminal.phase === 'failed') logger.warn('FolderUploadService: upload failed', { game, runId, error: terminal.error });
     } finally {
-      await this.releaseHelper(game, runId, client, session !== undefined);
+      this.registry.release(game, holder);
       this.finish(game, runId, progress, terminal);
     }
+  }
+
+  /**
+   * Maps the plan onto the live session's layout.
+   *
+   * @throws Error naming the volume when the session does not mount it, before anything is written.
+   */
+  private async resolveItems(prepared: PreparedRun): Promise<UploadItem[]> {
+    const { game, volume } = prepared;
+    const layout = await this.registry.withBackend(game, async (_backend, sessionLayout) => sessionLayout);
+    if (layout.usedFallback || !isVolumeMounted(layout, volume)) {
+      throw new Error(`Restart the file manager session to upload into '${volume}'.`);
+    }
+    return prepared.files.map((file) => ({
+      relPath: file.relPath,
+      localPath: file.localPath,
+      remotePath: toHelperPath(layout, volume, file.volumePath),
+      size: file.size,
+      mtimeMs: file.mtimeMs,
+    }));
   }
 
   /**
@@ -373,6 +398,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
    * no answer arrives within {@link FolderUploadTimings.confirmationTimeoutMs}.
    */
   private async confirmOverwrites(
+    items: UploadItem[],
     prepared: PreparedRun,
     runId: string,
     existing: Map<string, number>,
@@ -380,7 +406,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     signal: AbortSignal,
   ): Promise<void> {
     const { game } = prepared;
-    const summary = classifyUpload(prepared.items, existing);
+    const summary = classifyUpload(items, existing);
     const ownPartials = prepared.resumesOwnRun && summary.conflictCount <= this.engine.concurrency;
     if (summary.conflictCount === 0 || ownPartials) return;
 
@@ -439,67 +465,5 @@ export class FolderUploadService implements OnApplicationBootstrap {
     progress.stop();
     this.active.delete(game);
     logger.info('FolderUploadService: upload finished', { game, runId, phase: terminal.phase });
-  }
-
-  /** Closes the client and stops the helper (revoking its IP rule). Only stops a helper this run launched. */
-  private async releaseHelper(game: string, runId: string, client: VolumeFileBackend | undefined, launched: boolean): Promise<void> {
-    try {
-      await client?.close();
-    } catch (err) {
-      logger.warn('FolderUploadService: client close failed', { game, runId, error: errMessage(err) });
-    }
-    if (!launched) return;
-    try {
-      const result = await this.fileManager.stop(game);
-      if (!result.success) logger.warn('FolderUploadService: helper stop reported failure', { game, runId, message: result.message });
-    } catch (err) {
-      logger.error('FolderUploadService: helper stop threw', { game, runId, error: errMessage(err) });
-    }
-  }
-
-  /** Appends the helper container's ECS stop reason to `message` when the task died, so a mid-run failure names its cause. */
-  private async withStopReason(message: string, session: UploadHelperSession | undefined): Promise<string> {
-    if (!session || message.includes('stopped before it was reachable')) return message;
-    try {
-      const reason = await this.fileManager.getHelperStopReason(session.taskArn);
-      return reason ? `${message} (helper task stopped: ${reason})` : message;
-    } catch (err) {
-      logger.warn('FolderUploadService: could not read helper stop reason', { error: errMessage(err) });
-      return message;
-    }
-  }
-
-  /** Polls until the helper task exposes a public IP; a task that stopped first fails fast with ECS's reason. */
-  private async waitForHelperIp(game: string, runId: string, taskArn: string, signal: AbortSignal): Promise<string> {
-    const deadline = Date.now() + this.timings.helperIpTimeoutMs;
-    logger.info('FolderUploadService: waiting for helper public IP', { game, runId, taskArn });
-    for (;;) {
-      if (signal.aborted) throw new UploadCancelledError();
-      const ip = await this.fileManager.getHelperPublicIp(game, taskArn);
-      if (ip) {
-        logger.info('FolderUploadService: helper reachable at public IP', { game, runId, ip });
-        return ip;
-      }
-      if (Date.now() > deadline) {
-        logger.warn('FolderUploadService: helper never exposed a public IP', { game, runId, taskArn });
-        throw new Error('The file manager helper did not get a public IP in time.');
-      }
-      await abortableSleep(this.timings.pollMs, signal);
-    }
-  }
-
-  /** Retries login while the container boots; a certificate-pin failure aborts immediately (fail closed). */
-  private async waitForLogin(client: VolumeFileBackend, signal: AbortSignal): Promise<void> {
-    const deadline = Date.now() + this.timings.loginTimeoutMs;
-    for (;;) {
-      if (signal.aborted) throw new UploadCancelledError();
-      try {
-        await client.connect(signal);
-        return;
-      } catch (err) {
-        if (err instanceof PinMismatchError || Date.now() > deadline) throw err;
-        await abortableSleep(this.timings.pollMs, signal);
-      }
-    }
   }
 }

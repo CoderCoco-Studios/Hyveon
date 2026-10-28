@@ -482,7 +482,7 @@ export class HelperSessionRegistry {
   - `installHelperQuitHook(app: QuitApp, registry: Pick<HelperSessionRegistry, 'ownedGames' | 'stopAll'>, timeoutMs = 5000): void` where `QuitApp = { on(event: 'before-quit', fn: (e: { preventDefault(): void }) => void): void; quit(): void }`. With no owned games it does nothing (so `electron-clean-quit.spec.ts` is unaffected); otherwise `preventDefault()` once, `Promise.race([stopAll(), timeout])`, log the outcome, then `quit()`; a second `before-quit` passes through.
   - `electron-entry.ts` calls `installHelperQuitHook(app, nestApp.get(HelperSessionRegistry))` after bootstrap.
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `FolderUploadService`: `should reuse the browse session instead of refusing` — registry stub `status` → `running`; `startUpload` → `{ started: true }`; `acquire` called with holder `upload:<runId>`.
   - `should refuse with a restart message when an orphaned helper exists` — `{ started: false, error: expect.stringMatching(/already open.*Restart/) }`.
   - `should release its hold on success, failure and cancel` — three runs; `release` called with `upload:<runId>` each time.
@@ -490,10 +490,10 @@ export class HelperSessionRegistry {
   - `should exclude registry-owned games from the stray sweep` — `ownedGames` → `{'mc'}`; `sweepStrayHelpers` called with `activeGames` containing `'mc'`.
   - `helper-quit-hook`: `should not delay quit when no helpers are owned`; `should stop owned helpers before quitting` (`preventDefault` once, `stopAll` awaited, `quit` called once); `should quit after the timeout when stopAll never settles` (fake timers, `stopAll` never resolves, advance `5000` → `quit` called).
   - `FolderUpload.integration.test.ts`: wire a real `HelperSessionRegistry` with the stubbed `FileManagerService` and the real `FileBrowserClientFactory` against `startFakeFileBrowser`; existing scenarios (upload, resume, pin mismatch, overwrite) stay green, plus `should leave an existing browse session running after the upload` (pre-`acquire('mc','browse')`; after the run `fileManager.stop` not called).
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FolderUpload packages/desktop-main/src/helper-quit-hook.test.ts` → FAIL.
-- [ ] **Step 3: Implement**.
-- [ ] **Step 4: Run** → PASS; then `npm run app:test` → exit 0.
-- [ ] **Step 5: Commit** — `feat(desktop-main): share the helper session between browsing and folder upload`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FolderUpload packages/desktop-main/src/helper-quit-hook.test.ts` → FAIL.
+- [x] **Step 3: Implement**.
+- [x] **Step 4: Run** → PASS; then `npm run app:test` → exit 0.
+- [x] **Step 5: Commit** — `feat(desktop-main): share the helper session between browsing and folder upload`.
 
 ### Task 14: Tier-2 wiring test and PR 3 docs (tasks.md 3.8, 3.9)
 

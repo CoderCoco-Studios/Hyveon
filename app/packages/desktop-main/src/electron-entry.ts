@@ -4,8 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootstrap } from './main.js';
 import { electronRendererUrl, isTestMode } from './env.js';
+import { installHelperQuitHook } from './helper-quit-hook.js';
 import { initUpdater } from './updater.js';
 import { ElectronStoreService } from './services/ElectronStoreService.js';
+import { HelperSessionRegistry } from './services/volumeFiles/HelperSessionRegistry.js';
 import { WindowService } from './services/WindowService.js';
 
 // electron-vite injects __dirname for main-process entries, but we also
@@ -219,6 +221,8 @@ app.whenReady().then(() => {
       initUpdater(nestApp.get(ElectronStoreService)).catch((err: unknown) => {
         console.error('[desktop-main] updater init failed:', err);
       });
+
+      installHelperQuitHook(app, nestApp.get(HelperSessionRegistry));
 
       const windowService = nestApp.get(WindowService);
       windowService.attach(createWindow());

@@ -1,6 +1,7 @@
 /**
- * End-to-end run of {@link FolderUploadService} through the real {@link FileBrowserClientFactory} against an in-process
- * HTTPS fake of the FileBrowser helper. Only the AWS-facing collaborators are stubbed.
+ * End-to-end run of {@link FolderUploadService} through a real {@link HelperSessionRegistry} and
+ * {@link FileBrowserClientFactory} against an in-process HTTPS fake of the FileBrowser helper. Only the AWS-facing
+ * collaborators are stubbed.
  */
 import 'reflect-metadata';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -19,7 +20,9 @@ import { FolderScanService } from './FolderScanService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import type { EcsService } from './EcsService.js';
-import type { FileManagerService } from './FileManagerService.js';
+import type { FileManagerService, HelperLaunchOutcome } from './FileManagerService.js';
+import type { PublicIpService } from './PublicIpService.js';
+import { HelperSessionRegistry } from './volumeFiles/HelperSessionRegistry.js';
 import { FileBrowserClientFactory } from './folderUpload/FileBrowserClient.js';
 import { generateEphemeralCert, type EphemeralCert } from './folderUpload/ephemeralCert.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
@@ -57,6 +60,8 @@ async function run(options: {
   accessPoints?: Record<string, string>;
   include?: string[];
   destination?: string;
+  /** Open a browse session before the upload starts. */
+  browse?: boolean;
 }) {
   const pinned = await generateEphemeralCert();
   server = await startFakeFileBrowser({ cert: options.presentedCert ?? pinned, onUpload: options.onUpload, seed: options.seed });
@@ -65,16 +70,44 @@ async function run(options: {
     efsAccessPoints: { minecraft: 'fsap' },
     efsVolumeAccessPoints: { minecraft: options.accessPoints ?? { saves: 'fsap' } },
   });
-  const fm = {
-    planHelperLayout: vi.fn(async () => buildHelperVolumeLayout('minecraft', volumes, outputs)),
-    startForUpload: vi.fn().mockResolvedValue({
-      ok: true,
-      session: { taskArn: 't', runId: 'r', credentials: { username: 'admin', password: 'secret' }, cert: pinned },
-    }),
-    stop: vi.fn().mockResolvedValue({ success: true, message: '' }),
-    getStatus: vi.fn().mockResolvedValue({ game: 'minecraft', state: 'stopped' }),
-    getHelperPublicIp: vi.fn().mockResolvedValue('127.0.0.1'),
+  const layout = buildHelperVolumeLayout('minecraft', volumes, outputs);
+  const launched: HelperLaunchOutcome = {
+    ok: true,
+    taskArn: 't',
+    credentials: { username: 'admin', password: 'secret' },
+    cert: pinned,
+    operatorIp: '203.0.113.7',
+    startedAt: 0,
+    autoStopAt: 7_200_000,
+    scheduleWarning: '',
+    layout,
   };
+  /** Whether ECS reports a helper task; true once `launchHelper` runs and false again after `stop`. */
+  let helperTask = false;
+  const fm = {
+    planHelperLayout: vi.fn(async () => layout),
+    launchHelper: vi.fn(async () => {
+      helperTask = true;
+      return launched;
+    }),
+    listHelperTask: vi.fn(async () => (helperTask ? { taskArn: 't' } : null)),
+    stop: vi.fn(async () => {
+      helperTask = false;
+      return { success: true, message: '' };
+    }),
+    getHelperPublicIp: vi.fn().mockResolvedValue('127.0.0.1'),
+    getHelperStopReason: vi.fn().mockResolvedValue(null),
+    reauthorizeOperatorIp: vi.fn().mockResolvedValue(undefined),
+    sweepStrayHelpers: vi.fn(),
+  };
+  const registry = new HelperSessionRegistry(
+    fm as Partial<FileManagerService> as FileManagerService,
+    new FileBrowserClientFactory(),
+    { detect: vi.fn().mockResolvedValue('203.0.113.7') } as Partial<PublicIpService> as PublicIpService,
+  );
+  registry.timings.helperPort = server.port;
+  registry.timings.pollMs = 1;
+  if (options.browse) expect(await registry.acquire('minecraft', 'browse')).toEqual({ ok: true });
   const scans = new FolderScanService();
   const svc = new FolderUploadService(
     configServiceStub({ outputs }),
@@ -83,10 +116,8 @@ async function run(options: {
     fm as Partial<FileManagerService> as FileManagerService,
     scans,
     new ElectronStoreService(new SafeStorageService()),
-    new FileBrowserClientFactory(),
+    registry,
   );
-  svc.timings.helperPort = server.port;
-  svc.timings.pollMs = 1;
   svc.engine.sleep = async () => undefined;
   const progress: FolderUploadProgress[] = [];
   svc.onProgress((p) => {
@@ -97,7 +128,7 @@ async function run(options: {
   const res = await svc.startUpload({ game: 'minecraft', scanId: scan.scanId, include: options.include ?? ['Data'], destination: options.destination ?? '/data' });
   expect(res.started).toBe(true);
   await vi.waitFor(() => expect(['done', 'failed', 'cancelled']).toContain(progress.at(-1)?.phase));
-  return { svc, fm, progress, last: progress.at(-1)!, server };
+  return { svc, fm, registry, progress, last: progress.at(-1)!, server };
 }
 
 describe('folder upload against a fake FileBrowser helper', () => {
@@ -107,6 +138,15 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(r.server.files.get('/saves/Data/worlds/a.db')).toBe(200_000);
     expect(r.server.files.get('/saves/Data/b.txt')).toBe(5);
     expect(r.fm.stop).toHaveBeenCalledWith('minecraft');
+  });
+
+  it('should leave an existing browse session running after the upload', async () => {
+    const r = await run({ browse: true });
+    expect(r.last.phase).toBe('done');
+    expect(r.fm.launchHelper).toHaveBeenCalledTimes(1);
+    expect(r.fm.stop).not.toHaveBeenCalled();
+    expect((await r.registry.status('minecraft')).state).toBe('running');
+    await r.registry.stop('minecraft');
   });
 
   it('should write a second-volume upload into that volume and nothing into the first', async () => {
