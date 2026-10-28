@@ -59,7 +59,8 @@ The constraints are:
 1. every entry in `ports` (which MAY be empty) MUST use a protocol of either `tcp` or `udp`;
 2. no `ports` entry may use container port 80 or 443;
 3. no `ports` entry may reuse `webPort`'s container port with protocol `tcp`;
-4. the `webPort` rules of "An HTTPS-enabled game declares an explicit web port" apply.
+4. the `webPort` rules of "An HTTPS-enabled game declares an explicit web port" apply;
+5. across games, no game's `tcp` `ports` entry may equal another game's `webPort`, and no `webPort` may equal another game's `tcp` `ports` entry, because the shared security group would then expose that upstream directly and bypass Caddy.
 
 Each violation SHALL be reported with an issue path anchored to the offending field (`ports[N]` or `webPort`) so the Networking step can highlight it. There is no requirement that `ports` be non-empty or that its first entry use `tcp`.
 
@@ -82,6 +83,11 @@ Each violation SHALL be reported with an issue path anchored to the offending fi
 
 - **WHEN** a game config sets `https: true`, `webPort: 8080`, and a `ports` entry `{ container: 8080, protocol: "tcp" }`
 - **THEN** validation fails with an issue pathed at that entry stating the port is already the web port
+
+#### Scenario: Extra port collides with another game's web port
+
+- **WHEN** game A has `webPort: 30000` and game B declares a `ports` entry `{ container: 30000, protocol: "tcp" }` (or the edits are made in the opposite order)
+- **THEN** validation fails with an issue pathed at B's `ports` entry (or at A's `webPort`) naming the other game
 
 #### Scenario: Port with an unsupported protocol
 

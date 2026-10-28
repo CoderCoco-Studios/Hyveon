@@ -746,6 +746,52 @@ describe('validateGameServer', () => {
     });
   });
 
+  describe('webPort collisions across the deployment', () => {
+    it('should reject an extra tcp port equal to another game webPort, pathed at ports[N]', () => {
+      const foundry = makeExisting({ name: 'foundry', https: true, webPort: 30000, ports: [] });
+      const result = validateGameServer(
+        'other',
+        makeProposed({ ports: [{ container: 25565, protocol: 'tcp' }, { container: 30000, protocol: 'tcp' }] }),
+        [foundry],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'ports[1]' && i.message.includes('foundry'))).toBe(true);
+      }
+    });
+
+    it('should reject a webPort equal to another game extra tcp port, pathed at webPort', () => {
+      const other = makeExisting({ name: 'other', ports: [{ container: 30000, protocol: 'TCP', visibility: 'internal' }] });
+      const result = validateGameServer('foundry', makeProposed({ https: true, webPort: 30000, ports: [] }), [other]);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'webPort' && i.message.includes('other'))).toBe(true);
+      }
+    });
+
+    it('should accept the same number on a non-tcp protocol', () => {
+      const foundry = makeExisting({ name: 'foundry', https: true, webPort: 30000, ports: [] });
+      const result = validateGameServer(
+        'other',
+        makeProposed({ ports: [{ container: 30000, protocol: 'udp' }] }),
+        [foundry],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept two https games that share the same webPort', () => {
+      const foundry = makeExisting({ name: 'foundry', https: true, webPort: 30000, ports: [] });
+      const result = validateGameServer('wiki', makeProposed({ https: true, webPort: 30000, ports: [] }), [foundry]);
+      expect(result.success).toBe(true);
+    });
+
+    it('should not flag the entry being edited in place against its own stored webPort', () => {
+      const foundry = makeExisting({ name: 'foundry', https: true, webPort: 30000, ports: [] });
+      const result = validateGameServer('foundry', makeProposed({ https: true, webPort: 30000, ports: [] }), [foundry]);
+      expect(result.success).toBe(true);
+    });
+  });
+
   describe('health check', () => {
     it('should accept a healthCheck.port equal to the https webPort', () => {
       const result = validateGameServer(

@@ -818,6 +818,56 @@ function isCaddyReservedPort(port: GameServerPort): boolean {
   return isReservedHttpsPort(port.container) && port.protocol.toLowerCase() === 'tcp';
 }
 
+/** `true` for a `tcp` port entry (case-insensitively, like {@link portKey}). */
+function isTcpPort(port: GameServerPort): boolean {
+  return port.protocol.toLowerCase() === 'tcp';
+}
+
+/**
+ * Rejects a `tcp` extra port that equals ANOTHER game's `webPort`, in both edit orders. The
+ * security group is shared across games and rules union, so ingress for the extra port would
+ * also open the other game's Caddy upstream directly, bypassing the proxy. Same-game overlap is
+ * {@link checkHttpsPortRules}' job and is skipped here.
+ *
+ * @param name - The `game_servers` map key being validated; excluded from the sibling scan.
+ * @param ports - The proposed entry's structurally-valid `ports` list.
+ * @param webPort - The proposed entry's raw `webPort`; ignored unless it is a number.
+ * @param existingGameServers - Every other already-declared `game_servers` entry.
+ * @returns One issue per offending port, pathed at `ports[N]` or `webPort`.
+ */
+function checkWebPortCollisionsAcrossDeployment(
+  name: string,
+  ports: GameServerPort[],
+  webPort: unknown,
+  existingGameServers: GameServer[],
+): GameServerValidationIssue[] {
+  const issues: GameServerValidationIssue[] = [];
+  for (const existing of existingGameServers) {
+    if (existing.name === name) {
+      continue;
+    }
+    ports.forEach((port, index) => {
+      if (isTcpPort(port) && port.container === existing.webPort) {
+        issues.push({
+          path: `ports[${index}]`,
+          message: `Port ${port.container}/tcp is the webPort of game "${existing.name}"; the shared security group would expose its upstream directly, bypassing Caddy. Use a different port.`,
+        });
+      }
+    });
+    if (typeof webPort === 'number') {
+      for (const port of existing.ports) {
+        if (isTcpPort(port) && port.container === webPort) {
+          issues.push({
+            path: 'webPort',
+            message: `webPort ${webPort} collides with port ${port.container}/tcp on game "${existing.name}"; the shared security group would expose this game's upstream directly, bypassing Caddy. Use a different webPort or free that port on "${existing.name}".`,
+          });
+        }
+      }
+    }
+  }
+  return issues;
+}
+
 /**
  * Rejects container port 443 or 80 on protocol `tcp` for ANY game — https or not — when at least
  * one game in the whole deployment has `https: true`. Security-load-bearing: without this, a
@@ -1044,6 +1094,7 @@ export function validateGameServer(
       issues.push(...checkIcmpPortRules(portsResult.data));
     }
     issues.push(...checkReservedHttpsPortsAcrossDeployment(name, portsResult.data, isHttps, existingGameServers));
+    issues.push(...checkWebPortCollisionsAcrossDeployment(name, portsResult.data, webPort, existingGameServers));
   }
 
   if (issues.length > 0) {
