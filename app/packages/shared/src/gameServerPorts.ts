@@ -43,7 +43,7 @@ interface NormalizableGame {
  * Pure and idempotent. Games that are not legacy-shaped are returned as the
  * same reference. A legacy game whose `ports[0]` is not `tcp` (or has no
  * container yet) or a malformed game with no `ports` array is also returned untouched, so validation reports the
- * missing `webPort` instead of this function guessing. A reserved `ports[0]`
+ * missing `webPort` instead of this function guessing. A `null` `webPort` is a draft's "not entered yet", not legacy, so it is left alone. A reserved `ports[0]`
  * (80/443) is promoted as-is and rejected by the validator on save.
  *
  * @typeParam T - The game shape; returned as the same type.
@@ -52,7 +52,7 @@ interface NormalizableGame {
  * @deprecated Handles the legacy implicit-upstream (`ports[0]`) https shape only.
  */
 export function normalizeGameServer<T extends NormalizableGame>(game: T): T {
-  if (game.https !== true || (game.webPort !== undefined && game.webPort !== null)) {
+  if (game.https !== true || game.webPort !== undefined) {
     return game;
   }
   if (!Array.isArray(game.ports)) {

@@ -295,8 +295,10 @@ describe('diffDeploymentConfig', () => {
   });
 
   it('should not report a game as changed when only its key order differs', () => {
-    const game = buildHttpsGameServer();
-    const reordered = Object.fromEntries(Object.entries(game).reverse()) as unknown as GameServerConfig;
+    const game: GameServerConfig = { ...buildHttpsGameServer(), webPort: 8080 };
+    const { https, webPort, ...rest } = game;
+    const reordered: GameServerConfig = { webPort, https, ...rest };
+    expect(Object.keys(reordered)).not.toEqual(Object.keys(game));
     const previous: DeploymentConfig = { ...FULL_CONFIG, gameServers: { g: game } };
     const current: DeploymentConfig = { ...FULL_CONFIG, gameServers: { g: reordered } };
 

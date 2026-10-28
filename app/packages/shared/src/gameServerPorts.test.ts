@@ -27,6 +27,12 @@ describe('normalizeGameServer', () => {
     expect(normalizeGameServer(malformed)).toBe(malformed);
   });
 
+  it('should leave an https draft with a null webPort alone so its extra port rows survive', () => {
+    const draft = { https: true, webPort: null, ports: [{ container: 27015, protocol: 'tcp' }] };
+
+    expect(normalizeGameServer(draft)).toBe(draft);
+  });
+
   it('should promote ports[0] to webPort and keep the rest as extras for a legacy https game', () => {
     const legacy = makeGame({
       https: true,
