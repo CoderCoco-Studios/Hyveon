@@ -235,7 +235,8 @@ export class EcsService {
    * @param cluster - ECS cluster name.
    * @param game - Game whose `{game}-server` family is searched.
    * @returns The active task, or `null` when none is running.
-   * @throws A plain `Error` carrying only the failure message when ECS can't be queried.
+   * @throws A plain `Error` carrying only the failure message when ECS can't be queried, or when `DescribeTasks`
+   * reports a failure or omits any task `ListTasks` returned (the server state can't be confirmed).
    */
   async findRunningTaskOrThrow(cluster: string, game: string): Promise<Task | null> {
     logger.debug('EcsService.findRunningTaskOrThrow: looking up running task', { cluster, game });
@@ -248,6 +249,11 @@ export class EcsService {
       const descResp = await this.getClient().send(
         new DescribeTasksCommand({ cluster, tasks: listResp.taskArns }),
       );
+      const described = new Set((descResp.tasks ?? []).map((t) => t.taskArn));
+      if (descResp.failures?.length || listResp.taskArns.some((arn) => !described.has(arn))) {
+        const reasons = (descResp.failures ?? []).map((f) => f.reason).filter(Boolean).join(', ');
+        throw new Error(`Couldn't describe every running task for '${game}'${reasons ? ` (${reasons})` : ''}.`);
+      }
       return (
         descResp.tasks?.find(
           (t) => t.lastStatus !== 'STOPPED' && t.lastStatus !== 'DEPROVISIONING',
