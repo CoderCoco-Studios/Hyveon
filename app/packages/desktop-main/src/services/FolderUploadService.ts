@@ -23,7 +23,7 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { FileManagerService, UPLOAD_TAGS } from './FileManagerService.js';
 import { FolderScanService, type HeldScan } from './FolderScanService.js';
 import { isVolumeMounted, toHelperPath } from './volumeFiles/helperVolumeLayout.js';
-import { HelperSessionRegistry } from './volumeFiles/HelperSessionRegistry.js';
+import { HelperSessionRegistry, type AcquireResult } from './volumeFiles/HelperSessionRegistry.js';
 import { ProgressAggregator } from './folderUpload/ProgressAggregator.js';
 import { RegistryUploadBackend } from './folderUpload/RegistryUploadBackend.js';
 import {
@@ -336,7 +336,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     try {
       progress.setPhase('starting-helper');
       if (signal.aborted) throw new UploadCancelledError();
-      const opened = await this.rejectOnAbort(this.registry.acquire(game, holder, { tags: UPLOAD_TAGS, runId }), signal);
+      const opened = await this.acquireUnlessCancelled(game, holder, runId, signal);
       if (!opened.ok) throw new Error(opened.message);
       acquired = true;
 
@@ -366,6 +366,31 @@ export class FolderUploadService implements OnApplicationBootstrap {
     } finally {
       this.registry.release(game, holder);
       this.finish(game, runId, progress, terminal);
+    }
+  }
+
+  /**
+   * Acquires the run's session hold, rejecting with {@link UploadCancelledError} as soon as `signal` aborts.
+   *
+   * @remarks
+   * The registry cannot be aborted, and an acquire that waits out a teardown adds its holder only afterwards. When the
+   * run is cancelled first, the hold is released again as soon as that late acquire succeeds, so nothing keeps the
+   * session alive for a run that is already over.
+   */
+  private async acquireUnlessCancelled(game: string, holder: `upload:${string}`, runId: string, signal: AbortSignal): Promise<AcquireResult> {
+    const pending = this.registry.acquire(game, holder, { tags: UPLOAD_TAGS, runId });
+    try {
+      return await this.rejectOnAbort(pending, signal);
+    } catch (err) {
+      if (signal.aborted) {
+        void pending.then(
+          (result) => {
+            if (result.ok) this.registry.release(game, holder);
+          },
+          () => undefined,
+        );
+      }
+      throw err;
     }
   }
 

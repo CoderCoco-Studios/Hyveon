@@ -64,6 +64,8 @@ async function wire(options: {
   browse?: boolean;
   /** Holds the first helper launch until this settles, so a test can act while the session is still starting. */
   firstLaunchGate?: Promise<void>;
+  /** Holds every ECS stop until this settles, so a test can observe a session mid-teardown. */
+  stopGate?: Promise<void>;
 }) {
   const pinned = await generateEphemeralCert();
   server = await startFakeFileBrowser({ cert: options.presentedCert ?? pinned, onUpload: options.onUpload, seed: options.seed });
@@ -97,6 +99,7 @@ async function wire(options: {
     }),
     listHelperTask: vi.fn(async () => (helperTask ? { taskArn: 't' } : null)),
     stop: vi.fn(async () => {
+      await options.stopGate;
       helperTask = false;
       return { success: true, message: '' };
     }),
@@ -181,6 +184,24 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(w.server.files.get('/saves/Data/b.txt')).toBe(5);
     expect(w.fm.launchHelper).toHaveBeenCalledTimes(2);
     await w.registry.stop('minecraft');
+  });
+
+  it('should release a hold acquired after its run was cancelled while waiting out a teardown', async () => {
+    let openGate!: () => void;
+    const stopGate = new Promise<void>((resolve) => { openGate = resolve; });
+    const w = await wire({ browse: true, stopGate });
+    const stopping = w.registry.stop('minecraft');
+    await w.start();
+    await vi.waitFor(() => expect(w.progress.at(-1)?.phase).toBe('starting-helper'));
+    w.svc.cancel('minecraft');
+    await vi.waitFor(() => expect(w.progress.at(-1)?.phase).toBe('cancelled'));
+
+    openGate();
+    await stopping;
+    await vi.waitFor(() => expect(w.fm.launchHelper).toHaveBeenCalledTimes(2));
+
+    await vi.waitFor(() => expect(w.registry.ownedGames().size).toBe(0));
+    expect(w.fm.stop).toHaveBeenCalledTimes(2);
   });
 
   it('should write a second-volume upload into that volume and nothing into the first', async () => {
