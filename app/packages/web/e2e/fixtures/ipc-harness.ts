@@ -7,6 +7,8 @@ import type { INestApplicationContext, Type } from '@nestjs/common';
 import { AppModule } from '@hyveon/desktop-main/dist/app.module.js';
 import { PulumiService } from '@hyveon/desktop-main/dist/services/PulumiService.js';
 import { installEcsMock } from '@hyveon/desktop-main/dist/test-mocks/ecs-mock.js';
+import { installEc2Mock } from '@hyveon/desktop-main/dist/test-mocks/ec2-mock.js';
+import { installSchedulerMock } from '@hyveon/desktop-main/dist/test-mocks/scheduler-mock.js';
 import { mockStore } from '@hyveon/desktop-main/dist/test-mocks/mock-store.js';
 import type { MockResponse } from '@hyveon/desktop-main/dist/test-mocks/mock-store.js';
 import { PulumiServiceStub } from '@hyveon/desktop-main/dist/test-mocks/pulumi-mock.js';
@@ -74,7 +76,7 @@ export interface IpcHarness {
   get<TProvider>(token: Type<TProvider>): TProvider;
 
   /**
-   * `pushListTasks`/`pushDescribeTasks`/`pushRunTask`/`pushStopTask`/`reset`
+   * `pushListTasks`/`pushDescribeTasks`/`pushRunTask`/`pushStopTask`/`pushDescribeNetworkInterfaces`/`reset`
    * queue mock ECS SDK responses, consumed FIFO by the interceptor installed
    * via `installEcsMock()` — thin wrappers over the shared `mockStore` so
    * specs never need to know the HTTP-tier's `/api/test/mocks/*` control
@@ -86,6 +88,7 @@ export interface IpcHarness {
     pushDescribeTasks(response: MockResponse): void;
     pushRunTask(response: MockResponse): void;
     pushStopTask(response: MockResponse): void;
+    pushDescribeNetworkInterfaces(response: MockResponse): void;
     reset(): void;
     /**
      * The scriptable `PulumiService` stub substituted at this harness's DI
@@ -114,12 +117,14 @@ export interface IpcHarness {
  * injecting consumer, so no integration spec built through this harness can
  * reach a real Pulumi engine or real AWS.
  *
- * Also installs the ECS, run-record DynamoDB, and configuration-bucket S3
+ * Also installs the ECS, EC2, EventBridge Scheduler, run-record DynamoDB, and configuration-bucket S3
  * mock interceptors, resetting their backing stores first so a prior spec's
  * records never leak into a freshly built context.
  */
 export async function createIpcHarness(): Promise<IpcHarness> {
   installEcsMock();
+  installEc2Mock();
+  installSchedulerMock();
   runRecordMockStore.reset();
   installRunRecordDynamoMock();
   remoteFileStoreMockStore.reset();
@@ -156,6 +161,7 @@ export async function createIpcHarness(): Promise<IpcHarness> {
       pushDescribeTasks: (response) => mockStore.pushDescribeTasks(response),
       pushRunTask: (response) => mockStore.pushRunTask(response),
       pushStopTask: (response) => mockStore.pushStopTask(response),
+      pushDescribeNetworkInterfaces: (response) => mockStore.pushDescribeNetworkInterfaces(response),
       reset: () => mockStore.reset(),
       pulumi: pulumiStub,
     },

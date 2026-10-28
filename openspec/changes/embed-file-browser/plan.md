@@ -501,8 +501,8 @@ export class HelperSessionRegistry {
 - Create: `app/packages/web/e2e/integration-specs/helper-session.spec.ts`
 - Modify: `docs/docs/components/management-app.md`, `docs/docs/architecture.md` (through the `write-docs` skill)
 
-- [ ] **Step 1: Write the spec** using `{ test, expect }` from `./index.js`: resolve `HelperSessionRegistry` from the in-process container; script `ServerMocks` for one `RunTask`, `DescribeTasks` (RUNNING with an ENI), `DescribeNetworkInterfaces` (no public IP) and assert `should report starting while the helper has no public IP` via `registry.status('minecraft')`, and `should report orphaned for an unowned helper` by seeding a `filemgr-minecraft` task with no prior acquire.
-- [ ] **Step 2: Run** `npm run app:test:integration` → the new spec passes along with the existing ones (exit 0).
+- [x] **Step 1: Write the spec** using `{ test, expect }` from `./index.js`: resolve `HelperSessionRegistry` from the in-process container; script `ServerMocks` for one `RunTask`, `DescribeTasks` (RUNNING with an ENI), `DescribeNetworkInterfaces` (no public IP) and assert `should report starting while the helper has no public IP` via `registry.status('minecraft')`, and `should report orphaned for an unowned helper` by seeding a `filemgr-minecraft` task with no prior acquire.
+- [x] **Step 2: Run** `npm run app:test:integration` → the new spec passes along with the existing ones (exit 0).
 - [ ] **Step 3: Docs** — `write-docs` skill: registry, TLS for every helper session, upload reuse/Restart, quit hook, sweep exclusion (`management-app.md`); helper transport and the secrets boundary (`architecture.md`).
 - [ ] **Step 4: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration` → exit 0.
 - [ ] **Step 5: Commit** — `docs: document the helper session registry`. Open PR 3 with `/pr` (base: PR 2 branch).

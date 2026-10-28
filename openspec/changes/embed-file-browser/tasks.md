@@ -41,7 +41,7 @@ Execution is subagent-driven (plan.md).
 - [x] 3.5 Make `FolderUploadService` acquire/release a registry session (holder = run id) instead of `startForUpload` + `stop`. Replace the `helper-open` refusal with "reuse if registry-held, Restart if orphaned". Keep upload tags on helpers the upload launched. A forced session stop cancels the upload run.
 - [x] 3.6 Make `sweepStrayHelpers` skip helpers owned by a registry session as well as active runs.
 - [x] 3.7 Add a `before-quit` hook that stops registry-owned helpers with a bounded timeout, without blocking quit indefinitely, and without delaying quit when no helper is owned.
-- [ ] 3.8 Add unit tests: refcount, concurrent acquire, grace expiry and cancel-on-attach, stop with an active upload, quit, orphan, failed, IP re-authorization with re-tag, sweep exclusion. Add integration-tier wiring tests in the in-process Nest container.
+- [x] 3.8 Add unit tests: refcount, concurrent acquire, grace expiry and cancel-on-attach, stop with an active upload, quit, orphan, failed, IP re-authorization with re-tag, sweep exclusion. Add integration-tier wiring tests in the in-process Nest container.
 - [ ] 3.9 Docs: `docs/docs/components/management-app.md` (registry, TLS for all helper sessions) and `docs/docs/architecture.md` (helper transport, secrets boundary), via the `write-docs` skill.
 
 ## 4. PR 4 — `feat(app)`: volumeFiles IPC surface and preload API

@@ -12,7 +12,7 @@ export type { MockResponse };
 /**
  * Playwright-side helper that pushes queued responses directly into the
  * in-process {@link mockStore} singleton — no HTTP round-trip and no
- * BrowserWindow/page involved. Each method maps to one ECS command type.
+ * BrowserWindow/page involved. Each method maps to one ECS (or, for ENI lookups, EC2) command type.
  * Construct via the `serverMocks` fixture — it resets the store automatically
  * before and after every test.
  */
@@ -31,6 +31,9 @@ export class ServerMocks {
 
   /** Queue a response for the next StopTaskCommand call. */
   async pushStopTask(r: MockResponse): Promise<void> { mockStore.pushStopTask(r); }
+
+  /** Queue a response for the next EC2 DescribeNetworkInterfacesCommand call. */
+  async pushDescribeNetworkInterfaces(r: MockResponse): Promise<void> { mockStore.pushDescribeNetworkInterfaces(r); }
 }
 
 type IntegrationFixtures = {
