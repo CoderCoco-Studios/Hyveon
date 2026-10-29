@@ -80,6 +80,7 @@ describe('streamToFile with an existing neighbouring file', () => {
 
 describe('transferErrorMessage', () => {
   const names = { missing: '/a', existing: 'a' };
+  /** An error carrying a Node-style `code` (and optional `syscall`). */
   const coded = (code: string, syscall?: string) => Object.assign(new Error('x'), { code, ...(syscall && { syscall }) });
 
   it('should call Node file-system errors local', () => {
@@ -96,6 +97,7 @@ describe('transferErrorMessage', () => {
   });
 });
 
+/** A registry snapshot for game `mc` in `state`, with a browse hold and no volumes. */
 const snapshot = (state: HelperSessionSnapshot['state']): HelperSessionSnapshot => ({
   game: 'mc',
   state,
@@ -105,6 +107,7 @@ const snapshot = (state: HelperSessionSnapshot['state']): HelperSessionSnapshot 
   volumes: [],
 });
 
+/** Builds a {@link TransferManager} over a registry stub and collects every event it emits. */
 function managerHarness(state: HelperSessionSnapshot['state'] = 'running') {
   const registry = {
     status: vi.fn().mockResolvedValue(snapshot(state)),
@@ -117,6 +120,7 @@ function managerHarness(state: HelperSessionSnapshot['state'] = 'running') {
   return { manager, registry, events };
 }
 
+/** A {@link TransferSpec} that moves 10 bytes and succeeds, with `over` applied. */
 const spec = (over: Partial<TransferSpec> = {}): TransferSpec => ({
   game: 'mc',
   kind: 'download',
@@ -127,7 +131,9 @@ const spec = (over: Partial<TransferSpec> = {}): TransferSpec => ({
   ...over,
 });
 
+/** The most recent event, if any. */
 const last = (events: VolumeTransferProgress[]) => events.at(-1);
+/** Waits for a `done`, `failed` or `cancelled` event and returns it. */
 const terminal = async (events: VolumeTransferProgress[]) => {
   await vi.waitFor(() => expect(['done', 'failed', 'cancelled']).toContain(last(events)?.phase));
   return last(events)!;

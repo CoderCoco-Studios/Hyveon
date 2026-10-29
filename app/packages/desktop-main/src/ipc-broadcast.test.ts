@@ -5,6 +5,7 @@ vi.mock('electron', () => ({ BrowserWindow: { getAllWindows: () => windows.list 
 
 import { forwardToWindows } from './ipc-broadcast.js';
 
+/** A fake browser window; `destroyed` drives `isDestroyed()`. */
 const win = (destroyed: boolean) => ({ isDestroyed: () => destroyed, webContents: { send: vi.fn() } });
 
 /** Runs `fn` with `process.versions.electron` set to `value`. */

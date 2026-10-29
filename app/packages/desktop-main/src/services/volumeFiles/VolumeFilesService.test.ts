@@ -315,6 +315,7 @@ describe('VolumeFilesService mutations', () => {
 });
 
 describe('VolumeFilesService text files', () => {
+  /** Builds a harness whose file stats at `size` and streams `content`, for the text-editor tests. */
   const textBackend = (size: number, content: Buffer | Readable, over: Partial<VolumeStat> = {}) =>
     harness({ stat: vi.fn().mockResolvedValue(stat({ size, ...over })), readStream: vi.fn().mockResolvedValue(content instanceof Readable ? content : Readable.from([content])) });
 
@@ -667,6 +668,7 @@ function watchTransfers(h: Harness) {
 }
 
 describe('VolumeFilesService downloads', () => {
+  /** Backend overrides for a file of `text` that stats and streams it. */
   const fileBackend = (text = 'hello') => ({
     stat: vi.fn().mockResolvedValue(stat({ name: 'level.dat', size: text.length })),
     readStream: vi.fn().mockImplementation(async () => Readable.from([Buffer.from(text)])),
@@ -845,8 +847,10 @@ function layoutFor(ref: VolumeRef): HelperVolumeLayout {
 }
 
 describe('VolumeFilesService file uploads', () => {
+  /** A `stat` that rejects `not-found`, so every upload target looks free. */
   const missing = () => vi.fn().mockRejectedValue(new VolumeFileError('not-found', 'stat failed (404)', 404));
 
+  /** Writes `text` to a new file called `name` in the temp directory and returns its path. */
   async function localFile(name: string, text: string): Promise<string> {
     const path = join(local, name);
     await writeFile(path, text);
@@ -1175,6 +1179,22 @@ describe('VolumeFilesService folder uploads', () => {
     h.dialogs.pickDirectory.mockResolvedValue('/p');
     await service.uploadFolder(SAVES, '/x');
     expect(h.folderUploads.startUpload).toHaveBeenCalledWith(expect.objectContaining({ destination: '/x' }), expect.anything());
+  });
+
+  it("should upload into the root of a volume mounted at '/'", async () => {
+    const h = harness();
+    const service = new VolumeFilesService(
+      h.registry as Partial<HelperSessionRegistry> as HelperSessionRegistry,
+      h.config as Partial<ConfigService> as ConfigService,
+      h.ecs as Partial<EcsService> as EcsService,
+      h.dialogs as Partial<NativeDialogService> as NativeDialogService,
+      h.scans as Partial<FolderScanService> as FolderScanService,
+      h.folderUploads as Partial<FolderUploadService> as FolderUploadService,
+      deploymentConfigStub({ declared: [gameServer('mc', { volumes: [{ name: 'saves', container_path: '/' }] })] }) as DeploymentConfigService,
+    );
+    h.dialogs.pickDirectory.mockResolvedValue('/p');
+    expect(await service.uploadFolder(SAVES, '/')).toMatchObject({ ok: true });
+    expect(h.folderUploads.startUpload).toHaveBeenCalledWith(expect.objectContaining({ destination: '/' }), expect.anything());
   });
 
   it('should refuse before the dialog while the server is running', async () => {

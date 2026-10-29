@@ -267,6 +267,7 @@ describe('preload dispatcher', () => {
         onSession: (cb: (s: unknown) => void) => () => void;
         onTransfer: (cb: (p: unknown) => void) => () => void;
       };
+      /** The `volumeFiles` namespace of the exposed bridge. */
       const api = (): VolumeFilesBridge => bridge['volumeFiles'] as VolumeFilesBridge;
 
       it.each([

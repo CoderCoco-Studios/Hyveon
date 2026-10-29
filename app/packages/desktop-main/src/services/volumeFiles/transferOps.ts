@@ -246,7 +246,7 @@ export class TransferOps {
       const server = (await this.deploymentConfig.getGameServers()).find((g) => g.name === ref.game);
       const volume = server?.volumes.find((v) => v.name === ref.volume);
       if (!server || !volume) return logRefusal(ref, dir, fail('unknown-volume', `'${ref.volume}' is not a volume of '${ref.game}'.`));
-      const destination = volume.container_path.replace(/\/+$/, '') + (cleanDir === '/' ? '' : cleanDir);
+      const destination = volume.container_path.replace(/\/+$/, '') + (cleanDir === '/' ? '' : cleanDir) || '/';
       const owner = validateDestination(destination, server.volumes);
       if (!owner.ok || owner.volume.name !== ref.volume) {
         return logRefusal(ref, dir, fail('unknown-volume', `That folder belongs to another volume of '${ref.game}'.`));
