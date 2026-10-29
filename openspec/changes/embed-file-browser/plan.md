@@ -681,7 +681,7 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
 - [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-preload/src/preload.test.ts` → FAIL.
 - [x] **Step 3: Implement**; add bridge entries.
 - [x] **Step 4: Run** → PASS.
-- [ ] **Step 5: Docs** — `write-docs`: `volumeFiles.*` rows and the two push channels in `management-app.md`.
+- [x] **Step 5: Docs** — `write-docs`: `volumeFiles.*` rows and the two push channels in `management-app.md`.
 - [ ] **Step 6: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration && npm run app:test:e2e` → exit 0.
 - [ ] **Step 7: Commit** — `feat(desktop-preload): add the volumeFiles bridge`. Open PR 4 with `/pr` (base: PR 3 branch).
 

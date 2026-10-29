@@ -54,7 +54,7 @@ Execution is subagent-driven (plan.md).
 - [x] 4.6 Add `VolumeFilesController` with `@MessagePattern` handlers (including `volumeFiles.session.attach|detach`), each logging on entry with safe identifiers only, and an electron-bootstrap guard per the existing controller pattern.
 - [x] 4.7 Add the preload `window.hyveon.volumeFiles` API and event subscriptions, with `uploadDropped(game, volume, dir, files)` resolving `webUtils.getPathForFile` inside the preload so renderer code never handles local path strings, and wire everything through the `__test.mock` seam.
 - [x] 4.8 Add tests: service unit tests (validation, unknown volume, read-only refusal, fail-closed refusal, text limits, conflict, download partial-file cleanup, no secret fields in any result), controller tests, and a preload bridge test.
-- [ ] 4.9 Docs: `docs/docs/components/management-app.md` IPC channel table.
+- [x] 4.9 Docs: `docs/docs/components/management-app.md` IPC channel table.
 
 ## 5. PR 5 — `feat(web)`: in-app file browser page replaces the external link
 
