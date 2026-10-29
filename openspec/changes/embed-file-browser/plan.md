@@ -586,7 +586,7 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
   - `writeText`: `Buffer.byteLength(content) > MAX_TEXT_EDIT_BYTES` → `too-large`; `stat.modifiedMs !== expectedModifiedMs` → `conflict` ("The file changed on the volume since you opened it."); success returns the new `modifiedMs`.
   - Snapshot → `VolumeSessionStatus` maps epoch ms to ISO strings.
 
-- [ ] **Step 1: Write the failing tests** (registry stub whose `withBackend` invokes `op(fakeBackend(...))`):
+- [x] **Step 1: Write the failing tests** (registry stub whose `withBackend` invokes `op(fakeBackend(...))`):
   - `should reject a traversal path without contacting the backend` — `list({ game: 'mc', volume: 'saves' }, '/a/../b')` → `{ ok: false, code: 'invalid-path' }`; backend not called.
   - `should reject a new folder name containing a slash` — `mkdir(ref, '/', 'a/b')` → `invalid-path`.
   - `should reject a volume the session did not mount` — layout mounts only `config`; `list({ game: 'mc', volume: 'saves' }, '/')` → `unknown-volume`; backend not called.
@@ -601,10 +601,10 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
   - `should save and return the new modification time` — `writeStream` called with `overwrite: true`; result `{ ok: true, value: { modifiedMs: <post-write stat> } }`.
   - `should return no-session when nothing is running` — `withBackend` rejects `new NoSessionError('mc')` → `no-session`.
   - `should carry no secret fields in any result` — run every method once; `expectNoSecretFields` on each result and on `sessionStatus`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles/VolumeFilesService.test.ts` → FAIL.
-- [ ] **Step 3: Implement**; `toVolumeResult` maps Task 12's `NoSessionError` to `no-session` before the generic `VolumeFileError` branch.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `feat(desktop-main): add VolumeFilesService file operations`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles/VolumeFilesService.test.ts` → FAIL.
+- [x] **Step 3: Implement**; `toVolumeResult` maps Task 12's `NoSessionError` to `no-session` before the generic `VolumeFileError` branch.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `feat(desktop-main): add VolumeFilesService file operations`.
 
 ### Task 18: Downloads and uploads (tasks.md 4.4, 4.5, 4.8)
 
