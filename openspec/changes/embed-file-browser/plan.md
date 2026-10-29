@@ -656,15 +656,15 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
 - Push channels `VOLUME_FILES_SESSION_CHANNEL` (registry `onState` → snapshot mapped to `VolumeSessionStatus`) and `VOLUME_FILES_TRANSFER_CHANNEL` (service `onTransfer`), forwarded in `onModuleInit` behind `if (!process.versions.electron) return;` exactly like `FolderUploadController.onModuleInit`.
 - Every handler's first line: `logger.debug('VolumeFilesController: <channel> invoked', { game })` (plus `volume` and `path` for path-carrying channels; never `content` or `localPaths`). Payload shape guarded with `isNonEmptyString` from `controllers/validation.ts`; a malformed payload returns `{ ok: false, code: 'invalid-path', message: 'Invalid request.' }`.
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `should register every volumeFiles channel` — `expectChannels(VolumeFilesController.prototype, [...rows])` from `testing/message-pattern.test-utils.ts` for all 16 channels.
   - `should log each invocation with the game and without file content` — `writeText` with `content: 'SECRET-CONTENT'` → `logger.debug` called with `'VolumeFilesController: volumeFiles.writeText invoked'` and an object not containing `'SECRET-CONTENT'`.
   - `should reject a malformed payload` — `list({ game: 'mc', path: '/' })` (no `volume`) → `invalid-path`.
   - `should not forward events outside Electron` — `onModuleInit` with `process.versions.electron` undefined → registry `onState` not subscribed.
   - `should return results free of secret fields` — `expectNoSecretFields` over each delegated result.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/controllers/volume-files.controller.test.ts` → FAIL.
-- [ ] **Step 3: Implement**, **Step 4: run** → PASS.
-- [ ] **Step 5: Commit** — `feat(desktop-main): expose volumeFiles over IPC`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/controllers/volume-files.controller.test.ts` → FAIL.
+- [x] **Step 3: Implement**, **Step 4: run** → PASS.
+- [x] **Step 5: Commit** — `feat(desktop-main): expose volumeFiles over IPC`.
 
 ### Task 20: Preload `window.hyveon.volumeFiles` and docs (tasks.md 4.7, 4.8, 4.9)
 

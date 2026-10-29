@@ -23,7 +23,7 @@ import { stackOutputs } from '../../testing/stack-outputs.fixture.js';
 import { buildHelperVolumeLayout, type HelperVolumeLayout } from './helperVolumeLayout.js';
 import { HelperSessionRegistry, NoSessionError, type HelperSessionSnapshot } from './HelperSessionRegistry.js';
 import { VolumeFileError, type VolumeStat } from './VolumeFileBackend.js';
-import { METADATA_OP_TIMEOUT_MS, VolumeFilesService } from './VolumeFilesService.js';
+import { failedSessionStatus, METADATA_OP_TIMEOUT_MS, VolumeFilesService } from './VolumeFilesService.js';
 
 const SAVES: VolumeRef = { game: 'mc', volume: 'saves' };
 const ACCESS_POINTS = { efsAccessPoints: { mc: 'fsap-c' }, efsVolumeAccessPoints: { mc: { config: 'fsap-c', saves: 'fsap-s' } } };
@@ -56,7 +56,7 @@ const stat = (over: Partial<VolumeStat> = {}): VolumeStat => ({
 interface Harness {
   service: VolumeFilesService;
   backend: FakeBackend;
-  registry: { [K in 'withBackend' | 'status' | 'acquire' | 'attach' | 'release' | 'stop' | 'onBeforeStop']: ReturnType<typeof vi.fn> };
+  registry: { [K in 'withBackend' | 'status' | 'acquire' | 'attach' | 'release' | 'stop' | 'onBeforeStop' | 'onState']: ReturnType<typeof vi.fn> };
   dialogs: { pickSavePath: ReturnType<typeof vi.fn>; pickFiles: ReturnType<typeof vi.fn>; pickDirectory: ReturnType<typeof vi.fn> };
   scans: { scan: ReturnType<typeof vi.fn> };
   folderUploads: { startUpload: ReturnType<typeof vi.fn> };
@@ -76,6 +76,7 @@ function harness(backendOverrides: Parameters<typeof fakeBackend>[0] = {}, layou
     attach: vi.fn().mockReturnValue(true),
     release: vi.fn(),
     stop: vi.fn().mockResolvedValue({ success: true, message: 'stopped' }),
+    onState: vi.fn(() => () => undefined),
     onBeforeStop: vi.fn((listener: (game: string) => void) => {
       beforeStop = listener;
       return () => undefined;
@@ -479,6 +480,32 @@ describe('VolumeFilesService sessions', () => {
       game: 'mc',
       state: 'failed',
       error: 'ecs lookup failed',
+      browseHeld: false,
+      uploadHolders: 0,
+      supportsArchive: false,
+      volumes: [],
+    });
+  });
+
+  it('should push registry state changes as the mapped public status', () => {
+    const h = harness();
+    const unsubscribe = () => undefined;
+    let emit: (s: HelperSessionSnapshot) => void = () => undefined;
+    h.registry.onState.mockImplementation((listener: (s: HelperSessionSnapshot) => void) => {
+      emit = listener;
+      return unsubscribe;
+    });
+    const received: unknown[] = [];
+    expect(h.service.onSession((status) => received.push(status))).toBe(unsubscribe);
+    emit(snapshot());
+    expect(received).toEqual([expect.objectContaining({ game: 'mc', startedAt: '2026-01-02T03:04:05.000Z' })]);
+  });
+
+  it('should build a failed status with no volumes', () => {
+    expect(failedSessionStatus('mc', 'nope')).toEqual({
+      game: 'mc',
+      state: 'failed',
+      error: 'nope',
       browseHeld: false,
       uploadHolders: 0,
       supportsArchive: false,

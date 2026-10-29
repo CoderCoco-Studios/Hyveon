@@ -49,6 +49,16 @@ function toSessionStatus(s: HelperSessionSnapshot): VolumeSessionStatus {
 }
 
 /**
+ * A `failed` session status with no volumes, for lookups that could not produce a real snapshot.
+ *
+ * @param game - Game the status describes.
+ * @param error - Operator-safe reason.
+ */
+export function failedSessionStatus(game: string, error: string): VolumeSessionStatus {
+  return { game, state: 'failed', error, browseHeld: false, uploadHolders: 0, supportsArchive: false, volumes: [] };
+}
+
+/**
  * The operator-facing file and session operations behind the `volumeFiles.*` IPC channels.
  *
  * @remarks
@@ -88,8 +98,18 @@ export class VolumeFilesService {
     } catch (err) {
       const error = errMessage(err);
       logger.warn('VolumeFilesService: session status unavailable', { game, error });
-      return { game, state: 'failed', error, browseHeld: false, uploadHolders: 0, supportsArchive: false, volumes: [] };
+      return failedSessionStatus(game, error);
     }
+  }
+
+  /**
+   * Subscribes to session state changes, mapped to the renderer-visible status.
+   *
+   * @param listener - Called for every state change of every game's session.
+   * @returns The unsubscribe function.
+   */
+  onSession(listener: (status: VolumeSessionStatus) => void): () => void {
+    return this.registry.onState((snapshot) => listener(toSessionStatus(snapshot)));
   }
 
   /**
