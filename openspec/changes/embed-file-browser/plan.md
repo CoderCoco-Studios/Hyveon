@@ -778,8 +778,8 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
 - [x] **Step 2: Write the electron smoke spec**: `should render the files route and call volumeFiles.session.start on Start` (`__test.mock('volumeFiles.session.status', …stopped…)`, record calls to `volumeFiles.session.start`).
 - [x] **Step 3: Run** `npm run app:test:e2e` → exit 0 (both projects).
 - [x] **Step 4: Docs** — `write-docs`: the files page, session behaviour (Start, grace stop, quit, auto-stop warning), the read-only rule, and the removal of the external link/password in `dashboard.md` and `games.md`; screenshots only if `e2e/screenshots/capture.spec.ts` covers these pages.
-- [ ] **Step 5: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:e2e` → exit 0.
-- [ ] **Step 6: Commit** — `docs: document the in-app file browser`. Open PR 5 with `/pr` (base: PR 4 branch).
+- [x] **Step 5: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:e2e` → exit 0.
+- [x] **Step 6: Commit** — `docs: document the in-app file browser`. Open PR 5 with `/pr` (base: PR 4 branch).
 
 ---
 
