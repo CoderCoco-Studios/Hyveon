@@ -89,6 +89,12 @@ export function useVolumeFiles(game: string, volume: string | null, enabled: boo
     else setFailure({ scope, message: result.message });
   }, [canList, game, volume, path, scope]);
 
+  // Mutations resolve later than the render that started them; they must refresh the current path, not their own.
+  const refreshRef = useRef(refresh);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  });
+
   useEffect(() => {
     void (async () => {
       await refresh();
@@ -105,10 +111,10 @@ export function useVolumeFiles(game: string, volume: string | null, enabled: boo
       const result = await settleVolumeResult(() => operation(volume));
       if (!mountedRef.current) return result;
       if (!result.ok) setFailure({ scope, message: result.message });
-      else if (refreshOnSuccess) await refresh();
+      else if (refreshOnSuccess) await refreshRef.current();
       return result;
     },
-    [volume, scope, refresh],
+    [volume, scope],
   );
 
   const open = useCallback(

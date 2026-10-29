@@ -148,4 +148,49 @@ describe('useVolumeSession', () => {
     expect(result.current.status).toBeNull();
     expect(apiMock.volumeSessionDetach).toHaveBeenCalledWith('minecraft');
   });
+
+  it('should keep the new game status when the old game attach resolves late', async () => {
+    let resolveOld: (status: VolumeSessionStatus) => void = () => undefined;
+    apiMock.volumeSessionAttach.mockImplementation((game: string) =>
+      game === 'minecraft' ? new Promise((resolve) => (resolveOld = resolve)) : Promise.resolve(makeSessionStatus({ game })),
+    );
+    const { result, rerender } = renderHook(({ game }) => useVolumeSession(game), {
+      wrapper,
+      initialProps: { game: 'minecraft' },
+    });
+
+    rerender({ game: 'palworld' });
+    await waitFor(() => expect(result.current.status?.game).toBe('palworld'));
+    await act(async () => {
+      resolveOld(makeSessionStatus({ game: 'minecraft', state: 'failed' }));
+    });
+
+    expect(result.current.status?.game).toBe('palworld');
+    expect(result.current.status?.state).toBe('running');
+  });
+
+  it('should drop an old game action result that resolves after the game changed', async () => {
+    let resolveStop: (value: unknown) => void = () => undefined;
+    apiMock.volumeSessionAttach.mockImplementation(async (game: string) => makeSessionStatus({ game }));
+    apiMock.volumeSessionStop.mockReturnValue(new Promise((resolve) => (resolveStop = resolve)));
+    const { result, rerender } = renderHook(({ game }) => useVolumeSession(game), {
+      wrapper,
+      initialProps: { game: 'minecraft' },
+    });
+    await waitFor(() => expect(result.current.status?.game).toBe('minecraft'));
+    let stopping: Promise<void> = Promise.resolve();
+    act(() => {
+      stopping = result.current.stop();
+    });
+
+    rerender({ game: 'palworld' });
+    await waitFor(() => expect(result.current.status?.game).toBe('palworld'));
+    await act(async () => {
+      resolveStop({ ok: false, code: 'failed', message: 'old game failure' });
+      await stopping;
+    });
+
+    expect(result.current.status?.game).toBe('palworld');
+    expect(result.current.error).toBeNull();
+  });
 });

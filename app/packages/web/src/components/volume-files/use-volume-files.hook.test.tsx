@@ -218,4 +218,69 @@ describe('useVolumeFiles', () => {
     expect(result.current.transfers.map((t) => t.transferId)).toEqual(['u1']);
     await waitFor(() => expect(apiMock.volumeList).toHaveBeenCalledOnce());
   });
+
+  it('should refresh the current directory when a mutation started in another directory resolves', async () => {
+    const { result } = await renderLoaded([makeDirEntry('B'), makeFileEntry('x')]);
+    let resolveRemove: (value: { ok: true; value: true }) => void = () => undefined;
+    apiMock.volumeRemove.mockReturnValue(new Promise((resolve) => (resolveRemove = resolve)));
+    apiMock.volumeList.mockImplementation(async (_game: string, _volume: string, path: string) => ({
+      ok: true,
+      value: { path, entries: path === '/B' ? [makeFileEntry('in-b.txt')] : [makeDirEntry('B')] },
+    }));
+
+    let removal: Promise<unknown> = Promise.resolve();
+    act(() => {
+      removal = result.current.remove('/x');
+    });
+    act(() => result.current.open('/B'));
+    await waitFor(() => expect(result.current.listing?.map((e) => e.name)).toEqual(['in-b.txt']));
+    await act(async () => {
+      resolveRemove({ ok: true, value: true });
+      await removal;
+    });
+
+    expect(result.current.path).toBe('/B');
+    expect(result.current.listing?.map((e) => e.name)).toEqual(['in-b.txt']);
+    expect(apiMock.volumeList).toHaveBeenLastCalledWith('minecraft', 'data', '/B');
+  });
+
+  it('should discard a listing that resolves after the path has changed', async () => {
+    let resolveRoot: (value: unknown) => void = () => undefined;
+    apiMock.volumeList.mockImplementation((_game: string, _volume: string, path: string) =>
+      path === '/'
+        ? new Promise((resolve) => (resolveRoot = resolve))
+        : Promise.resolve({ ok: true, value: { path, entries: [makeFileEntry('in-b.txt')] } }),
+    );
+    const { result } = renderHook(() => useVolumeFiles('minecraft', 'data', true));
+
+    act(() => result.current.open('/B'));
+    await waitFor(() => expect(result.current.listing?.map((e) => e.name)).toEqual(['in-b.txt']));
+    await act(async () => {
+      resolveRoot({ ok: true, value: { path: '/', entries: [makeFileEntry('stale.txt')] } });
+    });
+
+    expect(result.current.listing?.map((e) => e.name)).toEqual(['in-b.txt']);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('should discard a listing and error that resolve after the volume has changed', async () => {
+    let resolveData: (value: unknown) => void = () => undefined;
+    apiMock.volumeList.mockImplementation((_game: string, volume: string, path: string) =>
+      volume === 'data'
+        ? new Promise((resolve) => (resolveData = resolve))
+        : Promise.resolve({ ok: true, value: { path, entries: [makeFileEntry('mods.txt')] } }),
+    );
+    const { result, rerender } = renderHook(({ volume }) => useVolumeFiles('minecraft', volume, true), {
+      initialProps: { volume: 'data' },
+    });
+
+    rerender({ volume: 'mods' });
+    await waitFor(() => expect(result.current.listing?.map((e) => e.name)).toEqual(['mods.txt']));
+    await act(async () => {
+      resolveData({ ok: false, code: 'unreachable', message: 'stale failure' });
+    });
+
+    expect(result.current.listing?.map((e) => e.name)).toEqual(['mods.txt']);
+    expect(result.current.error).toBeNull();
+  });
 });

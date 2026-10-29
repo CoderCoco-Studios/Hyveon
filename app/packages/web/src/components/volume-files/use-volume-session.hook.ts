@@ -40,29 +40,33 @@ export function useVolumeSession(game: string): VolumeSession {
   // Keyed by game so switching games never shows the previous game's status or error.
   const [snapshot, setSnapshot] = useState<{ game: string; status: VolumeSessionStatus } | null>(null);
   const [failure, setFailure] = useState<{ game: string; message: string } | null>(null);
-  const mountedRef = useRef(true);
+  // Names the game this hook is currently attached to (`null` once unmounted), so a late result for a game the hook
+  // has since left is dropped even though the hook itself is still mounted. Re-armed in the effect body for StrictMode.
+  const activeGameRef = useRef<string | null>(null);
+
+  const isActive = useCallback(() => activeGameRef.current === game, [game]);
 
   const applyStatus = useCallback(
     (next: VolumeSessionStatus) => {
-      if (mountedRef.current && next.game === game) setSnapshot({ game, status: next });
+      if (isActive() && next.game === game) setSnapshot({ game, status: next });
     },
-    [game],
+    [game, isActive],
   );
 
   useEffect(() => {
-    mountedRef.current = true;
+    activeGameRef.current = game;
     const unsubscribe = api.volumeOnSession(applyStatus);
     void settleVolumeResult(async () => ({ ok: true, value: await api.volumeSessionAttach(game) })).then((result) => {
-      if (!mountedRef.current) return;
+      if (!isActive()) return;
       if (result.ok) applyStatus(result.value);
       else setFailure({ game, message: result.message });
     });
     return () => {
-      mountedRef.current = false;
+      activeGameRef.current = null;
       unsubscribe();
       void api.volumeSessionDetach(game).catch(() => undefined);
     };
-  }, [game, applyStatus]);
+  }, [game, applyStatus, isActive]);
 
   const status = snapshot?.game === game ? snapshot.status : null;
 
@@ -76,11 +80,11 @@ export function useVolumeSession(game: string): VolumeSession {
     async (action: () => Promise<VolumeResult<VolumeSessionStatus>>) => {
       setFailure(null);
       const result = await settleVolumeResult(action);
-      if (!mountedRef.current) return;
+      if (!isActive()) return;
       if (result.ok) applyStatus(result.value);
       else setFailure({ game, message: result.message });
     },
-    [game, applyStatus],
+    [game, applyStatus, isActive],
   );
 
   const start = useCallback(
