@@ -10,8 +10,14 @@ import { PublicIpService } from '../PublicIpService.js';
 import type { HelperVolumeLayout } from './helperVolumeLayout.js';
 import { VolumeFileError, type VolumeFileBackend } from './VolumeFileBackend.js';
 
-/** Who is keeping a helper session alive: the file-browser page, or one folder-upload run. */
-export type HelperHolder = 'browse' | `upload:${string}`;
+/**
+ * Who is keeping a helper session alive: the file-browser page, a write (a folder-upload run or an upload transfer), or
+ * a read-only download transfer. Every holder keeps the session alive; only `upload:` holders also refuse a game start.
+ */
+export type HelperHolder = 'browse' | `upload:${string}` | `download:${string}`;
+
+/** Whether `holder` writes to the volume, so a game must not start while it is held. */
+const isUploadHolder = (holder: HelperHolder): boolean => holder.startsWith('upload:');
 
 /** Lifecycle of one game's helper session as reported to callers. */
 export type HelperSessionState = VolumeSessionState;
@@ -361,9 +367,10 @@ export class HelperSessionRegistry {
   }
 
   /**
-   * Whether an upload (a volume-files transfer or a folder-upload run) currently holds `game`'s session.
+   * Whether an upload (a volume-files upload transfer or a folder-upload run) currently holds `game`'s session.
    *
    * @remarks
+   * Browse and download holds do not count: they only read, so a game may start while they remain.
    * A session that is stopping reports `false`: its transfers are already cancelled and its helper is going away, so
    * nothing is still writing to the volume.
    *
@@ -372,7 +379,7 @@ export class HelperSessionRegistry {
   hasUploadHolders(game: string): boolean {
     const entry = this.entries.get(game);
     if (!entry || entry.state === 'stopping') return false;
-    return [...entry.holders].some((holder) => holder !== 'browse');
+    return [...entry.holders].some(isUploadHolder);
   }
 
   /** The games this registry currently owns a session for. */
@@ -682,7 +689,7 @@ export class HelperSessionRegistry {
       ...(entry.startedAt !== undefined && { startedAt: entry.startedAt }),
       ...(entry.autoStopAt !== undefined && { autoStopAt: entry.autoStopAt }),
       browseHeld: holders.includes('browse'),
-      uploadHolders: holders.filter((h) => h !== 'browse').length,
+      uploadHolders: holders.filter(isUploadHolder).length,
       ...(error !== undefined && { error }),
       supportsArchive: typeof entry.backend?.archiveStream === 'function',
       volumes: entry.layout ? volumesOf(entry.layout) : (this.lastVolumes.get(game) ?? []),

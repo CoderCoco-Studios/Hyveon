@@ -704,7 +704,7 @@ describe('VolumeFilesService downloads', () => {
     await h.service.download(SAVES, '/level.dat', false);
     await settled();
     const [, holder] = h.registry.acquire.mock.calls[0] as [string, string];
-    expect(holder).toMatch(/^upload:xfer-/);
+    expect(holder).toMatch(/^download:xfer-/);
     expect(h.registry.release).toHaveBeenCalledWith('mc', holder);
   });
 

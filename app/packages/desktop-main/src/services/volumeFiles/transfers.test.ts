@@ -144,6 +144,14 @@ describe('TransferManager', () => {
     const { manager, registry, events } = managerHarness();
     const id = await manager.start(spec());
     await terminal(events);
+    expect(registry.acquire).toHaveBeenCalledWith('mc', `download:xfer-${id}`);
+    expect(registry.release).toHaveBeenCalledWith('mc', `download:xfer-${id}`);
+  });
+
+  it('should hold an upload transfer as an upload holder so a game start is refused while it runs', async () => {
+    const { manager, registry, events } = managerHarness();
+    const id = await manager.start(spec({ kind: 'upload' }));
+    await terminal(events);
     expect(registry.acquire).toHaveBeenCalledWith('mc', `upload:xfer-${id}`);
     expect(registry.release).toHaveBeenCalledWith('mc', `upload:xfer-${id}`);
   });
@@ -212,7 +220,7 @@ describe('TransferManager', () => {
     });
     const id = await manager.start(spec());
     expect(await terminal(events)).toMatchObject({ phase: 'done' });
-    expect(registry.release).toHaveBeenCalledWith('mc', `upload:xfer-${id}`);
+    expect(registry.release).toHaveBeenCalledWith('mc', `download:xfer-${id}`);
     expect(manager.cancel('mc', id)).toEqual({ cancelled: false });
   });
 

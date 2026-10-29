@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { errMessage } from '@hyveon/shared';
 import type { VolumeTransferProgress } from '@hyveon/shared/volumeFiles';
 import { logger } from '../../logger.js';
-import { HelperSessionRegistry, NoSessionError } from './HelperSessionRegistry.js';
+import { HelperSessionRegistry, NoSessionError, type HelperHolder } from './HelperSessionRegistry.js';
 import { VolumeFileError } from './VolumeFileBackend.js';
 import { describeFailure, isAbort, type OpNames } from './volumeFileErrors.js';
 
@@ -164,7 +164,7 @@ export class TransferManager {
   async start(spec: TransferSpec): Promise<string> {
     await this.requireRunning(spec.game);
     const transferId = randomUUID();
-    const holder = `upload:xfer-${transferId}` as const;
+    const holder: HelperHolder = `${spec.kind}:xfer-${transferId}`;
     const acquired = await this.registry.acquire(spec.game, holder);
     if (!acquired.ok) throw new NoSessionError(spec.game);
     const controller = new AbortController();
@@ -209,7 +209,7 @@ export class TransferManager {
     }
   }
 
-  private async execute(spec: TransferSpec, transferId: string, holder: `upload:${string}`, controller: AbortController): Promise<void> {
+  private async execute(spec: TransferSpec, transferId: string, holder: HelperHolder, controller: AbortController): Promise<void> {
     const { signal } = controller;
     let bytesDone = 0;
     let lastEmit = 0;

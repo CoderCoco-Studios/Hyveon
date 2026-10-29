@@ -119,6 +119,29 @@ describe('HelperSessionRegistry', () => {
     expect(registry.hasUploadHolders('mc')).toBe(false);
   });
 
+  it('should not count a download hold as an upload holder, in hasUploadHolders or the snapshot', async () => {
+    const { registry } = harness();
+    await Promise.all([registry.acquire('mc', 'download:xfer-1'), registry.acquire('mc', 'upload:xfer-2')]);
+    expect(await registry.status('mc')).toMatchObject({ browseHeld: false, uploadHolders: 1 });
+
+    registry.release('mc', 'upload:xfer-2');
+    expect(registry.hasUploadHolders('mc')).toBe(false);
+    expect(await registry.status('mc')).toMatchObject({ state: 'running', uploadHolders: 0 });
+  });
+
+  it('should keep the helper past the browse grace while only a download holds it', async () => {
+    const { registry, fm } = harness();
+    await Promise.all([registry.acquire('mc', 'browse'), registry.acquire('mc', 'download:xfer-1')]);
+
+    registry.release('mc', 'browse');
+    await vi.advanceTimersByTimeAsync(GRACE_MS * 2);
+    expect(fm.stop).not.toHaveBeenCalled();
+
+    registry.release('mc', 'download:xfer-1');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fm.stop).toHaveBeenCalledTimes(1);
+  });
+
   it('should not report upload holders of a session that is stopping', async () => {
     const { registry } = harness();
     await registry.acquire('mc', 'upload:xfer-1');

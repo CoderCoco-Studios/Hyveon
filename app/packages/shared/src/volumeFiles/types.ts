@@ -23,6 +23,7 @@ export interface VolumeSessionStatus {
   /** ISO 8601. */
   autoStopAt?: string;
   browseHeld: boolean;
+  /** Holds by uploads (folder-upload runs and upload transfers); browse and download holds are not counted. */
   uploadHolders: number;
   supportsArchive: boolean;
   error?: string;

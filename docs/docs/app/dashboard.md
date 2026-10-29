@@ -99,7 +99,7 @@ call failed, so a transient error never leaves a card stuck.
 Starting shows a toast: `minecraft is starting`. Failures show an error toast
 with the underlying reason.
 
-Starting is refused while a file or folder upload into that game's volumes is in progress: the error toast reads `An upload into 'minecraft' is in progress. Wait for it to finish or cancel it, then start the server.` Start again once the upload ends or is cancelled. This applies to the desktop app only; the Discord `/server-start` command does not see desktop uploads.
+Starting is refused while a file or folder upload into that game's volumes is in progress: the error toast reads `An upload into 'minecraft' is in progress. Wait for it to finish or cancel it, then start the server.` Start again once the upload ends or is cancelled. A download in progress does not block a start. This applies to the desktop app only; the Discord `/server-start` command does not see desktop uploads.
 
 Two more buttons sit alongside:
 
