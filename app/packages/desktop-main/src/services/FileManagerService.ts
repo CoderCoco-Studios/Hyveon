@@ -101,7 +101,7 @@ export interface FileMgrResult {
 
 /**
  * Launches an on-demand FileBrowser container per game so operators can
- * browse/edit that game's save data over HTTP without SSH. Mounts each of the
+ * browse/edit that game's save data over HTTPS without SSH. Mounts each of the
  * game's applied volumes through its own EFS access point (for isolation), one
  * directory per volume under FileBrowser's root, registers a throwaway task
  * definition each time, and tags tasks with `startedBy: filemgr-{game}` so
@@ -262,7 +262,7 @@ export class FileManagerService {
 
   /**
    * The helper's public IP once its task is RUNNING and its ENI has an address; `null` before that (or when no helper
-   * exists). Used by the upload service to wait for the helper without going through the HTTP-flavoured status URL.
+   * exists). Used by the upload service to wait for the helper without fetching the whole file-manager status.
    *
    * @param game - Game whose helper to look up.
    * @param taskArn - The launched task; when it is no longer running its stop reason is surfaced instead of `null`.
@@ -555,7 +555,7 @@ export class FileManagerService {
         await this.teardownTask(outputs, game, task);
         return { success: true, message: `File manager for '${game}' is stopping.` };
       } catch (err) {
-        logger.error('Failed to stop file manager', { err, game });
+        logger.error('Failed to stop file manager', { error: errMessage(err), game });
         return { success: false, message: String(err) };
       }
     } finally {

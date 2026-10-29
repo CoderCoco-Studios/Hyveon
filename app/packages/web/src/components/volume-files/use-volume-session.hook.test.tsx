@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import type { VolumeSessionStatus } from '@hyveon/shared/volumeFiles';
 import { PollingProvider } from '../../polling/polling-provider.component.js';
-import { useVolumeSession } from './use-volume-session.hook.js';
+import { useVolumeSession, VOLUME_SESSION_RUNNING_INTERVAL_MS } from './use-volume-session.hook.js';
 import { makeSessionStatus } from './volume-files.test-utils.js';
 
 const apiMock = vi.hoisted(() => ({
@@ -69,12 +69,59 @@ describe('useVolumeSession', () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
     expect(result.current.status?.state).toBe('running');
-    expect(apiMock.volumeSessionStatus).toHaveBeenCalledTimes(2);
+    // Once running the poller re-registers at the slow interval, which reads the status once straight away.
+    expect(apiMock.volumeSessionStatus).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_000);
+    });
+    expect(apiMock.volumeSessionStatus).toHaveBeenCalledTimes(3);
+  });
+
+  it('should keep a slow poll while running and surface a helper that vanished', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useVolumeSession('minecraft'), { wrapper });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.status?.state).toBe('running');
+    const initialReads = apiMock.volumeSessionStatus.mock.calls.length;
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(VOLUME_SESSION_RUNNING_INTERVAL_MS - 1000);
     });
-    expect(apiMock.volumeSessionStatus).toHaveBeenCalledTimes(2);
+    expect(apiMock.volumeSessionStatus).toHaveBeenCalledTimes(initialReads);
+
+    apiMock.volumeSessionStatus.mockResolvedValue(makeSessionStatus({ state: 'failed', error: 'Task stopped.' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(apiMock.volumeSessionStatus).toHaveBeenCalledTimes(initialReads + 1);
+    expect(result.current.status?.state).toBe('failed');
+  });
+
+  it('should re-read the status on refresh() while running', async () => {
+    const { result } = renderHook(() => useVolumeSession('minecraft'), { wrapper });
+    await waitFor(() => expect(apiMock.volumeSessionStatus).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.status?.state).toBe('running'));
+    apiMock.volumeSessionStatus.mockResolvedValue(makeSessionStatus({ state: 'failed', error: 'Gone.' }));
+
+    await act(() => result.current.refresh());
+
+    expect(result.current.status?.state).toBe('failed');
+  });
+
+  it('should clear the error and attach again on reattach()', async () => {
+    apiMock.volumeSessionAttach.mockRejectedValueOnce(new Error('bridge down'));
+    const { result } = renderHook(() => useVolumeSession('minecraft'), { wrapper });
+    await waitFor(() => expect(result.current.error).toBe('bridge down'));
+    expect(result.current.status).toBeNull();
+
+    await act(() => result.current.reattach());
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.status?.state).toBe('running');
+    expect(apiMock.volumeSessionAttach).toHaveBeenCalledTimes(2);
   });
 
   it('should replace the status with a pushed update for this game and ignore other games', async () => {

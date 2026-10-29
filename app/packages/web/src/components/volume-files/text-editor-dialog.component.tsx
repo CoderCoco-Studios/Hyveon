@@ -17,6 +17,8 @@ export interface TextEditorDialogProps {
   path: string | null;
   /** Why saving is disabled, or `null`. */
   saveDisabledReason: string | null;
+  /** Visible note shown above the footer, e.g. that the session ended and the text can only be copied out. */
+  notice?: string;
   readText(path: string): Promise<VolumeResult<VolumeTextFile>>;
   writeText(path: string, content: string, expectedModifiedMs: number): Promise<VolumeResult<{ modifiedMs: number }>>;
   onDownload(entry: VolumeEntryInfo): void;
@@ -28,7 +30,7 @@ export interface TextEditorDialogProps {
 type Loaded = { phase: 'loading' } | { phase: 'ready'; modifiedMs: number } | { phase: 'unavailable' } | { phase: 'error'; message: string };
 
 /** Editor body, mounted per opened file so its content and errors never carry over to the next file. */
-function EditorBody({ entry, path, saveDisabledReason, readText, writeText, onDownload, onSaved, onClose }: TextEditorDialogProps & { entry: VolumeEntryInfo; path: string }) {
+function EditorBody({ entry, path, saveDisabledReason, notice, readText, writeText, onDownload, onSaved, onClose }: TextEditorDialogProps & { entry: VolumeEntryInfo; path: string }) {
   const [loaded, setLoaded] = useState<Loaded>({ phase: 'loading' });
   const [content, setContent] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -83,6 +85,7 @@ function EditorBody({ entry, path, saveDisabledReason, readText, writeText, onDo
       {loaded.phase === 'ready' && (
         <>
           <Textarea aria-label="File contents" rows={16} value={content} onChange={(e) => setContent(e.target.value)} spellCheck={false} />
+          {notice && <p role="status" className="text-sm text-[var(--color-amber)]">{notice}</p>}
           <InlineAlert message={saveError} />
           {saved && <p role="status" className="text-sm text-[var(--color-green)]">Saved.</p>}
         </>

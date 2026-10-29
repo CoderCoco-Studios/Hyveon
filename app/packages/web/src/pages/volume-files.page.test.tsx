@@ -41,6 +41,7 @@ import { renderPage } from '../test-utils/render-page.utils.js';
 const GAME = 'mc';
 const FILES_ROUTE = '/games/mc/files';
 
+let pushSession: (status: VolumeSessionStatus) => void;
 let pushTransfer: (progress: VolumeTransferProgress) => void;
 let pushFolderProgress: (progress: FolderUploadProgress) => void;
 
@@ -95,7 +96,10 @@ beforeEach(() => {
   mockSession(session());
   mockListings({ '/': [makeFileEntry('a.txt', 10)] });
   apiMock.volumeSessionDetach.mockResolvedValue(session());
-  apiMock.volumeOnSession.mockReturnValue(() => undefined);
+  apiMock.volumeOnSession.mockImplementation((cb: (status: VolumeSessionStatus) => void) => {
+    pushSession = cb;
+    return () => undefined;
+  });
   apiMock.volumeOnTransfer.mockImplementation((cb: (progress: VolumeTransferProgress) => void) => {
     pushTransfer = cb;
     return () => undefined;
@@ -398,7 +402,7 @@ describe('VolumeFilesPage', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Stop' }));
 
-    expect(await screen.findByText('This cancels the running upload.')).toBeInTheDocument();
+    expect(await screen.findByText('This cancels the running transfer.')).toBeInTheDocument();
     expect(apiMock.volumeSessionStop).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Stop session' }));
     await waitFor(() => expect(apiMock.volumeSessionStop).toHaveBeenCalledWith(GAME));
@@ -523,6 +527,78 @@ describe('VolumeFilesPage', () => {
     });
 
     await waitFor(() => expect(apiMock.volumeList).toHaveBeenCalledWith(GAME, 'config', '/'));
+  });
+
+  describe('lost session', () => {
+    it.each(['unreachable', 'no-session'] as const)(
+      'should re-read the session and offer Start when an operation fails with %s',
+      async (code) => {
+        apiMock.volumeDownload.mockResolvedValue({ ok: false, code, message: "The file manager isn't reachable. Restart the session." });
+        const user = userEvent.setup();
+        renderFiles();
+        await screen.findByText('a.txt');
+        const readsBefore = apiMock.volumeSessionStatus.mock.calls.length;
+        apiMock.volumeSessionStatus.mockResolvedValue(session({ state: 'failed', error: 'Task stopped: auto-stop.' }));
+
+        await user.click(screen.getByRole('button', { name: 'Download a.txt' }));
+
+        expect(await screen.findByRole('button', { name: 'Start' })).toBeInTheDocument();
+        expect(screen.getByText('Task stopped: auto-stop.')).toBeInTheDocument();
+        expect(apiMock.volumeSessionStatus.mock.calls.length).toBeGreaterThan(readsBefore);
+        expect(screen.queryByText('a.txt')).not.toBeInTheDocument();
+      },
+    );
+
+    it('should not re-read the session when an operation fails for another reason', async () => {
+      apiMock.volumeDownload.mockResolvedValue({ ok: false, code: 'failed', message: 'Disk full.' });
+      const user = userEvent.setup();
+      renderFiles();
+      await screen.findByText('a.txt');
+      const readsBefore = apiMock.volumeSessionStatus.mock.calls.length;
+
+      await user.click(screen.getByRole('button', { name: 'Download a.txt' }));
+
+      expect(await screen.findByText('Disk full.')).toBeInTheDocument();
+      expect(apiMock.volumeSessionStatus).toHaveBeenCalledTimes(readsBefore);
+    });
+
+    it('should keep an open editor, with Save disabled and a notice, when the session ends', async () => {
+      apiMock.volumeReadText.mockResolvedValue({ ok: true, value: { path: '/a.txt', content: 'hello', modifiedMs: 5 } });
+      const user = userEvent.setup();
+      renderFiles();
+      await user.click(await screen.findByRole('button', { name: 'Edit a.txt' }));
+      const textarea = await screen.findByRole('textbox', { name: 'File contents' });
+      await waitFor(() => expect(textarea).toHaveValue('hello'));
+      await user.clear(textarea);
+      await user.type(textarea, 'unsaved text');
+
+      act(() => pushSession(session({ state: 'failed', error: 'Task stopped: auto-stop.' })));
+
+      // The open dialog hides the page behind it from the accessibility tree.
+      expect(await screen.findByRole('button', { name: 'Start', hidden: true })).toBeInTheDocument();
+      expect(screen.getByRole('textbox', { name: 'File contents' })).toHaveValue('unsaved text');
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+      expect(within(screen.getByRole('dialog')).getByText(/session ended/)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'New folder' })).not.toBeInTheDocument();
+      await user.click(within(screen.getByRole('dialog')).getAllByRole('button', { name: 'Close' })[0]!);
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('attach failure', () => {
+    it('should show the error with Retry instead of a permanent spinner, and recover on Retry', async () => {
+      apiMock.volumeSessionAttach.mockRejectedValueOnce(new Error('bridge down'));
+      const user = userEvent.setup();
+      renderFiles();
+
+      expect(await screen.findByText('bridge down')).toBeInTheDocument();
+      expect(screen.queryByText('Checking the file browser session…')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Retry' }));
+
+      expect(await screen.findByText('a.txt')).toBeInTheDocument();
+      expect(screen.queryByText('bridge down')).not.toBeInTheDocument();
+    });
   });
 
   describe('fail-closed server guard', () => {

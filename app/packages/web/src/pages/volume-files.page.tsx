@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { FolderX } from 'lucide-react';
+import { Button } from '@/components/ui/button.component';
 import { EmptyStateCard } from '../components/empty-state-card.component.js';
+import { InlineAlert } from '../components/inline-alert.component.js';
 import { LoadingState } from '../components/loading-state.component.js';
 import { PageHeader } from '../components/page-header.component.js';
 import { SessionBar } from '../components/volume-files/session-bar.component.js';
@@ -38,6 +40,8 @@ export function VolumeFilesPage() {
   const navigate = useNavigate();
   const session = useVolumeSession(name);
   const [chosen, setChosen] = useState<string | null>(null);
+  // The volume last browsed while running, so an open editor survives the session leaving `running`.
+  const [lastBrowsed, setLastBrowsed] = useState<{ game: string; volume: string } | null>(null);
   const autoStartDone = useRef(false);
   const { status } = session;
   const { start } = session;
@@ -53,6 +57,11 @@ export function VolumeFilesPage() {
 
   const volumes = status?.volumes ?? [];
   const selected = volumes.find((v) => v.name === chosen && v.mounted) ?? volumes.find((v) => v.mounted) ?? null;
+  const running = state === 'running';
+  if (running && selected && (lastBrowsed?.game !== name || lastBrowsed.volume !== selected.name)) {
+    setLastBrowsed({ game: name, volume: selected.name });
+  }
+  const browseVolume = running ? (selected?.name ?? null) : lastBrowsed?.game === name ? lastBrowsed.volume : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -61,20 +70,29 @@ export function VolumeFilesPage() {
       </PageHeader>
 
       {status === null ? (
-        <LoadingState label="Checking the file browser session…" />
+        session.error !== null ? (
+          <div className="space-y-3">
+            <InlineAlert message={session.error} />
+            <Button size="sm" variant="outline" onClick={() => void session.reattach()}>
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <LoadingState label="Checking the file browser session…" />
+        )
       ) : status.state === 'not_deployed' ? (
         <EmptyStateCard icon={FolderX} title="Nothing to browse yet" description="This game's volume doesn't exist yet. Apply the infrastructure first." />
       ) : (
         <>
-          <SessionBar status={status} actionError={session.error} onStart={() => void session.start()} onStop={() => void session.stop()} onRestart={() => void session.restart()} />
+          <SessionBar status={status} actionError={session.error} onStart={() => void session.start()} onStop={() => void session.stop()} onRestart={() => void session.restart()} onAutoStopDue={() => void session.refresh()} />
           {volumes.length > 0 && <VolumePicker volumes={volumes} selected={selected?.name ?? null} onSelect={setChosen} />}
-          {status.state === 'running' ? (
-            selected ? (
-              <VolumeBrowser game={name} volume={selected.name} status={status} />
-            ) : (
-              <p className="text-sm text-[var(--color-muted-foreground)]">No volume is available to browse. Apply the infrastructure first.</p>
-            )
-          ) : (
+          {browseVolume !== null && (
+            <VolumeBrowser game={name} volume={browseVolume} status={status} ended={!running} onSessionLost={() => void session.refresh()} />
+          )}
+          {running && browseVolume === null && (
+            <p className="text-sm text-[var(--color-muted-foreground)]">No volume is available to browse. Apply the infrastructure first.</p>
+          )}
+          {status.state !== 'running' && (
             <p role="status" className="text-sm text-[var(--color-muted-foreground)]">
               {IDLE_MESSAGES[status.state]}
             </p>

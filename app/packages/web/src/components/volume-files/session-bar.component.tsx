@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { VolumeSessionState, VolumeSessionStatus } from '@hyveon/shared/volumeFiles';
 import { AUTO_STOP_WARNING_MS } from '@hyveon/shared/volumeFiles';
 import { Badge, type BadgeProps } from '@/components/ui/badge.component';
@@ -16,6 +16,8 @@ export interface SessionBarProps {
   onStart(): void;
   onStop(): void;
   onRestart(): void;
+  /** Called once when the running session's auto-stop countdown reaches zero, so the page can re-read the status. */
+  onAutoStopDue?(): void;
 }
 
 const STATE_LABELS: Record<VolumeSessionState, string> = {
@@ -38,17 +40,26 @@ const STATE_VARIANTS: Record<VolumeSessionState, BadgeProps['variant']> = {
   failed: 'destructive',
 };
 
-/** Seconds between two ISO timestamps' epoch values, clamped at zero. */
+/** Seconds between two epoch-ms timestamps, clamped at zero. */
 function secondsBetween(fromMs: number, toMs: number): number {
   return Math.max(0, (toMs - fromMs) / 1000);
 }
 
 /** Elapsed time and auto-stop countdown for a running session, with the warning once the countdown is short. */
-function SessionClock({ status }: { status: VolumeSessionStatus }) {
+function SessionClock({ status, onAutoStopDue }: { status: VolumeSessionStatus; onAutoStopDue?: () => void }) {
   const now = useNowTick(1000);
   const startedAt = status.startedAt ? Date.parse(status.startedAt) : null;
   const autoStopAt = status.autoStopAt ? Date.parse(status.autoStopAt) : null;
   const remainingMs = autoStopAt === null ? null : Math.max(0, autoStopAt - now);
+  const due = remainingMs === 0;
+  // Read through a ref so a new callback identity never re-fires the zero-crossing effect.
+  const dueRef = useRef(onAutoStopDue);
+  useEffect(() => {
+    dueRef.current = onAutoStopDue;
+  });
+  useEffect(() => {
+    if (due) dueRef.current?.();
+  }, [due]);
   return (
     <>
       {startedAt !== null && <span className="text-xs text-[var(--color-muted-foreground)]">Up {formatDuration(secondsBetween(startedAt, now))}</span>}
@@ -74,7 +85,7 @@ function SessionClock({ status }: { status: VolumeSessionStatus }) {
  *
  * @param props - See {@link SessionBarProps}.
  */
-export function SessionBar({ status, actionError, onStart, onStop, onRestart }: SessionBarProps) {
+export function SessionBar({ status, actionError, onStart, onStop, onRestart, onAutoStopDue }: SessionBarProps) {
   const [confirmStop, setConfirmStop] = useState(false);
   const { state } = status;
 
@@ -82,7 +93,7 @@ export function SessionBar({ status, actionError, onStart, onStop, onRestart }: 
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-3">
         <Badge variant={STATE_VARIANTS[state]}>{STATE_LABELS[state]}</Badge>
-        {state === 'running' && <SessionClock status={status} />}
+        {state === 'running' && <SessionClock status={status} onAutoStopDue={onAutoStopDue} />}
         <div className="ml-auto flex items-center gap-2">
           {(state === 'stopped' || state === 'failed') && (
             <Button size="sm" variant="start" onClick={onStart}>
@@ -107,7 +118,7 @@ export function SessionBar({ status, actionError, onStart, onStop, onRestart }: 
         open={confirmStop}
         onOpenChange={setConfirmStop}
         title="Stop the session?"
-        description="This cancels the running upload."
+        description="This cancels the running transfer."
         confirmLabel="Stop session"
         onConfirm={onStop}
       />

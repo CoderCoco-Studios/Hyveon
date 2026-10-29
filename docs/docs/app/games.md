@@ -539,10 +539,14 @@ The bar at the top of the page shows a state badge and the actions that state al
 | **Failed** | The failure reason (or "The session failed.") and "The file browser session is not running. Start it to try again." | **Start** |
 | **Not deployed** | The page described above | None |
 
+While the session runs the page re-reads its state every 30 seconds, and straight away when a file operation reports the helper is unreachable or gone or when the auto-stop countdown reaches zero.
+A helper that disappeared (the 2-hour auto-stop, a crash) therefore turns the badge to **Failed** with the stop reason and offers **Start**.
+If the page can't attach to the session at all, it shows the error with a **Retry** button instead of the loading message.
+
 Once the auto-stop countdown drops under 10 minutes, a "The session stops automatically soon." warning appears beside it.
 Long transfers can outlive the 2-hour auto-stop, so watch for it before starting a big upload or download.
 
-**Stop** asks for confirmation ("Stop the session? This cancels the running upload.") whenever any upload or download is running, folder uploads included.
+**Stop** asks for confirmation ("Stop the session? This cancels the running transfer.") whenever any upload or download is running, folder uploads included.
 Otherwise it stops immediately.
 A failed Start, Stop or Restart shows its message under the bar.
 
@@ -582,6 +586,7 @@ The listing refreshes by itself when an upload finishes.
 Anything bigger, or not text, shows "This file can't be edited here. Download it instead." with a **Download** button.
 Saving is refused if the file changed on the volume since you opened it ("The file changed on the volume since you opened it."), and your edits stay in the editor so you can copy them out.
 After a successful save the dialog shows `Saved.`.
+If the session ends while the editor is open, the dialog stays with your text, **Save** is disabled and a note says the session ended, so you can copy the text out before closing.
 
 ### Read-only while the server runs
 

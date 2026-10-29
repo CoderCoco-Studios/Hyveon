@@ -139,10 +139,7 @@ export function installHyveonHttpBridge(): void {
         },
       };
     })(),
-    // The volume file browser is IPC-only in production with no HTTP route. This in-page fake keeps a session that
-    // a spec seeds through `window.__e2eVolumeFiles` (state, volumes, listings by path); mutations and transfers fail
-    // as if no session were running. Every value a method returns is appended to `window.__e2eVolumeFilesResponses`
-    // so a spec can assert on exactly what reached the page.
+    // In-page fake session seeded via `window.__e2eVolumeFiles`; every returned value is logged to `window.__e2eVolumeFilesResponses`.
     volumeFiles: (() => {
       // Read on each call, not at install: a spec's seed init script may be registered after the bridge's.
       const seedNow = (): VolumeFilesSeed => window.__e2eVolumeFiles ?? {};

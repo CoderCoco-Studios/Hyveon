@@ -111,6 +111,7 @@ export function useVolumeFiles(
   });
 
   useEffect(() => {
+    // The async wrapper keeps react-hooks/set-state-in-effect from flagging refresh()'s setState calls.
     void (async () => {
       await refresh();
     })();
