@@ -695,23 +695,23 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
 
 **Files:**
 - Modify: `app/packages/web/src/api.service.ts` (add `volume*` wrappers over `hyveon().volumeFiles`)
-- Create: `app/packages/web/src/components/volume-files/use-volume-session.hook.ts` (+test), `use-volume-files.hook.ts` (+test)
+- Create: `app/packages/web/src/components/volume-files/use-volume-session.hook.ts` (+test), `use-volume-files.hook.ts` (+test) Also `use-volume-transfers.hook.ts` (+test), `volume-files.utils.ts` (+test) and `volume-files.test-utils.ts`, split out of `useVolumeFiles` to keep it small.
 
 **Interfaces:**
 - Produces:
   - `useVolumeSession(game: string): { status: VolumeSessionStatus | null; start(): Promise<void>; stop(): Promise<void>; restart(): Promise<void>; error: string | null }` — on mount `sessionAttach`; on unmount `sessionDetach`; subscribes to `onSession`; registers `usePoller(VOLUME_SESSION_POLLER = 'volumeSession', refresh, 3000, status?.state === 'starting' || status?.state === 'stopping')`, so polling continues until `running` (ready) or a terminal state.
   - `useVolumeFiles(game: string, volume: string | null, enabled: boolean): { path: string; listing: VolumeEntryInfo[] | null; sort: { key: 'name' | 'size' | 'modifiedMs'; dir: 'asc' | 'desc' }; setSort; open(path: string): void; refresh(); mkdir(name); rename(path, newName); remove(path); readText(path); writeText(path, content, expectedModifiedMs); download(entry); uploadFiles(); uploadDropped(files: File[]); uploadFolder(); transfers: VolumeTransferProgress[]; error: string | null }` — changing `volume` resets `path` to `/`; directories sort before files; each mutation refreshes the listing on success and sets `error` from `result.message` on failure.
 
-- [ ] **Step 1: Write the failing tests** (jsdom, `vi.mock('../../api.service.js')`):
+- [x] **Step 1: Write the failing tests** (jsdom, `vi.mock('../../api.service.js')`):
   - `should attach on mount and detach on unmount`.
   - `should keep polling while starting and stop once running` — status sequence `starting`, `starting`, `running`; fake timers; `sessionStatus` called 3 times then not again.
   - `should list the root when enabled and sort folders first` — entries `b.txt`, `A/`, `a.txt` → `['A', 'a.txt', 'b.txt']`.
   - `should surface a conflict message and keep the listing` — `rename` → `{ ok: false, code: 'conflict', message: 'x exists' }` → `error === 'x exists'`.
   - `should not list while disabled`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/web/src/components/volume-files` → FAIL.
-- [ ] **Step 3: Implement** (re-arm any `mountedRef` in the effect body per `typescript-conventions.md`).
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `feat(web): add volume session and listing hooks`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/web/src/components/volume-files` → FAIL.
+- [x] **Step 3: Implement** (re-arm any `mountedRef` in the effect body per `typescript-conventions.md`).
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `feat(web): add volume session and listing hooks`.
 
 ### Task 22: Page and components (tasks.md 5.2, 5.3)
 

@@ -58,7 +58,7 @@ Execution is subagent-driven (plan.md).
 
 ## 5. PR 5 — `feat(web)`: in-app file browser page replaces the external link
 
-- [ ] 5.1 Add the hooks: session state via the shared `PollingProvider` while starting (until ready, not merely RUNNING), attach on mount and detach on unmount; the listing for the selected volume and current path, operations, and download/upload progress.
+- [x] 5.1 Add the hooks: session state via the shared `PollingProvider` while starting (until ready, not merely RUNNING), attach on mount and detach on unmount; the listing for the selected volume and current path, operations, and download/upload progress.
 - [ ] 5.2 Add the `/games/:name/files` page with these components:
   - session bar (state, elapsed, auto-stop countdown with the 10-minute warning, Start/Stop/Restart, failure reason);
   - volume picker (name, container path, unavailable-until-apply state);

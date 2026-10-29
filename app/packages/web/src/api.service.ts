@@ -51,6 +51,14 @@ import type {
   StrayHelperReport,
 } from '@hyveon/shared/folderUpload';
 import type {
+  VolumeEntryInfo,
+  VolumeListing,
+  VolumeResult,
+  VolumeSessionStatus,
+  VolumeTextFile,
+  VolumeTransferProgress,
+} from '@hyveon/shared/volumeFiles';
+import type {
   CloudHealthCheckStatus,
   CloudHealthCheckSummary,
   CloudHealthFixOutcome,
@@ -101,6 +109,12 @@ export type {
   FolderUploadStoredState,
   OverwriteSummary,
   StrayHelperReport,
+  VolumeEntryInfo,
+  VolumeListing,
+  VolumeResult,
+  VolumeSessionStatus,
+  VolumeTextFile,
+  VolumeTransferProgress,
 };
 
 /** Live status for a single game, as returned by the `games.status` and `games.getStatus` IPC channels. */
@@ -308,6 +322,58 @@ export const api = {
   /** Subscribes to upload progress snapshots; synchronous (not an `async` wrapper) so the unsubscribe handle is returned directly. */
   folderOnProgress: (cb: (progress: FolderUploadProgress) => void): (() => void) =>
     hyveon().folderUpload.onProgress(cb),
+  volumeSessionStatus: async (game: string): Promise<VolumeSessionStatus> => hyveon().volumeFiles.sessionStatus(game),
+  volumeSessionStart: async (game: string): Promise<VolumeSessionStatus> => hyveon().volumeFiles.sessionStart(game),
+  volumeSessionAttach: async (game: string): Promise<VolumeSessionStatus> => hyveon().volumeFiles.sessionAttach(game),
+  volumeSessionDetach: async (game: string): Promise<VolumeSessionStatus> => hyveon().volumeFiles.sessionDetach(game),
+  volumeSessionStop: async (game: string): Promise<VolumeResult<VolumeSessionStatus>> =>
+    hyveon().volumeFiles.sessionStop(game),
+  volumeSessionRestart: async (game: string): Promise<VolumeResult<VolumeSessionStatus>> =>
+    hyveon().volumeFiles.sessionRestart(game),
+  volumeList: async (game: string, volume: string, path: string): Promise<VolumeResult<VolumeListing>> =>
+    hyveon().volumeFiles.list(game, volume, path),
+  volumeMkdir: async (game: string, volume: string, parent: string, name: string): Promise<VolumeResult<VolumeEntryInfo>> =>
+    hyveon().volumeFiles.mkdir(game, volume, parent, name),
+  volumeRename: async (game: string, volume: string, path: string, newName: string): Promise<VolumeResult<VolumeEntryInfo>> =>
+    hyveon().volumeFiles.rename(game, volume, path, newName),
+  volumeRemove: async (game: string, volume: string, path: string): Promise<VolumeResult<true>> =>
+    hyveon().volumeFiles.remove(game, volume, path),
+  volumeReadText: async (game: string, volume: string, path: string): Promise<VolumeResult<VolumeTextFile>> =>
+    hyveon().volumeFiles.readText(game, volume, path),
+  volumeWriteText: async (
+    game: string,
+    volume: string,
+    path: string,
+    content: string,
+    expectedModifiedMs: number,
+  ): Promise<VolumeResult<{ modifiedMs: number }>> =>
+    hyveon().volumeFiles.writeText(game, volume, path, content, expectedModifiedMs),
+  volumeDownload: async (
+    game: string,
+    volume: string,
+    path: string,
+    isDir: boolean,
+  ): Promise<VolumeResult<{ transferId: string } | null>> => hyveon().volumeFiles.download(game, volume, path, isDir),
+  volumeCancelTransfer: async (game: string, transferId: string): Promise<{ cancelled: boolean }> =>
+    hyveon().volumeFiles.cancelTransfer(game, transferId),
+  volumeUploadFiles: async (game: string, volume: string, dir: string): Promise<VolumeResult<{ transferId: string } | null>> =>
+    hyveon().volumeFiles.uploadFiles(game, volume, dir),
+  volumeUploadDropped: async (
+    game: string,
+    volume: string,
+    dir: string,
+    files: File[],
+  ): Promise<VolumeResult<{ transferId: string } | null>> => hyveon().volumeFiles.uploadDropped(game, volume, dir, files),
+  volumeUploadFolder: async (
+    game: string,
+    volume: string,
+    dir: string,
+  ): Promise<VolumeResult<FolderUploadStartResult | null>> => hyveon().volumeFiles.uploadFolder(game, volume, dir),
+  /** Subscribes to session pushes; synchronous so the unsubscribe handle is returned directly. */
+  volumeOnSession: (cb: (status: VolumeSessionStatus) => void): (() => void) => hyveon().volumeFiles.onSession(cb),
+  /** Subscribes to transfer progress pushes; synchronous so the unsubscribe handle is returned directly. */
+  volumeOnTransfer: (cb: (progress: VolumeTransferProgress) => void): (() => void) =>
+    hyveon().volumeFiles.onTransfer(cb),
   createGame: async (payload: CreateGamePayload): Promise<GameWriteResult> => hyveon().games.create(payload),
   updateGame: async (payload: UpdateGamePayload): Promise<GameWriteResult> => hyveon().games.update(payload),
   deleteGame: async (payload: DeleteGamePayload): Promise<GameWriteResult> => hyveon().games.delete(payload),
