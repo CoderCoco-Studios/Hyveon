@@ -30,7 +30,8 @@ const HELPER_OPEN = /already open/i;
  *
  * @remarks
  * Upload needs the game deployed and its server stopped. When the start guard reports an open file-manager session,
- * the card offers to stop it and retry rather than reusing a session whose credential the app does not hold.
+ * the card offers to stop that orphaned session and retry; the upload then launches its own secured session. The retry
+ * runs only when the stop succeeded, otherwise the stop failure message is shown.
  *
  * @param props - See {@link FolderUploadCardProps}.
  */
@@ -97,7 +98,11 @@ export function FolderUploadCard({ game, volumes, deployed }: FolderUploadCardPr
   async function stopHelperAndRetry() {
     setHelperOpen(false);
     try {
-      await api.filesMgrStop(game);
+      const stopped = await api.volumeSessionStop(game);
+      if (!stopped.ok) {
+        setStartError(stopped.message);
+        return;
+      }
     } catch (err) {
       setStartError(err instanceof Error ? err.message : String(err));
       return;
@@ -140,7 +145,7 @@ export function FolderUploadCard({ game, volumes, deployed }: FolderUploadCardPr
 
         {helperOpen && (
           <div role="alertdialog" aria-label="File manager session open" className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3 text-sm">
-            <p>A file manager session is open for this game. Stop it so the upload can use its own secured session.</p>
+            <p>A file manager session for this game is already running. Stop it, then the upload starts its own session.</p>
             <div className="flex gap-2">
               <Button type="button" size="sm" onClick={() => void stopHelperAndRetry()}>
                 Stop session and upload

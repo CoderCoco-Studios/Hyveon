@@ -760,10 +760,10 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
 - Delete: `web/src/components/file-manager-modal.component.tsx` (+test), `web/src/hooks/use-file-manager.hook.ts` (+test), `desktop-main/src/controllers/files.controller.ts` (+test)
 - Modify: `desktop-main/src/app.module.ts` (drop `FilesController`), `desktop-main/src/services/FileManagerService.ts` (delete `start`, `getStatus`, `FileMgrStatus`, `FileMgrResult.credentials`, the `tls: false` branch — every launch is TLS; `HelperLaunchOptions.tls` removed), `desktop-preload/src/preload.ts:444-448` and `hyveon-api.ts` (`files` namespace, `FileMgrStatus`, `FileMgrCredentials`, `FileMgrResult`), `web/src/api.service.ts:184-200,286-288` (`FileMgr*`, `filesMgr*`), `web/src/pages/dashboard.page.tsx` (modal mount), `web/src/components/folder-upload/folder-upload-card.component.tsx:97-106` (`stopHelperAndRetry` → `api.volumeSessionStop(game)` then retry; prompt text "Restart the file manager session"), `web/e2e/fixtures/hyveon-http-bridge.ts:54-57`
 
-- [ ] **Step 1: Delete and update**; `grep -rn "files\.list\|files\.start\|files\.stop\|filesMgr\|FileMgrCredentials\|FileManagerModal\|useFileManager\|credentials?:" app/packages --include='*.ts' --include='*.tsx'` → no hits outside `node_modules` (the `credentials` hits that remain are the registry's private entry field only).
-- [ ] **Step 2: Update** `folder-upload-card.component.test.tsx`'s helper-open case: `should stop the orphaned session and retry the upload` (`volumeSessionStop` then `folderStartUpload` called).
-- [ ] **Step 3: Run** `npm run app:typecheck && npm run app:test` → exit 0.
-- [ ] **Step 4: Commit** — `refactor(app): remove the external FileBrowser link and legacy files channels`.
+- [x] **Step 1: Delete and update**; `grep -rn "files\.list\|files\.start\|files\.stop\|filesMgr\|FileMgrCredentials\|FileManagerModal\|useFileManager\|credentials?:" app/packages --include='*.ts' --include='*.tsx'` → no hits outside `node_modules` (the `credentials` hits that remain are the registry's private entry field only).
+- [x] **Step 2: Update** `folder-upload-card.component.test.tsx`'s helper-open case: `should stop the orphaned session and retry the upload` (`volumeSessionStop` then `folderStartUpload` called).
+- [x] **Step 3: Run** `npm run app:typecheck && npm run app:test` → exit 0.
+- [x] **Step 4: Commit** — `refactor(app): remove the external FileBrowser link and legacy files channels`.
 
 ### Task 24: Playwright specs and docs (tasks.md 5.5, 5.6)
 

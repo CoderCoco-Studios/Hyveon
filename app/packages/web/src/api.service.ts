@@ -5,7 +5,7 @@
 //
 // Types shared with `desktop-main`/`desktop-preload` are imported from
 // `@hyveon/shared`/`@hyveon/desktop-preload` below rather than re-declared —
-// the remaining local interfaces (`GameWizardDraft`, `FileMgr*`, `Discord*`,
+// the remaining local interfaces (`GameWizardDraft`, `Discord*`,
 // `EnvInfo`, etc.) have no shared-package counterpart and are genuinely
 // web-only shapes.
 
@@ -198,26 +198,6 @@ export interface StoredGameWizardDraft {
   savedAt: string;
 }
 
-/** Status of the FileBrowser helper task per game, returned by `GET /api/files/:game`. */
-export interface FileMgrStatus {
-  game: string;
-  state: 'running' | 'starting' | 'stopped' | 'not_deployed';
-  url?: string;
-  taskArn?: string;
-}
-
-/** The plaintext credential a FileBrowser launch was just seeded with — shown to the operator exactly once, in {@link FileMgrResult.credentials}. */
-export interface FileMgrCredentials {
-  username: string;
-  password: string;
-}
-
-/** Result of a file-manager start/stop operation — {@link ActionResult} plus the one-time credential a successful start seeds the task with. */
-export interface FileMgrResult extends ActionResult {
-  /** Only present on a successful start — never on a stop result. */
-  credentials?: FileMgrCredentials;
-}
-
 /** Discord slash-command action a user can be permitted to invoke on a game. */
 export type DiscordAction = 'start' | 'stop' | 'status';
 
@@ -301,9 +281,6 @@ export const api = {
   start: async (game: string): Promise<ActionResult> => hyveon().games.start(game),
   stop: async (game: string): Promise<ActionResult> => hyveon().games.stop(game),
   costsEstimate: async (): Promise<CostEstimates> => hyveon().costs.estimate(),
-  filesMgrStatus: async (game: string): Promise<FileMgrStatus> => hyveon().files.list(game),
-  filesMgrStart: async (game: string): Promise<FileMgrResult> => hyveon().files.start(game),
-  filesMgrStop: async (game: string): Promise<FileMgrResult> => hyveon().files.stop(game),
   folderPick: async (): Promise<FolderScanResult | null> => hyveon().folderUpload.pickFolder(),
   folderRescan: async (game: string): Promise<FolderScanResult | null> => hyveon().folderUpload.rescanSelection(game),
   folderGetSelection: async (game: string): Promise<FolderUploadStoredState | null> =>

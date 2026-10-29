@@ -18,7 +18,6 @@ import { VolumeFilesApiModule } from './modules/volume-files-api.module.js';
 import { GamesController } from './controllers/games.controller.js';
 import { CostsController } from './controllers/costs.controller.js';
 import { LogsController } from './controllers/logs.controller.js';
-import { FilesController } from './controllers/files.controller.js';
 import { FolderUploadController } from './controllers/folder-upload.controller.js';
 import { VolumeFilesController } from './controllers/volume-files.controller.js';
 import { DiscordController } from './controllers/discord.controller.js';
@@ -85,7 +84,6 @@ import { WindowService } from './services/WindowService.js';
     GamesController,
     CostsController,
     LogsController,
-    FilesController,
     FolderUploadController,
     VolumeFilesController,
     DiscordController,

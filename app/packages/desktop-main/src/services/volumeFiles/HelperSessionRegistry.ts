@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { errMessage } from '@hyveon/shared';
 import type { VolumeInfo, VolumeSessionState } from '@hyveon/shared/volumeFiles';
 import { logger } from '../../logger.js';
-import { BROWSE_RUN_ID, FileManagerService, type FileMgrCredentials } from '../FileManagerService.js';
+import { BROWSE_RUN_ID, FileManagerService, type HelperCredentials } from '../FileManagerService.js';
 import type { EphemeralCert } from '../folderUpload/ephemeralCert.js';
 import { FileBrowserClientFactory } from '../folderUpload/FileBrowserClient.js';
 import { abortableSleep } from '../folderUpload/uploadEngine.js';
@@ -72,7 +72,7 @@ interface Entry {
   autoStopAt?: number;
   backend?: VolumeFileBackend;
   layout?: HelperVolumeLayout;
-  credentials?: FileMgrCredentials;
+  credentials?: HelperCredentials;
   cert?: EphemeralCert;
   operatorIp?: string;
   graceTimer?: NodeJS.Timeout;
@@ -427,7 +427,7 @@ export class HelperSessionRegistry {
       entry.layout = planned;
       if (this.isStopping(entry)) return { ok: false, code: 'failed', message: STOPPED_BEFORE_READY };
 
-      const outcome = await this.fileManager.launchHelper(game, { runId: entry.runId, tls: true, tags: options.tags, layout: planned });
+      const outcome = await this.fileManager.launchHelper(game, { runId: entry.runId, tags: options.tags, layout: planned });
       if (!outcome.ok) {
         if (outcome.code === 'helper-open') return this.abandon(game, entry, 'orphaned', outcome.message);
         return this.failSession(game, entry, outcome.message);

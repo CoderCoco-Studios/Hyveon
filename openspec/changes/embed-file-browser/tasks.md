@@ -72,7 +72,7 @@ Execution is subagent-driven (plan.md).
 
   Reuse existing `ui/` primitives, keep each component under the size rule, and disable mutating actions while the server runs or its state can't be confirmed (with Retry).
 - [x] 5.3 Make the dashboard card Files action navigate and start the session, and add a Files link on the game detail page.
-- [ ] 5.4 Delete `FileManagerModal`, `useFileManager`, the legacy `files.list|start|stop` channels/controller/preload API, `FileMgrResult.credentials`/`FileMgrStatus.url`, and `FileManagerService.start()`/`getStatus()` once unused. Switch the folder-upload card's "stop the open session and retry" action from `api.filesMgrStop` to `volumeFiles.session.stop`.
+- [x] 5.4 Delete `FileManagerModal`, `useFileManager`, the legacy `files.list|start|stop` channels/controller/preload API, `FileMgrResult.credentials`/`FileMgrStatus.url`, and `FileManagerService.start()`/`getStatus()` once unused. Switch the folder-upload card's "stop the open session and retry" action from `api.filesMgrStop` to `volumeFiles.session.stop`.
 - [ ] 5.5 Add tests:
   - jsdom hook tests;
   - a routed-page test (navigate, switch volume, unavailable volume, sort, disabled-while-running, server-check-failed with Retry, delete confirm, editor conflict, orphaned → Restart);

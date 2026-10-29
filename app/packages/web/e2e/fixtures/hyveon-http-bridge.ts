@@ -51,11 +51,6 @@ export function installHyveonHttpBridge(): void {
     costs: {
       estimate: () => call('/api/costs/estimate'),
     },
-    files: {
-      list: (game: string) => call(`/api/files/${game}`),
-      start: (game: string) => post(`/api/files/${game}/start`),
-      stop: (game: string) => post(`/api/files/${game}/stop`),
-    },
     // Folder upload is IPC-only in production with no HTTP route. This in-page fake scans a canned folder and
     // walks a run through starting-helper, uploading, verifying and done so specs can drive the whole UI flow.
     folderUpload: (() => {

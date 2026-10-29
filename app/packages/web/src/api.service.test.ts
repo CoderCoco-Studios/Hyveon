@@ -26,11 +26,6 @@ function makeHyveonMock() {
       get: vi.fn().mockResolvedValue({ game: 'minecraft', lines: [] }),
       stream: vi.fn(),
     },
-    files: {
-      list: vi.fn().mockResolvedValue({ game: 'minecraft', state: 'stopped' }),
-      start: vi.fn().mockResolvedValue({ success: true, message: 'ok' }),
-      stop: vi.fn().mockResolvedValue({ success: true, message: 'ok' }),
-    },
     folderUpload: {
       pickFolder: vi.fn().mockResolvedValue(null),
       rescanSelection: vi.fn().mockResolvedValue(null),
@@ -144,21 +139,6 @@ describe('IPC bridge delegation', () => {
 
   it('should not expose a costsActual method on the api object', () => {
     expect('costsActual' in api).toBe(false);
-  });
-
-  it('should delegate api.filesMgrStatus() to window.hyveon.files.list() with the game id', async () => {
-    await api.filesMgrStatus('minecraft');
-    expect(hyveon.files.list).toHaveBeenCalledWith('minecraft');
-  });
-
-  it('should delegate api.filesMgrStart() to window.hyveon.files.start() with the game id', async () => {
-    await api.filesMgrStart('minecraft');
-    expect(hyveon.files.start).toHaveBeenCalledWith('minecraft');
-  });
-
-  it('should delegate api.filesMgrStop() to window.hyveon.files.stop() with the game id', async () => {
-    await api.filesMgrStop('minecraft');
-    expect(hyveon.files.stop).toHaveBeenCalledWith('minecraft');
   });
 
   it('should delegate the folder upload wrappers to window.hyveon.folderUpload', async () => {

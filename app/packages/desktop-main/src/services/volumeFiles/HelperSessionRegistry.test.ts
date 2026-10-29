@@ -169,8 +169,8 @@ describe('HelperSessionRegistry', () => {
     const second = harness();
     await second.registry.acquire('mc', 'browse');
 
-    expect(fm.launchHelper).toHaveBeenCalledWith('mc', expect.objectContaining({ runId: 'r1', tls: true, tags }));
-    expect(second.fm.launchHelper).toHaveBeenCalledWith('mc', expect.objectContaining({ runId: 'browse', tls: true }));
+    expect(fm.launchHelper).toHaveBeenCalledWith('mc', expect.objectContaining({ runId: 'r1', tags }));
+    expect(second.fm.launchHelper).toHaveBeenCalledWith('mc', expect.objectContaining({ runId: 'browse' }));
   });
 
   it('should connect a backend built from the launch credentials and the configured port', async () => {

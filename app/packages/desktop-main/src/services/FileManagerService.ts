@@ -56,26 +56,8 @@ export const UPLOAD_TAGS: readonly { key: string; value: string }[] = [
   { key: 'Project', value: 'hyveon' },
 ];
 
-/**
- * Snapshot of the FileBrowser helper's state for a single game.
- * `url` is only set once the task is RUNNING and its ENI has resolved a
- * public IP — otherwise the UI shows the provisioning message.
- *
- * Deliberately carries no credential field: this is the shape `getStatus()`
- * returns, polled repeatedly for as long as the modal is open, and the
- * per-launch credential must be shown to the operator exactly once (in
- * {@link FileMgrResult}, `start()`'s own return value) — never resurfaced by
- * a later poll.
- */
-export interface FileMgrStatus {
-  game: string;
-  state: 'running' | 'starting' | 'stopped' | 'not_deployed';
-  url?: string;
-  taskArn?: string;
-}
-
-/** The plaintext credential a FileBrowser launch was just seeded with — shown to the operator exactly once, in {@link FileMgrResult.credentials}. */
-export interface FileMgrCredentials {
+/** The plaintext credential a helper launch was seeded with — kept in main-process memory only, never sent over IPC or logged. */
+export interface HelperCredentials {
   username: string;
   password: string;
 }
@@ -84,8 +66,6 @@ export interface FileMgrCredentials {
 export interface HelperLaunchOptions {
   /** Identifies the session; embedded in the security-group rule description. */
   runId: string;
-  /** Serve over HTTPS with a per-launch certificate (returned on the outcome) instead of plain HTTP. */
-  tls: boolean;
   /** Tags applied to the task in addition to the operator IP tag. */
   tags?: readonly { key: string; value: string }[];
   /** A layout from {@link FileManagerService.planHelperLayout} to mount as-is; planned inside when omitted. */
@@ -100,8 +80,8 @@ export type HelperLaunchOutcome =
   | {
       ok: true;
       taskArn: string;
-      credentials: FileMgrCredentials;
-      cert?: EphemeralCert;
+      credentials: HelperCredentials;
+      cert: EphemeralCert;
       operatorIp: string;
       /** Epoch ms at which the launch succeeded. */
       startedAt: number;
@@ -112,13 +92,11 @@ export type HelperLaunchOutcome =
     }
   | { ok: false; code: 'helper-open' | 'failed'; message: string };
 
-/** Start/stop result shape — mirrors {@link EcsService}'s `StartResult`. */
+/** Stop result shape — mirrors {@link EcsService}'s `StartResult`. */
 export interface FileMgrResult {
   success: boolean;
   message: string;
   taskArn?: string;
-  /** Only present on a successful `start()` — the one-time plaintext credential for this launch. Never returned by `getStatus()`/`stop()`. */
-  credentials?: FileMgrCredentials;
 }
 
 /**
@@ -137,8 +115,7 @@ export interface FileMgrResult {
  *    flag (which — per FileBrowser's own CLI docs — expects an already-hashed
  *    value, not plaintext) alongside `--username`, replacing the previous
  *    `--noauth` flag. Command-line flags are used rather than the
- *    container's `FB_PASSWORD` env var for the same reason `start()`'s
- *    existing comment prefers flags generally: FileBrowser's own issue
+ *    container's `FB_PASSWORD` env var because FileBrowser's own issue
  *    tracker documents `FB_PASSWORD`-via-env sometimes failing to take effect
  *    on first-run database init, where the `--password` flag is reliable.
  *    The hash is also written to Secrets Manager (via the same
@@ -265,27 +242,6 @@ export class FileManagerService {
   }
 
   /**
-   * Look up the FileBrowser task for `game` (via its `startedBy` tag) and
-   * resolve the public URL if it's running.
-   */
-  async getStatus(game: string): Promise<FileMgrStatus> {
-    const outputs = await this.config.getStackOutputs();
-    if (!outputs) return { game, state: 'not_deployed' };
-
-    const task = await this.listHelperTask(game);
-    if (!task) return { game, state: 'stopped' };
-
-    if (task.lastStatus === 'RUNNING') {
-      const publicIp = await this.publicIpOf(task);
-      const url = publicIp ? `http://${publicIp}:${FILEBROWSER_PORT}` : undefined;
-      logger.debug('File manager status', { game, publicIp, url });
-      return { game, state: 'running', url, taskArn: task.taskArn };
-    }
-
-    return { game, state: 'starting', taskArn: task.taskArn };
-  }
-
-  /**
    * The running helper task for `game`, looked up by its `startedBy` tag.
    *
    * @param game - Game whose helper to look up.
@@ -334,26 +290,9 @@ export class FileManagerService {
   }
 
   /**
-   * Register a fresh FileBrowser task definition for `game`, mounting each applied
-   * volume's EFS access point, then launch it in the file-manager security group
-   * (which exposes port 8080 only to the operator's IP, via an app-added
-   * `/32` rule). Refuses to start a second task if one is already running.
-   */
-  async start(game: string): Promise<FileMgrResult> {
-    const outcome = await this.launchHelper(game, { runId: BROWSE_RUN_ID, tls: false });
-    if (!outcome.ok) return { success: false, message: outcome.message };
-    return {
-      success: true,
-      message: `File manager for '${game}' is starting. It will be ready in ~30 seconds.${outcome.scheduleWarning}`,
-      taskArn: outcome.taskArn,
-      credentials: outcome.credentials,
-    };
-  }
-
-  /**
    * Launches a FileBrowser helper for `game`: registers a throwaway task definition, opens the operator's `/32`, runs
-   * the task and schedules its auto-stop. This is the single launch body behind {@link FileManagerService.start} and the
-   * helper session registry.
+   * the task and schedules its auto-stop. Every launch serves HTTPS with a per-launch certificate returned on the outcome;
+   * the helper session registry is its only caller.
    *
    * @remarks
    * If a helper for `game` is already open the launch is refused with `code: 'helper-open'`, because the credential of
@@ -361,11 +300,11 @@ export class FileManagerService {
    * IP rule and deregisters the task definition. The outcome carries the plaintext credential, so it must stay in-process.
    *
    * @param game - Game to launch the helper for.
-   * @param options - Run id, TLS and tag choices, and an optional precomputed layout.
+   * @param options - Run id, tag choices, and an optional precomputed layout.
    * @returns The launched task, its credential and timings, or a modeled failure.
    */
   async launchHelper(game: string, options: HelperLaunchOptions): Promise<HelperLaunchOutcome> {
-    const { runId, tls: useTls, tags = [] } = options;
+    const { runId, tags = [] } = options;
     const fail = (message: string, code: 'helper-open' | 'failed' = 'failed'): HelperLaunchOutcome => ({ ok: false, code, message });
 
     const outputs = await this.config.getStackOutputs();
@@ -420,7 +359,7 @@ export class FileManagerService {
         // Best-effort audit record only — the container itself gets the hash
         // directly via the command flags below, so a Secrets Manager write
         // failure must not block the launch.
-        logger.error('Failed to record FileBrowser credential hash in Secrets Manager', { err, game });
+        logger.error('Failed to record FileBrowser credential hash in Secrets Manager', { game, error: errMessage(err) });
       }
     }
 
@@ -451,15 +390,14 @@ export class FileManagerService {
       '--address', '0.0.0.0',
       '--database', '/tmp/filebrowser.db',
     ];
-    const cert = useTls ? await generateEphemeralCert() : undefined;
-    const tlsSettings = cert ? buildTlsContainerSettings(filebrowserArgs, cert) : undefined;
+    const cert = await generateEphemeralCert();
+    const tlsSettings = buildTlsContainerSettings(filebrowserArgs, cert);
 
     logger.info('Registering FileBrowser task definition', {
       game,
       family,
       accessPoints: layout.mounts.map((m) => m.accessPointId),
       logGroup,
-      tls: useTls,
     });
 
     registeredArn = await this.ecs.registerTaskDefinition({
@@ -486,7 +424,7 @@ export class FileManagerService {
           // versions, and FileBrowser's own `--password` flag docs confirm it
           // takes an already-hashed value, so the bcrypt hash computed above
           // goes straight in with no extra plaintext-handling step.
-          ...(tlsSettings ?? { command: filebrowserArgs }),
+          ...tlsSettings,
           portMappings: [
             { containerPort: FILEBROWSER_PORT, hostPort: FILEBROWSER_PORT, protocol: 'tcp' },
           ],
