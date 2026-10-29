@@ -1,0 +1,221 @@
+import { randomUUID } from 'node:crypto';
+import { createWriteStream } from 'node:fs';
+import { rename, rm } from 'node:fs/promises';
+import { Transform, type Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { errMessage } from '@hyveon/shared';
+import type { VolumeTransferProgress } from '@hyveon/shared/volumeFiles';
+import { logger } from '../../logger.js';
+import { HelperSessionRegistry, NoSessionError } from './HelperSessionRegistry.js';
+import { VolumeFileError } from './VolumeFileBackend.js';
+import { describeFailure, isAbort, type OpNames } from './volumeFileErrors.js';
+
+/** Fewest milliseconds between two `running` progress events of one transfer. */
+const PROGRESS_INTERVAL_MS = 150;
+
+/** Options for {@link streamToFile}. */
+export interface StreamToFileOptions {
+  /** Aborts the copy and removes the partial file. */
+  signal: AbortSignal;
+  /** Called with the size of each chunk written. */
+  onBytes: (n: number) => void;
+}
+
+/**
+ * Copies `source` to `target` through a `.part` file, so `target` only ever holds a complete download.
+ *
+ * @remarks
+ * The part file is renamed over `target` on success and removed on any failure or abort, leaving an existing
+ * `target` untouched until the new bytes are complete.
+ *
+ * @param source - The bytes to save; destroyed when this settles.
+ * @param target - Final local path.
+ * @param options - Abort signal and byte counter.
+ * @throws The stream or file-system error, or an `AbortError` when `options.signal` aborts.
+ */
+export async function streamToFile(source: Readable, target: string, options: StreamToFileOptions): Promise<void> {
+  const part = `${target}.part`;
+  const out = createWriteStream(part);
+  const counter = new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      options.onBytes(chunk.length);
+      done(null, chunk);
+    },
+  });
+  try {
+    await pipeline(source, counter, out, { signal: options.signal });
+    await rename(part, target);
+  } catch (err) {
+    source.destroy();
+    out.destroy();
+    if (!out.closed) await new Promise<void>((resolve) => out.once('close', resolve));
+    await rm(part, { force: true });
+    throw err;
+  }
+}
+
+/** Whether `err` is a local file-system error rather than a file-manager one. */
+const isLocalFsError = (err: unknown): boolean =>
+  err instanceof Error && !(err instanceof VolumeFileError) && !isAbort(err) && typeof (err as NodeJS.ErrnoException).code === 'string';
+
+/**
+ * The operator message for a transfer that failed: local file-system errors get `localFailure`, everything else the
+ * fixed file-manager wording.
+ *
+ * @param err - What the transfer threw.
+ * @param names - What to call the entry in the message.
+ * @param localFailure - Message for a failure reading or writing a local file.
+ */
+export function transferErrorMessage(err: unknown, names: OpNames, localFailure: string): string {
+  return isLocalFsError(err) ? localFailure : describeFailure(err, names).message;
+}
+
+/** What {@link TransferManager.start} needs to run one transfer. */
+export interface TransferSpec {
+  game: string;
+  kind: VolumeTransferProgress['kind'];
+  /** What the transfer is called in the UI. */
+  name: string;
+  /** `null` when unknown (a folder archive). */
+  bytesTotal: number | null;
+  /** Base name of the saved local file, reported with the final `done` event of a download. */
+  savedAs?: string;
+  /** Operator-facing message for a failure that is not a cancellation. */
+  describeError: (err: unknown) => string;
+  /** The work. Resolve when finished; honour `signal` and report bytes as they move. */
+  run: (context: { signal: AbortSignal; onBytes: (n: number) => void }) => Promise<void>;
+}
+
+/** A transfer in flight. */
+interface ActiveTransfer {
+  game: string;
+  controller: AbortController;
+}
+
+/**
+ * Runs downloads and uploads in the background: keeps the game's file-manager session open for their duration,
+ * reports progress, and cancels them on request or when the session is stopping.
+ *
+ * @remarks
+ * A transfer only joins a session that is already running; it never launches a helper. Its hold is released on
+ * every exit path before the final event is emitted.
+ */
+export class TransferManager {
+  private readonly active = new Map<string, ActiveTransfer>();
+  private readonly listeners = new Set<(progress: VolumeTransferProgress) => void>();
+
+  constructor(private readonly registry: HelperSessionRegistry) {}
+
+  /**
+   * Subscribes to progress events.
+   *
+   * @param listener - Called for every event of every transfer.
+   * @returns The unsubscribe function.
+   */
+  onTransfer(listener: (progress: VolumeTransferProgress) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * Checks that `game` has a running session to join, without joining it.
+   *
+   * @param game - Game whose session to check.
+   * @throws {@link NoSessionError} when the session is not running.
+   */
+  async requireRunning(game: string): Promise<void> {
+    const status = await this.registry.status(game).catch(() => null);
+    if (status?.state !== 'running') throw new NoSessionError(game);
+  }
+
+  /**
+   * Holds the game's running session and starts `spec.run` in the background.
+   *
+   * @param spec - The transfer to run.
+   * @returns The transfer id, once the transfer has started.
+   * @throws {@link NoSessionError} when the game has no running session to join.
+   */
+  async start(spec: TransferSpec): Promise<string> {
+    await this.requireRunning(spec.game);
+    const transferId = randomUUID();
+    const holder = `upload:xfer-${transferId}` as const;
+    const acquired = await this.registry.acquire(spec.game, holder);
+    if (!acquired.ok) throw new NoSessionError(spec.game);
+    const controller = new AbortController();
+    this.active.set(transferId, { game: spec.game, controller });
+    logger.info('VolumeFilesService: transfer started', { game: spec.game, transferId, kind: spec.kind });
+    void this.execute(spec, transferId, holder, controller);
+    return transferId;
+  }
+
+  /**
+   * Cancels one transfer of `game`.
+   *
+   * @param game - Game the transfer belongs to.
+   * @param transferId - Transfer to cancel.
+   */
+  cancel(game: string, transferId: string): { cancelled: boolean } {
+    const transfer = this.active.get(transferId);
+    if (transfer?.game !== game) return { cancelled: false };
+    transfer.controller.abort();
+    return { cancelled: true };
+  }
+
+  /**
+   * Cancels every transfer of `game`.
+   *
+   * @param game - Game whose session is stopping.
+   */
+  abortGame(game: string): void {
+    for (const transfer of this.active.values()) {
+      if (transfer.game === game) transfer.controller.abort();
+    }
+  }
+
+  private emit(progress: VolumeTransferProgress): void {
+    for (const listener of this.listeners) listener(progress);
+  }
+
+  private async execute(spec: TransferSpec, transferId: string, holder: `upload:${string}`, controller: AbortController): Promise<void> {
+    const { signal } = controller;
+    let bytesDone = 0;
+    let lastEmit = 0;
+    const event = (phase: VolumeTransferProgress['phase'], extra: Partial<VolumeTransferProgress> = {}): VolumeTransferProgress => ({
+      game: spec.game,
+      transferId,
+      kind: spec.kind,
+      name: spec.name,
+      bytesDone,
+      bytesTotal: spec.bytesTotal,
+      phase,
+      ...extra,
+    });
+    this.emit(event('running'));
+    let final: VolumeTransferProgress;
+    try {
+      await spec.run({
+        signal,
+        onBytes: (n) => {
+          bytesDone += n;
+          const now = Date.now();
+          if (now - lastEmit < PROGRESS_INTERVAL_MS) return;
+          lastEmit = now;
+          this.emit(event('running'));
+        },
+      });
+      final = event('done', spec.savedAs === undefined ? {} : { savedAs: spec.savedAs });
+    } catch (err) {
+      if (signal.aborted) {
+        final = event('cancelled');
+      } else {
+        logger.warn('VolumeFilesService: transfer failed', { game: spec.game, transferId, kind: spec.kind, error: errMessage(err) });
+        final = event('failed', { error: spec.describeError(err) });
+      }
+    } finally {
+      this.registry.release(spec.game, holder);
+      this.active.delete(transferId);
+    }
+    logger.info('VolumeFilesService: transfer finished', { game: spec.game, transferId, phase: final.phase });
+    this.emit(final);
+  }
+}

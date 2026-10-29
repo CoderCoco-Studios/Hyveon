@@ -638,6 +638,43 @@ describe('FolderUploadService overwrite confirmation', () => {
   });
 });
 
+describe('FolderUploadService without persisting the selection', () => {
+  const NOT_PERSISTED = { persistSelection: false };
+
+  it('should not store the selection', async () => {
+    const h = harness();
+    expect((await h.svc.startUpload(await request(['Config']), NOT_PERSISTED)).started).toBe(true);
+    await settled(h);
+    expect(h.svc.getSelection('minecraft')).toBeNull();
+  });
+
+  it('should leave the stored selection and its last run untouched', async () => {
+    const h = harness();
+    h.svc.setSelection(await request(['Data']));
+    await h.svc.startUpload(await request(['Config']), NOT_PERSISTED);
+    await settled(h);
+    expect(h.svc.getSelection('minecraft')).toMatchObject({ localPath: root, include: ['Data'] });
+    expect(h.svc.getSelection('minecraft')?.lastRun).toBeUndefined();
+  });
+
+  it('should still record the last run when the selection is persisted', async () => {
+    const h = harness();
+    await h.svc.startUpload(await request(['Config']));
+    await settled(h);
+    expect(h.svc.getSelection('minecraft')?.lastRun).toMatchObject({ status: 'done' });
+  });
+
+  it('should not treat the stored cut-short run as its own, so overwrites still prompt', async () => {
+    const h = harness({ client: conflictedClient() });
+    h.svc.setSelection(await request(['Config', 'Data']));
+    h.store.setFolderUploadLastRun('minecraft', { status: 'failed', completedAt: '2026-01-01T00:00:00.000Z', files: 1, bytes: 4 });
+    await h.svc.startUpload(await request(['Config', 'Data']), NOT_PERSISTED);
+    await reached(h, 'awaiting-confirmation');
+    h.svc.cancel('minecraft');
+    await settled(h);
+  });
+});
+
 describe('FolderUploadService selection and cleanup', () => {
   it('should persist a selection and rescan its folder for a live scan id', async () => {
     const h = harness();

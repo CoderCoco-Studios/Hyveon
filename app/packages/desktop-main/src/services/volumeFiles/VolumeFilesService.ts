@@ -1,39 +1,35 @@
 import { Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
 import { errMessage } from '@hyveon/shared';
+import type { FolderUploadStartResult } from '@hyveon/shared/folderUpload';
 import {
   joinVolumePath,
   MAX_TEXT_EDIT_BYTES,
   normalizeVolumePath,
   parentOfVolumePath,
-  VolumePathError,
   type VolumeEntryInfo,
   type VolumeListing,
   type VolumeRef,
   type VolumeResult,
   type VolumeSessionStatus,
   type VolumeTextFile,
+  type VolumeTransferProgress,
 } from '@hyveon/shared/volumeFiles';
 import { logger } from '../../logger.js';
 import { ConfigService } from '../ConfigService.js';
+import { DeploymentConfigService } from '../DeploymentConfigService.js';
 import { EcsService } from '../EcsService.js';
-import { isVolumeMounted, toHelperPath, type HelperVolumeLayout } from './helperVolumeLayout.js';
+import { FolderScanService } from '../FolderScanService.js';
+import { FolderUploadService } from '../FolderUploadService.js';
+import { NativeDialogService } from '../NativeDialogService.js';
+import { entryAt, FileOps, requireNotRoot } from './fileOps.js';
 import { HelperSessionRegistry, type HelperSessionSnapshot } from './HelperSessionRegistry.js';
-import type { VolumeEntry, VolumeFileBackend } from './VolumeFileBackend.js';
-import { readCapped, decodeUtf8 } from './textFiles.js';
-import { fail, ok, TextTooLargeError, toVolumeResult, type OpNames, type VolumeFailure } from './volumeFileErrors.js';
+import type { VolumeEntry } from './VolumeFileBackend.js';
+import { decodeUtf8, readCapped } from './textFiles.js';
+import { TransferOps } from './transferOps.js';
+import { fail, ok, TextTooLargeError } from './volumeFileErrors.js';
 
-/** How long one metadata operation (list, stat, mkdir, move, remove, small text read or write) may take. */
-export const METADATA_OP_TIMEOUT_MS = 30_000;
-
-/** The pieces of an open session a file operation works with. */
-interface FileIo {
-  backend: VolumeFileBackend;
-  /** Aborts the operation after {@link METADATA_OP_TIMEOUT_MS}; created per attempt. */
-  signal: AbortSignal;
-  /** Maps a clean volume path to the helper's path for this request's volume. */
-  helperPath: (volumePath: string) => string;
-}
+export { METADATA_OP_TIMEOUT_MS } from './fileOps.js';
 
 const entryInfo = ({ name, isDir, size, modifiedMs }: VolumeEntry): VolumeEntryInfo => ({ name, isDir, size, modifiedMs });
 
@@ -64,11 +60,22 @@ function toSessionStatus(s: HelperSessionSnapshot): VolumeSessionStatus {
  */
 @Injectable()
 export class VolumeFilesService {
+  private readonly ops: FileOps;
+  private readonly transfers: TransferOps;
+
   constructor(
     private readonly registry: HelperSessionRegistry,
-    private readonly config: ConfigService,
-    private readonly ecs: EcsService,
-  ) {}
+    config: ConfigService,
+    ecs: EcsService,
+    dialogs: NativeDialogService,
+    scans: FolderScanService,
+    folderUploads: FolderUploadService,
+    deploymentConfig: DeploymentConfigService,
+  ) {
+    this.ops = new FileOps(registry, config, ecs);
+    this.transfers = new TransferOps(registry, this.ops, dialogs, scans, folderUploads, deploymentConfig);
+    this.registry.onBeforeStop((game) => this.transfers.abortGame(game));
+  }
 
   /**
    * Reads a game's session state; a failed lookup is reported as a `failed` status rather than thrown.
@@ -146,7 +153,7 @@ export class VolumeFilesService {
    * @param path - Directory path inside the volume.
    */
   list(ref: VolumeRef, path: string): Promise<VolumeResult<VolumeListing>> {
-    return this.runFileOp(
+    return this.ops.run(
       ref,
       { mutates: false, path, validate: () => ({ path: normalizeVolumePath(path), names: undefined }) },
       async ({ backend, signal, helperPath }, { path: dir }) => {
@@ -165,12 +172,12 @@ export class VolumeFilesService {
    * @returns The created entry; `modifiedMs` is 0 when it could not be read back.
    */
   mkdir(ref: VolumeRef, parent: string, name: string): Promise<VolumeResult<VolumeEntryInfo>> {
-    return this.runFileOp(
+    return this.ops.run(
       ref,
       { mutates: true, path: parent, validate: () => ({ path: joinVolumePath(parent, name), names: { missing: parent, existing: name } }) },
       async (io, { path }) => {
         await io.backend.mkdir(io.helperPath(path), { signal: io.signal });
-        return ok(await this.entryAt(io, path, { name, isDir: true, size: 0, modifiedMs: 0 }));
+        return ok(await entryAt(io, path, { name, isDir: true, size: 0, modifiedMs: 0 }));
       },
     );
   }
@@ -184,20 +191,20 @@ export class VolumeFilesService {
    * @returns The renamed entry; `modifiedMs` is 0 when it could not be read back.
    */
   rename(ref: VolumeRef, path: string, newName: string): Promise<VolumeResult<VolumeEntryInfo>> {
-    return this.runFileOp(
+    return this.ops.run(
       ref,
       {
         mutates: true,
         path,
         validate: () => {
-          const from = this.requireNotRoot(path, 'The volume root');
+          const from = requireNotRoot(path, 'The volume root');
           return { path: from, to: joinVolumePath(parentOfVolumePath(from), newName), names: { missing: from, existing: newName } };
         },
       },
       async (io, { path: from, to }) => {
         const source = await io.backend.stat(io.helperPath(from), io.signal).catch(() => null);
         await io.backend.move(io.helperPath(from), io.helperPath(to), io.signal);
-        return ok(await this.entryAt(io, to, { name: newName, isDir: source?.isDir ?? false, size: 0, modifiedMs: 0 }));
+        return ok(await entryAt(io, to, { name: newName, isDir: source?.isDir ?? false, size: 0, modifiedMs: 0 }));
       },
     );
   }
@@ -209,9 +216,9 @@ export class VolumeFilesService {
    * @param path - Entry to delete; not the volume root.
    */
   remove(ref: VolumeRef, path: string): Promise<VolumeResult<true>> {
-    return this.runFileOp(
+    return this.ops.run(
       ref,
-      { mutates: true, path, validate: () => ({ path: this.requireNotRoot(path, 'The volume root'), names: undefined }) },
+      { mutates: true, path, validate: () => ({ path: requireNotRoot(path, 'The volume root'), names: undefined }) },
       async (io, { path: target }) => {
         await io.backend.remove(io.helperPath(target), io.signal);
         return ok(true as const);
@@ -227,7 +234,7 @@ export class VolumeFilesService {
    * @returns The text and its modification time (0 when unknown), or `too-large` / `binary`.
    */
   readText(ref: VolumeRef, path: string): Promise<VolumeResult<VolumeTextFile>> {
-    return this.runFileOp(
+    return this.ops.run(
       ref,
       { mutates: false, path, validate: () => ({ path: normalizeVolumePath(path), names: undefined }) },
       async ({ backend, signal, helperPath }, { path: file }) => {
@@ -253,13 +260,13 @@ export class VolumeFilesService {
    * @returns The file's new modification time (0 when it could not be read back).
    */
   writeText(ref: VolumeRef, path: string, content: string, expectedModifiedMs: number): Promise<VolumeResult<{ modifiedMs: number }>> {
-    return this.runFileOp(
+    return this.ops.run(
       ref,
       {
         mutates: true,
         path,
         validate: () => {
-          const file = this.requireNotRoot(path, 'The volume root');
+          const file = requireNotRoot(path, 'The volume root');
           if (Buffer.byteLength(content) > MAX_TEXT_EDIT_BYTES) throw new TextTooLargeError();
           return { path: file, names: undefined };
         },
@@ -279,6 +286,61 @@ export class VolumeFilesService {
     );
   }
 
+  /**
+   * Subscribes to download and upload progress.
+   *
+   * @param listener - Called for every event of every transfer.
+   * @returns The unsubscribe function.
+   */
+  onTransfer(listener: (progress: VolumeTransferProgress) => void): () => void {
+    return this.transfers.onTransfer(listener);
+  }
+
+  /**
+   * Cancels a running download or upload; the partial local file is removed.
+   *
+   * @param game - Game the transfer belongs to.
+   * @param transferId - Transfer to cancel.
+   */
+  cancelTransfer(game: string, transferId: string): { cancelled: boolean } {
+    return this.transfers.cancel(game, transferId);
+  }
+
+  /**
+   * Saves a file, or a folder as a zip archive, to a location the operator picks; see {@link TransferOps.download}.
+   *
+   * @param ref - Game and volume.
+   * @param path - File or folder to download.
+   * @param isDir - Whether `path` is a folder.
+   * @returns The transfer id, or `null` when the dialog was cancelled.
+   */
+  download(ref: VolumeRef, path: string, isDir: boolean): Promise<VolumeResult<{ transferId: string } | null>> {
+    return this.transfers.download(ref, path, isDir);
+  }
+
+  /**
+   * Uploads local files into a directory of a volume, never overwriting; see {@link TransferOps.uploadFiles}.
+   *
+   * @param ref - Game and volume.
+   * @param dir - Destination directory.
+   * @param localPaths - Files dropped by the operator, resolved by the preload; omitted to open the file dialog.
+   * @returns The transfer id, or `null` when nothing was chosen.
+   */
+  uploadFiles(ref: VolumeRef, dir: string, localPaths?: string[]): Promise<VolumeResult<{ transferId: string } | null>> {
+    return this.transfers.uploadFiles(ref, dir, localPaths);
+  }
+
+  /**
+   * Uploads a local folder through the folder-upload flow; see {@link TransferOps.uploadFolder}.
+   *
+   * @param ref - Game and volume.
+   * @param dir - Destination directory.
+   * @returns The folder-upload start result, or `null` when the dialog was cancelled.
+   */
+  uploadFolder(ref: VolumeRef, dir: string): Promise<VolumeResult<FolderUploadStartResult | null>> {
+    return this.transfers.uploadFolder(ref, dir);
+  }
+
   /** Fires `acquire` for the browse holder; its outcome reaches the renderer through the registry's state pushes. */
   private acquireInBackground(game: string): void {
     void this.registry
@@ -287,88 +349,5 @@ export class VolumeFilesService {
         if (!result.ok) logger.warn('VolumeFilesService: browse session did not start', { game, code: result.code });
       })
       .catch((err: unknown) => logger.error('VolumeFilesService: browse session start failed', { game, error: errMessage(err) }));
-  }
-
-  /**
-   * The shared shape of every file operation: validate, check the server, run inside the session, map failures.
-   *
-   * @param ref - Game and volume.
-   * @param spec - Whether it mutates, the raw path (for logs), and a validator that throws {@link VolumePathError}.
-   * @param run - The work, given the session and the validated parameters; may return a modeled refusal.
-   */
-  private async runFileOp<P extends { names: OpNames | undefined }, T>(
-    ref: VolumeRef,
-    spec: { mutates: boolean; path: string; validate: () => P },
-    run: (io: FileIo, params: P) => Promise<VolumeResult<T>>,
-  ): Promise<VolumeResult<T>> {
-    let names: OpNames = { missing: spec.path, existing: spec.path };
-    try {
-      const params = spec.validate();
-      names = params.names ?? { missing: spec.path, existing: spec.path };
-      if (spec.mutates) {
-        const refusal = await this.assertWritable(ref.game);
-        if (refusal) return refusal;
-      }
-      return await this.registry.withBackend(ref.game, async (backend, layout) => {
-        const refusal = this.checkVolume(ref, layout, spec.mutates);
-        if (refusal) return refusal;
-        const io: FileIo = {
-          backend,
-          signal: AbortSignal.timeout(METADATA_OP_TIMEOUT_MS),
-          helperPath: (volumePath) => toHelperPath(layout, ref.volume, volumePath),
-        };
-        return run(io, params);
-      });
-    } catch (err) {
-      return toVolumeResult(err, ref, spec.path, names);
-    }
-  }
-
-  /** Refuses a volume the session did not mount, and mutations of a legacy fallback layout. */
-  private checkVolume(ref: VolumeRef, layout: HelperVolumeLayout, mutates: boolean): VolumeFailure | null {
-    if (!isVolumeMounted(layout, ref.volume)) {
-      const unapplied = layout.unmounted.some((u) => u.volume === ref.volume);
-      return fail(
-        'unknown-volume',
-        unapplied ? `Apply the infrastructure to browse '${ref.volume}'.` : `'${ref.volume}' is not a volume of '${ref.game}'.`,
-      );
-    }
-    if (mutates && layout.usedFallback) return fail('apply-needed', 'Apply the infrastructure to change files in this volume.');
-    return null;
-  }
-
-  /**
-   * Refuses a change while the game's server task exists or its state can't be confirmed (fail closed).
-   *
-   * @param game - Game whose server must be stopped.
-   * @returns A refusal, or `null` when the server is confirmed stopped.
-   */
-  private async assertWritable(game: string): Promise<VolumeFailure | null> {
-    try {
-      const outputs = await this.config.getStackOutputs();
-      if (!outputs) throw new Error('The infrastructure outputs are not available.');
-      const task = await this.ecs.findRunningTaskOrThrow(outputs.ecsClusterName, game);
-      return task ? fail('server-running', `'${game}' is running. Stop the server to change files.`) : null;
-    } catch (err) {
-      logger.warn('VolumeFilesService: server state unconfirmed, refusing change', { game, error: errMessage(err) });
-      return fail('server-check-failed', "Couldn't confirm the server is stopped.");
-    }
-  }
-
-  /** Normalizes `path` and rejects the volume root, which no operation may remove or rename. */
-  private requireNotRoot(path: string, what: string): string {
-    const clean = normalizeVolumePath(path);
-    if (clean === '/') throw new VolumePathError(`${what} can't be changed.`);
-    return clean;
-  }
-
-  /** Stats a path just written; `fallback` stands in (modification time 0 = unknown) when the stat fails. */
-  private async entryAt(io: FileIo, volumePath: string, fallback: VolumeEntryInfo): Promise<VolumeEntryInfo> {
-    try {
-      const { isDir, size, modifiedMs } = await io.backend.stat(io.helperPath(volumePath), io.signal);
-      return { name: fallback.name, isDir, size, modifiedMs };
-    } catch {
-      return fallback;
-    }
   }
 }

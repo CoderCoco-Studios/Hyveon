@@ -621,14 +621,14 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
   - `uploadFiles(ref, dir, localPaths?: string[]): Promise<VolumeResult<{ transferId: string } | null>>` — `localPaths` absent → `pickFiles()`; empty strings rejected (`invalid-path`); `assertWritable`; each file `writeStream(joinVolumePath(dir, basename), createReadStream, { size, overwrite: false })` so an existing name returns `conflict` and nothing is overwritten.
   - `uploadFolder(ref, dir): Promise<VolumeResult<FolderUploadStartResult | null>>` — `pickDirectory` → `FolderScanService.scan` → `FolderUploadService.startUpload({ game, scanId, include: [''], destination }, { persistSelection: false })` where `destination = selectedVolume.container_path + (dir === '/' ? '' : dir)` and `selectedVolume` is the game's volume named `ref.volume` (unknown → `unknown-volume`). The folder-upload flow then routes the bytes into that volume's mount (Task 8).
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `localNames`: `should replace characters reserved on Windows` (`'a:b?.txt'` → `'a_b_.txt'`); `should prefix reserved device names` (`'con.txt'` → `'_con.txt'`, `'NUL'` → `'_NUL'`); `should leave names alone on Linux and macOS` (`'a:b?.txt'` unchanged for `'linux'` and `'darwin'`).
   - `transfers`: `should rename the part file on success`; `should leave no partial file when the source errors` (source emits an error after 3 bytes → neither `target` nor `target.part` exists); `should leave no partial file when cancelled`.
   - `VolumeFilesService`: `should not start a download when the save dialog is cancelled`; `should emit progress and done with the saved path` (`savedAs` equals the dialog path; final `phase: 'done'`, `bytesDone === size`); `should refuse a folder download when the backend has no archive support`; `should refuse an upload whose name already exists` (`conflict`, original size unchanged); `should reject a dropped path that did not resolve` (`['']` → `invalid-path`); `should start a folder upload into the selected volume's current directory without persisting the selection` (volumes `config` `/data/config` and `saves` `/data/saves`; `uploadFolder({ game: 'mc', volume: 'saves' }, '/worlds')` → `startUpload` called with `destination: '/data/saves/worlds'`, options `{ persistSelection: false }`).
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles packages/desktop-main/src/services/FolderUploadService.test.ts` → FAIL.
-- [ ] **Step 3: Implement**.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `feat(desktop-main): add volume file downloads and uploads`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles packages/desktop-main/src/services/FolderUploadService.test.ts` → FAIL.
+- [x] **Step 3: Implement**.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `feat(desktop-main): add volume file downloads and uploads`.
 
 ### Task 19: `VolumeFilesController` and push channels (tasks.md 4.6, 4.8)
 

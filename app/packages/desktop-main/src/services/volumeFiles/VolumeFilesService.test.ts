@@ -1,14 +1,22 @@
 import 'reflect-metadata';
-import { Readable } from 'node:stream';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat as fsStat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PassThrough, Readable } from 'node:stream';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { MAX_TEXT_EDIT_BYTES, type VolumeRef } from '@hyveon/shared/volumeFiles';
+import { MAX_TEXT_EDIT_BYTES, type VolumeRef, type VolumeTransferProgress } from '@hyveon/shared/volumeFiles';
 import type { ConfigService } from '../ConfigService.js';
+import type { DeploymentConfigService } from '../DeploymentConfigService.js';
 import type { EcsService } from '../EcsService.js';
+import type { FolderScanService } from '../FolderScanService.js';
+import type { FolderUploadService } from '../FolderUploadService.js';
+import type { NativeDialogService } from '../NativeDialogService.js';
+import { deploymentConfigStub, gameServer } from '../../testing/deployment-config.fixture.js';
 import { fakeBackend, type FakeBackend } from '../../testing/fake-volume-backend.js';
 import { expectNoSecretFields } from '../../testing/no-secret-fields.js';
 import { stackOutputs } from '../../testing/stack-outputs.fixture.js';
@@ -48,7 +56,12 @@ const stat = (over: Partial<VolumeStat> = {}): VolumeStat => ({
 interface Harness {
   service: VolumeFilesService;
   backend: FakeBackend;
-  registry: { [K in 'withBackend' | 'status' | 'acquire' | 'attach' | 'release' | 'stop']: ReturnType<typeof vi.fn> };
+  registry: { [K in 'withBackend' | 'status' | 'acquire' | 'attach' | 'release' | 'stop' | 'onBeforeStop']: ReturnType<typeof vi.fn> };
+  dialogs: { pickSavePath: ReturnType<typeof vi.fn>; pickFiles: ReturnType<typeof vi.fn>; pickDirectory: ReturnType<typeof vi.fn> };
+  scans: { scan: ReturnType<typeof vi.fn> };
+  folderUploads: { startUpload: ReturnType<typeof vi.fn> };
+  /** The listener the service registered with `onBeforeStop`. */
+  beforeStop: (game: string) => void;
   config: { getStackOutputs: ReturnType<typeof vi.fn> };
   ecs: { findRunningTaskOrThrow: ReturnType<typeof vi.fn> };
 }
@@ -63,11 +76,27 @@ function harness(backendOverrides: Parameters<typeof fakeBackend>[0] = {}, layou
     attach: vi.fn().mockReturnValue(true),
     release: vi.fn(),
     stop: vi.fn().mockResolvedValue({ success: true, message: 'stopped' }),
+    onBeforeStop: vi.fn((listener: (game: string) => void) => {
+      beforeStop = listener;
+      return () => undefined;
+    }),
   };
+  let beforeStop: (game: string) => void = () => undefined;
+  const dialogs = { pickSavePath: vi.fn(), pickFiles: vi.fn(), pickDirectory: vi.fn() };
+  const scans = { scan: vi.fn().mockResolvedValue({ scanId: 'scan-1' }) };
+  const folderUploads = { startUpload: vi.fn().mockResolvedValue({ started: true, runId: 'run-1' }) };
   const config = { getStackOutputs: vi.fn().mockResolvedValue(stackOutputs()) };
   const ecs = { findRunningTaskOrThrow: vi.fn().mockResolvedValue(null) };
-  const service = new VolumeFilesService(registry as Partial<HelperSessionRegistry> as HelperSessionRegistry, config as Partial<ConfigService> as ConfigService, ecs as Partial<EcsService> as EcsService);
-  return { service, backend, registry, config, ecs };
+  const service = new VolumeFilesService(
+    registry as Partial<HelperSessionRegistry> as HelperSessionRegistry,
+    config as Partial<ConfigService> as ConfigService,
+    ecs as Partial<EcsService> as EcsService,
+    dialogs as Partial<NativeDialogService> as NativeDialogService,
+    scans as Partial<FolderScanService> as FolderScanService,
+    folderUploads as Partial<FolderUploadService> as FolderUploadService,
+    deploymentConfigStub({ declared: [gameServer('mc', { volumes: DECLARED })] }) as DeploymentConfigService,
+  );
+  return { service, backend, registry, config, ecs, dialogs, scans, folderUploads, beforeStop: (game) => beforeStop(game) };
 }
 
 /** A running-session snapshot with epoch-ms times, as the registry reports it. */
@@ -525,5 +554,451 @@ describe('VolumeFilesService results', () => {
       await h.service.sessionStop('mc'),
     ];
     for (const result of results) expectNoSecretFields(result);
+  });
+});
+
+let local: string;
+beforeEach(async () => {
+  local = await mkdtemp(join(tmpdir(), 'vfs-'));
+});
+afterEach(() => rm(local, { recursive: true, force: true }));
+
+/** Collects transfer events and resolves to the terminal one. */
+function watchTransfers(h: Harness) {
+  const events: VolumeTransferProgress[] = [];
+  h.service.onTransfer((e) => events.push(e));
+  const settled = async () => {
+    await vi.waitFor(() => expect(['done', 'failed', 'cancelled']).toContain(events.at(-1)?.phase));
+    return events.at(-1)!;
+  };
+  return { events, settled };
+}
+
+describe('VolumeFilesService downloads', () => {
+  const fileBackend = (text = 'hello') => ({
+    stat: vi.fn().mockResolvedValue(stat({ name: 'level.dat', size: text.length })),
+    readStream: vi.fn().mockImplementation(async () => Readable.from([Buffer.from(text)])),
+  });
+
+  it('should not start a download when the save dialog is cancelled', async () => {
+    const h = harness(fileBackend());
+    h.dialogs.pickSavePath.mockResolvedValue(null);
+    expect(await h.service.download(SAVES, '/level.dat', false)).toEqual({ ok: true, value: null });
+    expect(h.backend.readStream).not.toHaveBeenCalled();
+    expect(h.registry.acquire).not.toHaveBeenCalled();
+  });
+
+  it('should emit progress and done with the saved file name', async () => {
+    const h = harness(fileBackend('hello'));
+    const target = join(local, 'out.dat');
+    h.dialogs.pickSavePath.mockResolvedValue(target);
+    const { events, settled } = watchTransfers(h);
+    const result = await h.service.download(SAVES, '/level.dat', false);
+    expect(result).toMatchObject({ ok: true, value: { transferId: expect.any(String) } });
+    const end = await settled();
+    expect(end).toMatchObject({ game: 'mc', kind: 'download', name: 'level.dat', phase: 'done', bytesDone: 5, bytesTotal: 5, savedAs: 'out.dat' });
+    expect(JSON.stringify(events)).not.toContain(local);
+    expect(await readFile(target, 'utf8')).toBe('hello');
+    expect(h.dialogs.pickSavePath).toHaveBeenCalledWith('level.dat');
+    expect(h.backend.readStream).toHaveBeenCalledWith('/saves/level.dat', expect.any(AbortSignal));
+  });
+
+  it('should hold the session for the transfer and release it afterwards', async () => {
+    const h = harness(fileBackend());
+    h.dialogs.pickSavePath.mockResolvedValue(join(local, 'out.dat'));
+    const { settled } = watchTransfers(h);
+    await h.service.download(SAVES, '/level.dat', false);
+    await settled();
+    const [, holder] = h.registry.acquire.mock.calls[0] as [string, string];
+    expect(holder).toMatch(/^upload:xfer-/);
+    expect(h.registry.release).toHaveBeenCalledWith('mc', holder);
+  });
+
+  it('should stream a folder as an archive with an unknown total and a .zip default name', async () => {
+    const h = harness({
+      supportsArchive: true,
+      archiveStream: vi.fn().mockImplementation(async () => Readable.from([Buffer.from('PK')])),
+    });
+    h.dialogs.pickSavePath.mockResolvedValue(join(local, 'worlds.zip'));
+    const { events, settled } = watchTransfers(h);
+    await h.service.download(SAVES, '/worlds', true);
+    expect(await settled()).toMatchObject({ phase: 'done', bytesDone: 2, bytesTotal: null, savedAs: 'worlds.zip' });
+    expect(events[0]).toMatchObject({ phase: 'running', bytesTotal: null });
+    expect(h.dialogs.pickSavePath).toHaveBeenCalledWith('worlds.zip');
+    expect(h.backend.archiveStream).toHaveBeenCalledWith('/saves/worlds', expect.any(AbortSignal));
+  });
+
+  it('should refuse a folder download when the backend has no archive support', async () => {
+    const h = harness();
+    const result = await h.service.download(SAVES, '/worlds', true);
+    expect(result).toEqual({ ok: false, code: 'failed', message: 'Folder download is not supported by this backend.' });
+    expect(h.dialogs.pickSavePath).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the volume name', SAVES, 'saves.zip'],
+    ['"volume" for the unnamed legacy volume', { game: 'mc', volume: '' }, 'volume.zip'],
+  ])('should default the root download name to %s', async (_label, ref, expected) => {
+    const h = harness({ supportsArchive: true, archiveStream: vi.fn().mockResolvedValue(Readable.from([])) }, layoutFor(ref));
+    h.dialogs.pickSavePath.mockResolvedValue(null);
+    await h.service.download(ref, '/', true);
+    expect(h.dialogs.pickSavePath).toHaveBeenCalledWith(expected);
+  });
+
+  it('should sanitize the default name for the local platform', async () => {
+    const h = harness(fileBackend());
+    h.dialogs.pickSavePath.mockResolvedValue(null);
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    await h.service.download(SAVES, '/con.txt', false);
+    expect(h.dialogs.pickSavePath).toHaveBeenCalledWith('_con.txt');
+  });
+
+  it('should still download when the server state cannot be confirmed', async () => {
+    const h = harness(fileBackend());
+    h.ecs.findRunningTaskOrThrow.mockRejectedValue(new Error('ecs down'));
+    h.dialogs.pickSavePath.mockResolvedValue(join(local, 'out.dat'));
+    const { settled } = watchTransfers(h);
+    expect(await h.service.download(SAVES, '/level.dat', false)).toMatchObject({ ok: true, value: { transferId: expect.any(String) } });
+    expect((await settled()).phase).toBe('done');
+  });
+
+  it('should return no-session before opening the dialog when no session is running', async () => {
+    const h = harness(fileBackend());
+    h.registry.withBackend.mockRejectedValue(new NoSessionError('mc'));
+    expect(await h.service.download(SAVES, '/level.dat', false)).toMatchObject({ ok: false, code: 'no-session' });
+    expect(h.dialogs.pickSavePath).not.toHaveBeenCalled();
+  });
+
+  it('should return no-session when the session stops while the dialog is open', async () => {
+    const h = harness(fileBackend());
+    h.dialogs.pickSavePath.mockImplementation(async () => {
+      h.registry.status.mockResolvedValue(snapshot({ state: 'stopped' }));
+      return join(local, 'out.dat');
+    });
+    expect(await h.service.download(SAVES, '/level.dat', false)).toMatchObject({ ok: false, code: 'no-session' });
+    expect(h.registry.acquire).not.toHaveBeenCalled();
+  });
+
+  it('should report a missing file and a folder asked for as a file before the dialog', async () => {
+    const h = harness({ stat: vi.fn().mockRejectedValue(new VolumeFileError('not-found', 'stat /saves/x failed (404)', 404)) });
+    expect(await h.service.download(SAVES, '/x', false)).toEqual({ ok: false, code: 'not-found', message: "'/x' no longer exists." });
+    const dirs = harness({ stat: vi.fn().mockResolvedValue(stat({ isDir: true })) });
+    expect(await dirs.service.download(SAVES, '/d', false)).toMatchObject({ ok: false, code: 'invalid-path' });
+    expect(h.dialogs.pickSavePath).not.toHaveBeenCalled();
+    expect(dirs.dialogs.pickSavePath).not.toHaveBeenCalled();
+  });
+
+  it('should reject a traversal path before any dialog', async () => {
+    const h = harness(fileBackend());
+    expect(await h.service.download(SAVES, '/a/../b', false)).toMatchObject({ ok: false, code: 'invalid-path' });
+    expect(h.dialogs.pickSavePath).not.toHaveBeenCalled();
+  });
+
+  it('should cancel a running download and leave no file behind', async () => {
+    const stuck = new PassThrough();
+    const h = harness({ ...fileBackend(), readStream: vi.fn().mockResolvedValue(stuck) });
+    const target = join(local, 'out.dat');
+    h.dialogs.pickSavePath.mockResolvedValue(target);
+    const { settled } = watchTransfers(h);
+    const result = await h.service.download(SAVES, '/level.dat', false);
+    if (!result.ok || !result.value) throw new Error('download did not start');
+    stuck.write(Buffer.from('he'));
+    expect(h.service.cancelTransfer('mc', result.value.transferId)).toEqual({ cancelled: true });
+    expect(await settled()).toMatchObject({ phase: 'cancelled' });
+    expect(await readdir(local)).toEqual([]);
+  });
+
+  it('should cancel running transfers when the game session is stopping', async () => {
+    const stuck = new PassThrough();
+    const h = harness({ ...fileBackend(), readStream: vi.fn().mockResolvedValue(stuck) });
+    h.dialogs.pickSavePath.mockResolvedValue(join(local, 'out.dat'));
+    const { settled } = watchTransfers(h);
+    await h.service.download(SAVES, '/level.dat', false);
+    h.beforeStop('mc');
+    expect(await settled()).toMatchObject({ phase: 'cancelled' });
+    expect(await readdir(local)).toEqual([]);
+  });
+
+  it('should report a local write failure without naming the local path', async () => {
+    const h = harness(fileBackend());
+    h.dialogs.pickSavePath.mockResolvedValue(join(local, 'missing-dir', 'out.dat'));
+    const { settled } = watchTransfers(h);
+    await h.service.download(SAVES, '/level.dat', false);
+    const end = await settled();
+    expect(end).toMatchObject({ phase: 'failed', error: "Couldn't write to that location." });
+    expect(JSON.stringify(end)).not.toContain(local);
+  });
+
+  it('should say a transfer is not running for an unknown id', () => {
+    const h = harness();
+    expect(h.service.cancelTransfer('mc', 'nope')).toEqual({ cancelled: false });
+  });
+});
+
+/** The unnamed-volume legacy layout for the `''` ref, the full layout otherwise. */
+function layoutFor(ref: VolumeRef): HelperVolumeLayout {
+  return ref.volume === '' ? LEGACY_LAYOUT : FULL_LAYOUT;
+}
+
+describe('VolumeFilesService file uploads', () => {
+  const missing = () => vi.fn().mockRejectedValue(new VolumeFileError('not-found', 'stat failed (404)', 404));
+
+  async function localFile(name: string, text: string): Promise<string> {
+    const path = join(local, name);
+    await writeFile(path, text);
+    return path;
+  }
+
+  it('should upload dropped files without overwriting and report progress', async () => {
+    const h = harness({ stat: missing() });
+    const a = await localFile('a.txt', 'aaa');
+    const b = await localFile('b.txt', 'bb');
+    const { settled } = watchTransfers(h);
+    const result = await h.service.uploadFiles(SAVES, '/worlds', [a, b]);
+    expect(result).toMatchObject({ ok: true, value: { transferId: expect.any(String) } });
+    expect(await settled()).toMatchObject({ kind: 'upload', name: '2 files', phase: 'done', bytesDone: 5, bytesTotal: 5 });
+    expect(h.backend.writeStream).toHaveBeenCalledWith('/saves/worlds/a.txt', expect.any(Readable), expect.objectContaining({ size: 3, overwrite: false }));
+    expect(h.backend.writeStream).toHaveBeenCalledWith('/saves/worlds/b.txt', expect.any(Readable), expect.objectContaining({ size: 2, overwrite: false }));
+    expect(h.dialogs.pickFiles).not.toHaveBeenCalled();
+  });
+
+  it('should name a single-file upload after the file and ask the dialog when no paths are given', async () => {
+    const h = harness({ stat: missing() });
+    h.dialogs.pickFiles.mockResolvedValue([await localFile('a.txt', 'aaa')]);
+    const { settled } = watchTransfers(h);
+    await h.service.uploadFiles(SAVES, '/', undefined);
+    expect(await settled()).toMatchObject({ name: 'a.txt', phase: 'done' });
+    expect(h.backend.writeStream).toHaveBeenCalledWith('/saves/a.txt', expect.anything(), expect.anything());
+  });
+
+  it('should do nothing when the file dialog is cancelled', async () => {
+    const h = harness();
+    h.dialogs.pickFiles.mockResolvedValue([]);
+    expect(await h.service.uploadFiles(SAVES, '/', undefined)).toEqual({ ok: true, value: null });
+    expect(h.registry.acquire).not.toHaveBeenCalled();
+  });
+
+  it('should refuse an upload whose name already exists', async () => {
+    const h = harness({ stat: vi.fn().mockResolvedValue(stat({ name: 'a.txt', size: 10 })) });
+    const a = await localFile('a.txt', 'aaa');
+    const result = await h.service.uploadFiles(SAVES, '/', [a]);
+    expect(result).toEqual({ ok: false, code: 'conflict', message: "'a.txt' already exists." });
+    expect(h.backend.writeStream).not.toHaveBeenCalled();
+    expect(h.registry.acquire).not.toHaveBeenCalled();
+  });
+
+  it('should refuse the whole upload when any one name exists', async () => {
+    const h = harness({
+      stat: vi.fn().mockImplementation(async (path: string) => {
+        if (path.endsWith('/b.txt')) return stat({ name: 'b.txt' });
+        throw new VolumeFileError('not-found', 'stat failed (404)', 404);
+      }),
+    });
+    const result = await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a'), await localFile('b.txt', 'b')]);
+    expect(result).toMatchObject({ ok: false, code: 'conflict', message: "'b.txt' already exists." });
+    expect(h.backend.writeStream).not.toHaveBeenCalled();
+  });
+
+  it('should refuse two files that share a name', async () => {
+    const h = harness({ stat: missing() });
+    await mkdir(join(local, 'sub'));
+    const a = await localFile('a.txt', 'a');
+    const b = join(local, 'sub', 'a.txt');
+    await writeFile(b, 'b');
+    expect(await h.service.uploadFiles(SAVES, '/', [a, b])).toMatchObject({ ok: false, code: 'conflict' });
+  });
+
+  it('should reject a dropped path that did not resolve', async () => {
+    const h = harness();
+    expect(await h.service.uploadFiles(SAVES, '/', [''])).toMatchObject({ ok: false, code: 'invalid-path' });
+    expect(h.registry.withBackend).not.toHaveBeenCalled();
+    expect(h.dialogs.pickFiles).not.toHaveBeenCalled();
+  });
+
+  it('should reject a folder, a missing path and a bad destination', async () => {
+    const h = harness({ stat: missing() });
+    expect(await h.service.uploadFiles(SAVES, '/', [local])).toMatchObject({ ok: false, code: 'invalid-path', message: expect.stringContaining('isn\'t a file') });
+    expect(await h.service.uploadFiles(SAVES, '/', [join(local, 'gone.txt')])).toMatchObject({ ok: false, code: 'invalid-path' });
+    expect(await h.service.uploadFiles(SAVES, '/a/../b', [await localFile('a.txt', 'a')])).toMatchObject({ ok: false, code: 'invalid-path' });
+    expect(h.backend.writeStream).not.toHaveBeenCalled();
+  });
+
+  it('should not leak the local path in a refusal', async () => {
+    const h = harness();
+    const result = await h.service.uploadFiles(SAVES, '/', [local]);
+    expect(JSON.stringify(result)).not.toContain(local);
+  });
+
+  it('should refuse before the dialog while the server is running or unconfirmable', async () => {
+    const h = harness();
+    h.ecs.findRunningTaskOrThrow.mockResolvedValue({ taskArn: 'arn' });
+    expect(await h.service.uploadFiles(SAVES, '/', undefined)).toMatchObject({ ok: false, code: 'server-running' });
+    h.ecs.findRunningTaskOrThrow.mockRejectedValue(new Error('down'));
+    expect(await h.service.uploadFiles(SAVES, '/', undefined)).toMatchObject({ ok: false, code: 'server-check-failed' });
+    expect(h.dialogs.pickFiles).not.toHaveBeenCalled();
+  });
+
+  it('should return no-session before the dialog when the session is not running', async () => {
+    const h = harness();
+    h.registry.status.mockResolvedValue(snapshot({ state: 'stopped' }));
+    expect(await h.service.uploadFiles(SAVES, '/', undefined)).toMatchObject({ ok: false, code: 'no-session' });
+    expect(h.dialogs.pickFiles).not.toHaveBeenCalled();
+  });
+
+  it('should refuse uploads into a legacy fallback layout before any bytes move', async () => {
+    const h = harness({ stat: missing() }, FALLBACK_LAYOUT);
+    const result = await h.service.uploadFiles({ game: 'mc', volume: 'config' }, '/', [await localFile('a.txt', 'a')]);
+    expect(result).toMatchObject({ ok: false, code: 'apply-needed' });
+    expect(h.backend.writeStream).not.toHaveBeenCalled();
+  });
+
+  it('should surface a failure during the transfer as a failed phase with an operator message', async () => {
+    const h = harness({
+      stat: missing(),
+      writeStream: vi.fn().mockRejectedValue(new VolumeFileError('conflict', 'upload /saves/a.txt failed (409)', 409)),
+    });
+    const { settled } = watchTransfers(h);
+    await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+    expect(await settled()).toMatchObject({ phase: 'failed', error: "'a.txt' already exists." });
+    expect(h.registry.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('should open a fresh read stream for each attempt and not double count a replayed file', async () => {
+    const sources: Readable[] = [];
+    const h = harness({
+      stat: missing(),
+      writeStream: vi.fn(async (_path: string, source: Readable, options: { onBytes?: (n: number) => void }) => {
+        sources.push(source);
+        source.destroy();
+        options.onBytes?.(3);
+      }),
+    });
+    const attempt = h.registry.withBackend.getMockImplementation()!;
+    let calls = 0;
+    h.registry.withBackend.mockImplementation(async (game, op) => {
+      calls += 1;
+      // Only the transfer's write replays; the pre-transfer stat phase is the first call.
+      if (calls === 2) await attempt(game, op);
+      return attempt(game, op);
+    });
+    const { settled } = watchTransfers(h);
+    await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'aaa')]);
+    expect(await settled()).toMatchObject({ phase: 'done', bytesDone: 3 });
+    expect(sources).toHaveLength(2);
+    expect(sources[0]).not.toBe(sources[1]);
+  });
+
+  it('should cancel an upload in flight', async () => {
+    const h = harness({
+      stat: missing(),
+      writeStream: vi.fn((_path: string, _source: Readable, options: { signal?: AbortSignal }) =>
+        new Promise<void>((_resolve, reject) => options.signal?.addEventListener('abort', () => reject(new Error('aborted')))),
+      ),
+    });
+    const { settled } = watchTransfers(h);
+    const result = await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+    if (!result.ok || !result.value) throw new Error('upload did not start');
+    h.service.cancelTransfer('mc', result.value.transferId);
+    expect(await settled()).toMatchObject({ phase: 'cancelled' });
+    expect(await fsStat(join(local, 'a.txt'))).toBeDefined();
+  });
+});
+
+describe('VolumeFilesService folder uploads', () => {
+  it("should start a folder upload into the selected volume's current directory without persisting the selection", async () => {
+    const h = harness();
+    h.dialogs.pickDirectory.mockResolvedValue('/home/me/world');
+    const result = await h.service.uploadFolder({ game: 'mc', volume: 'saves' }, '/worlds');
+    expect(result).toEqual({ ok: true, value: { started: true, runId: 'run-1' } });
+    expect(h.scans.scan).toHaveBeenCalledWith('/home/me/world');
+    expect(h.folderUploads.startUpload).toHaveBeenCalledWith(
+      { game: 'mc', scanId: 'scan-1', include: [''], destination: '/data/saves/worlds' },
+      { persistSelection: false },
+    );
+  });
+
+  it('should upload into the volume root', async () => {
+    const h = harness();
+    h.dialogs.pickDirectory.mockResolvedValue('/p');
+    await h.service.uploadFolder({ game: 'mc', volume: 'config' }, '/');
+    expect(h.folderUploads.startUpload).toHaveBeenCalledWith(expect.objectContaining({ destination: '/data/config' }), expect.anything());
+  });
+
+  it('should do nothing when the folder dialog is cancelled', async () => {
+    const h = harness();
+    h.dialogs.pickDirectory.mockResolvedValue(null);
+    expect(await h.service.uploadFolder(SAVES, '/')).toEqual({ ok: true, value: null });
+    expect(h.scans.scan).not.toHaveBeenCalled();
+    expect(h.folderUploads.startUpload).not.toHaveBeenCalled();
+  });
+
+  it('should return a refused start as a normal result for the page to show', async () => {
+    const h = harness();
+    h.dialogs.pickDirectory.mockResolvedValue('/p');
+    h.folderUploads.startUpload.mockResolvedValue({ started: false, error: 'Nothing is selected to upload.' });
+    expect(await h.service.uploadFolder(SAVES, '/')).toEqual({ ok: true, value: { started: false, error: 'Nothing is selected to upload.' } });
+  });
+
+  it('should refuse an unknown volume or game before the dialog', async () => {
+    const h = harness();
+    expect(await h.service.uploadFolder({ game: 'mc', volume: 'nope' }, '/')).toMatchObject({ ok: false, code: 'unknown-volume' });
+    expect(await h.service.uploadFolder({ game: 'other', volume: 'saves' }, '/')).toMatchObject({ ok: false, code: 'unknown-volume' });
+    expect(h.dialogs.pickDirectory).not.toHaveBeenCalled();
+  });
+
+  it('should refuse a destination that a nested volume would own', async () => {
+    const h = harness();
+    const service = new VolumeFilesService(
+      h.registry as Partial<HelperSessionRegistry> as HelperSessionRegistry,
+      h.config as Partial<ConfigService> as ConfigService,
+      h.ecs as Partial<EcsService> as EcsService,
+      h.dialogs as Partial<NativeDialogService> as NativeDialogService,
+      h.scans as Partial<FolderScanService> as FolderScanService,
+      h.folderUploads as Partial<FolderUploadService> as FolderUploadService,
+      deploymentConfigStub({
+        declared: [gameServer('mc', { volumes: [{ name: 'data', container_path: '/data' }, { name: 'saves', container_path: '/data/saves' }] })],
+      }) as DeploymentConfigService,
+    );
+    h.dialogs.pickDirectory.mockResolvedValue('/p');
+    expect(await service.uploadFolder({ game: 'mc', volume: 'data' }, '/saves')).toMatchObject({ ok: false, code: 'unknown-volume' });
+    expect(h.dialogs.pickDirectory).not.toHaveBeenCalled();
+    expect(h.folderUploads.startUpload).not.toHaveBeenCalled();
+  });
+
+  it('should join a root container path without a double slash', async () => {
+    const h = harness();
+    const service = new VolumeFilesService(
+      h.registry as Partial<HelperSessionRegistry> as HelperSessionRegistry,
+      h.config as Partial<ConfigService> as ConfigService,
+      h.ecs as Partial<EcsService> as EcsService,
+      h.dialogs as Partial<NativeDialogService> as NativeDialogService,
+      h.scans as Partial<FolderScanService> as FolderScanService,
+      h.folderUploads as Partial<FolderUploadService> as FolderUploadService,
+      deploymentConfigStub({ declared: [gameServer('mc', { volumes: [{ name: 'saves', container_path: '/' }] })] }) as DeploymentConfigService,
+    );
+    h.dialogs.pickDirectory.mockResolvedValue('/p');
+    await service.uploadFolder(SAVES, '/x');
+    expect(h.folderUploads.startUpload).toHaveBeenCalledWith(expect.objectContaining({ destination: '/x' }), expect.anything());
+  });
+
+  it('should refuse before the dialog while the server is running', async () => {
+    const h = harness();
+    h.ecs.findRunningTaskOrThrow.mockResolvedValue({ taskArn: 'arn' });
+    expect(await h.service.uploadFolder(SAVES, '/')).toMatchObject({ ok: false, code: 'server-running' });
+    expect(h.dialogs.pickDirectory).not.toHaveBeenCalled();
+  });
+
+  it('should reject a bad directory path before anything else', async () => {
+    const h = harness();
+    expect(await h.service.uploadFolder(SAVES, '/a/../b')).toMatchObject({ ok: false, code: 'invalid-path' });
+    expect(h.dialogs.pickDirectory).not.toHaveBeenCalled();
+  });
+
+  it('should report a folder that could not be scanned', async () => {
+    const h = harness();
+    h.dialogs.pickDirectory.mockResolvedValue('/p');
+    h.scans.scan.mockRejectedValue(new Error('Could not scan folder: EACCES /p'));
+    const result = await h.service.uploadFolder(SAVES, '/');
+    expect(result).toEqual({ ok: false, code: 'failed', message: "Couldn't read that folder." });
   });
 });
