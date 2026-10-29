@@ -145,9 +145,9 @@ export function installHyveonHttpBridge(): void {
     // so a spec can assert on exactly what reached the page.
     volumeFiles: (() => {
       // Read on each call, not at install: a spec's seed init script may be registered after the bridge's.
-      const seedNow = () => (window as unknown as { __e2eVolumeFiles?: { state?: string; volumes?: unknown[]; listings?: Record<string, unknown[]> } }).__e2eVolumeFiles ?? {};
+      const seedNow = (): VolumeFilesSeed => window.__e2eVolumeFiles ?? {};
       const responses: unknown[] = [];
-      (window as unknown as { __e2eVolumeFilesResponses: unknown[] }).__e2eVolumeFilesResponses = responses;
+      window.__e2eVolumeFilesResponses = responses;
       let started = false;
       const status = (game: string) => {
         const seed = seedNow();
@@ -314,6 +314,19 @@ export function installHyveonHttpBridge(): void {
   };
 }
 
+declare global {
+  interface Window {
+    /** Seed the `volumeFiles` fake serves; set by {@link seedVolumeFiles}. */
+    __e2eVolumeFiles?: VolumeFilesSeed;
+    /** Every value the `volumeFiles` fake has returned to the page, oldest first. */
+    __e2eVolumeFilesResponses?: unknown[];
+    /** Channels the Electron `volumeFiles` mocks have served, in call order. */
+    __e2eVolumeCalls?: string[];
+    /** Values the Electron `volumeFiles` mocks have returned, in call order. */
+    __e2eVolumeResponses?: unknown[];
+  }
+}
+
 /** Seed for the in-page `volumeFiles` fake: the session state, the volumes it reports and the listing for each directory path. */
 export interface VolumeFilesSeed {
   /** Session state `sessionAttach` reports; `sessionStart` moves it to `running`. Defaults to `stopped`. */
@@ -331,7 +344,7 @@ export interface VolumeFilesSeed {
  */
 export async function seedVolumeFiles(page: Page, seed: VolumeFilesSeed): Promise<void> {
   await page.addInitScript((value) => {
-    (window as unknown as { __e2eVolumeFiles: VolumeFilesSeed }).__e2eVolumeFiles = value;
+    window.__e2eVolumeFiles = value;
   }, seed);
 }
 
@@ -342,5 +355,5 @@ export async function seedVolumeFiles(page: Page, seed: VolumeFilesSeed): Promis
  * @returns The recorded return values, oldest first.
  */
 export async function readVolumeFilesResponses(page: Page): Promise<unknown[]> {
-  return page.evaluate(() => (window as unknown as { __e2eVolumeFilesResponses?: unknown[] }).__e2eVolumeFilesResponses ?? []);
+  return page.evaluate(() => window.__e2eVolumeFilesResponses ?? []);
 }

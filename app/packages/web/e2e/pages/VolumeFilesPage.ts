@@ -84,4 +84,31 @@ export class VolumeFilesPage {
   readOnlyBanner(): Locator {
     return this.page.getByRole('status').filter({ hasText: 'The server is running. Stop it to change files.' });
   }
+
+  // ── Rendered-output audit ────────────────────────────────────────────
+
+  /** Any link or media element in the page content that targets an `http(s)://` URL. */
+  externalTargets(): Locator {
+    return this.page.getByRole('main').locator('[href^="http" i], [src^="http" i], [action^="http" i]');
+  }
+
+  /**
+   * Everything the page content shows or exposes to assistive tech: the text of the `main` region plus the `href`,
+   * `src`, `title`, `aria-label`, `alt`, `placeholder` and `value` attribute of every element inside it.
+   *
+   * @returns The text first, then each attribute value found.
+   */
+  async renderedStrings(): Promise<string[]> {
+    return this.page.getByRole('main').evaluate((main) => {
+      const attributes = ['href', 'src', 'title', 'aria-label', 'alt', 'placeholder', 'value'];
+      const values = [main.textContent ?? ''];
+      for (const element of [main, ...main.querySelectorAll('*')]) {
+        for (const name of attributes) {
+          const value = element.getAttribute(name);
+          if (value) values.push(value);
+        }
+      }
+      return values;
+    });
+  }
 }

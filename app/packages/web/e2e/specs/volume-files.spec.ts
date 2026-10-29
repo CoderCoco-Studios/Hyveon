@@ -55,7 +55,7 @@ test.describe('volume files page', () => {
     await expect(volumeFiles.uploadFilesButton()).toBeDisabled();
   });
 
-  test('should never receive a credential, IP or URL in volumeFiles responses', async ({ dashboard, volumeFiles }) => {
+  test('should keep the bridge fixture responses free of secret fields', async ({ dashboard, volumeFiles }) => {
     await stubApis(dashboard.page, { statuses: [STOPPED_GAME] });
     await seedVolumeFiles(dashboard.page, { volumes: [DATA_VOLUME], listings: LISTINGS });
     await dashboard.goto();
@@ -65,8 +65,19 @@ test.describe('volume files page', () => {
 
     const responses = await readVolumeFilesResponses(dashboard.page);
 
-    // attach + start + two listings at minimum, so the assertion below cannot pass vacuously.
+    // attach + start + two listings at minimum, so the assertion below cannot pass vacuously. This guards the
+    // fixture's own shapes; the page-output test below is what proves the app adds nothing.
     expect(responses.length).toBeGreaterThanOrEqual(4);
     expect(findSecretFields(responses)).toEqual([]);
+  });
+
+  test('should render no credential, IP or URL and no link out to the helper', async ({ volumeFiles }) => {
+    await stubApis(volumeFiles.page, { statuses: [STOPPED_GAME] });
+    await seedVolumeFiles(volumeFiles.page, { state: 'running', volumes: [DATA_VOLUME], listings: LISTINGS });
+    await volumeFiles.goto('minecraft');
+    await expect(volumeFiles.row('server.properties')).toBeVisible();
+
+    expect(findSecretFields(await volumeFiles.renderedStrings())).toEqual([]);
+    await expect(volumeFiles.externalTargets()).toHaveCount(0);
   });
 });

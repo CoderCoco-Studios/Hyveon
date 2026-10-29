@@ -35,7 +35,8 @@ test.describe('volume files page (electron)', () => {
       if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
       const calls: string[] = [];
       const responses: unknown[] = [];
-      Object.assign(window, { __e2eVolumeCalls: calls, __e2eVolumeResponses: responses });
+      window.__e2eVolumeCalls = calls;
+      window.__e2eVolumeResponses = responses;
       let running = false;
       const status = (game: string) => ({
         game,
@@ -74,12 +75,16 @@ test.describe('volume files page (electron)', () => {
 
     await expect(volumeFiles.sessionState('Running')).toBeVisible();
     await expect(volumeFiles.row('world')).toBeVisible();
-    const calls = await win.evaluate(() => (window as unknown as { __e2eVolumeCalls: string[] }).__e2eVolumeCalls);
+    const calls = await win.evaluate(() => window.__e2eVolumeCalls ?? []);
     expect(calls).toContain('volumeFiles.session.attach');
     expect(calls).toContain('volumeFiles.session.start');
 
-    const responses = await win.evaluate(() => (window as unknown as { __e2eVolumeResponses: unknown[] }).__e2eVolumeResponses);
+    const responses = await win.evaluate(() => window.__e2eVolumeResponses ?? []);
     expect(responses.length).toBeGreaterThan(0);
     expect(findSecretFields(responses)).toEqual([]);
+
+    // What the app itself rendered from those responses, not just what the mocks returned.
+    expect(findSecretFields(await volumeFiles.renderedStrings())).toEqual([]);
+    await expect(volumeFiles.externalTargets()).toHaveCount(0);
   });
 });
