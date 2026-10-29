@@ -244,6 +244,28 @@ describe('useVolumeFiles', () => {
     expect(result.current.listing?.map((e) => e.name)).toEqual(['a.txt']);
   });
 
+  it('should keep an operation error when a listing that began before it succeeds afterwards', async () => {
+    const { result } = await renderLoaded();
+    let resolveList: (value: { ok: true; value: { path: string; entries: VolumeEntryInfo[] } }) => void = () => undefined;
+    apiMock.volumeList.mockReturnValue(new Promise((resolve) => (resolveList = resolve)));
+    apiMock.volumeUploadFiles.mockResolvedValue({ ok: false, code: 'failed', message: 'upload broke' });
+
+    let pendingRefresh: Promise<void> = Promise.resolve();
+    act(() => {
+      pendingRefresh = result.current.refresh();
+    });
+    await act(() => result.current.uploadFiles());
+    expect(result.current.error).toBe('upload broke');
+
+    await act(async () => {
+      resolveList({ ok: true, value: { path: '/', entries: [makeFileEntry('b.txt')] } });
+      await pendingRefresh;
+    });
+
+    expect(result.current.error).toBe('upload broke');
+    expect(result.current.listing?.map((e) => e.name)).toEqual(['b.txt']);
+  });
+
   it.each(['unreachable', 'no-session'] as const)('should report a listing that fails %s to onFailure', async (code) => {
     apiMock.volumeList.mockResolvedValue({ ok: false, code, message: 'gone' });
     const onFailure = vi.fn();

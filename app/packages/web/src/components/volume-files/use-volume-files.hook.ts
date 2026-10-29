@@ -77,10 +77,11 @@ export function useVolumeFiles(
   // Keyed by scope so switching game or volume never shows the previous one's path, listing or error.
   const [location, setLocation] = useState({ scope, path: ROOT });
   const [loaded, setLoaded] = useState<{ scope: string; path: string; entries: VolumeEntryInfo[] } | null>(null);
-  const [failure, setFailure] = useState<{ scope: string; message: string } | null>(null);
+  const [failure, setFailure] = useState<{ scope: string; message: string; seq: number } | null>(null);
   const [sort, setSort] = useState<VolumeSort>(DEFAULT_SORT);
   const mountedRef = useRef(true);
   const requestRef = useRef(0);
+  const failureSeqRef = useRef(0);
   const onFailureRef = useRef(onFailure);
   useEffect(() => {
     onFailureRef.current = onFailure;
@@ -99,13 +100,15 @@ export function useVolumeFiles(
   const refresh = useCallback(async () => {
     if (!canList) return;
     const request = ++requestRef.current;
+    const startedAtSeq = failureSeqRef.current;
     const result = await settleVolumeResult(() => api.volumeList(game, volume, path));
     if (!mountedRef.current || request !== requestRef.current) return;
     if (result.ok) {
       setLoaded({ scope, path, entries: result.value.entries });
-      setFailure(null);
+      // Only clear a failure recorded before this request began; an operation may have failed while it was in flight.
+      setFailure((prev) => (prev && prev.seq > startedAtSeq ? prev : null));
     } else {
-      setFailure({ scope, message: result.message });
+      setFailure({ scope, message: result.message, seq: ++failureSeqRef.current });
       // A listing is not a mutation, so only the codes that mean the session is gone are worth reporting.
       if (isSessionLostCode(result.code)) onFailureRef.current?.(result.code);
     }
@@ -141,7 +144,7 @@ export function useVolumeFiles(
       const result = await settleVolumeResult(() => operation(volume));
       if (!mountedRef.current) return result;
       if (!result.ok) {
-        if (!inline) setFailure({ scope, message: result.message });
+        if (!inline) setFailure({ scope, message: result.message, seq: ++failureSeqRef.current });
         onFailureRef.current?.(result.code);
       } else if (refreshOnSuccess) await refreshRef.current();
       return result;
