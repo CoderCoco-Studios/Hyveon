@@ -475,7 +475,7 @@ Clicking a name opens `/games/:name`.
 
 ![A game detail page showing the In sync chip, Edit and Remove buttons, and cards for Container, Ports and Volumes](/img/app/games-detail.png)
 
-The header carries the game name, its status chip, and — for declared games —
+The header carries the game name, a **Files** link to the [in-app file browser](#files), its status chip, and — for declared games —
 **Edit** and **Remove game** buttons. Clicking **Edit** swaps both buttons
 out for a single **Cancel** button for the duration of the edit; **Cancel**
 discards the in-progress edit and swaps **Edit**/**Remove game** back in,
@@ -507,6 +507,91 @@ AWS resources.
 
 If you navigate to a name that exists in neither place you get
 `No game named "foo" was found.`
+
+## Files
+
+The in-app file browser (route `/games/:name/files`) lets you browse and change a game's EFS volumes without leaving the app.
+Everything goes through the app: no external browser opens and no password is shown.
+The app talks to a short-lived helper task, and only the Electron main process does so, over TLS pinned to a certificate created for that one launch.
+See [Seeding a volume from a folder](#seeding-a-volume-from-a-folder) for the same helper's upload side.
+
+You reach it two ways:
+
+| From | What happens |
+|---|---|
+| The **Files** button in the game detail page's header | Opens the page and shows the session's current state. It does **not** start a helper |
+| The **Files** button on the dashboard's game card | Opens the page and starts a session if it is stopped or failed. It does not touch a session that is already starting, running or orphaned |
+
+Opening the page by any other route, such as typing the URL or pressing Back, never starts a helper.
+If the game has not been deployed, the page shows **Nothing to browse yet** ("This game's volume doesn't exist yet. Apply the infrastructure first.") and nothing else.
+
+### The session bar
+
+The bar at the top of the page shows a state badge and the actions that state allows.
+
+| State | What you see | Actions |
+|---|---|---|
+| **Stopped** | "The file browser session is not running. Start it to browse this game's volumes." | **Start** |
+| **Starting** | "Starting the file browser session…" The page refreshes every 3 seconds until the session is running or fails | None |
+| **Running** | The listing, plus `Up <time>` and `Auto-stop in <time>` | **Stop** |
+| **Stopping** | "Stopping the file browser session…" | None |
+| **Orphaned** | "A previous file browser session is still running. Restart it to browse." A helper is running for the game but this app instance holds no session for it, for example after the app restarted | **Restart** only. It stops that helper and launches a new session |
+| **Failed** | The failure reason (or "The session failed.") and "The file browser session is not running. Start it to try again." | **Start** |
+| **Not deployed** | The page described above | None |
+
+Once the auto-stop countdown drops under 10 minutes, a "The session stops automatically soon." warning appears beside it.
+Long transfers can outlive the 2-hour auto-stop, so watch for it before starting a big upload or download.
+
+**Stop** asks for confirmation ("Stop the session? This cancels the running upload.") whenever any upload or download is running, folder uploads included.
+Otherwise it stops immediately.
+A failed Start, Stop or Restart shows its message under the bar.
+
+How long the helper lives:
+
+- While the page is open it holds the session.
+- Leaving the page releases it after a 5-minute grace period, and coming back within that time reuses the same session instead of launching a new one.
+  A folder upload that is still running keeps the helper up past the grace period, and the helper stops once that upload finishes.
+- Quitting the app stops every helper it owns (it waits up to 5 seconds, then quits anyway).
+- The helper's own 2-hour auto-stop stays as the backstop if the app crashes. If you reopen the page after a crash you will see **Orphaned**.
+
+### Browsing a volume
+
+| Control | Behaviour |
+|---|---|
+| **Volume** picker | One entry per declared volume, as the volume name followed by its container path, such as `data (/data)`. A volume the helper could not mount yet is listed but disabled with "Apply the infrastructure to browse this volume."; run plan and apply from [Infrastructure](/app/iac). A game's legacy unnamed volume appears as **Default volume**. Switching volumes returns to that volume's root |
+| Breadcrumb | The volume's name, then each folder down to the current one. Every ancestor is clickable |
+| File table | Columns **Name**, **Size**, **Modified**, **Actions**. Click a column header to sort, and click it again to reverse. Folders always list before files. A modification time the volume doesn't report shows `—`. An empty directory shows "This folder is empty." |
+| **New folder** | Prompts for a name in the current directory |
+| **Upload files** | Opens a native file picker; the chosen files land in the current directory |
+| **Upload folder** | Opens a native folder picker and runs the [folder upload](#seeding-a-volume-from-a-folder) into the current directory of the selected volume, with its progress meter below the listing. It does not change the folder selection saved on the game card |
+| Drag and drop | Drop files from your desktop onto the listing to upload them into the current directory |
+| Row **Download** | Opens a native save dialog. A folder downloads as an archive; the button is hidden for folders when the helper cannot build archives |
+| Row **Edit** | Opens the text editor (below). Shown only for files of 1 MiB or less |
+| Row **Rename** | Prompts for a new name |
+| Row **Delete** | Asks for confirmation: `Delete <name>?`, or `Delete <name> and everything in it?` for a folder, then "This can't be undone." |
+
+Names for new folders and renames can't be empty, `.` or `..`, can't contain `/` or `\`, and can't be longer than 255 bytes.
+A name that already exists is refused and nothing is overwritten.
+
+Uploads and downloads appear in a **Transfers** list under the table with a progress bar, a **Cancel** button while running, and the outcome (`Done. Saved as <file>`, `Cancelled.` or `Failed.` with the reason).
+The listing refreshes by itself when an upload finishes.
+
+### Editing a text file
+
+**Edit** opens the file in a dialog if it is valid UTF-8 and at most 1 MiB.
+Anything bigger, or not text, shows "This file can't be edited here. Download it instead." with a **Download** button.
+Saving is refused if the file changed on the volume since you opened it ("The file changed on the volume since you opened it."), and your edits stay in the editor so you can copy them out.
+After a successful save the dialog shows `Saved.`.
+
+### Read-only while the server runs
+
+The file browser and the game server use the same volume, so changing files under a running server could corrupt its data.
+While the game's server is starting or running, **New folder**, **Upload files**, **Upload folder**, drag and drop, **Rename**, **Delete** and the editor's **Save** are disabled, and a banner reads "The server is running. Stop it to change files."
+Browsing, **Download** and opening a file in the editor still work.
+
+If the app can't tell whether the server is stopped, it assumes it is not.
+The same actions are disabled and the banner reads "Couldn't confirm the server is stopped." with a **Retry** button.
+The main process enforces the same rule, so a change you send just as the server starts is refused rather than applied.
 
 ## Seeding a volume from a folder
 
@@ -550,7 +635,7 @@ After you run plan and apply from [Infrastructure](/app/iac), open the game page
 | No folder chosen, nothing included, or an invalid destination | Disabled |
 | The destination is in a volume that isn't mounted yet, or you haven't applied since upgrading (uploads into any volume, including the first, are refused until you do) | The upload is refused with `Apply the infrastructure to upload into '<volume>'. Your selection is kept.` |
 | The app can't confirm the server is stopped | The upload is refused with `Couldn't confirm '<game>' is stopped. Try again in a moment.` The app never assumes a server it can't reach is stopped |
-| A file manager session the app doesn't hold is already open for the game (for example one opened from the dashboard's Files modal, or left behind by an earlier run of the app) | The upload is refused with `A file manager session is already open for '<game>'. Restart it, then retry.` Stop that session from the dashboard's Files modal, then retry. A session the app itself opened, whether for browsing or for another upload, is reused rather than refused |
+| A file manager session the app doesn't hold is already open for the game (for example one left behind by an earlier run of the app) | The upload is refused with `A file manager session is already open for '<game>'. Restart it, then retry.` Open the game's [file browser page](#files), where the session shows as Orphaned, and click **Restart**, then retry. A session the app itself opened, whether for browsing or for another upload, is reused rather than refused |
 
 The upload takes its own hold on the game's file manager helper, launching one if none is running, and releases only that hold when the run finishes, fails or is cancelled.
 A helper the upload launched is stopped then, because nothing else holds it; a browse session the app already held and the upload reused stays open until the file browser page releases it and its grace period ends.

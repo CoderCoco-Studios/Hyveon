@@ -79,7 +79,7 @@ Execution is subagent-driven (plan.md).
   - a Playwright chromium spec through the IPC mock;
   - one Playwright electron smoke test (route renders, Start calls `volumeFiles.session.start`);
   - assert that no IPC payload reaching the renderer carries credential, IP or URL fields.
-- [ ] 5.6 Docs: `docs/docs/app/dashboard.md` and `docs/docs/app/games.md` (new page, volume picker, session behaviour, read-only and fail-closed rules), plus screenshots if the docs-screenshot capture covers these pages, via the `write-docs` skill.
+- [x] 5.6 Docs: `docs/docs/app/dashboard.md` and `docs/docs/app/games.md` (new page, volume picker, session behaviour, read-only and fail-closed rules), plus screenshots if the docs-screenshot capture covers these pages, via the `write-docs` skill.
 
 ## 6. Close-out
 
