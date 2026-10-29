@@ -1,6 +1,6 @@
 import { Download, FilePenLine, FolderPlus, Pencil, Trash2, Upload, FolderUp } from 'lucide-react';
 import type { VolumeEntryInfo } from '@hyveon/shared/volumeFiles';
-import { MAX_TEXT_EDIT_BYTES } from '@hyveon/shared/volumeFiles';
+import { isValidEntryName, MAX_TEXT_EDIT_BYTES } from '@hyveon/shared/volumeFiles';
 import { Button } from '@/components/ui/button.component';
 
 /** Props for {@link FileToolbar}. */
@@ -34,6 +34,9 @@ export function FileToolbar({ disabledReason, onNewFolder, onUploadFiles, onUplo
   );
 }
 
+/** Title of the actions disabled for an entry whose name can't be turned into a volume path. */
+export const UNHANDLED_NAME_MESSAGE = "This name can't be handled here (it contains a separator or is not a valid file name).";
+
 /** Props for {@link RowActions}. */
 export interface RowActionsProps {
   entry: VolumeEntryInfo;
@@ -49,20 +52,23 @@ export interface RowActionsProps {
 
 /**
  * Per-entry actions. Download and Edit (view) stay available while the server runs; Rename and Delete follow
- * `disabledReason`. Edit appears only for files small enough for the in-app editor.
+ * `disabledReason`. Edit appears only for files small enough for the in-app editor. An entry whose name is not a valid
+ * entry name (the backend can report one) has every action disabled, since none of them can build its path.
  */
 export function RowActions({ entry, supportsArchive, disabledReason, onDownload, onEdit, onRename, onDelete }: RowActionsProps) {
-  const disabled = disabledReason !== null;
-  const title = disabledReason ?? undefined;
+  const invalidName = !isValidEntryName(entry.name);
+  const disabled = invalidName || disabledReason !== null;
+  const nameTitle = invalidName ? UNHANDLED_NAME_MESSAGE : undefined;
+  const title = nameTitle ?? disabledReason ?? undefined;
   return (
     <div className="flex justify-end gap-1">
       {(!entry.isDir || supportsArchive) && (
-        <Button size="icon" variant="ghost" aria-label={`Download ${entry.name}`} onClick={() => onDownload(entry)}>
+        <Button size="icon" variant="ghost" aria-label={`Download ${entry.name}`} disabled={invalidName} title={nameTitle} onClick={() => onDownload(entry)}>
           <Download />
         </Button>
       )}
       {!entry.isDir && entry.size <= MAX_TEXT_EDIT_BYTES && (
-        <Button size="icon" variant="ghost" aria-label={`Edit ${entry.name}`} onClick={() => onEdit(entry)}>
+        <Button size="icon" variant="ghost" aria-label={`Edit ${entry.name}`} disabled={invalidName} title={nameTitle} onClick={() => onEdit(entry)}>
           <FilePenLine />
         </Button>
       )}

@@ -9,7 +9,7 @@ import type {
 import { joinVolumePath } from '@hyveon/shared/volumeFiles';
 import { api } from '../../api.service.js';
 import { useVolumeTransfers } from './use-volume-transfers.hook.js';
-import { settleVolumeResult, sortVolumeEntries, type VolumeSort } from './volume-files.utils.js';
+import { isSessionLostCode, settleVolumeResult, sortVolumeEntries, type VolumeSort } from './volume-files.utils.js';
 
 /** Handle returned by {@link useVolumeFiles}. */
 export interface VolumeFiles {
@@ -57,7 +57,8 @@ const DEFAULT_SORT: VolumeSort = { key: 'name', dir: 'asc' };
  * Every operation clears the previous error, then either refreshes the listing (mutations) or sets {@link VolumeFiles.error}
  * from the failed result's message; a rejected IPC call is reported the same way. `readText` and `writeText` return
  * their result so an editor can show its own failure, and leave `error` alone so the page does not repeat it. Every
- * failed operation, editor ones included, also reports its code to `onFailure`. Uploads finish asynchronously: the
+ * failed operation, editor ones included, also reports its code to `onFailure`. A successful listing clears the error;
+ * a failed one reports only `unreachable` / `no-session` (the session is gone), never mutation-only codes. Uploads finish asynchronously: the
  * listing refreshes when a pushed upload transfer settles as `done`.
  *
  * @param game - Game whose session serves the volume.
@@ -100,8 +101,14 @@ export function useVolumeFiles(
     const request = ++requestRef.current;
     const result = await settleVolumeResult(() => api.volumeList(game, volume, path));
     if (!mountedRef.current || request !== requestRef.current) return;
-    if (result.ok) setLoaded({ scope, path, entries: result.value.entries });
-    else setFailure({ scope, message: result.message });
+    if (result.ok) {
+      setLoaded({ scope, path, entries: result.value.entries });
+      setFailure(null);
+    } else {
+      setFailure({ scope, message: result.message });
+      // A listing is not a mutation, so only the codes that mean the session is gone are worth reporting.
+      if (isSessionLostCode(result.code)) onFailureRef.current?.(result.code);
+    }
   }, [canList, game, volume, path, scope]);
 
   // Mutations resolve later than the render that started them; they must refresh the current path, not their own.

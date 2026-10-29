@@ -52,11 +52,17 @@ export function useVolumeSession(game: string): VolumeSession {
   // has since left is dropped even though the hook itself is still mounted. Re-armed in the effect body for StrictMode.
   const activeGameRef = useRef<string | null>(null);
 
+  // Bumped whenever a status is applied, so a status read that started earlier can tell it has been overtaken.
+  const statusVersionRef = useRef(0);
+
   const isActive = useCallback(() => activeGameRef.current === game, [game]);
 
   const applyStatus = useCallback(
     (next: VolumeSessionStatus) => {
-      if (isActive() && next.game === game) setSnapshot({ game, status: next });
+      if (isActive() && next.game === game) {
+        statusVersionRef.current += 1;
+        setSnapshot({ game, status: next });
+      }
     },
     [game, isActive],
   );
@@ -90,7 +96,10 @@ export function useVolumeSession(game: string): VolumeSession {
   const status = snapshot?.game === game ? snapshot.status : null;
 
   const refresh = useCallback(async () => {
-    applyStatus(await api.volumeSessionStatus(game));
+    const version = statusVersionRef.current;
+    const next = await api.volumeSessionStatus(game);
+    // An action result, push or attach applied a newer status while this read was in flight; it is stale.
+    if (version === statusVersionRef.current) applyStatus(next);
   }, [game, applyStatus]);
 
   const state = status?.state;

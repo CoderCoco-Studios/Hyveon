@@ -283,6 +283,21 @@ describe('VolumeFilesPage', () => {
     expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText('Default volume')).toBeInTheDocument();
   });
 
+  it('should keep an entry with an unusable name listed but disable every action that needs its path', async () => {
+    mockListings({ '/': [makeFileEntry('a\\b.txt'), makeDirEntry('bad\\dir'), makeFileEntry('ok.txt')] });
+    renderFiles();
+
+    expect(await screen.findByText('a\\b.txt')).toBeInTheDocument();
+
+    for (const name of ['Download a\\b.txt', 'Edit a\\b.txt', 'Rename a\\b.txt', 'Delete a\\b.txt', 'Download bad\\dir', 'Rename bad\\dir', 'Delete bad\\dir']) {
+      const button = screen.getByRole('button', { name });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute('title', expect.stringContaining("can't be handled here"));
+    }
+    expect(screen.getByRole('button', { name: 'bad\\dir' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Edit ok.txt' })).toBeEnabled();
+  });
+
   it('should confirm before deleting a folder with folder wording', async () => {
     mockListings({ '/': [makeDirEntry('world')] });
     apiMock.volumeRemove.mockResolvedValue({ ok: true, value: true });

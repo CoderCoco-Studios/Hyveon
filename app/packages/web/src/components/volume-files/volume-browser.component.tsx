@@ -16,7 +16,7 @@ import { TransferList } from './transfer-list.component.js';
 import { useServerGuard } from './use-server-guard.hook.js';
 import { useVolumeFiles } from './use-volume-files.hook.js';
 import { VolumeBreadcrumb } from './volume-breadcrumb.component.js';
-import { volumeLabel } from './volume-files.utils.js';
+import { isSessionLostCode, volumeLabel } from './volume-files.utils.js';
 
 /** Props for {@link VolumeBrowser}. */
 export interface VolumeBrowserProps {
@@ -64,7 +64,7 @@ export function VolumeBrowser({ game, volume, status, ended, onSessionLost }: Vo
   const handleFailure = useCallback(
     (code: VolumeFilesErrorCode) => {
       noteFailure(code);
-      if (code === 'unreachable' || code === 'no-session') onSessionLost();
+      if (isSessionLostCode(code)) onSessionLost();
     },
     [noteFailure, onSessionLost],
   );

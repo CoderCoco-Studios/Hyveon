@@ -1,8 +1,9 @@
 import { ArrowDown, ArrowUp, File, Folder } from 'lucide-react';
 import type { VolumeEntryInfo } from '@hyveon/shared/volumeFiles';
+import { isValidEntryName } from '@hyveon/shared/volumeFiles';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.component';
 import { formatBytes } from '../../lib/format.utils.js';
-import { RowActions, type RowActionsProps } from './file-actions.component.js';
+import { RowActions, UNHANDLED_NAME_MESSAGE, type RowActionsProps } from './file-actions.component.js';
 import { formatModified, type VolumeSort, type VolumeSortKey } from './volume-files.utils.js';
 
 /** Props for {@link FileTable}. */
@@ -36,7 +37,13 @@ function FileRow({ entry, onOpenFolder, ...actions }: Omit<FileTableProps, 'entr
     <TableRow>
       <TableCell>
         {entry.isDir ? (
-          <button type="button" className="inline-flex items-center gap-2 text-[var(--color-primary-light)] hover:underline" onClick={() => onOpenFolder(entry.name)}>
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 text-[var(--color-primary-light)] hover:underline disabled:no-underline disabled:opacity-60"
+            disabled={!isValidEntryName(entry.name)}
+            title={isValidEntryName(entry.name) ? undefined : UNHANDLED_NAME_MESSAGE}
+            onClick={() => onOpenFolder(entry.name)}
+          >
             <Folder className="size-4" aria-hidden="true" />
             {entry.name}
           </button>

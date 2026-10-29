@@ -232,6 +232,37 @@ describe('useVolumeFiles', () => {
     expect(result.current.listing).toBeNull();
   });
 
+  it('should clear a failed listing error once a later listing succeeds', async () => {
+    apiMock.volumeList.mockResolvedValue({ ok: false, code: 'failed', message: 'listing broke' });
+    const { result } = renderHook(() => useVolumeFiles('minecraft', 'data', true));
+    await waitFor(() => expect(result.current.error).toBe('listing broke'));
+
+    listing([makeFileEntry('a.txt')]);
+    await act(() => result.current.refresh());
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.listing?.map((e) => e.name)).toEqual(['a.txt']);
+  });
+
+  it.each(['unreachable', 'no-session'] as const)('should report a listing that fails %s to onFailure', async (code) => {
+    apiMock.volumeList.mockResolvedValue({ ok: false, code, message: 'gone' });
+    const onFailure = vi.fn();
+
+    renderHook(() => useVolumeFiles('minecraft', 'data', true, onFailure));
+
+    await waitFor(() => expect(onFailure).toHaveBeenCalledWith(code));
+  });
+
+  it('should not report a listing failure with a mutation-only code to onFailure', async () => {
+    apiMock.volumeList.mockResolvedValue({ ok: false, code: 'server-running', message: 'The server is running.' });
+    const onFailure = vi.fn();
+    const { result } = renderHook(() => useVolumeFiles('minecraft', 'data', true, onFailure));
+
+    await waitFor(() => expect(result.current.error).toBe('The server is running.'));
+
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+
   it('should track transfers for this game and refresh the listing when an upload finishes', async () => {
     const { result } = await renderLoaded();
     apiMock.volumeList.mockClear();

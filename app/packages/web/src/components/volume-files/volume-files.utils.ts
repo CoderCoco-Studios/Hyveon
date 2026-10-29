@@ -1,4 +1,4 @@
-import type { VolumeEntryInfo, VolumeResult } from '@hyveon/shared/volumeFiles';
+import type { VolumeEntryInfo, VolumeFilesErrorCode, VolumeResult } from '@hyveon/shared/volumeFiles';
 
 /** Column the file table sorts by. */
 export type VolumeSortKey = 'name' | 'size' | 'modifiedMs';
@@ -59,4 +59,9 @@ export function volumeLabel(name: string): string {
 /** Formats a modification time, or a dash when it is unknown (`0`). */
 export function formatModified(modifiedMs: number): string {
   return modifiedMs === 0 ? '—' : new Date(modifiedMs).toLocaleString();
+}
+
+/** True for the codes that mean the helper session is gone (`unreachable` / `no-session`), so the page should re-read it. */
+export function isSessionLostCode(code: VolumeFilesErrorCode): boolean {
+  return code === 'unreachable' || code === 'no-session';
 }

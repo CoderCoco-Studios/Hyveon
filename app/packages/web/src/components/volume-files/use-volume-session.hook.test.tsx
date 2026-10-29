@@ -111,6 +111,30 @@ describe('useVolumeSession', () => {
     expect(result.current.status?.state).toBe('failed');
   });
 
+  it('should drop a status read that an action result overtook while it was in flight', async () => {
+    const { result } = renderHook(() => useVolumeSession('minecraft'), { wrapper });
+    await waitFor(() => expect(result.current.status?.state).toBe('running'));
+    await waitFor(() => expect(apiMock.volumeSessionStatus).toHaveBeenCalled());
+    let resolvePoll: (status: VolumeSessionStatus) => void = () => undefined;
+    // The poller re-registers and reads again when the state changes; those reads never settle so only the poll under test can move the state.
+    apiMock.volumeSessionStatus.mockReturnValue(new Promise<VolumeSessionStatus>(() => undefined));
+    apiMock.volumeSessionStatus.mockReturnValueOnce(new Promise<VolumeSessionStatus>((resolve) => (resolvePoll = resolve)));
+    apiMock.volumeSessionStop.mockResolvedValue({ ok: true, value: makeSessionStatus({ state: 'stopping' }) });
+
+    let poll: Promise<void> = Promise.resolve();
+    act(() => {
+      poll = result.current.refresh();
+    });
+    await act(() => result.current.stop());
+    expect(result.current.status?.state).toBe('stopping');
+    await act(async () => {
+      resolvePoll(makeSessionStatus({ state: 'running' }));
+      await poll;
+    });
+
+    expect(result.current.status?.state).toBe('stopping');
+  });
+
   it('should clear the error and attach again on reattach()', async () => {
     apiMock.volumeSessionAttach.mockRejectedValueOnce(new Error('bridge down'));
     const { result } = renderHook(() => useVolumeSession('minecraft'), { wrapper });
