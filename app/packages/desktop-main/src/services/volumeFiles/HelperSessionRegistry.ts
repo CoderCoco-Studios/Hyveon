@@ -371,15 +371,15 @@ export class HelperSessionRegistry {
    *
    * @remarks
    * Browse and download holds do not count: they only read, so a game may start while they remain.
-   * A session that is stopping reports `false`: its transfers are already cancelled and its helper is going away, so
-   * nothing is still writing to the volume.
+   * A stopping session still counts: aborting a transfer does not wait for its in-flight write, and `release` ignores a
+   * stopping session, so the holders stay until teardown has closed the backend, stopped the helper and dropped the entry.
+   * Only then can a game start.
    *
    * @param game - Game to check.
    */
   hasUploadHolders(game: string): boolean {
     const entry = this.entries.get(game);
-    if (!entry || entry.state === 'stopping') return false;
-    return [...entry.holders].some(isUploadHolder);
+    return !!entry && [...entry.holders].some(isUploadHolder);
   }
 
   /** The games this registry currently owns a session for. */

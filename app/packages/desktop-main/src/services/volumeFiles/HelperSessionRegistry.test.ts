@@ -142,13 +142,23 @@ describe('HelperSessionRegistry', () => {
     expect(fm.stop).toHaveBeenCalledTimes(1);
   });
 
-  it('should not report upload holders of a session that is stopping', async () => {
-    const { registry } = harness();
+  it('should keep reporting an upload holder while its session is stopping, until teardown drops the entry', async () => {
+    const { registry, fm } = harness();
     await registry.acquire('mc', 'upload:xfer-1');
+    let finishStop: (value: { success: boolean; message: string }) => void = () => undefined;
+    fm.stop.mockReturnValueOnce(new Promise((resolve) => (finishStop = resolve)));
 
     const stopping = registry.stop('mc');
-    expect(registry.hasUploadHolders('mc')).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await registry.status('mc')).toMatchObject({ state: 'stopping' });
+    expect(registry.hasUploadHolders('mc')).toBe(true);
+
+    registry.release('mc', 'upload:xfer-1');
+    expect(registry.hasUploadHolders('mc')).toBe(true);
+
+    finishStop({ success: true, message: 'stopped' });
     await stopping;
+    expect(registry.hasUploadHolders('mc')).toBe(false);
   });
 
   it('should launch over TLS with the browse run id and pass tags only to the launching acquire', async () => {
