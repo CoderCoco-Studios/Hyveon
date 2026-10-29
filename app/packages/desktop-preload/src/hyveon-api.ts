@@ -42,6 +42,14 @@ import type {
   FolderUploadStoredState,
   StrayHelperReport,
 } from '@hyveon/shared/folderUpload';
+import type {
+  VolumeEntryInfo,
+  VolumeListing,
+  VolumeResult,
+  VolumeSessionStatus,
+  VolumeTextFile,
+  VolumeTransferProgress,
+} from '@hyveon/shared/volumeFiles';
 
 /**
  * Re-exported verbatim from `@hyveon/shared` rather than duplicated —
@@ -1591,6 +1599,170 @@ export interface HyveonFolderUploadApi {
   onProgress: (cb: (progress: FolderUploadProgress) => void) => () => void;
 }
 
+/** In-app browsing and editing of a game's volumes through a short-lived file-browser helper session. */
+export interface HyveonVolumeFilesApi {
+  /**
+   * Reads the file-browser session state for `game`.
+   *
+   * @param game - Game name.
+   */
+  sessionStatus: (game: string) => Promise<VolumeSessionStatus>;
+  /**
+   * Starts (or joins) the browse session without waiting for it to become ready.
+   *
+   * @param game - Game name.
+   */
+  sessionStart: (game: string) => Promise<VolumeSessionStatus>;
+  /**
+   * Re-holds the browse session when the page returns.
+   *
+   * @param game - Game name.
+   */
+  sessionAttach: (game: string) => Promise<VolumeSessionStatus>;
+  /**
+   * Releases the browse hold so the session can auto-stop.
+   *
+   * @param game - Game name.
+   */
+  sessionDetach: (game: string) => Promise<VolumeSessionStatus>;
+  /**
+   * Stops the session now.
+   *
+   * @param game - Game name.
+   */
+  sessionStop: (game: string) => Promise<VolumeResult<VolumeSessionStatus>>;
+  /**
+   * Stops the session, then starts a new browse session.
+   *
+   * @param game - Game name.
+   */
+  sessionRestart: (game: string) => Promise<VolumeResult<VolumeSessionStatus>>;
+  /**
+   * Lists a directory of a volume.
+   *
+   * @param game - Game name.
+   * @param volume - Volume name; the legacy unnamed volume is the empty string.
+   * @param path - Volume-relative directory path.
+   */
+  list: (game: string, volume: string, path: string) => Promise<VolumeResult<VolumeListing>>;
+  /**
+   * Creates a folder.
+   *
+   * @param game - Game name.
+   * @param volume - Volume name.
+   * @param parent - Volume-relative path of the directory to create it in.
+   * @param name - New folder name.
+   */
+  mkdir: (game: string, volume: string, parent: string, name: string) => Promise<VolumeResult<VolumeEntryInfo>>;
+  /**
+   * Renames an entry within its directory.
+   *
+   * @param game - Game name.
+   * @param volume - Volume name.
+   * @param path - Volume-relative path of the entry.
+   * @param newName - New base name.
+   */
+  rename: (game: string, volume: string, path: string, newName: string) => Promise<VolumeResult<VolumeEntryInfo>>;
+  /**
+   * Deletes a file, or a folder with its contents.
+   *
+   * @param game - Game name.
+   * @param volume - Volume name.
+   * @param path - Volume-relative path of the entry.
+   */
+  remove: (game: string, volume: string, path: string) => Promise<VolumeResult<true>>;
+  /**
+   * Reads a UTF-8 text file for the editor.
+   *
+   * @param game - Game name.
+   * @param volume - Volume name.
+   * @param path - Volume-relative file path.
+   */
+  readText: (game: string, volume: string, path: string) => Promise<VolumeResult<VolumeTextFile>>;
+  /**
+   * Overwrites a text file if it is unchanged since it was read.
+   *
+   * @param game - Game name.
+   * @param volume - Volume name.
+   * @param path - Volume-relative file path.
+   * @param content - New file content.
+   * @param expectedModifiedMs - Modification time returned by the read; a mismatch fails with `conflict`.
+   */
+  writeText: (
+    game: string,
+    volume: string,
+    path: string,
+    content: string,
+    expectedModifiedMs: number,
+  ) => Promise<VolumeResult<{ modifiedMs: number }>>;
+  /**
+   * Saves a file, or a folder as a zip, to a location the operator picks; progress arrives on {@link HyveonVolumeFilesApi.onTransfer}.
+   *
+   * @param game - Game name.
+   * @param volume - Volume name.
+   * @param path - Volume-relative path to download.
+   * @param isDir - Whether `path` is a folder.
+   * @returns The transfer id, or `null` when the operator cancelled the save dialog.
+   */
+  download: (
+    game: string,
+    volume: string,
+    path: string,
+    isDir: boolean,
+  ) => Promise<VolumeResult<{ transferId: string } | null>>;
+  /**
+   * Cancels a running download or upload.
+   *
+   * @param game - Game name.
+   * @param transferId - Id returned when the transfer started.
+   */
+  cancelTransfer: (game: string, transferId: string) => Promise<{ cancelled: boolean }>;
+  /**
+   * Uploads files picked in a native file dialog into a volume directory.
+   *
+   * @param game - Game name.
+   * @param volume - Volume name.
+   * @param dir - Volume-relative destination directory.
+   * @returns The transfer id, or `null` when the operator cancelled the dialog.
+   */
+  uploadFiles: (game: string, volume: string, dir: string) => Promise<VolumeResult<{ transferId: string } | null>>;
+  /**
+   * Uploads dragged-in files; the preload resolves each `File` to its local path, so the renderer never handles path strings.
+   *
+   * @param game - Game name.
+   * @param volume - Volume name.
+   * @param dir - Volume-relative destination directory.
+   * @param files - Files from a drop event.
+   */
+  uploadDropped: (
+    game: string,
+    volume: string,
+    dir: string,
+    files: File[],
+  ) => Promise<VolumeResult<{ transferId: string } | null>>;
+  /**
+   * Uploads a folder picked in a native dialog through the folder-upload flow.
+   *
+   * @param game - Game name.
+   * @param volume - Volume name.
+   * @param dir - Volume-relative destination directory.
+   * @returns The run start result, or `null` when the operator cancelled the dialog.
+   */
+  uploadFolder: (game: string, volume: string, dir: string) => Promise<VolumeResult<FolderUploadStartResult | null>>;
+  /**
+   * Subscribes to session state updates; returns the unsubscribe function.
+   *
+   * @param cb - Called with each new session status.
+   */
+  onSession: (cb: (status: VolumeSessionStatus) => void) => () => void;
+  /**
+   * Subscribes to download and upload progress; returns the unsubscribe function.
+   *
+   * @param cb - Called with each progress update.
+   */
+  onTransfer: (cb: (progress: VolumeTransferProgress) => void) => () => void;
+}
+
 /** Discord bot configuration: credentials, guild allowlist, admins, permissions, command registration. */
 export interface HyveonDiscordApi {
   /** Returns the Discord config with secrets redacted to booleans. */
@@ -2520,6 +2692,8 @@ export interface HyveonApi {
   files: HyveonFilesApi;
   /** Folder-to-volume upload: scan, selection, start/cancel, progress, and stray-helper cleanup. */
   folderUpload: HyveonFolderUploadApi;
+  /** Volume file browser: session control, file operations, transfers, and session/transfer push events. */
+  volumeFiles: HyveonVolumeFilesApi;
   /** Discord bot configuration: credentials, guild allowlist, admins, permissions, command registration. */
   discord: HyveonDiscordApi;
   /** Environment metadata: region, domain, and environment label for UI display. */

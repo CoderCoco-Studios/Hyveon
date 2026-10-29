@@ -677,10 +677,10 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
 - Produces `HyveonVolumeFilesApi`: one method per Task 19 channel (`sessionStatus(game)`, `sessionStart(game)`, `sessionAttach(game)`, `sessionDetach(game)`, `sessionStop(game)`, `sessionRestart(game)`, `list(game, volume, path)`, `mkdir(game, volume, parent, name)`, `rename(game, volume, path, newName)`, `remove(game, volume, path)`, `readText(game, volume, path)`, `writeText(game, volume, path, content, expectedModifiedMs)`, `download(game, volume, path, isDir)`, `cancelTransfer(game, transferId)`, `uploadFiles(game, volume, dir)`, `uploadDropped(game, volume, dir, files: File[])`, `uploadFolder(game, volume, dir)`), plus `onSession(cb)` and `onTransfer(cb)` returning unsubscribe functions (same shape as `folderUpload.onProgress`).
 - `uploadDropped` resolves paths inside the preload with `webUtils.getPathForFile(file)` and invokes `volumeFiles.uploadFiles` with `localPaths`; the renderer never handles path strings. All methods go through the mock-aware `invoke`, so `__test.mock('volumeFiles.list', …)` works.
 
-- [ ] **Step 1: Write the failing tests** in `preload.test.ts`: `should invoke volumeFiles.list with game, volume and path`; `should resolve dropped files to paths in the preload` (`webUtils.getPathForFile` mocked → `'/tmp/a.txt'`; `invoke` called with `('volumeFiles.uploadFiles', { game: 'mc', volume: 'saves', dir: '/', localPaths: ['/tmp/a.txt'] })`); `should route a mocked volumeFiles channel through __test.mock`; `should subscribe and unsubscribe session events`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-preload/src/preload.test.ts` → FAIL.
-- [ ] **Step 3: Implement**; add bridge entries.
-- [ ] **Step 4: Run** → PASS.
+- [x] **Step 1: Write the failing tests** in `preload.test.ts`: `should invoke volumeFiles.list with game, volume and path`; `should resolve dropped files to paths in the preload` (`webUtils.getPathForFile` mocked → `'/tmp/a.txt'`; `invoke` called with `('volumeFiles.uploadFiles', { game: 'mc', volume: 'saves', dir: '/', localPaths: ['/tmp/a.txt'] })`); `should route a mocked volumeFiles channel through __test.mock`; `should subscribe and unsubscribe session events`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-preload/src/preload.test.ts` → FAIL.
+- [x] **Step 3: Implement**; add bridge entries.
+- [x] **Step 4: Run** → PASS.
 - [ ] **Step 5: Docs** — `write-docs`: `volumeFiles.*` rows and the two push channels in `management-app.md`.
 - [ ] **Step 6: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration && npm run app:test:e2e` → exit 0.
 - [ ] **Step 7: Commit** — `feat(desktop-preload): add the volumeFiles bridge`. Open PR 4 with `/pr` (base: PR 3 branch).
