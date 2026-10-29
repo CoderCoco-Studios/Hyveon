@@ -11,7 +11,7 @@ vi.mock('../../logger.js', () => ({
 
 import type { VolumeTransferProgress } from '@hyveon/shared/volumeFiles';
 import type { HelperSessionRegistry, HelperSessionSnapshot } from './HelperSessionRegistry.js';
-import { streamToFile, TransferManager, type TransferSpec } from './transfers.js';
+import { streamToFile, TransferManager, transferErrorMessage, type TransferSpec } from './transfers.js';
 
 let dir: string;
 beforeEach(async () => {
@@ -60,6 +60,39 @@ describe('streamToFile', () => {
     await expect(streamToFile(source, target, { signal: new AbortController().signal, onBytes: () => undefined })).rejects.toThrow('boom');
     expect(await readFile(target, 'utf8')).toBe('old');
     expect(await readdir(dir)).toEqual(['out.bin']);
+  });
+});
+
+describe('streamToFile with an existing neighbouring file', () => {
+  it('should not touch a file already named like a part file, on success or failure', async () => {
+    const target = join(dir, 'out.bin');
+    await writeFile(`${target}.part`, 'mine');
+    await streamToFile(Readable.from([Buffer.from('abc')]), target, { signal: new AbortController().signal, onBytes: () => undefined });
+    const failing = new Readable({ read() { this.destroy(new Error('boom')); } });
+    await expect(streamToFile(failing, join(dir, 'other.bin'), { signal: new AbortController().signal, onBytes: () => undefined })).rejects.toThrow('boom');
+    await writeFile(`${target}.part`, 'mine');
+    const stuck = new Readable({ read() { this.destroy(new Error('boom')); } });
+    await expect(streamToFile(stuck, target, { signal: new AbortController().signal, onBytes: () => undefined })).rejects.toThrow('boom');
+    expect(await readFile(`${target}.part`, 'utf8')).toBe('mine');
+    expect((await readdir(dir)).sort()).toEqual(['out.bin', 'out.bin.part']);
+  });
+});
+
+describe('transferErrorMessage', () => {
+  const names = { missing: '/a', existing: 'a' };
+  const coded = (code: string, syscall?: string) => Object.assign(new Error('x'), { code, ...(syscall && { syscall }) });
+
+  it('should call Node file-system errors local', () => {
+    expect(transferErrorMessage(coded('ENOSPC', 'write'), names, 'LOCAL')).toBe('LOCAL');
+    expect(transferErrorMessage(coded('EACCES'), names, 'LOCAL')).toBe('LOCAL');
+    expect(transferErrorMessage(coded('EXDEV', 'rename'), names, 'LOCAL')).toBe('LOCAL');
+  });
+
+  it('should report a dropped connection as the file manager being unreachable', () => {
+    const unreachable = "The file manager isn't reachable. Restart the session.";
+    expect(transferErrorMessage(coded('UND_ERR_SOCKET'), names, 'LOCAL')).toBe(unreachable);
+    expect(transferErrorMessage(coded('UND_ERR_BODY_TIMEOUT'), names, 'LOCAL')).toBe(unreachable);
+    expect(transferErrorMessage(coded('ECONNRESET', 'read'), names, 'LOCAL')).toBe(unreachable);
   });
 });
 

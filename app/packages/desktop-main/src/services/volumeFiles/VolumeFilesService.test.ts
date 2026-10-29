@@ -719,6 +719,18 @@ describe('VolumeFilesService downloads', () => {
     expect(await readdir(local)).toEqual([]);
   });
 
+  it('should report a connection dropped mid-download as unreachable and leave no part file', async () => {
+    const dropped = new Readable({ read() {} });
+    const h = harness({ ...fileBackend(), readStream: vi.fn().mockResolvedValue(dropped) });
+    h.dialogs.pickSavePath.mockResolvedValue(join(local, 'out.dat'));
+    const { settled } = watchTransfers(h);
+    await h.service.download(SAVES, '/level.dat', false);
+    dropped.push(Buffer.from('he'));
+    setTimeout(() => dropped.destroy(Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' })), 20);
+    expect(await settled()).toMatchObject({ phase: 'failed', error: "The file manager isn't reachable. Restart the session." });
+    expect(await readdir(local)).toEqual([]);
+  });
+
   it('should report a local write failure without naming the local path', async () => {
     const h = harness(fileBackend());
     h.dialogs.pickSavePath.mockResolvedValue(join(local, 'missing-dir', 'out.dat'));

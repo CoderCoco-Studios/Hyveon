@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
 import { Transform, type Readable } from 'node:stream';
@@ -25,8 +25,9 @@ export interface StreamToFileOptions {
  * Copies `source` to `target` through a `.part` file, so `target` only ever holds a complete download.
  *
  * @remarks
- * The part file is renamed over `target` on success and removed on any failure or abort, leaving an existing
- * `target` untouched until the new bytes are complete.
+ * The part file has a name unique to this call and is created exclusively, so a file the operator already has next
+ * to `target` is never truncated or deleted. It is renamed over `target` on success and removed on any failure or
+ * abort, leaving an existing `target` untouched until the new bytes are complete.
  *
  * @param source - The bytes to save; destroyed when this settles.
  * @param target - Final local path.
@@ -34,8 +35,12 @@ export interface StreamToFileOptions {
  * @throws The stream or file-system error, or an `AbortError` when `options.signal` aborts.
  */
 export async function streamToFile(source: Readable, target: string, options: StreamToFileOptions): Promise<void> {
-  const part = `${target}.part`;
-  const out = createWriteStream(part);
+  const part = `${target}.${randomBytes(6).toString('hex')}.part`;
+  const out = createWriteStream(part, { flags: 'wx' });
+  let created = false;
+  out.once('open', () => {
+    created = true;
+  });
   const counter = new Transform({
     transform(chunk: Buffer, _encoding, done) {
       options.onBytes(chunk.length);
@@ -49,25 +54,42 @@ export async function streamToFile(source: Readable, target: string, options: St
     source.destroy();
     out.destroy();
     if (!out.closed) await new Promise<void>((resolve) => out.once('close', resolve));
-    await rm(part, { force: true });
+    if (created) await rm(part, { force: true });
     throw err;
   }
 }
 
-/** Whether `err` is a local file-system error rather than a file-manager one. */
-const isLocalFsError = (err: unknown): boolean =>
-  err instanceof Error && !(err instanceof VolumeFileError) && !isAbort(err) && typeof (err as NodeJS.ErrnoException).code === 'string';
+/** Error codes Node's file-system calls fail with. */
+const LOCAL_FS_CODES = new Set(['ENOENT', 'EACCES', 'EPERM', 'ENOSPC', 'EISDIR', 'EROFS', 'EBUSY', 'EEXIST', 'ENOTDIR']);
+
+/** System calls only the local file system makes; `read` is excluded because sockets fail with it too. */
+const LOCAL_FS_SYSCALLS = new Set(['open', 'write', 'rename', 'close', 'unlink', 'fsync', 'mkdir']);
+
+/** The Node error behind `err`, when it carries a string code. */
+const errnoOf = (err: unknown): NodeJS.ErrnoException | null =>
+  err instanceof Error && !(err instanceof VolumeFileError) && !isAbort(err) && typeof (err as NodeJS.ErrnoException).code === 'string'
+    ? (err as NodeJS.ErrnoException)
+    : null;
+
+/** Whether `err` is a local file-system error rather than a connection one. */
+const isLocalFsError = (err: unknown): boolean => {
+  const errno = errnoOf(err);
+  return !!errno && (LOCAL_FS_CODES.has(errno.code ?? '') || LOCAL_FS_SYSCALLS.has(errno.syscall ?? ''));
+};
 
 /**
- * The operator message for a transfer that failed: local file-system errors get `localFailure`, everything else the
- * fixed file-manager wording.
+ * The operator message for a transfer that failed: local file-system errors get `localFailure`, other coded Node and
+ * undici errors (a dropped or reset connection mid-body) are reported as the file manager being unreachable, and
+ * everything else gets the fixed file-manager wording.
  *
  * @param err - What the transfer threw.
  * @param names - What to call the entry in the message.
  * @param localFailure - Message for a failure reading or writing a local file.
  */
 export function transferErrorMessage(err: unknown, names: OpNames, localFailure: string): string {
-  return isLocalFsError(err) ? localFailure : describeFailure(err, names).message;
+  if (isLocalFsError(err)) return localFailure;
+  const dropped = errnoOf(err) ? new VolumeFileError('unreachable', 'transfer connection dropped') : err;
+  return describeFailure(dropped, names).message;
 }
 
 /** What {@link TransferManager.start} needs to run one transfer. */
