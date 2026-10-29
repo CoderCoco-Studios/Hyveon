@@ -53,6 +53,30 @@ export function describeFailure(err: unknown, names: OpNames): VolumeFailure {
 }
 
 /**
+ * Logs a refusal decided by a check rather than thrown, so every refused operation leaves a line in the log.
+ *
+ * @remarks
+ * Identifiers only; never content or local paths. `server-check-failed` is skipped because
+ * `FileOps.assertWritable` already logged the cause.
+ *
+ * @param ref - Game and volume.
+ * @param path - Raw request path.
+ * @param failure - The refusal about to be returned.
+ * @returns `failure`, so callers can `return logRefusal(...)`.
+ */
+export function logRefusal<T extends VolumeFailure>(ref: VolumeRef, path: string, failure: T): T {
+  if (failure.code !== 'server-check-failed') {
+    logger.info('VolumeFilesService: file operation refused', { game: ref.game, volume: ref.volume, path, code: failure.code });
+  }
+  return failure;
+}
+
+/** Replaces URLs and IPv4 literals (with an optional `/NN` or `:port`) in text that crosses IPC from AWS or the registry. */
+export function scrubAddresses(text: string): string {
+  return text.replace(/https?:\/\/\S+/gi, '<address>').replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2}|:\d{1,5})?(?!\d)/g, '<address>');
+}
+
+/**
  * Maps a thrown error to a modeled failure and logs it with identifiers only.
  *
  * @remarks

@@ -6,7 +6,7 @@ import { EcsService } from '../EcsService.js';
 import { isVolumeMounted, toHelperPath, type HelperVolumeLayout } from './helperVolumeLayout.js';
 import { HelperSessionRegistry } from './HelperSessionRegistry.js';
 import type { VolumeFileBackend } from './VolumeFileBackend.js';
-import { fail, toVolumeResult, type OpNames, type VolumeFailure } from './volumeFileErrors.js';
+import { fail, logRefusal, toVolumeResult, type OpNames, type VolumeFailure } from './volumeFileErrors.js';
 
 /** How long one metadata operation (list, stat, mkdir, move, remove, small text read or write) may take. */
 export const METADATA_OP_TIMEOUT_MS = 30_000;
@@ -67,26 +67,27 @@ export class FileOps {
     run: (io: FileIo, params: P) => Promise<VolumeResult<T>>,
   ): Promise<VolumeResult<T>> {
     let names: OpNames = { missing: spec.path, existing: spec.path };
+    let result: VolumeResult<T>;
     try {
       const params = spec.validate();
       names = params.names ?? { missing: spec.path, existing: spec.path };
-      if (spec.mutates) {
-        const refusal = await this.assertWritable(ref.game);
-        if (refusal) return refusal;
-      }
-      return await this.registry.withBackend(ref.game, async (backend, layout) => {
-        const refusal = this.checkVolume(ref, layout, spec.mutates);
-        if (refusal) return refusal;
-        const io: FileIo = {
-          backend,
-          signal: AbortSignal.timeout(METADATA_OP_TIMEOUT_MS),
-          helperPath: (volumePath) => toHelperPath(layout, ref.volume, volumePath),
-        };
-        return run(io, params);
-      });
+      const refusal = spec.mutates ? await this.assertWritable(ref.game) : null;
+      result =
+        refusal ??
+        (await this.registry.withBackend(ref.game, async (backend, layout) => {
+          const volumeRefusal = this.checkVolume(ref, layout, spec.mutates);
+          if (volumeRefusal) return volumeRefusal;
+          const io: FileIo = {
+            backend,
+            signal: AbortSignal.timeout(METADATA_OP_TIMEOUT_MS),
+            helperPath: (volumePath) => toHelperPath(layout, ref.volume, volumePath),
+          };
+          return run(io, params);
+        }));
     } catch (err) {
       return toVolumeResult(err, ref, spec.path, names);
     }
+    return result.ok ? result : logRefusal(ref, spec.path, result);
   }
 
   /** Refuses a volume the session did not mount, and mutations of a legacy fallback layout. */

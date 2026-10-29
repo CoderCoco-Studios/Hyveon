@@ -8,13 +8,13 @@ import { DeploymentConfigService } from '../DeploymentConfigService.js';
 import { FolderScanService } from '../FolderScanService.js';
 import { FolderUploadService } from '../FolderUploadService.js';
 import { NativeDialogService } from '../NativeDialogService.js';
-import type { FileOps } from './fileOps.js';
+import { METADATA_OP_TIMEOUT_MS, type FileOps } from './fileOps.js';
 import { toHelperPath } from './helperVolumeLayout.js';
 import { HelperSessionRegistry } from './HelperSessionRegistry.js';
 import { statLocalFiles } from './localFiles.js';
 import { sanitizeLocalFileName } from './localNames.js';
 import { VolumeFileError } from './VolumeFileBackend.js';
-import { fail, ok, toVolumeResult, type OpNames } from './volumeFileErrors.js';
+import { fail, logRefusal, ok, toVolumeResult, type OpNames } from './volumeFileErrors.js';
 import { streamToFile, TransferManager, transferErrorMessage } from './transfers.js';
 
 /** What a download's pre-dialog check learned about its entry. */
@@ -24,6 +24,12 @@ interface Probe {
   /** Byte size of a file; `null` for a folder archive. */
   size: number | null;
 }
+
+/** What an interrupted upload left on the volume: nothing, a file that was removed, or one that could not be. */
+type PartialFile = 'none' | 'removed' | 'left';
+
+/** Operator message for a partial file that could not be removed. */
+const partialUploadMessage = (name: string): string => `'${name}' was partially uploaded; delete it before retrying.`;
 
 /**
  * The download and upload operations: the checks that run before any dialog opens, the dialogs, and the hand-off to
@@ -144,17 +150,17 @@ export class TransferOps {
     const names: OpNames = { missing: dir, existing: dir };
     try {
       const cleanDir = normalizeVolumePath(dir);
-      if (localPaths?.includes('')) return fail('invalid-path', "A dropped item couldn't be read. Use Upload files instead.");
+      if (localPaths?.includes('')) return logRefusal(ref, dir, fail('invalid-path', "A dropped item couldn't be read. Use Upload files instead."));
       const refusal = await this.ops.assertWritable(ref.game);
-      if (refusal) return refusal;
+      if (refusal) return logRefusal(ref, dir, refusal);
       await this.manager.requireRunning(ref.game);
       const picked = localPaths ?? (await this.dialogs.pickFiles());
       if (picked.length === 0) return ok(null);
       const local = await statLocalFiles(picked);
-      if (!local.ok) return fail('invalid-path', local.message);
+      if (!local.ok) return logRefusal(ref, dir, fail('invalid-path', local.message));
       const files = local.files.map((file) => ({ ...file, target: joinVolumePath(cleanDir, file.name) }));
       const duplicate = files.find((file, i) => files.findIndex((other) => other.target === file.target) !== i);
-      if (duplicate) return fail('conflict', `'${duplicate.name}' was chosen more than once.`);
+      if (duplicate) return logRefusal(ref, dir, fail('conflict', `'${duplicate.name}' was chosen more than once.`));
 
       const clear = await this.ops.run(
         ref,
@@ -176,30 +182,41 @@ export class TransferOps {
       if (!clear.ok) return clear;
 
       let current = files[0]!.name;
+      let partial: PartialFile = 'none';
       const transferId = await this.manager.start({
         game: ref.game,
         kind: 'upload',
         name: files.length === 1 ? current : `${files.length} files`,
         bytesTotal: files.reduce((sum, file) => sum + file.size, 0),
-        describeError: (err) => transferErrorMessage(err, { missing: current, existing: current }, "Couldn't read a local file."),
+        describeError: (err) => {
+          const message = transferErrorMessage(err, { missing: current, existing: current }, "Couldn't read a local file.");
+          if (partial === 'removed') return `${message} The partial file was removed.`;
+          return partial === 'left' ? `${message} ${partialUploadMessage(current)}` : message;
+        },
+        describeCancel: () => (partial === 'left' ? partialUploadMessage(current) : undefined),
         run: async ({ signal, onBytes }) => {
           for (const file of files) {
             current = file.name;
             let counted = 0;
-            await this.registry.withBackend(ref.game, (backend, layout) => {
-              // A retry replays the file from its start.
-              onBytes(-counted);
-              counted = 0;
-              return backend.writeStream(toHelperPath(layout, ref.volume, file.target), createReadStream(file.path), {
-                size: file.size,
-                overwrite: false,
-                signal,
-                onBytes: (n) => {
-                  counted += n;
-                  onBytes(n);
-                },
+            try {
+              await this.registry.withBackend(ref.game, (backend, layout) => {
+                // A retry replays the file from its start.
+                onBytes(-counted);
+                counted = 0;
+                return backend.writeStream(toHelperPath(layout, ref.volume, file.target), createReadStream(file.path), {
+                  size: file.size,
+                  overwrite: false,
+                  signal,
+                  onBytes: (n) => {
+                    counted += n;
+                    onBytes(n);
+                  },
+                });
               });
-            });
+            } catch (err) {
+              partial = await this.removePartial(ref, file.target, err);
+              throw err;
+            }
           }
         },
       });
@@ -225,14 +242,14 @@ export class TransferOps {
     try {
       const cleanDir = normalizeVolumePath(dir);
       const refusal = await this.ops.assertWritable(ref.game);
-      if (refusal) return refusal;
+      if (refusal) return logRefusal(ref, dir, refusal);
       const server = (await this.deploymentConfig.getGameServers()).find((g) => g.name === ref.game);
       const volume = server?.volumes.find((v) => v.name === ref.volume);
-      if (!server || !volume) return fail('unknown-volume', `'${ref.volume}' is not a volume of '${ref.game}'.`);
+      if (!server || !volume) return logRefusal(ref, dir, fail('unknown-volume', `'${ref.volume}' is not a volume of '${ref.game}'.`));
       const destination = volume.container_path.replace(/\/+$/, '') + (cleanDir === '/' ? '' : cleanDir);
       const owner = validateDestination(destination, server.volumes);
       if (!owner.ok || owner.volume.name !== ref.volume) {
-        return fail('unknown-volume', `That folder belongs to another volume of '${ref.game}'.`);
+        return logRefusal(ref, dir, fail('unknown-volume', `That folder belongs to another volume of '${ref.game}'.`));
       }
       const rootPath = await this.dialogs.pickDirectory();
       if (!rootPath) return ok(null);
@@ -244,6 +261,32 @@ export class TransferOps {
       return ok(await this.folderUploads.startUpload({ game: ref.game, scanId: scan.scanId, include: [''], destination }, { persistSelection: false }));
     } catch (err) {
       return toVolumeResult(err, ref, dir, { missing: dir, existing: dir });
+    }
+  }
+
+  /**
+   * Best-effort removal of the file an upload was writing when it failed or was cancelled.
+   *
+   * @remarks
+   * The pre-upload stat proved the target did not exist, so a file there is this upload's truncated body. A
+   * `conflict` failure is skipped: the target appeared on its own, or a retried first attempt landed in full.
+   *
+   * @param ref - Game and volume.
+   * @param target - Volume path the upload was writing.
+   * @param cause - What the upload threw.
+   * @returns Whether a partial file was removed, left behind, or never existed.
+   */
+  private async removePartial(ref: VolumeRef, target: string, cause: unknown): Promise<PartialFile> {
+    if (cause instanceof VolumeFileError && cause.code === 'conflict') return 'none';
+    try {
+      await this.registry.withBackend(ref.game, (backend, layout) =>
+        backend.remove(toHelperPath(layout, ref.volume, target), AbortSignal.timeout(METADATA_OP_TIMEOUT_MS)),
+      );
+      return 'removed';
+    } catch (err) {
+      if (err instanceof VolumeFileError && err.code === 'not-found') return 'none';
+      logger.warn('VolumeFilesService: could not remove a partial upload', { game: ref.game, volume: ref.volume, path: target, error: errMessage(err) });
+      return 'left';
     }
   }
 }

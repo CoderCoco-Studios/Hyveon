@@ -104,6 +104,8 @@ export interface TransferSpec {
   savedAs?: string;
   /** Operator-facing message for a failure that is not a cancellation. */
   describeError: (err: unknown) => string;
+  /** Optional message to attach to the `cancelled` event, e.g. cleanup that did not finish. */
+  describeCancel?: () => string | undefined;
   /** The work. Resolve when finished; honour `signal` and report bytes as they move. */
   run: (context: { signal: AbortSignal; onBytes: (n: number) => void }) => Promise<void>;
 }
@@ -166,7 +168,8 @@ export class TransferManager {
     const controller = new AbortController();
     this.active.set(transferId, { game: spec.game, controller });
     logger.info('VolumeFilesService: transfer started', { game: spec.game, transferId, kind: spec.kind });
-    void this.execute(spec, transferId, holder, controller);
+    // Deferred so the invoke reply carrying `transferId` is queued before the first progress push.
+    setImmediate(() => void this.execute(spec, transferId, holder, controller));
     return transferId;
   }
 
@@ -195,7 +198,13 @@ export class TransferManager {
   }
 
   private emit(progress: VolumeTransferProgress): void {
-    for (const listener of this.listeners) listener(progress);
+    for (const listener of this.listeners) {
+      try {
+        listener(progress);
+      } catch (err) {
+        logger.warn('VolumeFilesService: transfer listener threw', { game: progress.game, transferId: progress.transferId, error: errMessage(err) });
+      }
+    }
   }
 
   private async execute(spec: TransferSpec, transferId: string, holder: `upload:${string}`, controller: AbortController): Promise<void> {
@@ -215,6 +224,8 @@ export class TransferManager {
     this.emit(event('running'));
     let final: VolumeTransferProgress;
     try {
+      // A cancel can land in the gap before this starts.
+      signal.throwIfAborted();
       await spec.run({
         signal,
         onBytes: (n) => {
@@ -228,7 +239,8 @@ export class TransferManager {
       final = event('done', spec.savedAs === undefined ? {} : { savedAs: spec.savedAs });
     } catch (err) {
       if (signal.aborted) {
-        final = event('cancelled');
+        const note = spec.describeCancel?.();
+        final = event('cancelled', note === undefined ? {} : { error: note });
       } else {
         logger.warn('VolumeFilesService: transfer failed', { game: spec.game, transferId, kind: spec.kind, error: errMessage(err) });
         final = event('failed', { error: spec.describeError(err) });

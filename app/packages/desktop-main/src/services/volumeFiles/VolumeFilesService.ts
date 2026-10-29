@@ -27,7 +27,7 @@ import { HelperSessionRegistry, type HelperSessionSnapshot } from './HelperSessi
 import type { VolumeEntry } from './VolumeFileBackend.js';
 import { decodeUtf8, readCapped } from './textFiles.js';
 import { TransferOps } from './transferOps.js';
-import { fail, ok, TextTooLargeError } from './volumeFileErrors.js';
+import { fail, ok, scrubAddresses, TextTooLargeError } from './volumeFileErrors.js';
 
 export { METADATA_OP_TIMEOUT_MS } from './fileOps.js';
 
@@ -43,7 +43,7 @@ function toSessionStatus(s: HelperSessionSnapshot): VolumeSessionStatus {
     browseHeld: s.browseHeld,
     uploadHolders: s.uploadHolders,
     supportsArchive: s.supportsArchive,
-    ...(s.error !== undefined && { error: s.error }),
+    ...(s.error !== undefined && { error: scrubAddresses(s.error) }),
     volumes: s.volumes.map(({ name, containerPath, mounted }) => ({ name, containerPath, mounted })),
   };
 }
@@ -52,10 +52,10 @@ function toSessionStatus(s: HelperSessionSnapshot): VolumeSessionStatus {
  * A `failed` session status with no volumes, for lookups that could not produce a real snapshot.
  *
  * @param game - Game the status describes.
- * @param error - Operator-safe reason.
+ * @param error - Reason; addresses in it are replaced before it reaches the renderer.
  */
 export function failedSessionStatus(game: string, error: string): VolumeSessionStatus {
-  return { game, state: 'failed', error, browseHeld: false, uploadHolders: 0, supportsArchive: false, volumes: [] };
+  return { game, state: 'failed', error: scrubAddresses(error), browseHeld: false, uploadHolders: 0, supportsArchive: false, volumes: [] };
 }
 
 /**
@@ -150,7 +150,7 @@ export class VolumeFilesService {
    */
   async sessionStop(game: string): Promise<VolumeResult<VolumeSessionStatus>> {
     const stopped = await this.registry.stop(game);
-    if (!stopped.success) return fail('failed', stopped.message);
+    if (!stopped.success) return this.stopFailure(game, stopped.message);
     return ok(await this.sessionStatus(game));
   }
 
@@ -161,7 +161,7 @@ export class VolumeFilesService {
    */
   async sessionRestart(game: string): Promise<VolumeResult<VolumeSessionStatus>> {
     const stopped = await this.registry.stop(game);
-    if (!stopped.success) return fail('failed', stopped.message);
+    if (!stopped.success) return this.stopFailure(game, stopped.message);
     this.acquireInBackground(game);
     return ok(await this.sessionStatus(game));
   }
@@ -359,6 +359,12 @@ export class VolumeFilesService {
    */
   uploadFolder(ref: VolumeRef, dir: string): Promise<VolumeResult<FolderUploadStartResult | null>> {
     return this.transfers.uploadFolder(ref, dir);
+  }
+
+  /** Logs a failed stop in full and returns it with addresses scrubbed from the message. */
+  private stopFailure(game: string, message: string) {
+    logger.warn('VolumeFilesService: session stop failed', { game, error: message });
+    return fail('failed', scrubAddresses(message));
   }
 
   /** Fires `acquire` for the browse holder; its outcome reaches the renderer through the registry's state pushes. */

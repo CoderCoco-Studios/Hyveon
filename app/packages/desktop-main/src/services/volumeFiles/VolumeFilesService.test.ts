@@ -10,6 +10,7 @@ vi.mock('../../logger.js', () => ({
 }));
 
 import { MAX_TEXT_EDIT_BYTES, type VolumeRef, type VolumeTransferProgress } from '@hyveon/shared/volumeFiles';
+import { logger } from '../../logger.js';
 import type { ConfigService } from '../ConfigService.js';
 import type { DeploymentConfigService } from '../DeploymentConfigService.js';
 import type { EcsService } from '../EcsService.js';
@@ -207,6 +208,29 @@ describe('VolumeFilesService write guards', () => {
     expect(h.ecs.findRunningTaskOrThrow).toHaveBeenCalledWith('game-cluster', 'mc');
   });
 
+  it('should log one info line with the code when a mutation is refused', async () => {
+    const h = harness();
+    h.ecs.findRunningTaskOrThrow.mockResolvedValue({ taskArn: 'arn:t' });
+    vi.mocked(logger.info).mockClear();
+    vi.mocked(logger.warn).mockClear();
+    await h.service.remove(SAVES, '/old');
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith('VolumeFilesService: file operation refused', {
+      game: 'mc',
+      volume: 'saves',
+      path: '/old',
+      code: 'server-running',
+    });
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('should log a refusal decided inside the session such as an unmounted volume', async () => {
+    const h = harness({}, PARTIAL_LAYOUT);
+    vi.mocked(logger.info).mockClear();
+    await h.service.list(SAVES, '/');
+    expect(logger.info).toHaveBeenCalledWith('VolumeFilesService: file operation refused', expect.objectContaining({ code: 'unknown-volume' }));
+  });
+
   it("should refuse mutations when the server state can't be confirmed", async () => {
     const h = harness({ list: vi.fn().mockResolvedValue([]) });
     h.ecs.findRunningTaskOrThrow.mockRejectedValue(new Error('ecs down'));
@@ -297,6 +321,11 @@ describe('VolumeFilesService text files', () => {
   it('should read a UTF-8 file and return the volume path, not the helper path', async () => {
     const h = textBackend(5, Buffer.from('héllo'), { modifiedMs: 42 });
     expect(await h.service.readText(SAVES, '/level.dat')).toEqual({ ok: true, value: { path: '/level.dat', content: 'héllo', modifiedMs: 42 } });
+  });
+
+  it('should keep a UTF-8 byte order mark so a save writes it back', async () => {
+    const h = textBackend(5, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('hi')]));
+    expect(await h.service.readText(SAVES, '/level.dat')).toMatchObject({ ok: true, value: { content: '\uFEFFhi' } });
   });
 
   it('should refuse to open a file over 1 MiB', async () => {
@@ -485,6 +514,42 @@ describe('VolumeFilesService sessions', () => {
       supportsArchive: false,
       volumes: [],
     });
+  });
+
+  it('should scrub addresses from a session error and keep the full text in the log', async () => {
+    const h = harness();
+    const raw = 'Could not open the file manager port to your IP: rule 1.2.3.4/32 exists, see https://5.6.7.8:8080/x for 9.9.9.9';
+    h.registry.status.mockResolvedValue(snapshot({ state: 'failed', error: raw }));
+    const status = await h.service.sessionStatus('mc');
+    expect(status.error).toBe('Could not open the file manager port to your IP: rule <address> exists, see <address> for <address>');
+    expectNoSecretFields(status);
+  });
+
+  it('should scrub addresses from pushed session errors and lookup failures', async () => {
+    const h = harness();
+    let emit: (s: HelperSessionSnapshot) => void = () => undefined;
+    h.registry.onState.mockImplementation((listener: (s: HelperSessionSnapshot) => void) => {
+      emit = listener;
+      return () => undefined;
+    });
+    const received: unknown[] = [];
+    h.service.onSession((status) => received.push(status));
+    emit(snapshot({ state: 'failed', error: 'refused by 10.0.0.1/24' }));
+    expect(received).toEqual([expect.objectContaining({ error: 'refused by <address>' })]);
+    h.registry.status.mockRejectedValue(new Error('lookup at https://10.1.1.1:443 failed'));
+    const failed = await h.service.sessionStatus('mc');
+    expect(failed.error).toBe('lookup at <address> failed');
+    expect(failedSessionStatus('mc', 'bad 1.2.3.4').error).toBe('bad <address>');
+  });
+
+  it('should scrub addresses from a failed stop or restart', async () => {
+    const h = harness();
+    h.registry.stop.mockResolvedValue({ success: false, message: 'could not reach https://1.2.3.4:8080 (1.2.3.4/32)' });
+    const stop = await h.service.sessionStop('mc');
+    const restart = await h.service.sessionRestart('mc');
+    expect(stop).toEqual({ ok: false, code: 'failed', message: 'could not reach <address> (<address>)' });
+    expect(restart).toEqual(stop);
+    expectNoSecretFields([stop, restart]);
   });
 
   it('should push registry state changes as the mapped public status', () => {
@@ -826,6 +891,21 @@ describe('VolumeFilesService file uploads', () => {
     expect(h.registry.acquire).not.toHaveBeenCalled();
   });
 
+  it('should log an upload refused because the name exists', async () => {
+    const h = harness({ stat: vi.fn().mockResolvedValue(stat({ name: 'a.txt' })) });
+    vi.mocked(logger.info).mockClear();
+    await h.service.uploadFiles(SAVES, '/worlds', [await localFile('a.txt', 'aaa')]);
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith('VolumeFilesService: file operation refused', { game: 'mc', volume: 'saves', path: '/worlds', code: 'conflict' });
+  });
+
+  it('should log a folder upload refused for an unknown volume', async () => {
+    const h = harness();
+    vi.mocked(logger.info).mockClear();
+    await h.service.uploadFolder({ game: 'mc', volume: 'nope' }, '/');
+    expect(logger.info).toHaveBeenCalledWith('VolumeFilesService: file operation refused', expect.objectContaining({ code: 'unknown-volume', volume: 'nope' }));
+  });
+
   it('should refuse the whole upload when any one name exists', async () => {
     const h = harness({
       stat: vi.fn().mockImplementation(async (path: string) => {
@@ -925,6 +1005,83 @@ describe('VolumeFilesService file uploads', () => {
     expect(await settled()).toMatchObject({ phase: 'done', bytesDone: 3 });
     expect(sources).toHaveLength(2);
     expect(sources[0]).not.toBe(sources[1]);
+  });
+
+  describe('partial uploads', () => {
+    /** A write that never finishes until aborted, so a cancel lands mid-body. */
+    const hangingWrite = () =>
+      vi.fn((_path: string, _source: Readable, options: { signal?: AbortSignal }) =>
+        new Promise<void>((_resolve, reject) => options.signal?.addEventListener('abort', () => reject(new Error('aborted')))),
+      );
+
+    it('should remove the partial file when an upload is cancelled', async () => {
+      const remove = vi.fn().mockResolvedValue(undefined);
+      const h = harness({ stat: missing(), writeStream: hangingWrite(), remove });
+      const { settled } = watchTransfers(h);
+      const result = await h.service.uploadFiles(SAVES, '/worlds', [await localFile('a.txt', 'a')]);
+      if (!result.ok || !result.value) throw new Error('upload did not start');
+      await vi.waitFor(() => expect(h.backend.writeStream).toHaveBeenCalled());
+      h.service.cancelTransfer('mc', result.value.transferId);
+      expect(await settled()).toMatchObject({ phase: 'cancelled' });
+      expect(remove).toHaveBeenCalledWith('/saves/worlds/a.txt', expect.any(AbortSignal));
+      expect(remove.mock.calls[0]![1].aborted).toBe(false);
+    });
+
+    it('should remove the partial file and say so when an upload fails mid-body', async () => {
+      const remove = vi.fn().mockResolvedValue(undefined);
+      const dropped = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+      const h = harness({ stat: missing(), writeStream: vi.fn().mockRejectedValue(dropped), remove });
+      const { settled } = watchTransfers(h);
+      await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+      const end = await settled();
+      expect(remove).toHaveBeenCalledWith('/saves/a.txt', expect.any(AbortSignal));
+      expect(end).toMatchObject({ phase: 'failed', error: expect.stringContaining('partial file was removed') });
+    });
+
+    it('should tell the operator to delete the file when the partial file cannot be removed', async () => {
+      const remove = vi.fn().mockRejectedValue(new VolumeFileError('unreachable', 'remove /saves/a.txt failed', undefined));
+      const dropped = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+      const h = harness({ stat: missing(), writeStream: vi.fn().mockRejectedValue(dropped), remove });
+      const { settled } = watchTransfers(h);
+      await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+      const end = await settled();
+      expect(end).toMatchObject({ phase: 'failed', error: expect.stringContaining("'a.txt' was partially uploaded; delete it before retrying.") });
+      expect(JSON.stringify(end)).not.toContain('/saves');
+    });
+
+    it('should report a cancel whose partial file could not be removed', async () => {
+      const remove = vi.fn().mockRejectedValue(new VolumeFileError('unreachable', 'remove failed', undefined));
+      const h = harness({ stat: missing(), writeStream: hangingWrite(), remove });
+      const { settled } = watchTransfers(h);
+      const result = await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+      if (!result.ok || !result.value) throw new Error('upload did not start');
+      await vi.waitFor(() => expect(h.backend.writeStream).toHaveBeenCalled());
+      h.service.cancelTransfer('mc', result.value.transferId);
+      expect(await settled()).toMatchObject({ phase: 'cancelled', error: "'a.txt' was partially uploaded; delete it before retrying." });
+    });
+
+    it('should not remove anything when the target turned out to exist', async () => {
+      const remove = vi.fn().mockResolvedValue(undefined);
+      const h = harness({
+        stat: missing(),
+        writeStream: vi.fn().mockRejectedValue(new VolumeFileError('conflict', 'upload failed (409)', 409)),
+        remove,
+      });
+      const { settled } = watchTransfers(h);
+      await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+      expect(await settled()).toMatchObject({ phase: 'failed', error: "'a.txt' already exists." });
+      expect(remove).not.toHaveBeenCalled();
+    });
+
+    it('should not claim a partial file when nothing was created', async () => {
+      const remove = vi.fn().mockRejectedValue(new VolumeFileError('not-found', 'remove failed (404)', 404));
+      const dropped = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+      const h = harness({ stat: missing(), writeStream: vi.fn().mockRejectedValue(dropped), remove });
+      const { settled } = watchTransfers(h);
+      await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+      const end = await settled();
+      expect(end.error).not.toContain('partial');
+    });
   });
 
   it('should cancel an upload in flight', async () => {

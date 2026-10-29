@@ -20,7 +20,7 @@ export async function readCapped(stream: Readable, limit: number): Promise<Buffe
 /** Decodes strict UTF-8; `null` when the bytes are not valid. */
 export function decodeUtf8(bytes: Buffer): string | null {
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
     return null;
   }

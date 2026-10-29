@@ -190,4 +190,32 @@ describe('TransferManager', () => {
     manager.abortGame('mc');
     await vi.waitFor(() => expect(events.filter((e) => e.phase === 'cancelled')).toHaveLength(2));
   });
+
+  it('should return the transfer id before any progress event is delivered', async () => {
+    const { manager, events } = managerHarness();
+    const id = await manager.start(spec());
+    expect(events).toEqual([]);
+    expect(id).toEqual(expect.any(String));
+    expect((await terminal(events)).transferId).toBe(id);
+  });
+
+  it('should release the session and finish even when a listener throws', async () => {
+    const { manager, registry, events } = managerHarness();
+    manager.onTransfer(() => {
+      throw new Error('listener broke');
+    });
+    const id = await manager.start(spec());
+    expect(await terminal(events)).toMatchObject({ phase: 'done' });
+    expect(registry.release).toHaveBeenCalledWith('mc', `upload:xfer-${id}`);
+    expect(manager.cancel('mc', id)).toEqual({ cancelled: false });
+  });
+
+  it('should cancel a transfer cancelled before its work begins without running it', async () => {
+    const { manager, events } = managerHarness();
+    const run = vi.fn();
+    const id = await manager.start(spec({ run }));
+    expect(manager.cancel('mc', id)).toEqual({ cancelled: true });
+    expect(await terminal(events)).toMatchObject({ phase: 'cancelled' });
+    expect(run).not.toHaveBeenCalled();
+  });
 });
