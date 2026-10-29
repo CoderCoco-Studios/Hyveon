@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Pencil } from 'lucide-react';
-import { useParams } from 'react-router-dom';
+import { FolderOpen, Pencil } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
 import { api, type GameListEntry, type GameWriteSuccess } from '../api.service.js';
 import { GameStatusBadges } from '../components/game-status-badges.component.js';
 import { FolderUploadCard } from '../components/folder-upload/folder-upload-card.component.js';
@@ -137,7 +137,17 @@ export function GameDetailPage() {
     <div className="max-w-4xl mx-auto">
       <div className="mb-6">
         <PageHeader title={name} titleClassName="capitalize" backTo="/games" backLabel="Back to games">
-          <PollingIndicator />
+          <div className="flex items-center gap-3">
+            {entry && (
+              <Button variant="secondary" size="sm" asChild>
+                <Link to={`/games/${entry.name}/files`}>
+                  <FolderOpen className="size-3.5" />
+                  Files
+                </Link>
+              </Button>
+            )}
+            <PollingIndicator />
+          </div>
         </PageHeader>
       </div>
 

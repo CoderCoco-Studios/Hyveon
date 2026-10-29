@@ -145,7 +145,7 @@ describe('useVolumeFiles', () => {
     expect(apiMock.volumeDownload).toHaveBeenCalledWith('minecraft', 'data', '/world/region', true);
   });
 
-  it('should return read and write results and surface their failures', async () => {
+  it('should return read and write results without setting the page error', async () => {
     const { result } = await renderLoaded();
     apiMock.volumeReadText.mockResolvedValue({ ok: true, value: { path: '/a.txt', content: 'hi', modifiedMs: 7 } });
     apiMock.volumeWriteText.mockResolvedValue({ ok: false, code: 'conflict', message: 'changed on disk' });
@@ -156,7 +156,30 @@ describe('useVolumeFiles', () => {
     expect(read).toEqual({ ok: true, value: { path: '/a.txt', content: 'hi', modifiedMs: 7 } });
     expect(write.ok).toBe(false);
     expect(apiMock.volumeWriteText).toHaveBeenCalledWith('minecraft', 'data', '/a.txt', 'yo', 7);
-    expect(result.current.error).toBe('changed on disk');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('should report the code of every failed operation to onFailure, editor reads and writes included', async () => {
+    listing([makeFileEntry('a.txt')]);
+    const onFailure = vi.fn();
+    const { result } = renderHook(() => useVolumeFiles('minecraft', 'data', true, onFailure));
+    await waitFor(() => expect(result.current.listing).not.toBeNull());
+    apiMock.volumeWriteText.mockResolvedValue({ ok: false, code: 'server-running', message: 'running' });
+    apiMock.volumeRemove.mockResolvedValue({ ok: false, code: 'server-check-failed', message: 'unsure' });
+
+    await act(() => result.current.writeText('/a.txt', 'yo', 7));
+    await act(() => result.current.remove('/a.txt'));
+
+    expect(onFailure.mock.calls).toEqual([['server-running'], ['server-check-failed']]);
+  });
+
+  it('should upload a folder into an explicit directory when one is given', async () => {
+    const { result } = await renderLoaded();
+    apiMock.volumeUploadFolder.mockResolvedValue({ ok: true, value: { started: true, runId: 'r' } });
+
+    await act(() => result.current.uploadFolder('/world'));
+
+    expect(apiMock.volumeUploadFolder).toHaveBeenCalledWith('minecraft', 'data', '/world');
   });
 
   it('should upload into the current path through the dialog and the dropped-files route', async () => {

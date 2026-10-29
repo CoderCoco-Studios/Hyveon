@@ -50,3 +50,13 @@ export function sortVolumeEntries(entries: readonly VolumeEntryInfo[], sort: Vol
     return byKey !== 0 ? byKey * sign : compareNames(a.name, b.name);
   });
 }
+
+/** Operator-facing name of a volume; the legacy synthesized volume has an empty name. */
+export function volumeLabel(name: string): string {
+  return name === '' ? 'Default volume' : name;
+}
+
+/** Formats a modification time, or a dash when it is unknown (`0`). */
+export function formatModified(modifiedMs: number): string {
+  return modifiedMs === 0 ? '—' : new Date(modifiedMs).toLocaleString();
+}

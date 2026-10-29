@@ -59,7 +59,7 @@ Execution is subagent-driven (plan.md).
 ## 5. PR 5 — `feat(web)`: in-app file browser page replaces the external link
 
 - [x] 5.1 Add the hooks: session state via the shared `PollingProvider` while starting (until ready, not merely RUNNING), attach on mount and detach on unmount; the listing for the selected volume and current path, operations, and download/upload progress.
-- [ ] 5.2 Add the `/games/:name/files` page with these components:
+- [x] 5.2 Add the `/games/:name/files` page with these components:
   - session bar (state, elapsed, auto-stop countdown with the 10-minute warning, Start/Stop/Restart, failure reason);
   - volume picker (name, container path, unavailable-until-apply state);
   - breadcrumb;
@@ -71,7 +71,7 @@ Execution is subagent-driven (plan.md).
   - drag-and-drop zone.
 
   Reuse existing `ui/` primitives, keep each component under the size rule, and disable mutating actions while the server runs or its state can't be confirmed (with Retry).
-- [ ] 5.3 Make the dashboard card Files action navigate and start the session, and add a Files link on the game detail page.
+- [x] 5.3 Make the dashboard card Files action navigate and start the session, and add a Files link on the game detail page.
 - [ ] 5.4 Delete `FileManagerModal`, `useFileManager`, the legacy `files.list|start|stop` channels/controller/preload API, `FileMgrResult.credentials`/`FileMgrStatus.url`, and `FileManagerService.start()`/`getStatus()` once unused. Switch the folder-upload card's "stop the open session and retry" action from `api.filesMgrStop` to `volumeFiles.session.stop`.
 - [ ] 5.5 Add tests:
   - jsdom hook tests;

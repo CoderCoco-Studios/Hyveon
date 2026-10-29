@@ -733,7 +733,7 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
   - Folder download action hidden when `status.supportsArchive` is false.
   - `not_deployed` → `EmptyStateCard` "This game's volume doesn't exist yet. Apply the infrastructure first." with no session or file actions.
 
-- [ ] **Step 1: Write the failing routed-page tests** with `renderPage(<Routes><Route path="/games/:name/files" element={<VolumeFilesPage />} /></Routes>, { initialEntries: ['/games/mc/files'] })` and a mocked `api`:
+- [x] **Step 1: Write the failing routed-page tests** with `renderPage(<Routes><Route path="/games/:name/files" element={<VolumeFilesPage />} /></Routes>, { initialEntries: ['/games/mc/files'] })` and a mocked `api`:
   - `should show session state without starting a helper when opened directly` — `sessionStart` not called.
   - `should start the session when arriving from the dashboard Files action` — `initialEntries: [{ pathname: '/games/mc/files', state: { autoStart: true } }]` → `sessionStart` called once.
   - `should navigate into a folder and update the breadcrumb`.
@@ -749,10 +749,10 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
   - `should warn when fewer than ten minutes remain before auto-stop`.
   - `should hide folder download when the backend has no archive support`.
   - Dashboard: update `dashboard.page.test.tsx` Files case to `should navigate to the game's files page when Files is clicked`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/web/src/pages/volume-files.page.test.tsx packages/web/src/pages/dashboard.page.test.tsx` → FAIL.
-- [ ] **Step 3: Implement**; each component body < ~200 lines; the `.map()` row in `file-table` is its own `FileRow` component.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `feat(web): add the in-app file browser page`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/web/src/pages/volume-files.page.test.tsx packages/web/src/pages/dashboard.page.test.tsx` → FAIL.
+- [x] **Step 3: Implement**; each component body < ~200 lines; the `.map()` row in `file-table` is its own `FileRow` component.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `feat(web): add the in-app file browser page`.
 
 ### Task 23: Remove the external-link path (tasks.md 5.4)
 
