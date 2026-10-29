@@ -670,7 +670,7 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
 
 **Files:**
 - Modify: `app/packages/desktop-preload/src/preload.ts` (after the `folderUpload` block, `:450-467`), `app/packages/desktop-preload/src/hyveon-api.ts` (new `HyveonVolumeFilesApi`, added to `HyveonApi`), `app/packages/desktop-preload/src/preload.test.ts`
-- Modify: `app/packages/web/e2e/fixtures/hyveon-http-bridge.ts` (bridge entries for the chromium project: `/api/volume-files/<channel>` routes)
+- Modify: `app/packages/web/e2e/fixtures/hyveon-http-bridge.ts` (a minimal in-page fake `volumeFiles` namespace for the chromium project, following the `folderUpload` precedent: status `stopped`, empty listing, `on*` returning an unsubscribe; no `/api` routes)
 - Modify: `docs/docs/components/management-app.md` (IPC channel table, via `write-docs`)
 
 **Interfaces:**
