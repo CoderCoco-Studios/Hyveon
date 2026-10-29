@@ -26,3 +26,4 @@ export { IacHistoryPage } from './IacHistoryPage.js';
 export { SettingsPage } from './SettingsPage.js';
 export { GamesPage, type DriftLabel } from './GamesPage.js';
 export { AuditPage } from './AuditPage.js';
+export { VolumeFilesPage, type SessionStateLabel } from './VolumeFilesPage.js';

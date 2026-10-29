@@ -774,9 +774,9 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
 **Interfaces:**
 - `VolumeFilesPage`: `sessionState()`, `startButton()`, `stopButton()`, `restartButton()`, `row(name)`, `breadcrumb()`, `newFolderButton()`, `readOnlyBanner()`, `goto(game)` (uses `hashRoute`).
 
-- [ ] **Step 1: Write the chromium spec** (through the page object and bridge routes): `should browse into a folder from the dashboard Files action`; `should show the read-only banner while the server runs`; `should never receive a credential, IP or URL in volumeFiles responses` (intercept every `/api/volume-files/*` response and assert no key/value matches the `expectNoSecretFields` pattern).
-- [ ] **Step 2: Write the electron smoke spec**: `should render the files route and call volumeFiles.session.start on Start` (`__test.mock('volumeFiles.session.status', …stopped…)`, record calls to `volumeFiles.session.start`).
-- [ ] **Step 3: Run** `npm run app:test:e2e` → exit 0 (both projects).
+- [x] **Step 1: Write the chromium spec** (through the page object and bridge routes): `should browse into a folder from the dashboard Files action`; `should show the read-only banner while the server runs`; `should never receive a credential, IP or URL in volumeFiles responses` (intercept every `/api/volume-files/*` response and assert no key/value matches the `expectNoSecretFields` pattern).
+- [x] **Step 2: Write the electron smoke spec**: `should render the files route and call volumeFiles.session.start on Start` (`__test.mock('volumeFiles.session.status', …stopped…)`, record calls to `volumeFiles.session.start`).
+- [x] **Step 3: Run** `npm run app:test:e2e` → exit 0 (both projects).
 - [ ] **Step 4: Docs** — `write-docs`: the files page, session behaviour (Start, grace stop, quit, auto-stop warning), the read-only rule, and the removal of the external link/password in `dashboard.md` and `games.md`; screenshots only if `e2e/screenshots/capture.spec.ts` covers these pages.
 - [ ] **Step 5: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:e2e` → exit 0.
 - [ ] **Step 6: Commit** — `docs: document the in-app file browser`. Open PR 5 with `/pr` (base: PR 4 branch).

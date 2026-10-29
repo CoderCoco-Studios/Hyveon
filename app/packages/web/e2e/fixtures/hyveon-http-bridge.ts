@@ -1,3 +1,5 @@
+import type { Page } from '@playwright/test';
+
 /**
  * Browser-side test shim that installs `window.hyveon` as a thin HTTP forwarder.
  *
@@ -137,29 +139,56 @@ export function installHyveonHttpBridge(): void {
         },
       };
     })(),
-    // The volume file browser is IPC-only in production with no HTTP route. This minimal in-page fake reports a
-    // stopped session and an empty listing; mutations and transfers fail as if no session were running.
+    // The volume file browser is IPC-only in production with no HTTP route. This in-page fake keeps a session that
+    // a spec seeds through `window.__e2eVolumeFiles` (state, volumes, listings by path); mutations and transfers fail
+    // as if no session were running. Every value a method returns is appended to `window.__e2eVolumeFilesResponses`
+    // so a spec can assert on exactly what reached the page.
     volumeFiles: (() => {
-      const status = (game: string) => ({ game, state: 'stopped', browseHeld: false, uploadHolders: 0, supportsArchive: false, volumes: [] });
+      // Read on each call, not at install: a spec's seed init script may be registered after the bridge's.
+      const seedNow = () => (window as unknown as { __e2eVolumeFiles?: { state?: string; volumes?: unknown[]; listings?: Record<string, unknown[]> } }).__e2eVolumeFiles ?? {};
+      const responses: unknown[] = [];
+      (window as unknown as { __e2eVolumeFilesResponses: unknown[] }).__e2eVolumeFilesResponses = responses;
+      let started = false;
+      const status = (game: string) => {
+        const seed = seedNow();
+        const state = started ? 'running' : (seed.state ?? 'stopped');
+        return {
+          game,
+          state,
+          browseHeld: false,
+          uploadHolders: 0,
+          supportsArchive: false,
+          volumes: seed.volumes ?? [],
+          ...(state === 'running' ? { startedAt: new Date().toISOString(), autoStopAt: new Date(Date.now() + 30 * 60_000).toISOString() } : {}),
+        };
+      };
       const noSession = async () => ({ ok: false, code: 'no-session', message: 'No file-browser session is running.' });
+      const recorded = <A extends unknown[]>(fn: (...args: A) => Promise<unknown>) => async (...args: A) => {
+        const value = await fn(...args);
+        responses.push(value);
+        return value;
+      };
       return {
-        sessionStatus: async (game: string) => status(game),
-        sessionStart: async (game: string) => status(game),
-        sessionAttach: async (game: string) => status(game),
-        sessionDetach: async (game: string) => status(game),
-        sessionStop: noSession,
-        sessionRestart: noSession,
-        list: async (_game: string, _volume: string, path: string) => ({ ok: true, value: { path, entries: [] } }),
-        mkdir: noSession,
-        rename: noSession,
-        remove: noSession,
-        readText: noSession,
-        writeText: noSession,
-        download: noSession,
+        sessionStatus: recorded(async (game: string) => status(game)),
+        sessionStart: recorded(async (game: string) => {
+          started = true;
+          return status(game);
+        }),
+        sessionAttach: recorded(async (game: string) => status(game)),
+        sessionDetach: recorded(async (game: string) => status(game)),
+        sessionStop: recorded(noSession),
+        sessionRestart: recorded(noSession),
+        list: recorded(async (_game: string, _volume: string, path: string) => ({ ok: true, value: { path, entries: seedNow().listings?.[path] ?? [] } })),
+        mkdir: recorded(noSession),
+        rename: recorded(noSession),
+        remove: recorded(noSession),
+        readText: recorded(noSession),
+        writeText: recorded(noSession),
+        download: recorded(noSession),
         cancelTransfer: async () => ({ cancelled: false }),
-        uploadFiles: noSession,
-        uploadDropped: noSession,
-        uploadFolder: noSession,
+        uploadFiles: recorded(noSession),
+        uploadDropped: recorded(noSession),
+        uploadFolder: recorded(noSession),
         onSession: () => () => undefined,
         onTransfer: () => () => undefined,
       };
@@ -283,4 +312,35 @@ export function installHyveonHttpBridge(): void {
       },
     },
   };
+}
+
+/** Seed for the in-page `volumeFiles` fake: the session state, the volumes it reports and the listing for each directory path. */
+export interface VolumeFilesSeed {
+  /** Session state `sessionAttach` reports; `sessionStart` moves it to `running`. Defaults to `stopped`. */
+  state?: 'stopped' | 'running';
+  volumes?: { name: string; containerPath: string; mounted: boolean }[];
+  /** Entries `list` returns, keyed by clean absolute directory path (`/`, `/world`). */
+  listings?: Record<string, { name: string; isDir: boolean; size: number; modifiedMs: number }[]>;
+}
+
+/**
+ * Seeds the `volumeFiles` fake installed by {@link installHyveonHttpBridge}; call before the page loads.
+ *
+ * @param page - The Playwright page about to navigate.
+ * @param seed - Session state, volumes and listings the fake should serve.
+ */
+export async function seedVolumeFiles(page: Page, seed: VolumeFilesSeed): Promise<void> {
+  await page.addInitScript((value) => {
+    (window as unknown as { __e2eVolumeFiles: VolumeFilesSeed }).__e2eVolumeFiles = value;
+  }, seed);
+}
+
+/**
+ * Reads every value the `volumeFiles` fake has returned to the page so far.
+ *
+ * @param page - The Playwright page running the fake.
+ * @returns The recorded return values, oldest first.
+ */
+export async function readVolumeFilesResponses(page: Page): Promise<unknown[]> {
+  return page.evaluate(() => (window as unknown as { __e2eVolumeFilesResponses?: unknown[] }).__e2eVolumeFilesResponses ?? []);
 }

@@ -19,6 +19,7 @@ export default defineConfig({
       '@hyveon/shared/volumeFiles': resolve(__dirname, 'packages/shared/src/volumeFiles/index.ts'),
       '@hyveon/shared/gameServerValidator': resolve(__dirname, 'packages/shared/src/gameServerValidator.ts'),
       '@hyveon/shared/envTokens': resolve(__dirname, 'packages/shared/src/envTokens.ts'),
+      '@hyveon/shared/testing/secretFields': resolve(__dirname, 'packages/shared/src/testing/secretFields.ts'),
       '@hyveon/shared/secrets/secretsStore': resolve(__dirname, 'packages/shared/src/secrets/secretsStore.ts'),
       '@hyveon/shared': resolve(__dirname, 'packages/shared/src/index.ts'),
       '@hyveon/cloud-aws': resolve(__dirname, 'packages/cloud-aws/src/index.ts'),

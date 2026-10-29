@@ -23,6 +23,10 @@
       "types": "./dist/volumeFiles/index.d.ts",
       "default": "./dist/volumeFiles/index.js"
     },
+    "./testing/secretFields": {
+      "types": "./dist/testing/secretFields.d.ts",
+      "default": "./dist/testing/secretFields.js"
+    },
     "./secrets/secretsStore": {
       "types": "./dist/secrets/secretsStore.d.ts",
       "default": "./dist/secrets/secretsStore.js"

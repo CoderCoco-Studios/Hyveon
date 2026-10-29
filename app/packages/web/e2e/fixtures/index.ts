@@ -15,8 +15,11 @@ import {
   COST_DATA,
   CONFIGURED_DISCORD_CONFIG,
 } from './game-data.js';
-import { AppLayout, DashboardPage, CostsPage, LogsPage, InfrastructureLogsPage, SettingsPage, GamesPage, AuditPage } from '../pages/index.js';
+import { AppLayout, DashboardPage, CostsPage, LogsPage, InfrastructureLogsPage, SettingsPage, GamesPage, AuditPage, VolumeFilesPage } from '../pages/index.js';
 import { installHyveonHttpBridge } from './hyveon-http-bridge.js';
+
+export { seedVolumeFiles, readVolumeFilesResponses } from './hyveon-http-bridge.js';
+export type { VolumeFilesSeed } from './hyveon-http-bridge.js';
 
 export type {
   GameStatus,
@@ -43,7 +46,7 @@ export {
   VALID_USER_ID,
   SAMPLE_LOG_LINES,
 } from './game-data.js';
-export { AppLayout, DashboardPage, CostsPage, DiscordPage, GuidedIamWizardPage, LogsPage, InfrastructureLogsPage, SettingsPage, GamesPage, AuditPage } from '../pages/index.js';
+export { AppLayout, DashboardPage, CostsPage, DiscordPage, GuidedIamWizardPage, LogsPage, InfrastructureLogsPage, SettingsPage, GamesPage, AuditPage, VolumeFilesPage } from '../pages/index.js';
 
 /** Per-spec overrides for the default `/api/*` stubs registered by `stubApis`. */
 export interface StubOptions {
@@ -282,6 +285,8 @@ type E2EFixtures = {
   games: GamesPage;
   /** Page object for the `/audit` route. */
   audit: AuditPage;
+  /** Page object for the `/games/:name/files` route. */
+  volumeFiles: VolumeFilesPage;
   /** Page object for the persistent nav shell (sidebar + top bar). */
   layout: AppLayout;
 };
@@ -309,6 +314,9 @@ export const test = base.extend<E2EFixtures>({
   },
   games: async ({ page }, use) => {
     await use(new GamesPage(page));
+  },
+  volumeFiles: async ({ page }, use) => {
+    await use(new VolumeFilesPage(page));
   },
   layout: async ({ page }, use) => {
     await use(new AppLayout(page));
