@@ -8,7 +8,6 @@ import {
   parentOfVolumePath,
   VolumePathError,
   type VolumeEntryInfo,
-  type VolumeFilesErrorCode,
   type VolumeListing,
   type VolumeRef,
   type VolumeResult,
@@ -19,34 +18,13 @@ import { logger } from '../../logger.js';
 import { ConfigService } from '../ConfigService.js';
 import { EcsService } from '../EcsService.js';
 import { isVolumeMounted, toHelperPath, type HelperVolumeLayout } from './helperVolumeLayout.js';
-import { HelperSessionRegistry, NoSessionError, type HelperSessionSnapshot } from './HelperSessionRegistry.js';
-import { VolumeFileError, type VolumeEntry, type VolumeFileBackend } from './VolumeFileBackend.js';
+import { HelperSessionRegistry, type HelperSessionSnapshot } from './HelperSessionRegistry.js';
+import type { VolumeEntry, VolumeFileBackend } from './VolumeFileBackend.js';
+import { readCapped, decodeUtf8 } from './textFiles.js';
+import { fail, ok, TextTooLargeError, toVolumeResult, type OpNames, type VolumeFailure } from './volumeFileErrors.js';
 
 /** How long one metadata operation (list, stat, mkdir, move, remove, small text read or write) may take. */
 export const METADATA_OP_TIMEOUT_MS = 30_000;
-
-type VolumeFailure = Extract<VolumeResult<never>, { ok: false }>;
-
-const ok = <T>(value: T): VolumeResult<T> => ({ ok: true, value });
-const fail = (code: VolumeFilesErrorCode, message: string): VolumeFailure => ({ ok: false, code, message });
-
-/** Fixed operator messages for session-level backend failures that name no path. */
-const OPERATOR_MESSAGES: Record<Exclude<VolumeFileError['code'], 'not-found' | 'conflict' | 'failed'>, string> = {
-  unreachable: "The file manager isn't reachable. Restart the session.",
-  auth: 'The file manager rejected the session. Restart the session.',
-  'pin-mismatch': "The file manager's identity couldn't be verified. Restart the session.",
-};
-
-/** Raised by validation when text to save exceeds the editor limit; mapped to `too-large`. */
-class TextTooLargeError extends Error {}
-
-/** What the operator called things in a request: used to word failures without echoing backend messages. */
-interface OpNames {
-  /** Volume path that may turn out to be missing. */
-  missing: string;
-  /** Entry name that may turn out to exist already. */
-  existing: string;
-}
 
 /** The pieces of an open session a file operation works with. */
 interface FileIo {
@@ -58,13 +36,6 @@ interface FileIo {
 }
 
 const entryInfo = ({ name, isDir, size, modifiedMs }: VolumeEntry): VolumeEntryInfo => ({ name, isDir, size, modifiedMs });
-
-/** Whether `err` is an aborted or timed-out request. */
-const isAbort = (err: unknown): boolean => err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
-
-/** Whether `err` is an aborted request, raw or wrapped by the client as `unreachable` with the abort as its cause. */
-const isAbortOrWrapped = (err: unknown): boolean =>
-  isAbort(err) || (err instanceof VolumeFileError && err.code === 'unreachable' && isAbort(err.cause));
 
 /** Maps a registry snapshot (epoch milliseconds) to the renderer-visible status (ISO strings), field by field. */
 function toSessionStatus(s: HelperSessionSnapshot): VolumeSessionStatus {
@@ -79,23 +50,6 @@ function toSessionStatus(s: HelperSessionSnapshot): VolumeSessionStatus {
     ...(s.error !== undefined && { error: s.error }),
     volumes: s.volumes.map(({ name, containerPath, mounted }) => ({ name, containerPath, mounted })),
   };
-}
-
-/** Reads `stream` fully unless it exceeds `limit` bytes; the stream is destroyed either way. */
-async function readCapped(stream: Readable, limit: number): Promise<Buffer | null> {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  try {
-    for await (const chunk of stream) {
-      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
-      total += buf.length;
-      if (total > limit) return null;
-      chunks.push(buf);
-    }
-    return Buffer.concat(chunks);
-  } finally {
-    stream.destroy();
-  }
 }
 
 /**
@@ -282,7 +236,7 @@ export class VolumeFilesService {
         if (info.size > MAX_TEXT_EDIT_BYTES) return fail('too-large', 'That file is larger than 1 MiB and can\'t be edited here.');
         const bytes = await readCapped(await backend.readStream(helperPath(file), signal), MAX_TEXT_EDIT_BYTES);
         if (!bytes) return fail('too-large', 'That file is larger than 1 MiB and can\'t be edited here.');
-        const content = bytes.includes(0) ? null : this.decodeUtf8(bytes);
+        const content = bytes.includes(0) ? null : decodeUtf8(bytes);
         if (content === null) return fail('binary', "That file isn't UTF-8 text and can't be edited here.");
         return ok({ path: file, content, modifiedMs: info.modifiedMs });
       },
@@ -366,7 +320,7 @@ export class VolumeFilesService {
         return run(io, params);
       });
     } catch (err) {
-      return this.toVolumeResult(err, ref, spec.path, names);
+      return toVolumeResult(err, ref, spec.path, names);
     }
   }
 
@@ -416,43 +370,5 @@ export class VolumeFilesService {
     } catch {
       return fallback;
     }
-  }
-
-  /** Decodes strict UTF-8; `null` when the bytes are not valid. */
-  private decodeUtf8(bytes: Buffer): string | null {
-    try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Maps a thrown error to a modeled failure and logs it with identifiers only.
-   *
-   * @remarks
-   * Backend messages embed helper mount paths, so the operator message is built from `names` instead; the original
-   * message is logged.
-   */
-  private toVolumeResult(err: unknown, ref: VolumeRef, path: string, names: OpNames): VolumeFailure {
-    const failure = this.describe(err, names);
-    const log = { game: ref.game, volume: ref.volume, path, code: failure.code, error: errMessage(err) };
-    if (failure.code === 'failed') logger.error('VolumeFilesService: file operation failed', log);
-    else logger.warn('VolumeFilesService: file operation refused', log);
-    return failure;
-  }
-
-  /** The code and fixed operator message for `err`. */
-  private describe(err: unknown, names: OpNames): VolumeFailure {
-    if (err instanceof NoSessionError) return fail('no-session', 'No file manager session is running. Start one to browse files.');
-    if (err instanceof TextTooLargeError) return fail('too-large', 'That text is larger than 1 MiB and can\'t be saved here.');
-    if (err instanceof VolumePathError) return fail('invalid-path', err.message);
-    if (isAbortOrWrapped(err)) return fail('unreachable', "The file manager didn't respond in time.");
-    if (err instanceof VolumeFileError) {
-      if (err.code === 'not-found') return fail('not-found', `'${names.missing}' no longer exists.`);
-      if (err.code === 'conflict') return fail('conflict', `'${names.existing}' already exists.`);
-      if (err.code !== 'failed') return fail(err.code, OPERATOR_MESSAGES[err.code]);
-    }
-    return fail('failed', 'The file operation failed.');
   }
 }
