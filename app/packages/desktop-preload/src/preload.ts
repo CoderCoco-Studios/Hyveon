@@ -206,6 +206,20 @@ function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
 }
 
 /**
+ * Subscribes `cb` to a main-to-renderer push channel, dropping the Electron event argument.
+ *
+ * @typeParam T - Payload type main pushes on `channel`.
+ * @param channel - Push channel name.
+ * @param cb - Called with each payload.
+ * @returns Function that removes the listener.
+ */
+function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
+  const listener = (_event: IpcRendererEvent, payload: T) => cb(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
+/**
  * Preload-internal — never exposed to the renderer directly (see {@link openLogsStream}). Bridges
  * the per-stream `logs.stream.<id>.{chunk,end,cancel}` IPC channels into an
  * {@link AsyncIterable} of log chunks, via {@link createBufferedStream}'s per-call channel style.
@@ -474,11 +488,7 @@ const api: HyveonApi = {
       invoke<FolderOverwriteDecisionResult>('folderUpload.confirmOverwrite', { game, proceed }),
     getProgress: (game: string) => invoke<FolderUploadProgress | null>('folderUpload.getProgress', game),
     cleanupStrayHelpers: () => invoke<StrayHelperReport>('folderUpload.cleanupStrayHelpers'),
-    onProgress: (cb: (progress: FolderUploadProgress) => void) => {
-      const listener = (_event: IpcRendererEvent, progress: FolderUploadProgress) => cb(progress);
-      ipcRenderer.on('folderUpload.progress', listener);
-      return () => ipcRenderer.removeListener('folderUpload.progress', listener);
-    },
+    onProgress: (cb: (progress: FolderUploadProgress) => void) => subscribe<FolderUploadProgress>('folderUpload.progress', cb),
   },
 
   volumeFiles: {
@@ -517,16 +527,8 @@ const api: HyveonApi = {
       }),
     uploadFolder: (game: string, volume: string, dir: string) =>
       invoke<VolumeResult<FolderUploadStartResult | null>>('volumeFiles.uploadFolder', { game, volume, dir }),
-    onSession: (cb: (status: VolumeSessionStatus) => void) => {
-      const listener = (_event: IpcRendererEvent, status: VolumeSessionStatus) => cb(status);
-      ipcRenderer.on(VOLUME_SESSION_PUSH_CHANNEL, listener);
-      return () => ipcRenderer.removeListener(VOLUME_SESSION_PUSH_CHANNEL, listener);
-    },
-    onTransfer: (cb: (progress: VolumeTransferProgress) => void) => {
-      const listener = (_event: IpcRendererEvent, progress: VolumeTransferProgress) => cb(progress);
-      ipcRenderer.on(VOLUME_TRANSFER_PUSH_CHANNEL, listener);
-      return () => ipcRenderer.removeListener(VOLUME_TRANSFER_PUSH_CHANNEL, listener);
-    },
+    onSession: (cb: (status: VolumeSessionStatus) => void) => subscribe<VolumeSessionStatus>(VOLUME_SESSION_PUSH_CHANNEL, cb),
+    onTransfer: (cb: (progress: VolumeTransferProgress) => void) => subscribe<VolumeTransferProgress>(VOLUME_TRANSFER_PUSH_CHANNEL, cb),
   },
 
   discord: {
@@ -651,11 +653,7 @@ const api: HyveonApi = {
     toggleMaximize: () => invoke<void>('window.toggleMaximize'),
     close: () => invoke<void>('window.close'),
     isMaximized: () => invoke<boolean>('window.isMaximized'),
-    onMaximizedChange: (cb: (isMaximized: boolean) => void) => {
-      const listener = (_event: IpcRendererEvent, isMaximized: boolean) => cb(isMaximized);
-      ipcRenderer.on('window.maximizedChange', listener);
-      return () => ipcRenderer.removeListener('window.maximizedChange', listener);
-    },
+    onMaximizedChange: (cb: (isMaximized: boolean) => void) => subscribe<boolean>('window.maximizedChange', cb),
   },
 };
 
