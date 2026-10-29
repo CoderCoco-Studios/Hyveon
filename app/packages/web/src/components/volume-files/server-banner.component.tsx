@@ -1,5 +1,4 @@
 import { Button } from '@/components/ui/button.component';
-import type { ServerGuardBlock } from './use-server-guard.hook.js';
 
 /** Banner text while the game server is running. */
 export const SERVER_RUNNING_MESSAGE = 'The server is running. Stop it to change files.';
@@ -7,9 +6,12 @@ export const SERVER_RUNNING_MESSAGE = 'The server is running. Stop it to change 
 /** Banner text while the server state could not be confirmed. */
 export const SERVER_UNCONFIRMED_MESSAGE = "Couldn't confirm the server is stopped.";
 
+/** Disabled-reason title while the first server-status load is in flight (no banner is shown). */
+export const SERVER_CHECKING_MESSAGE = 'Checking whether the server is stopped…';
+
 /** Props for {@link ServerBanner}. */
 export interface ServerBannerProps {
-  block: Exclude<ServerGuardBlock, null>;
+  block: 'running' | 'unconfirmed';
   onRetry(): void;
 }
 

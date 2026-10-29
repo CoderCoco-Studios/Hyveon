@@ -19,15 +19,18 @@ export interface NameDialogProps {
   initialValue?: string;
   /** Called with a valid name; the dialog closes right after. */
   onSubmit(name: string): void;
+  /** Why submitting is disabled (shown as its title), or `null`/absent when allowed. */
+  submitDisabledReason?: string | null;
 }
 
 /** Form body, mounted per opening so the typed value and error reset between openings. */
-function NameForm({ label, submitLabel, initialValue = '', onSubmit, onCancel }: Pick<NameDialogProps, 'label' | 'submitLabel' | 'initialValue' | 'onSubmit'> & { onCancel(): void }) {
+function NameForm({ label, submitLabel, initialValue = '', submitDisabledReason, onSubmit, onCancel }: Pick<NameDialogProps, 'label' | 'submitLabel' | 'initialValue' | 'onSubmit' | 'submitDisabledReason'> & { onCancel(): void }) {
   const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (submitDisabledReason) return;
     if (!isValidEntryName(value)) {
       setError(INVALID_NAME_MESSAGE);
       return;
@@ -51,7 +54,9 @@ function NameForm({ label, submitLabel, initialValue = '', onSubmit, onCancel }:
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit">{submitLabel}</Button>
+        <Button type="submit" disabled={Boolean(submitDisabledReason)} title={submitDisabledReason ?? undefined}>
+          {submitLabel}
+        </Button>
       </DialogFooter>
     </form>
   );
@@ -62,7 +67,7 @@ function NameForm({ label, submitLabel, initialValue = '', onSubmit, onCancel }:
  *
  * @param props - See {@link NameDialogProps}.
  */
-export function NameDialog({ open, onOpenChange, title, label, submitLabel, initialValue, onSubmit }: NameDialogProps) {
+export function NameDialog({ open, onOpenChange, title, label, submitLabel, initialValue, submitDisabledReason, onSubmit }: NameDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -75,6 +80,7 @@ export function NameDialog({ open, onOpenChange, title, label, submitLabel, init
           label={label}
           submitLabel={submitLabel}
           initialValue={initialValue}
+          submitDisabledReason={submitDisabledReason}
           onSubmit={(name) => {
             onSubmit(name);
             onOpenChange(false);

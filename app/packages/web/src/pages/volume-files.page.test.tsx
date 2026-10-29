@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Routes, Route } from 'react-router-dom';
 import type { VolumeEntryInfo, VolumeSessionStatus, VolumeTransferProgress } from '@hyveon/shared/volumeFiles';
@@ -50,13 +50,13 @@ function session(overrides: Partial<VolumeSessionStatus> = {}): VolumeSessionSta
 }
 
 /** Resolves attach and status with `status`. */
-function useSession(status: VolumeSessionStatus) {
+function mockSession(status: VolumeSessionStatus) {
   apiMock.volumeSessionAttach.mockResolvedValue(status);
   apiMock.volumeSessionStatus.mockResolvedValue(status);
 }
 
 /** Resolves `volumeList` from a path → entries map; unknown paths are empty. */
-function useListings(byPath: Record<string, VolumeEntryInfo[]>) {
+function mockListings(byPath: Record<string, VolumeEntryInfo[]>) {
   apiMock.volumeList.mockImplementation(async (_game: string, _volume: string, path: string) => ({
     ok: true,
     value: { path, entries: byPath[path] ?? [] },
@@ -64,7 +64,7 @@ function useListings(byPath: Record<string, VolumeEntryInfo[]>) {
 }
 
 /** Makes `api.status` / `api.statusGame` report the game's server in `state`. */
-function useServerState(state: 'stopped' | 'running' | 'starting' | 'error') {
+function mockServerState(state: 'stopped' | 'running' | 'starting' | 'error') {
   apiMock.status.mockResolvedValue([{ game: GAME, state }]);
   apiMock.statusGame.mockResolvedValue({ game: GAME, state });
 }
@@ -90,10 +90,10 @@ function rowNames(): string[] {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  useServerState('stopped');
+  mockServerState('stopped');
   apiMock.costsEstimate.mockResolvedValue({ games: {}, totalPerHourIfAllOn: 0 });
-  useSession(session());
-  useListings({ '/': [makeFileEntry('a.txt', 10)] });
+  mockSession(session());
+  mockListings({ '/': [makeFileEntry('a.txt', 10)] });
   apiMock.volumeSessionDetach.mockResolvedValue(session());
   apiMock.volumeOnSession.mockReturnValue(() => undefined);
   apiMock.volumeOnTransfer.mockImplementation((cb: (progress: VolumeTransferProgress) => void) => {
@@ -109,7 +109,7 @@ beforeEach(() => {
 
 describe('VolumeFilesPage', () => {
   it('should show session state without starting a helper when opened directly', async () => {
-    useSession(session({ state: 'stopped' }));
+    mockSession(session({ state: 'stopped' }));
 
     renderFiles();
 
@@ -118,7 +118,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should start the session when arriving from the dashboard Files action', async () => {
-    useSession(session({ state: 'stopped' }));
+    mockSession(session({ state: 'stopped' }));
     apiMock.volumeSessionStart.mockResolvedValue(session({ state: 'starting' }));
 
     renderFiles({ autoStart: true });
@@ -128,7 +128,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should start the session on arrival when the last session failed', async () => {
-    useSession(session({ state: 'failed', error: 'Could not launch.' }));
+    mockSession(session({ state: 'failed', error: 'Could not launch.' }));
     apiMock.volumeSessionStart.mockResolvedValue(session({ state: 'starting' }));
 
     renderFiles({ autoStart: true });
@@ -144,7 +144,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should navigate into a folder and update the breadcrumb', async () => {
-    useListings({ '/': [makeDirEntry('world')], '/world': [makeFileEntry('level.dat')] });
+    mockListings({ '/': [makeDirEntry('world')], '/world': [makeFileEntry('level.dat')] });
     const user = userEvent.setup();
     renderFiles();
 
@@ -158,7 +158,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should sort by size when the size header is clicked', async () => {
-    useListings({ '/': [makeFileEntry('a.txt', 50), makeFileEntry('b.txt', 5), makeFileEntry('c.txt', 20)] });
+    mockListings({ '/': [makeFileEntry('a.txt', 50), makeFileEntry('b.txt', 5), makeFileEntry('c.txt', 20)] });
     const user = userEvent.setup();
     renderFiles();
     await screen.findByText('a.txt');
@@ -172,7 +172,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should render an unknown modified time as a dash instead of 1970', async () => {
-    useListings({ '/': [makeFileEntry('a.txt', 10, 0)] });
+    mockListings({ '/': [makeFileEntry('a.txt', 10, 0)] });
 
     renderFiles();
 
@@ -182,8 +182,8 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should disable mutating actions while the server is running', async () => {
-    useServerState('running');
-    useListings({ '/': [makeFileEntry('a.txt')] });
+    mockServerState('running');
+    mockListings({ '/': [makeFileEntry('a.txt')] });
     renderFiles();
 
     expect(await screen.findByText('The server is running. Stop it to change files.')).toBeInTheDocument();
@@ -225,7 +225,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should explain an unconfirmed state when the game status is an error', async () => {
-    useServerState('error');
+    mockServerState('error');
 
     renderFiles();
 
@@ -234,7 +234,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should list the selected volume when the operator switches volumes', async () => {
-    useSession(
+    mockSession(
       session({
         volumes: [
           { name: 'config', containerPath: '/config', mounted: true },
@@ -252,7 +252,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should show an unapplied volume as unavailable', async () => {
-    useSession(
+    mockSession(
       session({
         volumes: [
           { name: 'config', containerPath: '/config', mounted: true },
@@ -270,7 +270,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should label a legacy volume with an empty name as the default volume', async () => {
-    useSession(session({ volumes: [{ name: '', containerPath: '', mounted: true }] }));
+    mockSession(session({ volumes: [{ name: '', containerPath: '', mounted: true }] }));
 
     renderFiles();
 
@@ -280,7 +280,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should confirm before deleting a folder with folder wording', async () => {
-    useListings({ '/': [makeDirEntry('world')] });
+    mockListings({ '/': [makeDirEntry('world')] });
     apiMock.volumeRemove.mockResolvedValue({ ok: true, value: true });
     const user = userEvent.setup();
     renderFiles();
@@ -362,7 +362,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should not offer Edit for a file larger than the editor limit', async () => {
-    useListings({ '/': [makeFileEntry('big.bin', 2_000_000)] });
+    mockListings({ '/': [makeFileEntry('big.bin', 2_000_000)] });
 
     renderFiles();
 
@@ -371,7 +371,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should offer only Restart for an orphaned session', async () => {
-    useSession(session({ state: 'orphaned' }));
+    mockSession(session({ state: 'orphaned' }));
 
     renderFiles();
 
@@ -381,7 +381,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should show the stop reason and offer Start for a failed session', async () => {
-    useSession(session({ state: 'failed', error: 'The helper exited.' }));
+    mockSession(session({ state: 'failed', error: 'The helper exited.' }));
 
     renderFiles();
 
@@ -391,7 +391,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should confirm before stopping a session with a running upload', async () => {
-    useSession(session({ uploadHolders: 1 }));
+    mockSession(session({ uploadHolders: 1 }));
     apiMock.volumeSessionStop.mockResolvedValue({ ok: true, value: session({ state: 'stopped' }) });
     const user = userEvent.setup();
     renderFiles();
@@ -415,7 +415,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should explain a not-deployed volume and offer no actions', async () => {
-    useSession(session({ state: 'not_deployed', volumes: [] }));
+    mockSession(session({ state: 'not_deployed', volumes: [] }));
 
     renderFiles();
 
@@ -425,7 +425,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should warn when fewer than ten minutes remain before auto-stop', async () => {
-    useSession(session({ startedAt: new Date(Date.now() - 60_000).toISOString(), autoStopAt: new Date(Date.now() + 5 * 60_000).toISOString() }));
+    mockSession(session({ startedAt: new Date(Date.now() - 60_000).toISOString(), autoStopAt: new Date(Date.now() + 5 * 60_000).toISOString() }));
 
     renderFiles();
 
@@ -433,7 +433,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should not warn when more than ten minutes remain before auto-stop', async () => {
-    useSession(session({ startedAt: new Date().toISOString(), autoStopAt: new Date(Date.now() + 30 * 60_000).toISOString() }));
+    mockSession(session({ startedAt: new Date().toISOString(), autoStopAt: new Date(Date.now() + 30 * 60_000).toISOString() }));
 
     renderFiles();
 
@@ -442,8 +442,8 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should hide folder download when the backend has no archive support', async () => {
-    useSession(session({ supportsArchive: false }));
-    useListings({ '/': [makeDirEntry('world'), makeFileEntry('a.txt')] });
+    mockSession(session({ supportsArchive: false }));
+    mockListings({ '/': [makeDirEntry('world'), makeFileEntry('a.txt')] });
 
     renderFiles();
 
@@ -453,7 +453,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should download a folder when the backend supports archives', async () => {
-    useListings({ '/': [makeDirEntry('world')] });
+    mockListings({ '/': [makeDirEntry('world')] });
     apiMock.volumeDownload.mockResolvedValue({ ok: true, value: { transferId: 't' } });
     const user = userEvent.setup();
     renderFiles();
@@ -475,7 +475,7 @@ describe('VolumeFilesPage', () => {
   });
 
   it('should ignore dropped files while the server is running', async () => {
-    useServerState('running');
+    mockServerState('running');
     renderFiles();
     const zone = await screen.findByTestId('volume-drop-zone');
 
@@ -523,5 +523,141 @@ describe('VolumeFilesPage', () => {
     });
 
     await waitFor(() => expect(apiMock.volumeList).toHaveBeenCalledWith(GAME, 'config', '/'));
+  });
+
+  describe('fail-closed server guard', () => {
+    it('should treat a game missing from the loaded statuses as unconfirmed', async () => {
+      apiMock.status.mockResolvedValue([]);
+
+      renderFiles();
+
+      expect(await screen.findByText("Couldn't confirm the server is stopped.")).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'New folder' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Delete a.txt' })).toBeDisabled();
+    });
+
+    it('should disable mutating actions without a banner while the first status load is in flight', async () => {
+      apiMock.status.mockReturnValue(new Promise(() => undefined));
+
+      renderFiles();
+
+      const button = await screen.findByRole('button', { name: 'New folder' });
+      expect(button).toBeDisabled();
+      expect(screen.queryByText("Couldn't confirm the server is stopped.")).not.toBeInTheDocument();
+    });
+
+    it('should disable Save in the editor while the server is running', async () => {
+      mockServerState('running');
+      apiMock.volumeReadText.mockResolvedValue({ ok: true, value: { path: '/a.txt', content: 'hello', modifiedMs: 5 } });
+      const user = userEvent.setup();
+      renderFiles();
+
+      await user.click(await screen.findByRole('button', { name: 'Edit a.txt' }));
+
+      await waitFor(() => expect(screen.getByRole('textbox', { name: 'File contents' })).toHaveValue('hello'));
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    });
+  });
+
+  describe('dialogs left open when the server starts', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Makes the next status poll report a running server and runs it. */
+    async function serverStarts() {
+      mockServerState('running');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+    }
+
+    it.each([
+      ['New folder', 'New folder', 'Create'],
+      ['Rename a.txt', 'Rename a.txt', 'Rename'],
+      ['Delete a.txt', 'Delete a.txt', 'Delete'],
+    ])('should disable the %s dialog submit once the server starts', async (_label, opener, submit) => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderFiles();
+      await user.click(await screen.findByRole('button', { name: opener }));
+      expect(await screen.findByRole('button', { name: submit })).toBeEnabled();
+
+      await serverStarts();
+
+      const button = await screen.findByRole('button', { name: submit });
+      await waitFor(() => expect(button).toBeDisabled());
+      expect(button).toHaveAttribute('title', 'The server is running. Stop it to change files.');
+    });
+  });
+
+  describe('folder upload resume', () => {
+    const cancelled: FolderUploadProgress = {
+      game: GAME,
+      phase: 'cancelled',
+      bytesDone: 5,
+      bytesTotal: 10,
+      filesDone: 1,
+      filesTotal: 2,
+      bytesPerSecond: 0,
+    };
+
+    beforeEach(() => {
+      mockSession(
+        session({
+          volumes: [
+            { name: 'config', containerPath: '/config', mounted: true },
+            { name: 'saves', containerPath: '/saves', mounted: true },
+          ],
+        }),
+      );
+    });
+
+    it('should resume into the original folder of the volume the run started in', async () => {
+      mockListings({ '/': [makeDirEntry('world')], '/world': [] });
+      apiMock.volumeUploadFolder.mockResolvedValue({ ok: true, value: { started: true, runId: 'r1' } });
+      const user = userEvent.setup();
+      renderFiles();
+      await user.click(await screen.findByRole('button', { name: 'world' }));
+      await screen.findByText('This folder is empty.');
+      await user.click(screen.getByRole('button', { name: 'Upload folder' }));
+      await waitFor(() => expect(apiMock.volumeUploadFolder).toHaveBeenCalledWith(GAME, 'config', '/world'));
+      await act(async () => pushFolderProgress(cancelled));
+      await user.click(screen.getByRole('button', { name: 'config' }));
+      await screen.findByText('world');
+
+      await user.click(screen.getByRole('button', { name: 'Resume upload' }));
+
+      await waitFor(() => expect(apiMock.volumeUploadFolder).toHaveBeenLastCalledWith(GAME, 'config', '/world'));
+    });
+
+    it('should not resume a run into another volume after the operator switches volumes', async () => {
+      apiMock.volumeUploadFolder.mockResolvedValue({ ok: true, value: { started: true, runId: 'r1' } });
+      const user = userEvent.setup();
+      renderFiles();
+      await screen.findByText('a.txt');
+      await user.click(screen.getByRole('button', { name: 'Upload folder' }));
+      await waitFor(() => expect(apiMock.volumeUploadFolder).toHaveBeenCalledTimes(1));
+      await act(async () => pushFolderProgress(cancelled));
+      expect(await screen.findByRole('button', { name: 'Resume upload' })).toBeEnabled();
+
+      await user.selectOptions(screen.getByLabelText('Volume'), 'saves');
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Resume upload' })).toBeDisabled());
+      fireEvent.click(screen.getByRole('button', { name: 'Resume upload' }));
+      expect(apiMock.volumeUploadFolder).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not resume a run that was not started from this page', async () => {
+      apiMock.folderGetProgress.mockResolvedValue(cancelled);
+
+      renderFiles();
+
+      expect(await screen.findByRole('button', { name: 'Resume upload' })).toBeDisabled();
+      expect(apiMock.volumeUploadFolder).not.toHaveBeenCalled();
+    });
   });
 });

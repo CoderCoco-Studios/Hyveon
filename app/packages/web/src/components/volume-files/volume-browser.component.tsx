@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { VolumeEntryInfo, VolumeSessionStatus } from '@hyveon/shared/volumeFiles';
 import { joinVolumePath } from '@hyveon/shared/volumeFiles';
 import { ConfirmDialog } from '../confirm-dialog.component.js';
@@ -10,7 +10,7 @@ import { DropZone } from './drop-zone.component.js';
 import { FileTable } from './file-table.component.js';
 import { FileToolbar } from './file-actions.component.js';
 import { NameDialog } from './name-dialog.component.js';
-import { SERVER_RUNNING_MESSAGE, SERVER_UNCONFIRMED_MESSAGE, ServerBanner } from './server-banner.component.js';
+import { SERVER_CHECKING_MESSAGE, SERVER_RUNNING_MESSAGE, SERVER_UNCONFIRMED_MESSAGE, ServerBanner } from './server-banner.component.js';
 import { TextEditorDialog } from './text-editor-dialog.component.js';
 import { TransferList } from './transfer-list.component.js';
 import { useServerGuard } from './use-server-guard.hook.js';
@@ -25,6 +25,14 @@ export interface VolumeBrowserProps {
   volume: string;
   status: VolumeSessionStatus;
 }
+
+/** Why mutations are disabled, keyed by the guard's block (`none` when allowed). */
+const BLOCK_REASONS = {
+  none: null,
+  running: SERVER_RUNNING_MESSAGE,
+  unconfirmed: SERVER_UNCONFIRMED_MESSAGE,
+  checking: SERVER_CHECKING_MESSAGE,
+} as const;
 
 type Dialog =
   | { kind: 'mkdir' }
@@ -46,21 +54,22 @@ export function VolumeBrowser({ game, volume, status }: VolumeBrowserProps) {
   const files = useVolumeFiles(game, volume, true, guard.noteFailure);
   const folderProgress = useFolderUploadProgress(game);
   const [dialog, setDialog] = useState<Dialog | null>(null);
-  const folderDirRef = useRef<string | null>(null);
+  // Where the folder upload shown in the meter was started from this page; a run started elsewhere has no origin.
+  const [folderOrigin, setFolderOrigin] = useState<{ volume: string; dir: string } | null>(null);
 
-  const disabledReason =
-    guard.block === 'running' ? SERVER_RUNNING_MESSAGE : guard.block === 'unconfirmed' ? SERVER_UNCONFIRMED_MESSAGE : null;
+  const disabledReason = BLOCK_REASONS[guard.block ?? 'none'];
+  const canResumeFolder = folderOrigin !== null && folderOrigin.volume === volume;
   const { refresh } = files;
   const handleFolderSettled = useCallback(() => void refresh(), [refresh]);
 
   function startFolderUpload() {
-    folderDirRef.current = files.path;
+    setFolderOrigin({ volume, dir: files.path });
     void files.uploadFolder();
   }
 
   return (
     <div className="space-y-4">
-      {guard.block && <ServerBanner block={guard.block} onRetry={() => void guard.retry()} />}
+      {(guard.block === 'running' || guard.block === 'unconfirmed') && <ServerBanner block={guard.block} onRetry={() => void guard.retry()} />}
       <InlineAlert message={files.error} />
       <FileToolbar
         disabledReason={disabledReason}
@@ -92,8 +101,8 @@ export function VolumeBrowser({ game, volume, status }: VolumeBrowserProps) {
         <FolderUploadProgressMeter
           game={game}
           progress={folderProgress}
-          restartDisabled={disabledReason !== null}
-          onRestart={() => void files.uploadFolder(folderDirRef.current ?? undefined)}
+          restartDisabled={disabledReason !== null || !canResumeFolder}
+          onRestart={() => folderOrigin && canResumeFolder && void files.uploadFolder(folderOrigin.dir)}
           onSettled={handleFolderSettled}
         />
       )}
@@ -103,6 +112,7 @@ export function VolumeBrowser({ game, volume, status }: VolumeBrowserProps) {
         title="New folder"
         label="Folder name"
         submitLabel="Create"
+        submitDisabledReason={disabledReason}
         onSubmit={(name) => void files.mkdir(name)}
       />
       <NameDialog
@@ -111,6 +121,7 @@ export function VolumeBrowser({ game, volume, status }: VolumeBrowserProps) {
         title="Rename"
         label="New name"
         submitLabel="Rename"
+        submitDisabledReason={disabledReason}
         initialValue={dialog?.kind === 'rename' ? dialog.entry.name : ''}
         onSubmit={(name) => dialog?.kind === 'rename' && void files.rename(joinVolumePath(files.path, dialog.entry.name), name)}
       />
@@ -120,6 +131,7 @@ export function VolumeBrowser({ game, volume, status }: VolumeBrowserProps) {
         title={dialog?.kind === 'delete' ? (dialog.entry.isDir ? `Delete ${dialog.entry.name} and everything in it?` : `Delete ${dialog.entry.name}?`) : ''}
         description="This can't be undone."
         confirmLabel="Delete"
+        confirmDisabledReason={disabledReason ?? undefined}
         onConfirm={() => dialog?.kind === 'delete' && void files.remove(joinVolumePath(files.path, dialog.entry.name))}
       />
       <TextEditorDialog
