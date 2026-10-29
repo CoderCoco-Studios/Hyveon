@@ -400,6 +400,12 @@ describe('VolumeFilesService error mapping', () => {
     expect(timeout).toHaveBeenCalledWith(METADATA_OP_TIMEOUT_MS);
   });
 
+  it('should map a timeout the client wrapped as unreachable to the timeout message', async () => {
+    const wrapped = new VolumeFileError('unreachable', 'x', undefined, { cause: new DOMException('t', 'TimeoutError') });
+    const h = harness({ stat: vi.fn().mockRejectedValue(wrapped) });
+    expect(await h.service.readText(SAVES, '/a')).toEqual({ ok: false, code: 'unreachable', message: "The file manager didn't respond in time." });
+  });
+
   it('should start a fresh timeout budget when the registry retries an operation', async () => {
     const timeout = vi.spyOn(AbortSignal, 'timeout');
     const h = harness({ list: vi.fn().mockResolvedValue([]) });

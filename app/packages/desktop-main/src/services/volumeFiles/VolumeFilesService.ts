@@ -62,6 +62,10 @@ const entryInfo = ({ name, isDir, size, modifiedMs }: VolumeEntry): VolumeEntryI
 /** Whether `err` is an aborted or timed-out request. */
 const isAbort = (err: unknown): boolean => err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
 
+/** Whether `err` is an aborted request, raw or wrapped by the client as `unreachable` with the abort as its cause. */
+const isAbortOrWrapped = (err: unknown): boolean =>
+  isAbort(err) || (err instanceof VolumeFileError && err.code === 'unreachable' && isAbort(err.cause));
+
 /** Maps a registry snapshot (epoch milliseconds) to the renderer-visible status (ISO strings), field by field. */
 function toSessionStatus(s: HelperSessionSnapshot): VolumeSessionStatus {
   return {
@@ -443,7 +447,7 @@ export class VolumeFilesService {
     if (err instanceof NoSessionError) return fail('no-session', 'No file manager session is running. Start one to browse files.');
     if (err instanceof TextTooLargeError) return fail('too-large', 'That text is larger than 1 MiB and can\'t be saved here.');
     if (err instanceof VolumePathError) return fail('invalid-path', err.message);
-    if (isAbort(err)) return fail('unreachable', "The file manager didn't respond in time.");
+    if (isAbortOrWrapped(err)) return fail('unreachable', "The file manager didn't respond in time.");
     if (err instanceof VolumeFileError) {
       if (err.code === 'not-found') return fail('not-found', `'${names.missing}' no longer exists.`);
       if (err.code === 'conflict') return fail('conflict', `'${names.existing}' already exists.`);
