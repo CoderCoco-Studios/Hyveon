@@ -106,6 +106,8 @@ export interface TransferSpec {
   describeError: (err: unknown) => string;
   /** Optional message to attach to the `cancelled` event, e.g. cleanup that did not finish. */
   describeCancel?: () => string | undefined;
+  /** Called once when the transfer ends, after its work and cleanup, and only for a transfer that {@link TransferManager.start} returned. */
+  onSettled?: () => void;
   /** The work. Resolve when finished; honour `signal` and report bytes as they move. */
   run: (context: { signal: AbortSignal; onBytes: (n: number) => void }) => Promise<void>;
 }
@@ -246,8 +248,12 @@ export class TransferManager {
         final = event('failed', { error: spec.describeError(err) });
       }
     } finally {
-      this.registry.release(spec.game, holder);
-      this.active.delete(transferId);
+      try {
+        this.registry.release(spec.game, holder);
+        this.active.delete(transferId);
+      } finally {
+        spec.onSettled?.();
+      }
     }
     logger.info('VolumeFilesService: transfer finished', { game: spec.game, transferId, phase: final.phase });
     this.emit(final);

@@ -1054,6 +1054,149 @@ describe('VolumeFilesService file uploads', () => {
     expect(order.indexOf('acquire')).toBeLessThan(order.lastIndexOf('check'));
   });
 
+  describe('target reservations', () => {
+    /** A write that never finishes until aborted. */
+    const hangingWrite = () =>
+      vi.fn((_path: string, _source: Readable, options: { signal?: AbortSignal }) =>
+        new Promise<void>((_resolve, reject) => options.signal?.addEventListener('abort', () => reject(new Error('aborted')))),
+      );
+
+    it('should refuse an overlapping upload of the same name without writing anything', async () => {
+      const h = harness({ stat: missing(), writeStream: hangingWrite(), remove: vi.fn().mockResolvedValue(undefined) });
+      const { settled } = watchTransfers(h);
+      const first = await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+      if (!first.ok || !first.value) throw new Error('upload did not start');
+      await vi.waitFor(() => expect(h.backend.writeStream).toHaveBeenCalledTimes(1));
+
+      const second = await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a'), await localFile('b.txt', 'b')]);
+
+      expect(second).toEqual({ ok: false, code: 'conflict', message: "'a.txt' is already being uploaded." });
+      expect(h.backend.writeStream).toHaveBeenCalledTimes(1);
+      expect(h.registry.acquire).toHaveBeenCalledTimes(1);
+      h.service.cancelTransfer('mc', first.value.transferId);
+      await settled();
+    });
+
+    it('should reserve the targets of two simultaneous calls atomically', async () => {
+      const h = harness({ stat: missing(), writeStream: hangingWrite(), remove: vi.fn().mockResolvedValue(undefined) });
+      const a = await localFile('a.txt', 'a');
+      const [one, two] = await Promise.all([h.service.uploadFiles(SAVES, '/', [a]), h.service.uploadFiles(SAVES, '/', [a])]);
+      expect([one.ok, two.ok].sort()).toEqual([false, true]);
+      h.beforeStop('mc');
+    });
+
+    it('should let a different directory or name upload meanwhile', async () => {
+      const h = harness({ stat: missing(), writeStream: hangingWrite(), remove: vi.fn().mockResolvedValue(undefined) });
+      const first = await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+      const other = await h.service.uploadFiles(SAVES, '/worlds', [await localFile('a.txt', 'a')]);
+      const third = await h.service.uploadFiles(SAVES, '/', [await localFile('b.txt', 'b')]);
+      expect([first.ok, other.ok, third.ok]).toEqual([true, true, true]);
+      h.beforeStop('mc');
+    });
+
+    it('should release the reservation after a successful upload', async () => {
+      const h = harness({ stat: missing() });
+      const { settled } = watchTransfers(h);
+      const a = await localFile('a.txt', 'a');
+      await h.service.uploadFiles(SAVES, '/', [a]);
+      expect(await settled()).toMatchObject({ phase: 'done' });
+      expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
+    });
+
+    it('should release the reservation after a failed upload', async () => {
+      const dropped = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+      const h = harness({ stat: missing(), writeStream: vi.fn().mockRejectedValue(dropped), remove: vi.fn().mockResolvedValue(undefined) });
+      const { settled } = watchTransfers(h);
+      const a = await localFile('a.txt', 'a');
+      await h.service.uploadFiles(SAVES, '/', [a]);
+      expect(await settled()).toMatchObject({ phase: 'failed' });
+      expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
+    });
+
+    it('should release the reservation after a cancelled upload, once its partial file is gone', async () => {
+      const remove = vi.fn().mockResolvedValue(undefined);
+      const h = harness({ stat: missing(), writeStream: hangingWrite(), remove });
+      const { settled } = watchTransfers(h);
+      const a = await localFile('a.txt', 'a');
+      const first = await h.service.uploadFiles(SAVES, '/', [a]);
+      if (!first.ok || !first.value) throw new Error('upload did not start');
+      await vi.waitFor(() => expect(h.backend.writeStream).toHaveBeenCalled());
+      h.service.cancelTransfer('mc', first.value.transferId);
+      expect(await settled()).toMatchObject({ phase: 'cancelled' });
+      expect(remove).toHaveBeenCalledWith('/saves/a.txt', expect.any(AbortSignal));
+      expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
+    });
+
+    it('should release the reservation after an upload cancelled before its first write', async () => {
+      const h = harness({ stat: missing() });
+      const { settled } = watchTransfers(h);
+      const a = await localFile('a.txt', 'a');
+      const first = await h.service.uploadFiles(SAVES, '/', [a]);
+      if (!first.ok || !first.value) throw new Error('upload did not start');
+      h.service.cancelTransfer('mc', first.value.transferId);
+      expect(await settled()).toMatchObject({ phase: 'cancelled' });
+      expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
+    });
+
+    it('should release the reservation when the pre-upload check refuses the upload', async () => {
+      const h = harness({ stat: vi.fn().mockResolvedValue(stat({ name: 'a.txt' })) });
+      const a = await localFile('a.txt', 'a');
+      expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: false, code: 'conflict', message: "'a.txt' already exists." });
+      h.backend.stat.mockRejectedValue(new VolumeFileError('not-found', 'stat failed (404)', 404));
+      expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
+    });
+
+    it('should release the reservation when the pre-upload check throws', async () => {
+      const h = harness({ stat: vi.fn().mockRejectedValue(new VolumeFileError('unreachable', 'down')) });
+      const a = await localFile('a.txt', 'a');
+      expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: false, code: 'unreachable' });
+      h.backend.stat.mockRejectedValue(new VolumeFileError('not-found', 'stat failed (404)', 404));
+      expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
+    });
+
+    it('should release the reservation when the transfer cannot start', async () => {
+      const h = harness({ stat: missing() });
+      h.registry.status.mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(snapshot({ state: 'stopped' }));
+      const a = await localFile('a.txt', 'a');
+      expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: false, code: 'no-session' });
+      h.registry.status.mockResolvedValue(snapshot());
+      expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
+    });
+
+    it('should refuse to save a text file that an upload is writing, and the other way round', async () => {
+      const h = harness({ stat: missing(), writeStream: hangingWrite(), remove: vi.fn().mockResolvedValue(undefined) });
+      const { settled } = watchTransfers(h);
+      const first = await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+      if (!first.ok || !first.value) throw new Error('upload did not start');
+      expect(await h.service.writeText(SAVES, '/a.txt', 'x', 1)).toMatchObject({ ok: false, code: 'conflict' });
+      h.service.cancelTransfer('mc', first.value.transferId);
+      await settled();
+
+      let finishStat: (info: VolumeStat) => void = () => undefined;
+      h.backend.writeStream.mockReset().mockResolvedValue(undefined);
+      h.backend.stat.mockClear();
+      h.backend.stat.mockImplementationOnce(() => new Promise<VolumeStat>((resolve) => (finishStat = resolve)));
+      const saving = h.service.writeText(SAVES, '/b.txt', 'x', 1);
+      await vi.waitFor(() => expect(h.backend.stat).toHaveBeenCalledTimes(1));
+      expect(await h.service.uploadFiles(SAVES, '/', [await localFile('b.txt', 'b')])).toEqual({
+        ok: false,
+        code: 'conflict',
+        message: "'b.txt' is already being uploaded.",
+      });
+      finishStat(stat({ name: 'b.txt', modifiedMs: 1 }));
+      await saving;
+    });
+
+    it('should release the text file after the save finishes or fails', async () => {
+      const h = harness({ stat: vi.fn().mockResolvedValue(stat({ name: 'a.txt', modifiedMs: 1 })) });
+      expect(await h.service.writeText(SAVES, '/a.txt', 'x', 1)).toMatchObject({ ok: true });
+      h.backend.stat.mockResolvedValue(stat({ name: 'a.txt', modifiedMs: 2 }));
+      expect(await h.service.writeText(SAVES, '/a.txt', 'x', 1)).toMatchObject({ ok: false, code: 'conflict', message: 'The file changed on the volume since you opened it.' });
+      h.backend.stat.mockResolvedValue(stat({ name: 'a.txt', modifiedMs: 1 }));
+      expect(await h.service.writeText(SAVES, '/a.txt', 'x', 1)).toMatchObject({ ok: true });
+    });
+  });
+
   describe('partial uploads', () => {
     /** A write that never finishes until aborted, so a cancel lands mid-body. */
     const hangingWrite = () =>

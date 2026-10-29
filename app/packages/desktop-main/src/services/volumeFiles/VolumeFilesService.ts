@@ -27,6 +27,7 @@ import { HelperSessionRegistry, type HelperSessionSnapshot } from './HelperSessi
 import type { VolumeEntry } from './VolumeFileBackend.js';
 import { decodeUtf8, readCapped } from './textFiles.js';
 import { TransferOps } from './transferOps.js';
+import { UploadReservations } from './uploadReservations.js';
 import { fail, ok, scrubAddresses, TextTooLargeError } from './volumeFileErrors.js';
 
 export { METADATA_OP_TIMEOUT_MS } from './fileOps.js';
@@ -72,6 +73,7 @@ export function failedSessionStatus(game: string, error: string): VolumeSessionS
 export class VolumeFilesService {
   private readonly ops: FileOps;
   private readonly transfers: TransferOps;
+  private readonly reservations = new UploadReservations();
 
   constructor(
     private readonly registry: HelperSessionRegistry,
@@ -83,7 +85,7 @@ export class VolumeFilesService {
     deploymentConfig: DeploymentConfigService,
   ) {
     this.ops = new FileOps(registry, config, ecs);
-    this.transfers = new TransferOps(registry, this.ops, dialogs, scans, folderUploads, deploymentConfig);
+    this.transfers = new TransferOps(registry, this.ops, dialogs, scans, folderUploads, deploymentConfig, this.reservations);
     this.registry.onBeforeStop((game) => this.transfers.abortGame(game));
   }
 
@@ -273,6 +275,10 @@ export class VolumeFilesService {
   /**
    * Overwrites a text file, but only if it is unchanged since it was read.
    *
+   * @remarks
+   * The path is reserved against uploads for the duration of the check and the write, and refused as a `conflict`
+   * while an upload of the same path holds it.
+   *
    * @param ref - Game and volume.
    * @param path - File to overwrite.
    * @param content - New text; at most {@link MAX_TEXT_EDIT_BYTES} as UTF-8.
@@ -292,16 +298,22 @@ export class VolumeFilesService {
         },
       },
       async (io, { path: file }) => {
-        const info = await io.backend.stat(io.helperPath(file), io.signal);
-        if (info.isDir) return fail('invalid-path', `'${file}' is a folder, not a file.`);
-        if (info.modifiedMs === 0 || expectedModifiedMs === 0) {
-          return fail('conflict', "Couldn't verify the file is unchanged since you opened it.");
+        const reserved = this.reservations.tryReserve(ref, [file]);
+        if (!reserved.ok) return fail('conflict', `'${file.slice(file.lastIndexOf('/') + 1)}' is being changed by another operation.`);
+        try {
+          const info = await io.backend.stat(io.helperPath(file), io.signal);
+          if (info.isDir) return fail('invalid-path', `'${file}' is a folder, not a file.`);
+          if (info.modifiedMs === 0 || expectedModifiedMs === 0) {
+            return fail('conflict', "Couldn't verify the file is unchanged since you opened it.");
+          }
+          if (info.modifiedMs !== expectedModifiedMs) return fail('conflict', 'The file changed on the volume since you opened it.');
+          const bytes = Buffer.from(content, 'utf8');
+          await io.backend.writeStream(io.helperPath(file), Readable.from([bytes]), { size: bytes.length, overwrite: true, signal: io.signal });
+          const after = await io.backend.stat(io.helperPath(file), io.signal).catch(() => null);
+          return ok({ modifiedMs: after?.modifiedMs ?? 0 });
+        } finally {
+          reserved.release();
         }
-        if (info.modifiedMs !== expectedModifiedMs) return fail('conflict', 'The file changed on the volume since you opened it.');
-        const bytes = Buffer.from(content, 'utf8');
-        await io.backend.writeStream(io.helperPath(file), Readable.from([bytes]), { size: bytes.length, overwrite: true, signal: io.signal });
-        const after = await io.backend.stat(io.helperPath(file), io.signal).catch(() => null);
-        return ok({ modifiedMs: after?.modifiedMs ?? 0 });
       },
     );
   }

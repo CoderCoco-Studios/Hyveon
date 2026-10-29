@@ -15,6 +15,7 @@ import { statLocalFiles } from './localFiles.js';
 import { sanitizeLocalFileName } from './localNames.js';
 import { VolumeFileError } from './VolumeFileBackend.js';
 import { fail, logRefusal, ok, toVolumeResult, type OpNames } from './volumeFileErrors.js';
+import type { UploadReservations } from './uploadReservations.js';
 import { streamToFile, TransferManager, transferErrorMessage } from './transfers.js';
 
 /** What a download's pre-dialog check learned about its entry. */
@@ -48,6 +49,7 @@ export class TransferOps {
     private readonly scans: FolderScanService,
     private readonly folderUploads: FolderUploadService,
     private readonly deploymentConfig: DeploymentConfigService,
+    private readonly reservations: UploadReservations,
   ) {
     this.manager = new TransferManager(registry);
   }
@@ -167,69 +169,82 @@ export class TransferOps {
       const duplicate = files.find((file, i) => files.findIndex((other) => other.target === file.target) !== i);
       if (duplicate) return logRefusal(ref, dir, fail('conflict', `'${duplicate.name}' was chosen more than once.`));
 
-      const clear = await this.ops.run(
-        ref,
-        { mutates: true, path: dir, validate: () => ({ path: cleanDir, names: undefined }) },
-        async ({ backend, signal, helperPath }) => {
-          for (const file of files) {
-            const exists = await backend.stat(helperPath(file.target), signal).then(
-              () => true,
-              (err: unknown) => {
-                if (err instanceof VolumeFileError && err.code === 'not-found') return false;
-                throw err;
-              },
-            );
-            if (exists) return fail('conflict', `'${file.name}' already exists.`);
-          }
-          return ok(true as const);
-        },
-      );
-      if (!clear.ok) return clear;
-
-      let current = files[0]!.name;
-      let partial: PartialFile = 'none';
-      const transferId = await this.manager.start({
-        game: ref.game,
-        kind: 'upload',
-        name: files.length === 1 ? current : `${files.length} files`,
-        bytesTotal: files.reduce((sum, file) => sum + file.size, 0),
-        describeError: (err) => {
-          if (err instanceof UploadStoppedError) return err.message;
-          const message = transferErrorMessage(err, { missing: current, existing: current }, "Couldn't read a local file.");
-          if (partial === 'removed') return `${message} The partial file was removed.`;
-          return partial === 'left' ? `${message} ${partialUploadMessage(current)}` : message;
-        },
-        describeCancel: () => (partial === 'left' ? partialUploadMessage(current) : undefined),
-        run: async ({ signal, onBytes }) => {
-          for (const file of files) {
-            current = file.name;
-            const refusal = await this.ops.assertWritable(ref.game);
-            if (refusal) throw new UploadStoppedError(`Upload stopped. ${refusal.message}`);
-            signal.throwIfAborted();
-            let counted = 0;
-            try {
-              await this.registry.withBackend(ref.game, (backend, layout) => {
-                // A retry replays the file from its start.
-                onBytes(-counted);
-                counted = 0;
-                return backend.writeStream(toHelperPath(layout, ref.volume, file.target), createReadStream(file.path), {
-                  size: file.size,
-                  overwrite: false,
-                  signal,
-                  onBytes: (n) => {
-                    counted += n;
-                    onBytes(n);
-                  },
-                });
-              });
-            } catch (err) {
-              partial = await this.removePartial(ref, file.target, err);
-              throw err;
+      const reserved = this.reservations.tryReserve(ref, files.map((file) => file.target));
+      if (!reserved.ok) {
+        const name = files.find((file) => file.target === reserved.conflict)!.name;
+        return logRefusal(ref, dir, fail('conflict', `'${name}' is already being uploaded.`));
+      }
+      // Held until the transfer ends; released here on every path that never hands it to a transfer.
+      let handedOff = false;
+      try {
+        const clear = await this.ops.run(
+          ref,
+          { mutates: true, path: dir, validate: () => ({ path: cleanDir, names: undefined }) },
+          async ({ backend, signal, helperPath }) => {
+            for (const file of files) {
+              const exists = await backend.stat(helperPath(file.target), signal).then(
+                () => true,
+                (err: unknown) => {
+                  if (err instanceof VolumeFileError && err.code === 'not-found') return false;
+                  throw err;
+                },
+              );
+              if (exists) return fail('conflict', `'${file.name}' already exists.`);
             }
-          }
-        },
-      });
-      return ok({ transferId });
+            return ok(true as const);
+          },
+        );
+        if (!clear.ok) return clear;
+
+        let current = files[0]!.name;
+        let partial: PartialFile = 'none';
+        const transferId = await this.manager.start({
+          game: ref.game,
+          kind: 'upload',
+          name: files.length === 1 ? current : `${files.length} files`,
+          bytesTotal: files.reduce((sum, file) => sum + file.size, 0),
+          describeError: (err) => {
+            if (err instanceof UploadStoppedError) return err.message;
+            const message = transferErrorMessage(err, { missing: current, existing: current }, "Couldn't read a local file.");
+            if (partial === 'removed') return `${message} The partial file was removed.`;
+            return partial === 'left' ? `${message} ${partialUploadMessage(current)}` : message;
+          },
+          describeCancel: () => (partial === 'left' ? partialUploadMessage(current) : undefined),
+          onSettled: reserved.release,
+          run: async ({ signal, onBytes }) => {
+            for (const file of files) {
+              current = file.name;
+              const refusal = await this.ops.assertWritable(ref.game);
+              if (refusal) throw new UploadStoppedError(`Upload stopped. ${refusal.message}`);
+              signal.throwIfAborted();
+              let counted = 0;
+              try {
+                await this.registry.withBackend(ref.game, (backend, layout) => {
+                  // A retry replays the file from its start.
+                  onBytes(-counted);
+                  counted = 0;
+                  return backend.writeStream(toHelperPath(layout, ref.volume, file.target), createReadStream(file.path), {
+                    size: file.size,
+                    overwrite: false,
+                    signal,
+                    onBytes: (n) => {
+                      counted += n;
+                      onBytes(n);
+                    },
+                  });
+                });
+              } catch (err) {
+                partial = await this.removePartial(ref, file.target, err);
+                throw err;
+              }
+            }
+          },
+        });
+        handedOff = true;
+        return ok({ transferId });
+      } finally {
+        if (!handedOff) reserved.release();
+      }
     } catch (err) {
       return toVolumeResult(err, ref, dir, names);
     }
@@ -277,11 +292,14 @@ export class TransferOps {
    * Best-effort removal of the file an upload was writing when it failed or was cancelled.
    *
    * @remarks
-   * The pre-upload stat proved the target did not exist, so a file there is this upload's truncated body. A
-   * `conflict` failure is skipped: the target appeared on its own, or a retried first attempt landed in full.
+   * Removing is safe only because of two facts. The pre-upload stat proved the target did not exist, so a file
+   * there is this upload's truncated body. And the target is reserved in {@link UploadReservations} until the transfer
+   * ends, which excludes every in-app writer (another upload, a text save), while the helper is reachable only from
+   * this app's main process, so nothing else can have created the file in between. A `conflict` failure is skipped:
+   * the target appeared on its own, or a retried first attempt landed in full.
    *
    * @param ref - Game and volume.
-   * @param target - Volume path the upload was writing.
+   * @param target - Volume path the upload was writing; must be one of the targets this upload reserved.
    * @param cause - What the upload threw.
    * @returns Whether a partial file was removed, left behind, or never existed.
    */

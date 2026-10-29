@@ -216,6 +216,28 @@ describe('TransferManager', () => {
     expect(manager.cancel('mc', id)).toEqual({ cancelled: false });
   });
 
+  it('should call onSettled once after the session is released, whatever the outcome', async () => {
+    const { manager, registry, events } = managerHarness();
+    const order: string[] = [];
+    registry.release.mockImplementation(() => order.push('release'));
+    const onSettled = vi.fn(() => order.push('settled'));
+    await manager.start(spec({ onSettled }));
+    await terminal(events);
+    await manager.start(spec({ onSettled, run: async () => { throw new Error('disk full'); } }));
+    await vi.waitFor(() => expect(onSettled).toHaveBeenCalledTimes(2));
+    const id = await manager.start(spec({ onSettled, run: vi.fn() }));
+    manager.cancel('mc', id);
+    await vi.waitFor(() => expect(onSettled).toHaveBeenCalledTimes(3));
+    expect(order.slice(0, 2)).toEqual(['release', 'settled']);
+  });
+
+  it('should not call onSettled for a transfer that could not start', async () => {
+    const { manager } = managerHarness('stopped');
+    const onSettled = vi.fn();
+    await expect(manager.start(spec({ onSettled }))).rejects.toMatchObject({ name: 'NoSessionError' });
+    expect(onSettled).not.toHaveBeenCalled();
+  });
+
   it('should cancel a transfer cancelled before its work begins without running it', async () => {
     const { manager, events } = managerHarness();
     const run = vi.fn();
