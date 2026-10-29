@@ -360,6 +360,21 @@ export class HelperSessionRegistry {
     return true;
   }
 
+  /**
+   * Whether an upload (a volume-files transfer or a folder-upload run) currently holds `game`'s session.
+   *
+   * @remarks
+   * A session that is stopping reports `false`: its transfers are already cancelled and its helper is going away, so
+   * nothing is still writing to the volume.
+   *
+   * @param game - Game to check.
+   */
+  hasUploadHolders(game: string): boolean {
+    const entry = this.entries.get(game);
+    if (!entry || entry.state === 'stopping') return false;
+    return [...entry.holders].some((holder) => holder !== 'browse');
+  }
+
   /** The games this registry currently owns a session for. */
   ownedGames(): ReadonlySet<string> {
     return new Set(this.entries.keys());

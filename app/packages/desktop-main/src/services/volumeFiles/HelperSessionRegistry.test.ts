@@ -104,6 +104,30 @@ describe('HelperSessionRegistry', () => {
     expect(await registry.status('mc')).toMatchObject({ state: 'running', browseHeld: true, uploadHolders: 1 });
   });
 
+  it('should report upload holders of a game but not a browse hold or another game', async () => {
+    const { registry } = harness();
+    expect(registry.hasUploadHolders('mc')).toBe(false);
+
+    await registry.acquire('mc', 'browse');
+    expect(registry.hasUploadHolders('mc')).toBe(false);
+
+    await registry.acquire('mc', 'upload:xfer-1');
+    expect(registry.hasUploadHolders('mc')).toBe(true);
+    expect(registry.hasUploadHolders('other')).toBe(false);
+
+    registry.release('mc', 'upload:xfer-1');
+    expect(registry.hasUploadHolders('mc')).toBe(false);
+  });
+
+  it('should not report upload holders of a session that is stopping', async () => {
+    const { registry } = harness();
+    await registry.acquire('mc', 'upload:xfer-1');
+
+    const stopping = registry.stop('mc');
+    expect(registry.hasUploadHolders('mc')).toBe(false);
+    await stopping;
+  });
+
   it('should launch over TLS with the browse run id and pass tags only to the launching acquire', async () => {
     const { registry, fm } = harness();
     const tags = [{ key: 'Purpose', value: 'upload' }];

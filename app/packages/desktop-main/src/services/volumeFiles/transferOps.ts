@@ -28,6 +28,9 @@ interface Probe {
 /** What an interrupted upload left on the volume: nothing, a file that was removed, or one that could not be. */
 type PartialFile = 'none' | 'removed' | 'left';
 
+/** An upload stopped between files because the server may now be running; carries the operator message. */
+class UploadStoppedError extends Error {}
+
 /** Operator message for a partial file that could not be removed. */
 const partialUploadMessage = (name: string): string => `'${name}' was partially uploaded; delete it before retrying.`;
 
@@ -139,7 +142,9 @@ export class TransferOps {
    * @remarks
    * Everything that can be refused is refused before any byte moves: path validity, a running server, a missing
    * session, local files that are not regular files, and target names that already exist (the whole upload is
-   * refused). The transfer then runs in the background.
+   * refused). The transfer then runs in the background. It holds the session before it checks the server for the
+   * last time, and checks again before every file, so a server that starts mid-upload (see `games.start`) stops the
+   * transfer with a `failed` phase instead of letting writes continue under it.
    *
    * @param ref - Game and volume.
    * @param dir - Destination directory.
@@ -189,6 +194,7 @@ export class TransferOps {
         name: files.length === 1 ? current : `${files.length} files`,
         bytesTotal: files.reduce((sum, file) => sum + file.size, 0),
         describeError: (err) => {
+          if (err instanceof UploadStoppedError) return err.message;
           const message = transferErrorMessage(err, { missing: current, existing: current }, "Couldn't read a local file.");
           if (partial === 'removed') return `${message} The partial file was removed.`;
           return partial === 'left' ? `${message} ${partialUploadMessage(current)}` : message;
@@ -197,6 +203,9 @@ export class TransferOps {
         run: async ({ signal, onBytes }) => {
           for (const file of files) {
             current = file.name;
+            const refusal = await this.ops.assertWritable(ref.game);
+            if (refusal) throw new UploadStoppedError(`Upload stopped. ${refusal.message}`);
+            signal.throwIfAborted();
             let counted = 0;
             try {
               await this.registry.withBackend(ref.game, (backend, layout) => {

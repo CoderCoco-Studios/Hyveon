@@ -1011,6 +1011,49 @@ describe('VolumeFilesService file uploads', () => {
     expect(sources[0]).not.toBe(sources[1]);
   });
 
+  it('should check the server again before each file and stop the transfer when it has started', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const h = harness({ stat: missing(), remove });
+    h.backend.writeStream.mockImplementation(async () => {
+      h.ecs.findRunningTaskOrThrow.mockResolvedValue({ taskArn: 'arn' });
+    });
+    const { settled } = watchTransfers(h);
+    await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a'), await localFile('b.txt', 'b')]);
+    const end = await settled();
+    expect(end).toMatchObject({ phase: 'failed', error: "Upload stopped. 'mc' is running. Stop the server to change files." });
+    expect(h.backend.writeStream).toHaveBeenCalledTimes(1);
+    expect(h.backend.writeStream).toHaveBeenCalledWith('/saves/a.txt', expect.anything(), expect.anything());
+    expect(remove).not.toHaveBeenCalled();
+    expect(h.registry.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('should stop the transfer before its first file when the server state can no longer be confirmed', async () => {
+    const h = harness({ stat: missing() });
+    h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockRejectedValue(new Error('down'));
+    const { settled } = watchTransfers(h);
+    await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+    expect(await settled()).toMatchObject({ phase: 'failed', error: "Upload stopped. Couldn't confirm the server is stopped." });
+    expect(h.backend.writeStream).not.toHaveBeenCalled();
+  });
+
+  it('should hold the session before the transfer checks the server for the last time', async () => {
+    const h = harness({ stat: missing() });
+    const order: string[] = [];
+    h.registry.acquire.mockImplementation(async () => {
+      order.push('acquire');
+      return { ok: true };
+    });
+    h.ecs.findRunningTaskOrThrow.mockImplementation(async () => {
+      order.push('check');
+      return null;
+    });
+    const { settled } = watchTransfers(h);
+    await h.service.uploadFiles(SAVES, '/', [await localFile('a.txt', 'a')]);
+    await settled();
+    expect(order.at(-1)).toBe('check');
+    expect(order.indexOf('acquire')).toBeLessThan(order.lastIndexOf('check'));
+  });
+
   describe('partial uploads', () => {
     /** A write that never finishes until aborted, so a cancel lands mid-body. */
     const hangingWrite = () =>
