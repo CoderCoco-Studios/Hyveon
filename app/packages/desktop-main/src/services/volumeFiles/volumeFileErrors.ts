@@ -15,9 +15,9 @@ export const fail = (code: VolumeFilesErrorCode, message: string): VolumeFailure
 
 /** Fixed operator messages for session-level backend failures that name no path. */
 const OPERATOR_MESSAGES: Record<Exclude<VolumeFileError['code'], 'not-found' | 'conflict' | 'failed'>, string> = {
-  unreachable: "The file manager isn't reachable. Restart the session.",
-  auth: 'The file manager rejected the session. Restart the session.',
-  'pin-mismatch': "The file manager's identity couldn't be verified. Restart the session.",
+  unreachable: "The file manager isn't reachable. Stop and start the session.",
+  auth: 'The file manager rejected the session. Stop and start the session.',
+  'pin-mismatch': "The file manager's identity couldn't be verified. Stop and start the session.",
 };
 
 /** Raised by validation when text to save exceeds the editor limit; mapped to `too-large`. */

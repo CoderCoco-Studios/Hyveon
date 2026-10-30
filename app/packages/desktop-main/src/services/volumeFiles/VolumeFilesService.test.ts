@@ -421,9 +421,9 @@ describe('VolumeFilesService error mapping', () => {
   it('should map each modeled backend failure to a fixed operator message', async () => {
     const cases: [VolumeFileError['code'], string, string][] = [
       ['not-found', 'not-found', "'/gone' no longer exists."],
-      ['unreachable', 'unreachable', "The file manager isn't reachable. Restart the session."],
-      ['auth', 'auth', 'The file manager rejected the session. Restart the session.'],
-      ['pin-mismatch', 'pin-mismatch', "The file manager's identity couldn't be verified. Restart the session."],
+      ['unreachable', 'unreachable', "The file manager isn't reachable. Stop and start the session."],
+      ['auth', 'auth', 'The file manager rejected the session. Stop and start the session.'],
+      ['pin-mismatch', 'pin-mismatch', "The file manager's identity couldn't be verified. Stop and start the session."],
     ];
     for (const [code, expected, message] of cases) {
       const h = harness({ list: vi.fn().mockRejectedValue(new VolumeFileError(code, 'list /saves/gone failed (500)')) });
@@ -821,7 +821,7 @@ describe('VolumeFilesService downloads', () => {
     await h.service.download(SAVES, '/level.dat', false);
     dropped.push(Buffer.from('he'));
     setTimeout(() => dropped.destroy(Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' })), 20);
-    expect(await settled()).toMatchObject({ phase: 'failed', error: "The file manager isn't reachable. Restart the session." });
+    expect(await settled()).toMatchObject({ phase: 'failed', error: "The file manager isn't reachable. Stop and start the session." });
     expect(await readdir(local)).toEqual([]);
   });
 

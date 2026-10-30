@@ -90,7 +90,7 @@ describe('transferErrorMessage', () => {
   });
 
   it('should report a dropped connection as the file manager being unreachable', () => {
-    const unreachable = "The file manager isn't reachable. Restart the session.";
+    const unreachable = "The file manager isn't reachable. Stop and start the session.";
     expect(transferErrorMessage(coded('UND_ERR_SOCKET'), names, 'LOCAL')).toBe(unreachable);
     expect(transferErrorMessage(coded('UND_ERR_BODY_TIMEOUT'), names, 'LOCAL')).toBe(unreachable);
     expect(transferErrorMessage(coded('ECONNRESET', 'read'), names, 'LOCAL')).toBe(unreachable);
