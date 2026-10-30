@@ -238,7 +238,7 @@ export interface VolumeFileBackend {
 - [x] **Step 3: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FileManagerService.test.ts` → FAIL.
 - [x] **Step 4: Set** `FILEBROWSER_IMAGE = 'filebrowser/filebrowser:<tag>@<digest>'` with a TSDoc line: upstream archived 2026-09-01, `v2.63.23` is the final release, the pin is deliberate. Update the two `@remarks` that say "verified against `filebrowser/filebrowser:latest`" (`tlsLaunch.ts`, `FileBrowserClient.ts`) to name `v2.63.23`.
 - [x] **Step 5: Run** → PASS. Then the PR gate: `npm run app:lint && npm run app:typecheck && npm run app:test` → exit 0.
-- [ ] **Step 6: Commit** — `build(desktop-main): pin the FileBrowser helper image to v2.63.23`. Open PR 1 with `/pr`.
+- [x] **Step 6: Commit** — `build(desktop-main): pin the FileBrowser helper image to v2.63.23`. Open PR 1 with `/pr`.
 
 ---
 
@@ -505,7 +505,7 @@ export class HelperSessionRegistry {
 - [x] **Step 2: Run** `npm run app:test:integration` → the new spec passes along with the existing ones (exit 0).
 - [x] **Step 3: Docs** — `write-docs` skill: registry, TLS for every helper session, upload reuse/Restart, quit hook, sweep exclusion (`management-app.md`); helper transport and the secrets boundary (`architecture.md`).
 - [x] **Step 4: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration` → exit 0.
-- [ ] **Step 5: Commit** — `docs: document the helper session registry`. Open PR 3 with `/pr` (base: PR 2 branch).
+- [x] **Step 5: Commit** — `docs: document the helper session registry`. Open PR 3 with `/pr` (base: PR 2 branch).
 
 ---
 
@@ -682,8 +682,8 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
 - [x] **Step 3: Implement**; add bridge entries.
 - [x] **Step 4: Run** → PASS.
 - [x] **Step 5: Docs** — `write-docs`: `volumeFiles.*` rows and the two push channels in `management-app.md`.
-- [ ] **Step 6: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration && npm run app:test:e2e` → exit 0.
-- [ ] **Step 7: Commit** — `feat(desktop-preload): add the volumeFiles bridge`. Open PR 4 with `/pr` (base: PR 3 branch).
+- [x] **Step 6: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration && npm run app:test:e2e` → exit 0.
+- [x] **Step 7: Commit** — `feat(desktop-preload): add the volumeFiles bridge`. Open PR 4 with `/pr` (base: PR 3 branch).
 
 ---
 
@@ -785,7 +785,7 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
 
 ## Close-out (tasks.md 6.1–6.4)
 
-- [ ] **Infra apply after PR 2 is released** (tasks.md 6.1): the operator runs plan + apply once from the Infrastructure page; expected plan: `efsVolumeAccessPoints` output change only, empty resource diff. Mark `[~]` if not run this cycle and list it in verify.md §7 (automated equivalents: Tasks 6, 7, 9).
-- [ ] **Dogfood on a real stack** (tasks.md 6.2; mark `[~]` if not run and list it in verify.md §7 with Tasks 8, 13, 17, 18, 22 as the automated equivalents): start from Files, switch volumes, navigate, upload a folder into a second volume and confirm it lands there, download a file and a folder, rename, delete, edit `options.json`, confirm read-only while the server runs, confirm the helper stops 5 min after leaving the page and on quit.
-- [ ] **`/opsx:verify`**, then `/opsx:sync` or `/opsx:archive` (tasks.md 6.3).
-- [ ] **Follow-up issue** for replacing the archived FileBrowser backend (tasks.md 6.4; Open Question 3 default).
+- [~] **Infra apply after PR 2 is released** (tasks.md 6.1): the operator runs plan + apply once from the Infrastructure page; expected plan: `efsVolumeAccessPoints` output change only, empty resource diff. Mark `[~]` if not run this cycle and list it in verify.md §7 (automated equivalents: Tasks 6, 7, 9).
+- [~] **Dogfood on a real stack** (tasks.md 6.2; mark `[~]` if not run and list it in verify.md §7 with Tasks 8, 13, 17, 18, 22 as the automated equivalents): start from Files, switch volumes, navigate, upload a folder into a second volume and confirm it lands there, download a file and a folder, rename, delete, edit `options.json`, confirm read-only while the server runs, confirm the helper stops 5 min after leaving the page and on quit.
+- [x] **`/opsx:verify`**, then `/opsx:sync` or `/opsx:archive` (tasks.md 6.3).
+- [x] **Follow-up issue** for replacing the archived FileBrowser backend (tasks.md 6.4; Open Question 3 default). Filed as #700.
