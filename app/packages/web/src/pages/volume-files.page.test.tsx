@@ -659,7 +659,7 @@ describe('VolumeFilesPage', () => {
 
       expect(await screen.findByText("Couldn't confirm the server is stopped.")).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'New folder' })).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'Delete a.txt' })).toBeDisabled();
+      expect(await screen.findByRole('button', { name: 'Delete a.txt' })).toBeDisabled();
     });
 
     it('should disable mutating actions without a banner while the first status load is in flight', async () => {
