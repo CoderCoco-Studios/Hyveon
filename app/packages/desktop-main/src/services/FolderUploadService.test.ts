@@ -177,7 +177,7 @@ describe('FolderUploadService guards', () => {
     });
     await h.svc.startUpload(await request(['Config'], '/data/saves'));
     const last = await settled(h);
-    expect(last).toMatchObject({ phase: 'failed', error: "Restart the file manager session to upload into 'saves'." });
+    expect(last).toMatchObject({ phase: 'failed', error: "Stop and start the file manager session to upload into 'saves'." });
     expect(h.client.mkdir).not.toHaveBeenCalled();
     expect(h.client.writeStream).not.toHaveBeenCalled();
     expect(h.registry.release).toHaveBeenCalledTimes(1);
@@ -186,7 +186,7 @@ describe('FolderUploadService guards', () => {
   it('should fail before writing when the live session used the legacy fallback layout', async () => {
     const h = harness({ sessionLayout: (planned) => ({ ...planned, usedFallback: true }) });
     await h.svc.startUpload(await request(['Config']));
-    expect(await settled(h)).toMatchObject({ phase: 'failed', error: "Restart the file manager session to upload into 'saves'." });
+    expect(await settled(h)).toMatchObject({ phase: 'failed', error: "Stop and start the file manager session to upload into 'saves'." });
     expect(h.client.writeStream).not.toHaveBeenCalled();
   });
 

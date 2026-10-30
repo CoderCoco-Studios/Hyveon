@@ -424,7 +424,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     const { game, volume } = prepared;
     const layout = await this.registry.withBackend(game, async (_backend, sessionLayout) => sessionLayout);
     if (layout.usedFallback || !isVolumeMounted(layout, volume)) {
-      throw new Error(`Restart the file manager session to upload into '${volume}'.`);
+      throw new Error(`Stop and start the file manager session to upload into '${volume}'.`);
     }
     return prepared.files.map((file) => ({
       relPath: file.relPath,
