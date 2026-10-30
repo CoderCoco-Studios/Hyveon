@@ -295,7 +295,7 @@ called out again in the `WindowController` row below.
 
   **Multi-volume helper layout.**
 
-  Every launch (the legacy `files.start` and the registry's sessions alike) mounts **every applied volume** of the game, not just the first. `FileManagerService` registers one ECS task-definition volume per volume (named `vol-<index>`, the index being the volume's position among all declared volumes) and mounts each at `/srv/<dir>`. FileBrowser keeps `--root /srv`, so its root lists one folder per volume.
+  Every launch (the legacy `files.start` and the registry's sessions alike) mounts **every applied volume** of the game, not just the first, once the stack exports `efsVolumeAccessPoints`; on a stack applied before that output existed, the fallback planner mounts only the first volume (see the fallback row below). `FileManagerService` registers one ECS task-definition volume per volume (named `vol-<index>`, the index being the volume's position among all declared volumes) and mounts each at `/srv/<dir>`. FileBrowser keeps `--root /srv`, so its root lists one folder per volume.
 
   | Piece | Behaviour |
   |-------|-----------|
