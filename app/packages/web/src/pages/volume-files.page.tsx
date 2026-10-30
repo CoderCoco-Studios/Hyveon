@@ -8,6 +8,7 @@ import { LoadingState } from '../components/loading-state.component.js';
 import { PageHeader } from '../components/page-header.component.js';
 import { SessionBar } from '../components/volume-files/session-bar.component.js';
 import { useVolumeSession } from '../components/volume-files/use-volume-session.hook.js';
+import { useVolumeTransfers } from '../components/volume-files/use-volume-transfers.hook.js';
 import { VolumeBrowser } from '../components/volume-files/volume-browser.component.js';
 import { VolumePicker } from '../components/volume-files/volume-picker.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
@@ -39,6 +40,8 @@ export function VolumeFilesPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const session = useVolumeSession(name);
+  // Downloads are not counted in `uploadHolders`, so the session bar needs the pushed transfers to know one is running.
+  const transferActive = useVolumeTransfers(name).some((t) => t.phase === 'running');
   const [chosen, setChosen] = useState<string | null>(null);
   // The volume last browsed while running, so an open editor survives the session leaving `running`.
   const [lastBrowsed, setLastBrowsed] = useState<{ game: string; volume: string } | null>(null);
@@ -84,7 +87,7 @@ export function VolumeFilesPage() {
         <EmptyStateCard icon={FolderX} title="Nothing to browse yet" description="This game's volume doesn't exist yet. Apply the infrastructure first." />
       ) : (
         <>
-          <SessionBar status={status} actionError={session.error} onStart={() => void session.start()} onStop={() => void session.stop()} onRestart={() => void session.restart()} onAutoStopDue={() => void session.refresh()} />
+          <SessionBar status={status} transferActive={transferActive} actionError={session.error} onStart={() => void session.start()} onStop={() => void session.stop()} onRestart={() => void session.restart()} onAutoStopDue={() => void session.refresh()} />
           {volumes.length > 0 && <VolumePicker volumes={volumes} selected={selected?.name ?? null} onSelect={setChosen} />}
           {browseVolume !== null && (
             <VolumeBrowser game={name} volume={browseVolume} status={status} ended={!running} onSessionLost={() => void session.refresh()} />

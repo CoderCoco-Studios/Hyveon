@@ -11,6 +11,8 @@ import { formatDuration } from '../../lib/format.utils.js';
 /** Props for {@link SessionBar}. */
 export interface SessionBarProps {
   status: VolumeSessionStatus;
+  /** True while any upload or download transfer is running; downloads are not counted in `status.uploadHolders`. */
+  transferActive: boolean;
   /** Message of the last failed session action, or `null`. */
   actionError: string | null;
   onStart(): void;
@@ -80,12 +82,12 @@ function SessionClock({ status, onAutoStopDue }: { status: VolumeSessionStatus; 
  * reason.
  *
  * @remarks
- * Start is offered when stopped or failed, Stop while running (confirmed first when an upload or download holds the
- * session) and Restart only for an orphaned session.
+ * Start is offered when stopped or failed, Stop while running (confirmed first when an upload, folder upload or download is
+ * running) and Restart only for an orphaned session.
  *
  * @param props - See {@link SessionBarProps}.
  */
-export function SessionBar({ status, actionError, onStart, onStop, onRestart, onAutoStopDue }: SessionBarProps) {
+export function SessionBar({ status, transferActive, actionError, onStart, onStop, onRestart, onAutoStopDue }: SessionBarProps) {
   const [confirmStop, setConfirmStop] = useState(false);
   const { state } = status;
 
@@ -101,7 +103,7 @@ export function SessionBar({ status, actionError, onStart, onStop, onRestart, on
             </Button>
           )}
           {state === 'running' && (
-            <Button size="sm" variant="stop" onClick={() => (status.uploadHolders > 0 ? setConfirmStop(true) : onStop())}>
+            <Button size="sm" variant="stop" onClick={() => (status.uploadHolders > 0 || transferActive ? setConfirmStop(true) : onStop())}>
               Stop
             </Button>
           )}

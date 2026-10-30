@@ -100,9 +100,12 @@ beforeEach(() => {
     pushSession = cb;
     return () => undefined;
   });
+  // The page and the browser each subscribe, so a push fans out to every listener.
+  const transferListeners = new Set<(progress: VolumeTransferProgress) => void>();
+  pushTransfer = (progress) => transferListeners.forEach((listener) => listener(progress));
   apiMock.volumeOnTransfer.mockImplementation((cb: (progress: VolumeTransferProgress) => void) => {
-    pushTransfer = cb;
-    return () => undefined;
+    transferListeners.add(cb);
+    return () => transferListeners.delete(cb);
   });
   apiMock.folderGetProgress.mockResolvedValue(null);
   apiMock.folderOnProgress.mockImplementation((cb: (progress: FolderUploadProgress) => void) => {
@@ -421,6 +424,38 @@ describe('VolumeFilesPage', () => {
     expect(apiMock.volumeSessionStop).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Stop session' }));
     await waitFor(() => expect(apiMock.volumeSessionStop).toHaveBeenCalledWith(GAME));
+  });
+
+  it('should confirm before stopping a session with a running download', async () => {
+    apiMock.volumeSessionStop.mockResolvedValue({ ok: true, value: session({ state: 'stopped' }) });
+    const user = userEvent.setup();
+    renderFiles();
+    await screen.findByText('a.txt');
+
+    pushTransfer(makeTransfer({ game: GAME, transferId: 'd1', kind: 'download', name: 'world.zip' }));
+    await screen.findByRole('button', { name: 'Cancel world.zip' });
+    await user.click(screen.getByRole('button', { name: 'Stop' }));
+
+    expect(await screen.findByText('This cancels the running transfer.')).toBeInTheDocument();
+    expect(apiMock.volumeSessionStop).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Stop session' }));
+    await waitFor(() => expect(apiMock.volumeSessionStop).toHaveBeenCalledWith(GAME));
+  });
+
+  it('should stop without confirming once the download has finished', async () => {
+    apiMock.volumeSessionStop.mockResolvedValue({ ok: true, value: session({ state: 'stopped' }) });
+    const user = userEvent.setup();
+    renderFiles();
+    await screen.findByText('a.txt');
+
+    pushTransfer(makeTransfer({ game: GAME, transferId: 'd1', kind: 'download', name: 'world.zip' }));
+    await screen.findByRole('button', { name: 'Cancel world.zip' });
+    pushTransfer(makeTransfer({ game: GAME, transferId: 'd1', kind: 'download', name: 'world.zip', phase: 'done' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Cancel world.zip' })).not.toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Stop' }));
+
+    await waitFor(() => expect(apiMock.volumeSessionStop).toHaveBeenCalledWith(GAME));
+    expect(screen.queryByText('This cancels the running transfer.')).not.toBeInTheDocument();
   });
 
   it('should stop an idle session without confirming', async () => {
