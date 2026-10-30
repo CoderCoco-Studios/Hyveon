@@ -583,7 +583,7 @@ describe('VolumeFilesPage', () => {
     it.each(['unreachable', 'no-session'] as const)(
       'should re-read the session and offer Start when an operation fails with %s',
       async (code) => {
-        apiMock.volumeDownload.mockResolvedValue({ ok: false, code, message: "The file manager isn't reachable. Restart the session." });
+        apiMock.volumeDownload.mockResolvedValue({ ok: false, code, message: "The file manager isn't reachable. Stop and start the session." });
         const user = userEvent.setup();
         renderFiles();
         await screen.findByText('a.txt');
