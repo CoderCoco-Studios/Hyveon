@@ -847,7 +847,6 @@ describe('defineLambdas', () => {
 
     // @spec IAC-PROGRAM-ENV-002, IAC-PROGRAM-LAMBDA-009
     // @spec RT-WATCHDOG-ROUTE-004
-    // @spec RT-HEALTH-DECL-004
     it("should set the watchdog function's HEALTH_CHECKS and HEALTH_CHECK_FUNCTION_NAME when a game declares healthCheck", async () => {
       const gameServers = gameServersWithHealthCheck();
       const { provider, roles, efs } = await arrangeDependencies(gameServers);

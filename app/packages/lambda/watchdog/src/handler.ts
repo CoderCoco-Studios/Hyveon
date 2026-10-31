@@ -38,7 +38,6 @@ import {
   type GameServerHealthCheck,
 } from '@hyveon/shared';
 
-// @spec RT-TASK-DNS-012
 // @spec RT-WATCHDOG-CFG-001, RT-WATCHDOG-CFG-002, RT-WATCHDOG-CFG-007, RT-WATCHDOG-STATE-001, RT-WATCHDOG-STOP-002
 // @spec RT-WATCHDOG-STOP-003
 const ECS_CLUSTER = requireEnv('ECS_CLUSTER');
@@ -109,7 +108,6 @@ async function getNetworkPackets(eniId: string): Promise<number> {
 
 // @spec RT-WATCHDOG-HC-001, RT-WATCHDOG-HC-002, RT-WATCHDOG-HC-003, RT-WATCHDOG-HC-004, RT-WATCHDOG-HC-005
 // @spec RT-WATCHDOG-LOG-005
-// @spec RT-HEALTH-DECL-005, RT-HEALTH-FAIL-005
 /**
  * Invokes the health-check Lambda synchronously for a game with a declared
  * health check, and normalizes its result. A failed invoke — throttled,
@@ -197,7 +195,7 @@ async function listAllRunningTaskArns(): Promise<string[]> {
 // @spec RT-WATCHDOG-CW-002, RT-WATCHDOG-CW-003, RT-WATCHDOG-CW-004, RT-WATCHDOG-STATE-003, RT-WATCHDOG-STATE-004
 // @spec RT-WATCHDOG-STATE-005, RT-WATCHDOG-STATE-007, RT-WATCHDOG-STOP-001, RT-WATCHDOG-LOG-001, RT-WATCHDOG-LOG-002
 // @spec RT-WATCHDOG-LOG-003, RT-WATCHDOG-LOG-004, RT-WATCHDOG-LOG-005
-// @spec RT-HEALTH-DECL-002, RT-HEALTH-DECL-003, RT-HEALTH-LOG-002, RT-HEALTH-LOG-003
+// @spec RT-HEALTH-LOG-002, RT-HEALTH-LOG-003
 /**
  * Runs on an EventBridge schedule (`rate(${watchdog_interval_minutes} minutes)`) and
  * stops idle game-server tasks to keep costs down. For each RUNNING task, reads
