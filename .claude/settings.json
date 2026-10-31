@@ -5,12 +5,6 @@
       "Edit(.env.*)"
     ]
   },
-  "enabledPlugins": {
-    "github@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true
-  },
   "hooks": {
     "PreToolUse": [
       {
@@ -94,5 +88,13 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "github@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "linked-intent-dev@jszmajda-lid": true,
+    "arrow-maintenance@jszmajda-lid": true
   }
 }

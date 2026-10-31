@@ -1,0 +1,303 @@
+schema_version: 2
+last_updated: 2026-10-31
+
+# Taxonomy: three grouping-node clusters plus four flat root-level leaves.
+taxonomy:
+  iac:
+    - run
+    - engine
+    - program
+  game-runtime:
+    - task-and-dns
+    - watchdog
+    - health-check
+  operator-app:
+    - wizard-and-bootstrap
+    - diagnostics
+    - infra-logs
+    - app-update-and-release
+    - desktop-shell
+    - ipc-bridge
+  game-server: standalone
+  deployment-config: standalone
+  discord-bot: standalone
+  helper-task: standalone
+
+# Design tree. Grouping nodes (sub-HLDs) point `detail` at their future design
+# doc under docs/intent/<group>/<group>-design.md (not yet written). Leaves point
+# at their tree-mirrored arrow doc under docs/arrows/.
+#
+# blockedBy edges come from each arrow doc's "Cited from other leaves" section,
+# keeping only citations the leaf's core behaviour depends on. ipc-bridge is
+# listed only where the arrow doc names a bridge dependency as load-bearing
+# (self-bridged streaming channels). The graph is acyclic except run <-> engine.
+arrows:
+  # ---------------------------------------------------------------- iac
+  iac:
+    status: MAPPED
+    parent: null
+    children: [run, engine, program]
+    blocks: []
+    blockedBy: []
+    detail: ../intent/iac/iac-design.md
+    next: "Write the iac sub-HLD design doc."
+    drift: null
+
+  run:
+    status: MAPPED
+    parent: iac
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: [engine]
+    # Mutual with engine (real): run's gate logic (8-step apply gate, destroy
+    # token, rollback, stale-lock clear) physically lives in engine-owned
+    # PulumiService.ts, while engine is driven by run's RunService/iac.controller.
+    blockedBy: [engine, deployment-config, ipc-bridge]
+    detail: iac/run.md
+    next: "Persist and restore partialApply in AwsRunRecordStore.putRecord/toRunRecord, with a store test."
+    drift: null
+
+  engine:
+    status: MAPPED
+    parent: iac
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: [run, task-and-dns]
+    # Mutual with run; see the comment on run.
+    blockedBy: [run, program, wizard-and-bootstrap]
+    detail: iac/engine.md
+    next: "Route destroy output through redactEnvironmentValues like preview and apply, and add the missing destroy redaction test."
+    drift: null
+
+  program:
+    status: MAPPED
+    parent: iac
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: [engine, task-and-dns, watchdog, health-check, infra-logs, discord-bot, helper-task]
+    blockedBy: [deployment-config, game-server]
+    detail: iac/program.md
+    next: "Give the health-check Lambda ECS_CLUSTER (fixing the test that pins its env) and a route from its SG/subnet to the ECS and Secrets Manager APIs."
+    drift: null
+
+  # ---------------------------------------------------------------- game-runtime
+  game-runtime:
+    status: MAPPED
+    parent: null
+    children: [task-and-dns, watchdog, health-check]
+    blocks: []
+    blockedBy: []
+    detail: ../intent/game-runtime/game-runtime-design.md
+    next: "Write the game-runtime sub-HLD design doc."
+    drift: null
+
+  task-and-dns:
+    status: MAPPED
+    parent: game-runtime
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: [infra-logs, discord-bot, helper-task]
+    blockedBy: [program, engine, wizard-and-bootstrap]
+    detail: game-runtime/task-and-dns.md
+    next: "Make the update-dns DELETE send the record's stored TTL and skip records whose IP does not belong to the stopping task."
+    drift: null
+
+  watchdog:
+    status: MAPPED
+    parent: game-runtime
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: []
+    blockedBy: [program, health-check]
+    detail: game-runtime/watchdog.md
+    next: "Verify in a live account whether AWS/EC2 NetworkPacketsIn by NetworkInterfaceId returns datapoints for Fargate tasks, and replace the verdict source if not."
+    drift: null
+
+  health-check:
+    status: MAPPED
+    parent: game-runtime
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: [watchdog, discord-bot]
+    blockedBy: [program, game-server]
+    detail: game-runtime/health-check.md
+    next: "Pass ECS_CLUSTER to the health-check function and give it a network path to ECS and Secrets Manager, landing both together."
+    drift: null
+
+  # ---------------------------------------------------------------- operator-app
+  operator-app:
+    status: MAPPED
+    parent: null
+    children: [wizard-and-bootstrap, diagnostics, infra-logs, app-update-and-release, desktop-shell, ipc-bridge]
+    blocks: []
+    blockedBy: []
+    detail: ../intent/operator-app/operator-app-design.md
+    next: "Write the operator-app sub-HLD design doc."
+    drift: null
+
+  wizard-and-bootstrap:
+    status: MAPPED
+    parent: operator-app
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: [engine, task-and-dns, desktop-shell]
+    blockedBy: []
+    detail: operator-app/wizard-and-bootstrap.md
+    next: "Stop publishing SecretAccessKey as a CloudFormation stack output."
+    drift: null
+
+  diagnostics:
+    status: MAPPED
+    parent: operator-app
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: []
+    blockedBy: []
+    detail: operator-app/diagnostics.md
+    next: "Extend scrubSecrets to redact JSON-quoted labeled values and test it against real production and dev log line shapes."
+    drift: null
+
+  infra-logs:
+    status: MAPPED
+    parent: operator-app
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: []
+    blockedBy: [task-and-dns, program, ipc-bridge]
+    detail: operator-app/infra-logs.md
+    next: "Seed streamLambdaLogs's first startTime so the tail does not replay history and duplicate the snapshot, with a test."
+    drift: null
+
+  app-update-and-release:
+    status: MAPPED
+    parent: operator-app
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: []
+    blockedBy: [deployment-config, ipc-bridge]
+    detail: operator-app/app-update-and-release.md
+    next: "Resolve the auto-update-scaffold enableAutoUpdate-flag versus manual-check contradiction in the spec so EARS can be written against one rule."
+    drift: null
+
+  desktop-shell:
+    status: MAPPED
+    parent: operator-app
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: []
+    blockedBy: [ipc-bridge, wizard-and-bootstrap]
+    detail: operator-app/desktop-shell.md
+    next: "Declare the missing --color-accent, --color-background and --color-muted tokens so hover states and the LIVE pill render."
+    drift: null
+
+  ipc-bridge:
+    status: MAPPED
+    parent: operator-app
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: [run, infra-logs, app-update-and-release, desktop-shell]
+    blockedBy: []
+    detail: operator-app/ipc-bridge.md
+    next: "Make requireStringArray failures reach the renderer with their field message and add a filter test for an object-body BadRequestException."
+    drift: null
+
+  # ---------------------------------------------------------------- standalone leaves
+  game-server:
+    status: MAPPED
+    parent: null
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: [program, health-check]
+    blockedBy: [deployment-config]
+    detail: game-server.md
+    next: "Order the health-check secret write after a successful config write (or roll it back on conflict) and return upsert failures as a GameWriteResult."
+    drift: null
+
+  deployment-config:
+    status: MAPPED
+    parent: null
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: [run, program, app-update-and-release, game-server, helper-task]
+    blockedBy: []
+    detail: deployment-config.md
+    next: "Stop drift reporting every deployed game as pending_delete when the config read fails, via a rejecting read or an explicit declared-state-unknown result."
+    drift: null
+
+  discord-bot:
+    status: MAPPED
+    parent: null
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: []
+    # health-check owns shared/src/secrets/secretsStore.ts, whose getPublicKey
+    # backs interaction signature verification.
+    blockedBy: [program, task-and-dns, health-check]
+    detail: discord-bot.md
+    next: "Stop DiscordConfigService.load() caching an empty config on read failure, and stop mutators saving over a failed read."
+    drift: null
+
+  helper-task:
+    status: MAPPED
+    parent: null
+    sampled: 2026-10-30
+    audited: null
+    audited_sha: null
+    blocks: []
+    blockedBy: [program, task-and-dns, deployment-config]
+    detail: helper-task.md
+    next: "Mount the access point of the volume that owns the upload destination, or reject non-first-volume destinations."
+    drift: null
+
+# Items found during mapping that don't belong to a leaf.
+# `docs.openspec` and `docs.pages` are project extensions beyond the base
+# schema (which defines only `docs.intent`); the schema permits extensions.
+unmapped:
+  docs:
+    intent: []
+    # OpenSpec capabilities with no owning leaf (final-clustering §1).
+    openspec:
+      - operator-documentation
+      - docs-screenshot-capture
+      - node-toolchain-version
+    # final-clustering §2 "Unassigned" leaves all of docs/** to
+    # operator-documentation; leaves cite these pages but none owns them.
+    pages:
+      - docs/docs/intro.md
+      - docs/docs/install.md
+      - docs/docs/setup.md
+      - docs/docs/architecture.md
+      - docs/docs/code-signing-roadmap.md
+      - docs/docs/app/index.md
+      - docs/docs/app/audit.md
+      - docs/docs/app/costs.md
+      - docs/docs/app/dashboard.md
+      - docs/docs/app/discord.md
+      - docs/docs/app/first-run-wizard.md
+      - docs/docs/app/games.md
+      - docs/docs/app/iac.md
+      - docs/docs/app/logs.md
+      - docs/docs/app/settings.md
+      - docs/docs/components/index.md
+      - docs/docs/components/infra.md
+      - docs/docs/components/integration-tests.md
+      - docs/docs/components/lambdas.md
+      - docs/docs/components/management-app.md
+      - docs/docs/guides/index.md
+      - docs/docs/guides/maintainer.md
+      - docs/docs/guides/user.md
