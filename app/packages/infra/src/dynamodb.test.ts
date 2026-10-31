@@ -27,6 +27,7 @@ describe('defineDynamoDb', () => {
   });
 
   describe('discord table', () => {
+    // @spec IAC-PROGRAM-DATA-001
     it('should declare pk/sk keys, PAY_PER_REQUEST billing, the expiresAt TTL, and point-in-time recovery disabled', async () => {
       const provider = new aws.Provider('aws', { region: 'us-east-1' });
       await runDefineDynamoDb({ projectName: 'hyveon', auditTableName: '', provider });
@@ -56,6 +57,7 @@ describe('defineDynamoDb', () => {
   });
 
   describe('audit table', () => {
+    // @spec IAC-PROGRAM-DATA-002
     it('should default its name to "${projectName}-audit" when auditTableName is empty', async () => {
       const provider = new aws.Provider('aws', { region: 'us-east-1' });
       await runDefineDynamoDb({ projectName: 'hyveon', auditTableName: '', provider });
@@ -73,6 +75,7 @@ describe('defineDynamoDb', () => {
       expect(table.inputs.name).toBe('custom-audit-table');
     });
 
+    // @spec IAC-PROGRAM-DATA-002
     it('should declare pk/sk keys, PAY_PER_REQUEST billing, no GSI, and point-in-time recovery enabled', async () => {
       const provider = new aws.Provider('aws', { region: 'us-east-1' });
       const result = await runDefineDynamoDb({ projectName: 'hyveon', auditTableName: '', provider });

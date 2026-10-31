@@ -46,6 +46,7 @@ describe('defineNetwork', () => {
     mocks = installPulumiMocks();
   });
 
+  // @spec IAC-PROGRAM-NET-001
   it('should declare a VPC with the project-prefixed name, configured CIDR, and DNS attributes enabled', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineNetwork({ projectName: 'hyveon', vpcCidr: '10.0.0.0/16', provider });
@@ -68,6 +69,7 @@ describe('defineNetwork', () => {
     expect(igw.inputs.tags).toEqual({ Name: 'hyveon-igw' });
   });
 
+  // @spec IAC-PROGRAM-NET-001
   it('should declare two public subnets with distinct CIDRs, public-IP mapping, and per-index AZs', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineNetwork({ projectName: 'hyveon', vpcCidr: '10.0.0.0/16', provider });
@@ -87,6 +89,7 @@ describe('defineNetwork', () => {
     expect(first?.inputs.tags).toEqual({ Name: 'hyveon-public-0' });
   });
 
+  // @spec IAC-PROGRAM-NET-002
   it('should declare a public route table with a default route through the internet gateway', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineNetwork({ projectName: 'hyveon', vpcCidr: '10.0.0.0/16', provider });

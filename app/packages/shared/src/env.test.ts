@@ -18,10 +18,12 @@ describe('requireEnv', () => {
     expect(requireEnv('REQUIRE_ENV_TEST')).toBe('value');
   });
 
+  // @spec IAC-PROGRAM-ENV-004
   it('should throw when the env var is unset', () => {
     expect(() => requireEnv('REQUIRE_ENV_TEST')).toThrow('Missing required env var REQUIRE_ENV_TEST');
   });
 
+  // @spec IAC-PROGRAM-ENV-004
   it('should throw when the env var is an empty string', () => {
     process.env['REQUIRE_ENV_TEST'] = '';
     expect(() => requireEnv('REQUIRE_ENV_TEST')).toThrow('Missing required env var REQUIRE_ENV_TEST');
@@ -29,11 +31,13 @@ describe('requireEnv', () => {
 });
 
 describe('gameNamesFromEnv', () => {
+  // @spec IAC-PROGRAM-ENV-005
   it('should split, trim, and drop empty entries from GAME_NAMES', () => {
     process.env['GAME_NAMES'] = ' palworld ,, satisfactory ';
     expect(gameNamesFromEnv()).toEqual(['palworld', 'satisfactory']);
   });
 
+  // @spec IAC-PROGRAM-ENV-005
   it('should return an empty array when GAME_NAMES is unset', () => {
     expect(gameNamesFromEnv()).toEqual([]);
   });
@@ -59,6 +63,7 @@ describe('parseGameMapEnv', () => {
 });
 
 describe('familyToGameMap', () => {
+  // @spec IAC-PROGRAM-ENV-007
   it('should map each {game}-server family to its game name', () => {
     expect(familyToGameMap(['palworld', 'satisfactory'])).toEqual({
       'palworld-server': 'palworld',
@@ -70,6 +75,7 @@ describe('familyToGameMap', () => {
     expect(familyToGameMap([])).toEqual({});
   });
 
+  // @spec IAC-PROGRAM-ENV-007
   it('should return undefined, not an inherited Object.prototype member, for a family named after one', () => {
     const map = familyToGameMap(['palworld']);
     expect(map['constructor']).toBeUndefined();

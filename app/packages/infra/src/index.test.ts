@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as infra from './index.js';
 
 describe('@hyveon/infra public entry point', () => {
+  // @spec IAC-PROGRAM-WS-001
   it('should export createInfraProgram as a function', () => {
     expect(typeof infra.createInfraProgram).toBe('function');
   });

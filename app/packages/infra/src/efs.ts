@@ -78,6 +78,8 @@ function httpsGameEntries(gameServers: Record<string, GameServerConfig>): Array<
 /** POSIX uid/gid every access point's `posixUser` and `rootDirectory.creationInfo` use — a literal `1000` repeated four times per access point, factored out once here. */
 const ACCESS_POINT_POSIX_ID = 1000;
 
+// @spec IAC-PROGRAM-EFS-001, IAC-PROGRAM-EFS-002, IAC-PROGRAM-EFS-003, IAC-PROGRAM-FANOUT-001, IAC-PROGRAM-FANOUT-002
+// @spec IAC-PROGRAM-FANOUT-003, IAC-PROGRAM-TLS-005, IAC-PROGRAM-TLS-007, IAC-PROGRAM-TLS-010
 /**
  * Declares the shared EFS filesystem, its mount targets, and every
  * per-game/per-HTTPS-game access point. Must be called from inside the

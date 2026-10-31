@@ -39,6 +39,7 @@ import { defineDiscordDomain, type DiscordDomainResources } from './discordDomai
  */
 const DEFAULT_TAGS: Record<string, string> = { Project: 'hyveon' };
 
+// @spec IAC-PROGRAM-WS-005
 /**
  * Machine-local inputs {@link defineAll}/{@link createInfraProgram} need
  * that do NOT belong in `DeploymentConfig` (`@hyveon/shared`) — that object
@@ -118,6 +119,9 @@ export interface InfraResources {
   discordDomain: DiscordDomainResources;
 }
 
+// @spec IAC-PROGRAM-COMP-001, IAC-PROGRAM-COMP-002, IAC-PROGRAM-COMP-003, IAC-PROGRAM-COMP-004, IAC-PROGRAM-COMP-005
+// @spec IAC-PROGRAM-FANOUT-001, IAC-PROGRAM-FANOUT-002, IAC-PROGRAM-FANOUT-003, IAC-PROGRAM-FANOUT-004
+// @spec IAC-PROGRAM-TLS-008
 /**
  * Declares every resource this program's infrastructure graph covers and
  * wires them together: constructs the shared AWS provider, then calls each
@@ -356,6 +360,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
   };
 }
 
+// @spec IAC-PROGRAM-OUT-001
 /**
  * The stack-output values {@link buildStackOutputs} returns — the same field
  * set as `@hyveon/shared`'s {@link StackOutputs}, but with every
@@ -457,6 +462,8 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   appliedGameServers: Record<string, GameServerConfig>;
 }
 
+// @spec IAC-PROGRAM-OUT-001, IAC-PROGRAM-OUT-002, IAC-PROGRAM-OUT-003, IAC-PROGRAM-OUT-004, IAC-PROGRAM-OUT-005
+// @spec IAC-PROGRAM-OUT-006, IAC-PROGRAM-OUT-007
 /**
  * Builds every {@link StackOutputValues} field off the resources
  * {@link defineAll} declared, field-by-field against the legacy tool's
@@ -524,6 +531,7 @@ export function buildStackOutputs(resources: InfraResources, config: DeploymentC
   };
 }
 
+// @spec IAC-PROGRAM-WS-001, IAC-PROGRAM-WS-004
 /**
  * Builds the Pulumi inline-program closure for the Hyveon infrastructure
  * stack. Returns a {@link PulumiFn} — the Automation API runs this closure

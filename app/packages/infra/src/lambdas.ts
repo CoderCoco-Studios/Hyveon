@@ -54,6 +54,7 @@ import { stripTrailingDots } from './hostedZoneName.js';
 import type { IamRoleResources } from './iam.js';
 import { lambdaLogGroup } from './logGroups.js';
 
+// @spec IAC-PROGRAM-RUNTIME-001, IAC-PROGRAM-RUNTIME-002, IAC-PROGRAM-RUNTIME-004
 /** Node.js Lambda runtime every one of the six functions declares. */
 const LAMBDA_RUNTIME = 'nodejs24.x';
 
@@ -124,6 +125,7 @@ export interface LambdaResources {
   healthCheckFunction: aws.lambda.Function | undefined;
 }
 
+// @spec IAC-PROGRAM-WS-005
 /** Arguments {@link defineLambdas} needs to declare every Lambda function and its wiring. */
 export interface DefineLambdasArgs {
   /** Every resource name below is `${projectName}-...`. */
@@ -242,6 +244,7 @@ function lambdaCode(bundleFilePath: string): pulumi.asset.AssetArchive {
   return new pulumi.asset.AssetArchive({ 'handler.cjs': new pulumi.asset.FileAsset(bundleFilePath) });
 }
 
+// @spec IAC-PROGRAM-ENV-001
 /**
  * Comma-joined game names, sorted so the value is deterministic across
  * config-object iteration order.
@@ -253,6 +256,7 @@ function gameNamesCsv(gameServers: Record<string, GameServerConfig>): string {
   return Object.keys(gameServers).sort().join(',');
 }
 
+// @spec IAC-PROGRAM-ENV-002
 /**
  * Builds the `CONNECT_MESSAGES` JSON object shared by the followup and
  * dns-updater functions, mirroring
@@ -274,6 +278,7 @@ function connectMessagesByGame(gameServers: Record<string, GameServerConfig>): R
   return result;
 }
 
+// @spec IAC-PROGRAM-ENV-003
 /**
  * Builds the `GAME_PORTS` JSON object shared by the followup and dns-updater
  * functions — consumed to render the player-facing `host:port` connect
@@ -321,6 +326,7 @@ function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<
   return result;
 }
 
+// @spec IAC-PROGRAM-ENV-002
 /**
  * Builds the `HEALTH_CHECKS` JSON object the watchdog reads to route a
  * game's idle decision to the health-check Lambda instead of the
@@ -342,6 +348,10 @@ function healthChecksByGame(gameServers: Record<string, GameServerConfig>): Reco
   return result;
 }
 
+// @spec IAC-PROGRAM-FANOUT-001, IAC-PROGRAM-LAMBDA-001, IAC-PROGRAM-LAMBDA-002, IAC-PROGRAM-LAMBDA-003
+// @spec IAC-PROGRAM-LAMBDA-004, IAC-PROGRAM-LAMBDA-005, IAC-PROGRAM-LAMBDA-006, IAC-PROGRAM-LAMBDA-007
+// @spec IAC-PROGRAM-LAMBDA-008, IAC-PROGRAM-LAMBDA-009, IAC-PROGRAM-LAMBDA-010, IAC-PROGRAM-LAMBDA-013
+// @spec IAC-PROGRAM-LAMBDA-014, IAC-PROGRAM-LAMBDA-015
 /**
  * Declares every Lambda function, its log group, its permissions, the
  * interactions Function URL, and the watchdog/dns-updater EventBridge

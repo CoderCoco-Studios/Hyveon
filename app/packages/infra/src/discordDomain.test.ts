@@ -51,6 +51,7 @@ describe('defineDiscordDomain', () => {
     return result;
   }
 
+  // @spec IAC-PROGRAM-TLS-009
   it('should declare the ACM certificate for discord.{hostedZoneName} with DNS validation', async () => {
     const result = await run();
 
@@ -67,6 +68,7 @@ describe('defineDiscordDomain', () => {
     expect(await promiseOf(result.certificate.domainName)).toBe('discord.example.com');
   });
 
+  // @spec IAC-PROGRAM-COMP-003
   it('should register the ACM certificate and its validation against the us-east-1 provider, and every other resource against the regional provider', async () => {
     await run();
 
@@ -150,6 +152,7 @@ describe('defineDiscordDomain', () => {
     });
   });
 
+  // @spec IAC-PROGRAM-DNS-003
   it('should declare the CloudFront distribution with the exact cache behavior, restrictions, and alias attributes from the HCL', async () => {
     await run();
 
@@ -172,6 +175,7 @@ describe('defineDiscordDomain', () => {
     expect(distribution?.inputs.tags).toEqual({ Name: 'hyveon-discord-cf' });
   });
 
+  // @spec IAC-PROGRAM-DNS-003
   it("should set the distribution's viewer certificate to the validated certificate's arn with sni-only and TLSv1.2_2021", async () => {
     await run();
 
@@ -187,6 +191,7 @@ describe('defineDiscordDomain', () => {
     });
   });
 
+  // @spec IAC-PROGRAM-DNS-002
   it('should declare an A and an AAAA alias record for discord.{hostedZoneName}, both aliasing the CloudFront distribution', async () => {
     const result = await run();
 
@@ -207,6 +212,7 @@ describe('defineDiscordDomain', () => {
     expect(await promiseOf(result.aliasRecordAaaa.aliases)).toEqual([expectedAlias]);
   });
 
+  // @spec IAC-PROGRAM-DNS-002
   it('should declare exactly six resources: certificate, its validation record, its validation, the distribution, and two alias records', async () => {
     await run();
 

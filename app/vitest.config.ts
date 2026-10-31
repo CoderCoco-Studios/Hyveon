@@ -58,6 +58,7 @@ export default defineConfig({
         test: {
           name: 'node',
           environment: 'node',
+          // @spec IAC-PROGRAM-WS-003
           include: [
             'packages/**/*.test.{ts,tsx}',
             // Explicitly include desktop-preload specs so they are always discovered.

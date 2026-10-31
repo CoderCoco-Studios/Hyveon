@@ -109,6 +109,7 @@ export interface GamePort {
   protocol: string;
 }
 
+// @spec IAC-PROGRAM-SG-001, IAC-PROGRAM-SG-003
 /**
  * Deduplicated set of container port/protocol pairs across every
  * game server (HTTPS games contribute their extra `ports`, never
@@ -223,6 +224,9 @@ function ingressRule(
     : { description: `Game port ${port.port}/${port.protocol}${suffix}`, fromPort: port.port, toPort: port.port, protocol: port.protocol, cidrBlocks };
 }
 
+// @spec IAC-PROGRAM-SG-001, IAC-PROGRAM-SG-002, IAC-PROGRAM-SG-003, IAC-PROGRAM-SG-004, IAC-PROGRAM-SG-005
+// @spec IAC-PROGRAM-SG-006, IAC-PROGRAM-SG-007, IAC-PROGRAM-SG-008, IAC-PROGRAM-SG-009, IAC-PROGRAM-SG-010
+// @spec IAC-PROGRAM-SG-011, IAC-PROGRAM-SG-012, IAC-PROGRAM-SG-013
 /**
  * Declares the `game_servers`, `file_manager`, `efs`, and conditional
  * `efs_seeder` security groups. Must be called from inside the Pulumi inline-program closure (see

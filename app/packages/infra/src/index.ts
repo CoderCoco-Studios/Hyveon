@@ -7,6 +7,7 @@
  * @packageDocumentation
  */
 
+// @spec IAC-PROGRAM-WS-001
 export { createInfraProgram, buildStackOutputs } from './program.js';
 export type { InfraProgramOptions, InfraResources, StackOutputValues } from './program.js';
 export type { NetworkResources, DefineNetworkArgs } from './network.js';

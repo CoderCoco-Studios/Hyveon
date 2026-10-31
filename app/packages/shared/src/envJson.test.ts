@@ -10,6 +10,7 @@ describe('parseJsonEnv', () => {
     expect(parseJsonEnv('FOO', '{"a":1}', {})).toEqual({ a: 1 });
   });
 
+  // @spec IAC-PROGRAM-ENV-006
   it('should return the fallback when the env var is undefined', () => {
     expect(parseJsonEnv('FOO', undefined, { default: true })).toEqual({ default: true });
   });
@@ -18,6 +19,7 @@ describe('parseJsonEnv', () => {
     expect(parseJsonEnv('FOO', '', { default: true })).toEqual({ default: true });
   });
 
+  // @spec IAC-PROGRAM-ENV-006
   it('should return the fallback and log a warning, not throw, when the env var is malformed JSON', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -26,6 +28,7 @@ describe('parseJsonEnv', () => {
     expect(warn).toHaveBeenCalledWith('Malformed FOO env var — falling back to default', expect.any(Object));
   });
 
+  // @spec IAC-PROGRAM-ENV-006
   it('should return the fallback when the parsed value is valid JSON but not an object, given an object fallback', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -36,6 +39,7 @@ describe('parseJsonEnv', () => {
     expect(warn).toHaveBeenCalledTimes(3);
   });
 
+  // @spec IAC-PROGRAM-ENV-006
   it('should return the fallback and log a warning when the value is a JSON array but the fallback is a plain object', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 

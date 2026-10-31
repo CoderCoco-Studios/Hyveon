@@ -72,6 +72,7 @@ export interface DefineSecretsArgs {
  */
 const PLACEHOLDER_SECRET_VALUE = 'placeholder';
 
+// @spec IAC-PROGRAM-SECRET-003
 /**
  * Builds the `pulumi.CustomResourceOptions` every placeholder secret version
  * is declared with — `ignoreChanges: ['secretString']`. Exposed as a method
@@ -91,6 +92,7 @@ export const secretResourceOptions = {
   },
 };
 
+// @spec IAC-PROGRAM-SECRET-001, IAC-PROGRAM-SECRET-002, IAC-PROGRAM-SECRET-003, IAC-PROGRAM-SECRET-004
 /**
  * Declares the two Discord secrets and their create-only placeholder
  * versions — see this file's doc for the full HCL→Pulumi address table and

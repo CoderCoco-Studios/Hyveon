@@ -16,6 +16,7 @@ import type {
   UpdateKind,
   UpResult,
 } from '@pulumi/pulumi/automation/index.js';
+// @spec IAC-PROGRAM-WS-002
 import { createInfraProgram } from '@hyveon/infra';
 import {
   CONFIGURATION_OBJECT_KEY,
@@ -939,6 +940,7 @@ export class PulumiService {
   }
 
   // @spec IAC-ENGINE-OUT-001, IAC-ENGINE-OUT-002
+  // @spec IAC-PROGRAM-OUT-008
   /**
    * Reads every value the app cares about off the deployed Pulumi stack.
    * Returns `null` — NEVER throws, full stop. Every call site is written

@@ -32,6 +32,7 @@ function quotedWithIpSplices(value: string): string {
   return value.split(HYVEON_ENV_TOKENS.publicIpv4).map(shellSingleQuote).join('"$HYVEON_PUBLIC_IPV4"');
 }
 
+// @spec IAC-PROGRAM-TOKEN-005, IAC-PROGRAM-TOKEN-006
 /**
  * Builds the wrapper script: retry loop against the IP-echo endpoint (wget
  * then curl, 30 × 2s), a shape check rejecting any non-IPv4 response before

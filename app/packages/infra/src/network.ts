@@ -84,6 +84,7 @@ export function cidrSubnet(baseCidr: string, newBits: number, netNum: number): s
   return `${a}.${b}.${c}.${d}/${newPrefixLen}`;
 }
 
+// @spec IAC-PROGRAM-NET-001, IAC-PROGRAM-NET-002
 /**
  * Declares the VPC, internet gateway, public subnets, route table, and
  * route-table associations. Must be called from inside the Pulumi
