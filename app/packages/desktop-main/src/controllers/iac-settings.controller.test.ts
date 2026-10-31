@@ -229,6 +229,7 @@ describe('IacSettingsController', () => {
     });
   });
 
+  // @spec IAC-ENGINE-PIN-005
   describe('engineVersion', () => {
     /** Build a `PulumiEngineService` stub exposing just `getResolvedVersion`. */
     function makeEngine(resolvedVersion: string | null): PulumiEngineService {

@@ -178,6 +178,7 @@ function isNetworkFailureMessage(message: string): boolean {
 /** `NodeJS.ErrnoException` codes treated as an unwritable cache directory. */
 const CACHE_WRITE_ERRNO_CODES = new Set(['EACCES', 'EPERM', 'EROFS', 'ENOSPC']);
 
+// @spec IAC-ENGINE-PFAIL-001
 /**
  * Classifies a failure raised while installing the engine (either from
  * `PulumiCommand.install()`/`PulumiCommand.get()` themselves, or from the
@@ -254,6 +255,7 @@ function removeDirBestEffort(path: string, context: string): void {
   }
 }
 
+// @spec IAC-ENGINE-PROV-001, IAC-ENGINE-PROV-002, IAC-ENGINE-PROV-003, IAC-ENGINE-PROV-008, IAC-ENGINE-PIN-003
 /**
  * Resolves a usable Pulumi engine (`PulumiCommand`) without requiring the
  * operator to install anything, per the `pulumi-engine-runtime` delta spec's
@@ -318,6 +320,7 @@ export class PulumiEngineService {
    */
   private resolvedVersion: string | null = null;
 
+  // @spec IAC-ENGINE-PROV-004, IAC-ENGINE-PROV-005, IAC-ENGINE-PROV-006
   /**
    * Resolves a `PulumiCommand` pointed at the pinned engine version,
    * provisioning it into the `userData`-rooted cache on first call and
@@ -386,6 +389,7 @@ export class PulumiEngineService {
     return PULUMI_ENGINE_VERSION;
   }
 
+  // @spec IAC-ENGINE-PIN-005
   /**
    * The resolved engine's version string once {@link resolve} has completed
    * successfully at least once, or `null` before that (including while a
@@ -423,6 +427,7 @@ export class PulumiEngineService {
     return command;
   }
 
+  // @spec IAC-ENGINE-PFAIL-004
   /**
    * Attempts to reuse an already-installed engine at `root`. Returns `null`
    * (never throws) when nothing is installed there yet, or when what's
@@ -457,6 +462,7 @@ export class PulumiEngineService {
     }
   }
 
+  // @spec IAC-ENGINE-PFAIL-002, IAC-ENGINE-PFAIL-003
   /**
    * Installs the pinned engine into a fresh staging directory, verifies it,
    * and only then swaps it into `root` — see the class TSDoc's "No
@@ -584,6 +590,7 @@ export class PulumiEngineService {
     return final;
   }
 
+  // @spec IAC-ENGINE-PIN-002
   /**
    * Throws {@link PulumiEnginePinMismatchError} unless `command.version` is
    * defined and exactly equal to `pin` — guards against
@@ -597,6 +604,7 @@ export class PulumiEngineService {
     }
   }
 
+  // @spec IAC-ENGINE-PIN-004
   /**
    * Best-effort removes every entry directly under `versionsDir` other than
    * the current pin's own directory (`keepRoot`) and any in-flight
@@ -635,6 +643,7 @@ export class PulumiEngineService {
     return join(this.getEngineCacheRoot(), 'versions', pin.toString());
   }
 
+  // @spec IAC-ENGINE-PROV-007, IAC-ENGINE-PROV-011
   /**
    * Resolves the root cache directory the engine (and, per-version, every
    * pin this service has ever provisioned) is installed under. Mirrors

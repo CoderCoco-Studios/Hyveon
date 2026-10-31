@@ -373,6 +373,7 @@ describe('PulumiService.preview spawning and artifact persistence', () => {
     expect(workspace.getOrCreateStack).toHaveBeenCalledTimes(1);
   });
 
+  // @spec IAC-ENGINE-LOCK-009
   it('should throw synchronously when preview() is called while another operation is already in flight', async () => {
     const workspace = makeWorkspace(
       () =>
@@ -462,6 +463,7 @@ describe('PulumiService.preview streaming', () => {
   });
 });
 
+// @spec IAC-ENGINE-REDACT-001
 describe('PulumiService.preview environment redaction', () => {
   /** Distinctive operator-set environment value that must never survive into streamed or persisted output verbatim. */
   const SECRET_VALUE = 'sup3rSecretValue';

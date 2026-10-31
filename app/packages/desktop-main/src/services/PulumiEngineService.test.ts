@@ -102,6 +102,7 @@ beforeEach(() => {
   readdirSyncMock.mockReturnValue([]);
 });
 
+// @spec IAC-ENGINE-PROV-008
 describe('PulumiEngineService construction', () => {
   it('should not throw when constructed on a machine with no network and no engine', () => {
     // Nothing has been stubbed to succeed yet — installMock/getMock still
@@ -128,6 +129,7 @@ describe('PulumiEngineService construction', () => {
     expect(() => new ThrowingUserDataService()).not.toThrow();
   });
 
+  // @spec IAC-ENGINE-PIN-005
   it('should report null for getResolvedVersion before resolve() has ever been called', () => {
     const service = makeService();
     expect(service.getResolvedVersion()).toBeNull();
@@ -140,6 +142,7 @@ describe('PulumiEngineService construction', () => {
 });
 
 describe('PulumiEngineService.resolve — memoization and concurrency', () => {
+  // @spec IAC-ENGINE-PROV-001, IAC-ENGINE-PROV-004
   it('should call PulumiCommand.install exactly once across two concurrent resolve() calls', async () => {
     const service = makeService();
 
@@ -212,6 +215,7 @@ describe('PulumiEngineService.resolve — memoization and concurrency', () => {
     expect(installMock).toHaveBeenCalledTimes(1);
   });
 
+  // @spec IAC-ENGINE-PROV-005
   it('should not memoize a failed attempt, so the next resolve() call retries', async () => {
     const service = makeService();
     installMock.mockRejectedValueOnce(new Error('Failed to download https://get.pulumi.com/install.sh: no network'));
@@ -228,6 +232,7 @@ describe('PulumiEngineService.resolve — memoization and concurrency', () => {
 });
 
 describe('PulumiEngineService.resolve — cache reuse and version pinning', () => {
+  // @spec IAC-ENGINE-PROV-003
   it('should reuse a verified cache entry without calling install', async () => {
     const service = makeService();
     existsSyncMock.mockReturnValue(true);
@@ -241,6 +246,7 @@ describe('PulumiEngineService.resolve — cache reuse and version pinning', () =
     expect(service.getResolvedVersion()).toBe(PULUMI_ENGINE_VERSION);
   });
 
+  // @spec IAC-ENGINE-PIN-002, IAC-ENGINE-PIN-003
   it('should discard and reprovision when the cache holds a different version than the pin', async () => {
     const service = makeService();
     existsSyncMock.mockReturnValue(true);
@@ -262,6 +268,7 @@ describe('PulumiEngineService.resolve — cache reuse and version pinning', () =
     expect(service.getResolvedVersion()).toBe(PULUMI_ENGINE_VERSION);
   });
 
+  // @spec IAC-ENGINE-PFAIL-004
   it('should discard a cache entry whose binary is genuinely missing (ENOENT)', async () => {
     const service = makeService();
     existsSyncMock.mockReturnValue(true);
@@ -277,6 +284,7 @@ describe('PulumiEngineService.resolve — cache reuse and version pinning', () =
     expect(installMock).toHaveBeenCalledTimes(1);
   });
 
+  // @spec IAC-ENGINE-PIN-002
   it('should reject with an integrity error when a freshly installed engine reports the wrong version', async () => {
     const service = makeService();
     installMock.mockResolvedValueOnce(fakeCommand('/staging', '9.9.9'));
@@ -287,6 +295,7 @@ describe('PulumiEngineService.resolve — cache reuse and version pinning', () =
   });
 });
 
+// @spec IAC-ENGINE-PFAIL-003, IAC-ENGINE-PFAIL-004
 describe('PulumiEngineService.resolve — ambiguous cache failures are not deleted', () => {
   it('should leave an ambiguous cache entry in place and swap it aside once a fresh install is verified', async () => {
     const service = makeService();
@@ -372,6 +381,7 @@ describe('PulumiEngineService.resolve — ambiguous cache failures are not delet
   });
 });
 
+// @spec IAC-ENGINE-PFAIL-002
 describe('PulumiEngineService.resolve — no partial-install reuse', () => {
   it('should not rename a failed install into place and must reprovision fully on the next call', async () => {
     const service = makeService();
@@ -433,6 +443,7 @@ describe('PulumiEngineService.resolve — no partial-install reuse', () => {
   });
 });
 
+// @spec IAC-ENGINE-PIN-004
 describe('PulumiEngineService.resolve — pruning superseded versions', () => {
   it('should best-effort remove sibling version directories other than the current pin after a successful install', async () => {
     const service = makeService();
@@ -457,6 +468,7 @@ describe('PulumiEngineService.resolve — pruning superseded versions', () => {
   });
 });
 
+// @spec IAC-ENGINE-PFAIL-001
 describe('PulumiEngineService.resolve — typed provisioning errors', () => {
   it('should reject with PulumiEngineNetworkError when the install-script fetch itself fails', async () => {
     const service = makeService();
@@ -586,6 +598,7 @@ describe('PulumiEngineService.resolve — elapsed-time logging', () => {
   });
 });
 
+// @spec IAC-ENGINE-PROV-007
 describe('PulumiEngineService — engine cache root resolution', () => {
   const originalEnv = process.env['HYVEON_PULUMI_ENGINE_DIR'];
 
@@ -612,6 +625,7 @@ describe('PulumiEngineService — engine cache root resolution', () => {
   });
 });
 
+// @spec IAC-ENGINE-PROV-006
 describe('PulumiEngineService.resolve — phase reporting', () => {
   it('should report ("engine", "start") synchronously before provisioning does any work, then ("engine", "end") once resolution settles', async () => {
     const service = makeService();

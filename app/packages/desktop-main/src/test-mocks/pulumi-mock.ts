@@ -48,6 +48,7 @@ async function* playScriptedRun<TResult>(
   return run.result;
 }
 
+// @spec IAC-ENGINE-RT-002
 /**
  * In-process stand-in for `PulumiService`, substituted at the DI seam via
  * `ipc-harness.ts`'s `createIpcHarness()` — the `orchestrator-integration-coverage`

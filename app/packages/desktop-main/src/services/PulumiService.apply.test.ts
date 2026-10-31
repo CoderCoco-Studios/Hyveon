@@ -652,6 +652,7 @@ describe('PulumiService.apply streaming and structured changeSummary', () => {
   });
 });
 
+// @spec IAC-ENGINE-REDACT-001
 describe('PulumiService.apply environment redaction', () => {
   /** Distinctive operator-set environment value that must never survive into streamed or persisted output verbatim. */
   const SECRET_VALUE = 'sup3rSecretValue';
@@ -879,6 +880,7 @@ describe('PulumiService.apply run persistence', () => {
   });
 });
 
+// @spec IAC-ENGINE-OUT-006
 describe('PulumiService.apply cache invalidation', () => {
   it('should invalidate the stack-outputs cache on a successful apply', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
@@ -962,6 +964,7 @@ describe('PulumiService.apply lock-recovery', () => {
     return header + lines.join('');
   }
 
+  // @spec IAC-ENGINE-LOCK-004
   it('should clear a provably-own-orphan lock via stack.cancel() and retry stack.up() once, succeeding on the retry', async () => {
     vi.spyOn(process, 'kill').mockImplementation(() => {
       const err = new Error('no such process') as NodeJS.ErrnoException;
@@ -995,6 +998,7 @@ describe('PulumiService.apply lock-recovery', () => {
     expect(result).toEqual({ runId: PLAN_RUN_ID, changeSummary: {} });
   });
 
+  // @spec IAC-ENGINE-LOCK-005
   it('should reject with PulumiUnrecognizedLockError, and never call stack.cancel(), when the lock cannot be proven this installation\'s own orphan', async () => {
     // A live process (mockPidAlive) and/or an identity mismatch both fail
     // the "provable own orphan" test — mismatched identity is used here.
@@ -1173,6 +1177,7 @@ describe('PulumiService.apply abort handling', () => {
     expect(controller.signal.aborted).toBe(false);
   });
 
+  // @spec IAC-ENGINE-LOCK-002, IAC-ENGINE-LIFE-005
   it('should end the generator cleanly and clear the lock-ownership record when the signal aborts mid-flight', async () => {
     let rejectUp!: (err: unknown) => void;
     const upMock = vi.fn().mockImplementation(
@@ -1392,6 +1397,7 @@ describe('PulumiService.apply concurrency guard', () => {
     await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).resolves.toBeDefined();
   });
 
+  // @spec IAC-ENGINE-LOCK-009
   it('should throw when apply() is called while a PRIOR apply has already won the durable lock and is actively running the engine', async () => {
     // `operationInFlight` is not set at the very top of apply() (an early
     // observation there is forbidden — see the next test), so this must

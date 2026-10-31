@@ -167,6 +167,7 @@ const FULL_OUTPUT_MAP: OutputMap = {
   appliedGameServers: out({ minecraft: { image: 'x', cpu: 1024, memory: 2048, ports: [], volumes: [] } }),
 };
 
+// @spec IAC-ENGINE-OUT-001
 describe('PulumiService.getStackOutputs', () => {
   it('should return null without calling PulumiWorkspaceService when no state bucket is bootstrapped', async () => {
     const workspace = makeWorkspace(FULL_OUTPUT_MAP);
@@ -195,6 +196,7 @@ describe('PulumiService.getStackOutputs', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-ENGINE-OUT-002
   it('should return null without touching the shared workspace while initializeStack() is in flight', async () => {
     const hangingWorkspace: Partial<PulumiWorkspaceService> = {
       getOrCreateStack: vi.fn(() => new Promise<never>(() => {
@@ -258,6 +260,7 @@ describe('PulumiService.getStackOutputs', () => {
     });
   });
 
+  // @spec IAC-ENGINE-OUT-011
   it('should fill per-field defaults for keys absent from the OutputMap', async () => {
     const workspace = makeWorkspace({ gameNames: out(['minecraft']) });
     const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
@@ -275,6 +278,7 @@ describe('PulumiService.getStackOutputs', () => {
     });
   });
 
+  // @spec IAC-ENGINE-OUT-011
   it('should project efsVolumeAccessPoints and default it to an empty map when absent', async () => {
     const nested = { minecraft: { config: 'fsap-c', saves: 'fsap-s' } };
     const present = makeService(makeWorkspace({ efsVolumeAccessPoints: out(nested) }), makeStore(FULLY_CONFIGURED));

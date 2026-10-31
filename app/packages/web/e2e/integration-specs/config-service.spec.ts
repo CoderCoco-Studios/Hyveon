@@ -10,6 +10,7 @@ import { test, expect, DEFAULT_STACK_OUTPUTS } from './index.js';
  * HTTP server and no BrowserWindow involved.
  */
 test.describe('ConfigService — scripted stack outputs', () => {
+  // @spec IAC-ENGINE-OUT-007
   test('should return aws_region and domain from the scripted stack outputs', async ({ ipc, serverMocks: _reset }) => {
     ipc.mocks.pulumi.scriptStackOutputs(DEFAULT_STACK_OUTPUTS);
 

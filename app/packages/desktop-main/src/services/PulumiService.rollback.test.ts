@@ -515,6 +515,7 @@ describe('PulumiService.confirmRollback happy path', () => {
 
 // @spec IAC-RUN-RBK-006
 describe('PulumiService.confirmRollback concurrency guard', () => {
+  // @spec IAC-ENGINE-LOCK-009
   it('should refuse preview()/apply()/destroy() calls started while a rollback is mid-flight, naming rollback as the busy operation', async () => {
     // Mirrors PulumiService.preview.test.ts's identical "already in flight"
     // test pattern: a never-resolving getByRunId keeps confirmRollback

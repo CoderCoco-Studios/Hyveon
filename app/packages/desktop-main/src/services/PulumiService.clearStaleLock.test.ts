@@ -345,6 +345,7 @@ describe('PulumiService.clearStaleLock', () => {
     await expect(service.clearStaleLock(secondToken)).resolves.toBeUndefined();
   });
 
+  // @spec IAC-ENGINE-LOCK-005
   describe('confirmation token gate', () => {
     it('should reject with LockClearNotConfirmedError, and never call getOrCreateStack, when no token has ever been minted', async () => {
       const workspace = makeWorkspace();

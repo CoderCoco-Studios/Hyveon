@@ -801,6 +801,7 @@ describe('PulumiService.destroy run persistence', () => {
   });
 });
 
+// @spec IAC-ENGINE-OUT-006
 describe('PulumiService.destroy cache invalidation', () => {
   it('should invalidate the stack-outputs cache on a successful destroy', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
@@ -860,6 +861,7 @@ describe('PulumiService.destroy lock-recovery', () => {
     return header + lines.join('');
   }
 
+  // @spec IAC-ENGINE-LOCK-004
   it('should clear a provably-own-orphan lock via stack.cancel() and retry stack.destroy() once, succeeding on the retry', async () => {
     vi.spyOn(process, 'kill').mockImplementation(() => {
       const err = new Error('no such process') as NodeJS.ErrnoException;
@@ -893,6 +895,7 @@ describe('PulumiService.destroy lock-recovery', () => {
     expect(result).toMatchObject({ changeSummary: {} });
   });
 
+  // @spec IAC-ENGINE-LOCK-005
   it('should reject with PulumiUnrecognizedLockError, and never call stack.cancel(), when the lock cannot be proven this installation\'s own orphan', async () => {
     const lockedAt = new Date().toISOString();
     const conflictMessage = diyLockMessage([{ pid: 4242, username: 'someone-else', hostname: 'someone-elses-machine', lockedAt }]);
@@ -1134,6 +1137,7 @@ describe('PulumiService.destroy concurrency guard', () => {
     await expect(collectDestroyChunks(service.destroy(token2))).resolves.toBeDefined();
   });
 
+  // @spec IAC-ENGINE-LOCK-009
   it('should throw a descriptive Error from a second destroy() call while the first is still in flight (different tokens)', async () => {
     let resolveDestroy!: () => void;
     const workspace = makeWorkspace(

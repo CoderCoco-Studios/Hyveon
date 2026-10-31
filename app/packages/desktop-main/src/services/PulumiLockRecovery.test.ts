@@ -175,6 +175,7 @@ describe('parseStackLocks', () => {
   });
 });
 
+// @spec IAC-ENGINE-LOCK-006
 describe('isPidAlive', () => {
   it('should return false when process.kill throws ESRCH', () => {
     mockPidDead();
@@ -209,6 +210,7 @@ describe('classifyStackLockConflict — not a lock conflict', () => {
   });
 });
 
+// @spec IAC-ENGINE-LOCK-003
 describe('classifyStackLockConflict — force-terminated run reclaims its own lock', () => {
   it('should return "reclaimable-own-orphan" when identity matches, the pid is dead, and a fresh consistent record exists', () => {
     mockPidDead();
@@ -270,6 +272,7 @@ describe('classifyStackLockConflict — force-terminated run reclaims its own lo
   });
 });
 
+// @spec IAC-ENGINE-LOCK-003
 describe('classifyStackLockConflict — a LIVE same-machine lock must never be reclaimed (Critical finding)', () => {
   it('should return "requires-confirmation" when the lock pid is still alive, even with matching identity and a fresh outstanding record', () => {
     mockPidAlive();
@@ -294,6 +297,7 @@ describe('classifyStackLockConflict — a LIVE same-machine lock must never be r
   });
 });
 
+// @spec IAC-ENGINE-LOCK-003
 describe('classifyStackLockConflict — time-consistency: a lock predating every record is not evidence', () => {
   it('should return "requires-confirmation" when the only outstanding record started AFTER the lock was created', () => {
     mockPidDead();
@@ -314,6 +318,7 @@ describe('classifyStackLockConflict — time-consistency: a lock predating every
   });
 });
 
+// @spec IAC-ENGINE-LOCK-008
 describe('classifyStackLockConflict — ownership records are pruned after their max evidence age', () => {
   it('should prune (clear) a record older than PULUMI_LOCK_OWNERSHIP_RECORD_MAX_AGE_MS and not use it as evidence', () => {
     mockPidDead();
@@ -343,6 +348,7 @@ describe('classifyStackLockConflict — ownership records are pruned after their
   });
 });
 
+// @spec IAC-ENGINE-LOCK-005
 describe('classifyStackLockConflict — unrecognised lock requires confirmation with evidence', () => {
   it('should return "requires-confirmation" carrying the parsed locks when no outstanding record exists at all', () => {
     mockPidDead();
@@ -374,6 +380,7 @@ describe('classifyStackLockConflict — unrecognised lock requires confirmation 
   });
 });
 
+// @spec IAC-ENGINE-LOCK-007
 describe("classifyStackLockConflict — another machine's active lock is not presented as stale", () => {
   it('should return "requires-confirmation" when the lock identity does not match this machine, even with an outstanding local record', () => {
     // This installation has its own outstanding record (e.g. from a
@@ -425,6 +432,7 @@ describe('classifyStackLockConflict — one ownership record cannot prove two lo
   });
 });
 
+// @spec IAC-ENGINE-LOCK-007
 describe('classifyStackLockConflict — absence of in-flight activity is not evidence of staleness', () => {
   it('should return "requires-confirmation" when the lock identity happens to match this machine but no local record was ever made', () => {
     // Same machine identity as the lock, but this installation never
@@ -466,6 +474,7 @@ describe('formatLockAge', () => {
   });
 });
 
+// @spec IAC-ENGINE-LOCK-005
 describe('PulumiUnrecognizedLockError', () => {
   it('should carry the stack name and locks, and include holder + age in its message', () => {
     const stderr = diyLockStderr([{ pid: 4242, username: 'chris', hostname: 'dev-machine', lockedAt: '2024-01-15T10:30:00Z' }]);

@@ -51,6 +51,7 @@ export function isLeakedPromiseError(err: unknown): boolean {
   return LEAKED_PROMISE_MESSAGE_PATTERN.test(message);
 }
 
+// @spec IAC-ENGINE-LEAK-001, IAC-ENGINE-LEAK-002, IAC-ENGINE-LEAK-003
 /**
  * Runs `operation`, and if it rejects with {@link isLeakedPromiseError},
  * recovers by calling `recoverResult` instead of propagating the rejection —

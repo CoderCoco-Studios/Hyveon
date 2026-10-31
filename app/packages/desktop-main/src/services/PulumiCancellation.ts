@@ -137,6 +137,7 @@ export interface EscalatingCancellationOptions {
   onEscalate?: () => void;
 }
 
+// @spec IAC-ENGINE-LIFE-001, IAC-ENGINE-LIFE-002, IAC-ENGINE-LIFE-003, IAC-ENGINE-LIFE-008
 /**
  * Runs `operation` with a bounded escalation window layered on top of
  * whatever cancellation behaviour `operation` itself implements in response

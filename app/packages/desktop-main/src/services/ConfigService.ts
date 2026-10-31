@@ -108,6 +108,7 @@ export class ConfigService {
     this.stackOutputsCacheIsNull = false;
   }
 
+  // @spec IAC-ENGINE-OUT-004, IAC-ENGINE-OUT-005
   /**
    * Reads every value the app cares about off the deployed Pulumi stack,
    * fetched live via the SDK rather than from a local state file.
@@ -182,6 +183,7 @@ export class ConfigService {
     return process.env['AWS_DEFAULT_REGION'];
   }
 
+  // @spec IAC-ENGINE-OUT-010
   /**
    * Read the in-memory cache TTL override (milliseconds) from
    * `CONFIG_CACHE_TTL_MS`. Extracted for test-stubbing, mirroring
@@ -214,6 +216,7 @@ export class ConfigService {
     return sharedReadResourcesPath();
   }
 
+  // @spec IAC-ENGINE-OUT-008
   /**
    * Resolve the configured S3 configuration bucket name — the sole source of
    * `DeploymentConfigService`'s configuration JSON. Returns `null` when no bucket is
@@ -245,6 +248,7 @@ export class ConfigService {
     return process.env['HYVEON_CONFIG_BUCKET'];
   }
 
+  // @spec IAC-ENGINE-OUT-009
   /**
    * Resolve the AWS region for SDK clients.
    *

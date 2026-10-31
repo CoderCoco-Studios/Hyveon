@@ -69,6 +69,7 @@ describe('ConfigService', () => {
       await expect(svc.getStackOutputs()).resolves.toBeNull();
     });
 
+    // @spec IAC-ENGINE-OUT-004
     it('should only call PulumiService.getStackOutputs once across concurrent and repeated calls (cached)', async () => {
       const pulumi = makePulumiService();
       const outputs = { awsRegion: 'us-west-2' } as StackOutputs;
@@ -95,6 +96,7 @@ describe('ConfigService', () => {
       expect(pulumi.getStackOutputs).toHaveBeenCalledTimes(2);
     });
 
+    // @spec IAC-ENGINE-OUT-004
     it('should not cache a rejected PulumiService.getStackOutputs call, so a subsequent call retries', async () => {
       const pulumi = makePulumiService();
       vi.mocked(pulumi.getStackOutputs)
@@ -150,6 +152,7 @@ describe('ConfigService', () => {
       expect(logger.debug).toHaveBeenCalledWith('ConfigService.getStackOutputs: cache hit');
     });
 
+    // @spec IAC-ENGINE-OUT-005
     describe('null-result TTL (self-healing after a transient failure degraded to null)', () => {
       afterEach(() => {
         vi.useRealTimers();
@@ -232,6 +235,7 @@ describe('ConfigService', () => {
     });
   });
 
+  // @spec IAC-ENGINE-OUT-009
   describe('getRegion', () => {
     it('should use aws.region from the electron store when available', () => {
       const store = makeElectronStore();
@@ -257,6 +261,7 @@ describe('ConfigService', () => {
     });
   });
 
+  // @spec IAC-ENGINE-OUT-010
   describe('readEnvConfigCacheTtlMs', () => {
     afterEach(() => {
       delete process.env['CONFIG_CACHE_TTL_MS'];
@@ -293,6 +298,7 @@ describe('ConfigService', () => {
     });
   });
 
+  // @spec IAC-ENGINE-OUT-008
   describe('getConfigurationBucket', () => {
     afterEach(() => {
       delete process.env['HYVEON_CONFIG_BUCKET'];

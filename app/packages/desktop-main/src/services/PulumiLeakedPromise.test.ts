@@ -88,6 +88,7 @@ describe('runTreatingLeakedPromiseAsSuccess — genuine success (no leak)', () =
   });
 });
 
+// @spec IAC-ENGINE-LEAK-001
 describe('runTreatingLeakedPromiseAsSuccess — succeeded then threw (leaked promise)', () => {
   it('should recover via recoverResult instead of propagating the leak error', async () => {
     const operation = vi.fn().mockRejectedValue(new Error(SINGLE_LEAK_MESSAGE));
@@ -101,6 +102,7 @@ describe('runTreatingLeakedPromiseAsSuccess — succeeded then threw (leaked pro
     expect((recoverResult.mock.calls[0][0] as Error).message).toContain('The Pulumi runtime detected that');
   });
 
+  // @spec IAC-ENGINE-LEAK-003
   it('should log a warning noting the recovery', async () => {
     const operation = vi.fn().mockRejectedValue(new Error(SINGLE_LEAK_MESSAGE));
     const recoverResult = vi.fn().mockResolvedValue('recovered result');
@@ -111,6 +113,7 @@ describe('runTreatingLeakedPromiseAsSuccess — succeeded then threw (leaked pro
   });
 });
 
+// @spec IAC-ENGINE-LEAK-002
 describe('runTreatingLeakedPromiseAsSuccess — genuine failure', () => {
   it('should propagate a real operation failure unchanged and never call recoverResult', async () => {
     const realFailure = new Error('error: update failed: some resource error');

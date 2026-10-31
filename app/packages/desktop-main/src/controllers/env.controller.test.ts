@@ -23,6 +23,7 @@ describe('EnvController', () => {
     });
   });
 
+  // @spec IAC-ENGINE-OUT-007
   describe('getEnv', () => {
     it('should return region and domain from stack outputs', async () => {
       const result = await new EnvController(

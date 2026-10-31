@@ -47,6 +47,7 @@ describe('runWithEscalatingCancellation — no signal supplied', () => {
   });
 });
 
+// @spec IAC-ENGINE-LIFE-002
 describe('runWithEscalatingCancellation — already-aborted signal', () => {
   it('should reject with PulumiOperationNotStartedError and never invoke the operation', async () => {
     const controller = new AbortController();
@@ -73,6 +74,7 @@ describe('runWithEscalatingCancellation — already-aborted signal', () => {
 });
 
 describe('runWithEscalatingCancellation — signal triggers a graceful attempt that settles in time', () => {
+  // @spec IAC-ENGINE-LIFE-001
   it('should resolve with the operation result and never escalate', async () => {
     const controller = new AbortController();
     const onEscalate = vi.fn();
@@ -130,6 +132,7 @@ describe('runWithEscalatingCancellation — signal triggers a graceful attempt t
     );
   });
 
+  // @spec IAC-ENGINE-LIFE-008
   it('should clear the escalation timer and never call onEscalate when the operation settles before the timeout (regression: clearTimeout branch)', async () => {
     const controller = new AbortController();
     const onEscalate = vi.fn();
@@ -193,6 +196,7 @@ describe('runWithEscalatingCancellation — operation throws synchronously', () 
   });
 });
 
+// @spec IAC-ENGINE-LIFE-003
 describe('runWithEscalatingCancellation — no response within the escalation timeout', () => {
   it('should invoke onEscalate and reject with PulumiOperationEscalatedError once the timeout elapses', async () => {
     const controller = new AbortController();

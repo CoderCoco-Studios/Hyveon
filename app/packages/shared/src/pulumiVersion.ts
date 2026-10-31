@@ -1,3 +1,4 @@
+// @spec IAC-ENGINE-PIN-001
 /**
  * Pulumi engine version the desktop app provisions and runs against, matching
  * the `@pulumi/pulumi` dependency pinned in `app/packages/desktop-main/package.json`
