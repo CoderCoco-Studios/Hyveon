@@ -1,6 +1,6 @@
 /**
- * Owns the single apply lock that guards Pulumi plan/apply/destroy
- * submissions (issue #106): only one non-terminal run may be in flight at a
+ * Owns the single apply lock that guards Pulumi apply and destroy
+ * submissions (issue #106; plan takes only the in-process workspace guard): only one non-terminal run may be in flight at a
  * time. Two layers cooperate:
  *
  * - An in-memory `RunLock` field, checked and optimistically set

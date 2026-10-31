@@ -77,10 +77,6 @@ EARS requirements for prefix `APP-DIAG`; design in `docs/intent/operator-app/dia
 
 These lines are carried from OpenSpec by this leaf; the shared renderer (`LogLineList`, `parseAnsiLine`) is implemented in `operator-app/infra-logs`.
 
-- [x] **APP-DIAG-ANSI-001**: When a log line shown on `/logs` or in the Settings → Diagnostics panel contains an SGR escape sequence, the shared log-line renderer shall render the enclosed text with the corresponding foreground color and bold styling and show no raw escape bytes. (OpenSpec: app-diagnostics-logging / ANSI escape sequence rendering for log lines, scenario "SGR color codes render as styled text"; `ansi.utils.ts:34,78`)
-- [x] **APP-DIAG-ANSI-002**: When a log line shown on `/logs` or in the Settings → Diagnostics panel contains a non-SGR ANSI escape sequence (cursor movement, clear-line, OSC), the shared log-line renderer shall remove it from the rendered output. (OpenSpec: app-diagnostics-logging / ANSI escape sequence rendering for log lines, scenario "Non-SGR escape sequences are discarded, not shown"; `ansi.utils.ts:13-34,117`)
-- [x] **APP-DIAG-ANSI-003**: When the operator searches `/logs` or the Settings → Diagnostics panel for a term inside an SGR-colored run, the shared log-line renderer shall highlight the match while keeping the surrounding ANSI-derived color. (OpenSpec: app-diagnostics-logging / ANSI escape sequence rendering for log lines, scenario "Search highlighting still matches inside colored text"; `log-line-display.component.tsx:18-31,52-90`)
-- [x] **APP-DIAG-ANSI-004**: If a log line shown on `/logs` or in the Settings → Diagnostics panel contains a truncated or malformed escape sequence, then the shared log-line renderer shall render the line with that sequence as plain text rather than error. (OpenSpec: app-diagnostics-logging / ANSI escape sequence rendering for log lines, scenario "A malformed escape sequence does not break rendering"; `ansi.utils.ts:65-78`)
 
 ## Diagnostics Bundle Export
 

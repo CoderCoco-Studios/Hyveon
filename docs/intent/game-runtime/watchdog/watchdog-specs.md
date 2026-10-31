@@ -25,7 +25,7 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 - [x] **RT-WATCHDOG-ROUTE-001**: When the watchdog evaluates a running task of a game that has an entry in `HEALTH_CHECKS`, it shall take the idle verdict from the health-check Lambda and shall not query CloudWatch for that task. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
 - [x] **RT-WATCHDOG-ROUTE-002**: When the watchdog evaluates a running task of a game that has no entry in `HEALTH_CHECKS`, it shall take the idle verdict from the CloudWatch packet measurement and shall not invoke the health-check Lambda for that task. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
 - [x] **RT-WATCHDOG-ROUTE-003**: The watchdog shall apply exactly one verdict source to each evaluated game-server task per run, never a combination of the health check and the packet measurement. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
-- [x] **RT-WATCHDOG-ROUTE-004**: The infra program shall build the watchdog's `HEALTH_CHECKS` env var as a JSON object mapping each game name to its full declared `healthCheck`, omitting every game with no declared health check. (observed)
+- [x] **RT-WATCHDOG-ROUTE-004**: The infra program shall build the watchdog's `HEALTH_CHECKS` env var as a JSON object mapping each game name, in sorted key order, to its full declared `healthCheck`, omitting every game with no declared health check. (observed)
 
 ## CloudWatch packet verdict
 
@@ -35,7 +35,7 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 - [x] **RT-WATCHDOG-CW-004**: When the packet measurement returns a `Sum` for a game-server task, the watchdog shall treat the task as idle for that window if the floored sum is below `MIN_PACKETS`, and active otherwise. (observed)
 - [x] **RT-WATCHDOG-CW-005**: If the CloudWatch packet query for a game-server task returns no datapoint, then the watchdog shall treat the task as active for that window. (observed)
 - [x] **RT-WATCHDOG-CW-006**: If the CloudWatch packet query for a game-server task throws, then the watchdog shall log a warning and treat the task as active for that window. (observed)
-- [ ] **RT-WATCHDOG-CW-007**: Where a game declares no health check, the watchdog's packet measurement shall return datapoints that reflect the Fargate task's real inbound traffic, so that an idle game without a health check is eventually stopped. (observed) (gap: unverified; `handler.ts:85-87` queries per-ENI `AWS/EC2` metrics that Fargate tasks may never emit, and `:94-97` then treats every such task as active forever)
+- [ ] **RT-WATCHDOG-CW-007**: Where a game declares no health check, the watchdog's idle measurement shall return data that reflects the Fargate task's real inbound traffic, so that an idle game without a health check is eventually stopped. (observed) (gap: confirmed. `handler.ts:85-104` queries per-ENI `AWS/EC2` metrics that Fargate tasks never emit and treats the empty result as active. Verified live 2026-10-31 against the operator's `us-east-2` deployment: over the 7-day log retention the watchdog logged 368 `No CloudWatch datapoints for ENI … assuming active` lines and zero `idle check` lines, and `ListMetrics` returns no `AWS/EC2` `NetworkPacketsIn` metric in the region at all.)
 
 ## Health-check verdict
 

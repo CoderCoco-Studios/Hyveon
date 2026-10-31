@@ -129,7 +129,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/run/run-specs.md`; 
 3. Escape `status` with `ExpressionAttributeNames` in the status-filtered `listRuns` query and verify against real DynamoDB (finding 3). (specs: `IAC-RUN-HIST-004`)
 
 ### Should Fix
-4. Redact env values in destroy output and add a test (finding 5). (specs: `IAC-RUN-DSTR-013`)
+4. Redact env values in destroy output and add a test (finding 5). (specs: `IAC-ENGINE-REDACT-002`, owned by `iac/engine`)
 5. Move the destroy token onto `LockClearConfirmationGate` and add a gate test (finding 6). (specs: `IAC-RUN-DSTR-014`, `IAC-RUN-LCLR-008`)
 6. Import `APPROVAL_WINDOW_MS`/`isApprovalExpired` from `@hyveon/shared` in `iac.page.tsx` (finding 7). (specs: `IAC-RUN-APPR-006`)
 7. Extract the shared streaming loop in `iac.controller.ts` and the chunk setup in `PulumiService` (finding 9). (specs: `IAC-RUN-IPC-008`)

@@ -40,7 +40,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/iac/iac-design.md
-    next: "Resolve the sub-HLD Open Questions: destroy-redaction double ownership, unowned Pulumi backend lock-clear spec, whether plan takes the durable apply lock."
+    next: "Resolve the remaining sub-HLD Open Questions: fresh-install durable lock (IAC-RUN-LOCK-009) and whether to split PulumiService.ts along the run/engine seam."
     drift: null
 
   run:
@@ -91,7 +91,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/game-runtime/game-runtime-design.md
-    next: "Resolve the sub-HLD Open Questions: health-check vs watchdog duplicate invoke/routing specs, then verify live whether anything is auto-stopped today."
+    next: "Choose the watchdog replacement idle signal (RT-WATCHDOG-CW-007); nothing without a health check auto-stops today."
     drift: null
 
   task-and-dns:
@@ -115,8 +115,8 @@ arrows:
     blocks: []
     blockedBy: [program, health-check]
     detail: game-runtime/watchdog.md
-    next: "Verify in a live account whether AWS/EC2 NetworkPacketsIn by NetworkInterfaceId returns datapoints for Fargate tasks, and replace the verdict source if not."
-    drift: null
+    next: "Choose a replacement idle signal for games without a health check (options in watchdog-design.md Deferred 1), then implement RT-WATCHDOG-CW-007."
+    drift: "Verified live 2026-10-31 (us-east-2): AWS/EC2 NetworkPacketsIn returns no datapoints for Fargate ENIs; 368 no-data checks, 0 idle verdicts in 7 days; games without a health check never auto-stop."
 
   health-check:
     status: MAPPED
@@ -138,7 +138,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/operator-app/operator-app-design.md
-    next: "Resolve the first-run gate contradiction (APP-WIZARD-GATE-004 vs APP-SHELL-GATE-004/005) and the iac-settings.controller.ts owner."
+    next: "Resolve the iac-settings.controller.ts owner and the spec-owner vs code-owner rule for shared surfaces (sub-HLD Open Questions 1 and 3)."
     drift: null
 
   wizard-and-bootstrap:

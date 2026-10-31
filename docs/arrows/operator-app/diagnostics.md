@@ -120,7 +120,7 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 | Renderer Console Forwarding | `APP-DIAG-CONS-001` to `APP-DIAG-CONS-015` | 13 | 0 | 2 |
 | Service-Layer Logging | `APP-DIAG-SVC-001` to `APP-DIAG-SVC-005` | 3 | 0 | 2 |
 | Diagnostics Panel | `APP-DIAG-PANEL-001` to `APP-DIAG-PANEL-010` | 9 | 0 | 1 |
-| ANSI Log Line Rendering | `APP-DIAG-ANSI-001` to `APP-DIAG-ANSI-004` | 4 | 0 | 0 |
+| ANSI Log Line Rendering | owned by `infra-logs` (`APP-LOGS-RENDER-001`, `-002`) | — | — | — |
 | Diagnostics Bundle Export | `APP-DIAG-BNDL-001` to `APP-DIAG-BNDL-018` | 17 | 0 | 1 |
 | Log Secret Scrubbing | `APP-DIAG-SCRUB-001` to `APP-DIAG-SCRUB-004` | 3 | 0 | 1 |
 | Audit Trail Recording | `APP-DIAG-AUDIT-001` to `APP-DIAG-AUDIT-008` | 7 | 0 | 1 |

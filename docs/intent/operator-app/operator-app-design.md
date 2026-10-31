@@ -72,7 +72,6 @@ These are stated as prohibitions or explicit non-goals in the cited sources and 
 Hyveon's root tenets (`docs/high-level-design.md`, "Tenets") apply to this subtree unchanged. Subtree-specific tenets are not yet specified.
 
 Candidate subtree tenets the children surface, for the user to confirm or reject: "never persist a secret in plaintext" (`wizard-and-bootstrap-design.md`), "new fields are excluded by default" for anything leaving the machine (`diagnostics-design.md`, config allowlist decision), and "a failed IPC call must never lock a working install out of its dashboard" (`desktop-shell-design.md`, first-run gate).
-The last candidate is contested between two children; see Open Questions 1.
 
 ## System Design
 
@@ -137,14 +136,14 @@ flowchart LR
 | `wizard-and-bootstrap` | renderer + main | Five-step first-run wizard and Reconfigure, guided IAM, SDK-direct bootstrap of buckets, seed config and runs table, IAM check, Cloud Health, and credential custody (`wizard-and-bootstrap-design.md`, Context) | The final stack-init step (`iac/engine`), the first-run gate and Settings host (`desktop-shell`), the preload facade (`ipc-bridge`) |
 | `diagnostics` | renderer + main + AWS | Winston singleton and daily file, tail reads, renderer crash and console forwarding, Settings → Diagnostics panel, support bundle export, audit trail and `/audit` page (`diagnostics-design.md`, Context) | Logger bootstrap, log-line rendering (`infra-logs`), CloudWatch logs, the audit table and its callers |
 | `infra-logs` | renderer + main + AWS | `LogsService`, `LogsController`, `LambdaFunctionKey`, `useLogTail`, `LogTailView`, `/logs` and `/logs/infrastructure`, the shared `LogLineList` and ANSI parser (`infra-logs-design.md`, Context) | The game live-tail loop (`game-runtime/task-and-dns`), the log groups (`iac/program`), `projectName` (`deployment-config`) |
-| `app-update-and-release` | CI + main | `release.yml` and its composite actions, `cliff.toml`, `electron-builder.yml` feed metadata and runtime closure, `updater.ts` and `updater-fallback.ts`, the auto-update channel contract (`app-update-and-release-design.md`, Context) | The Settings page UI, the bridge, the host controller (see Open Questions 2), the electron-store schema, the boot call |
+| `app-update-and-release` | CI + main | `release.yml` and its composite actions, `cliff.toml`, `electron-builder.yml` feed metadata and runtime closure, `updater.ts` and `updater-fallback.ts`, the auto-update channel contract (`app-update-and-release-design.md`, Context) | The Settings page UI, the bridge, the host controller (see Open Questions 1), the electron-store schema, the boot call |
 
 ### Contracts between the children
 
 **The `window.hyveon` bridge.**
 Every renderer page calls `window.hyveon.<namespace>.<action>`, and every write method passes one payload object because the transport delivers only the first argument to `@Payload` (`ipc-bridge-design.md`, "Call Path").
 A leaf adding a channel adds a `@MessagePattern` handler in its own controller, registers the controller in `desktop-shell`'s `AppModule`, and adds the method to `ipc-bridge`'s hand-written `HyveonApi` and preload object; the channel string is the only checked link, guarded per controller by `expectChannels` (`ipc-bridge-design.md`, "Contract and Types"; `desktop-shell-design.md`, "Root module").
-Nine namespaces are wrapped by the `api.*` facade in `web/src/api.service.ts`; the rest of the renderer calls `window.hyveon` directly (`ipc-bridge-design.md`, "Renderer facades"; see Open Questions 3).
+Nine namespaces are wrapped by the `api.*` facade in `web/src/api.service.ts`; the rest of the renderer calls `window.hyveon` directly (`ipc-bridge-design.md`, "Renderer facades"; see Open Questions 2).
 
 **Error flattening.**
 On generic-bridge channels, whatever a handler throws reaches the renderer as a plain `Error` carrying only `.message`, via the global `RpcErrorMessageFilter` and the bridge's catch-log-rethrow (`ipc-bridge-design.md`, "Error Path").
@@ -162,7 +161,7 @@ A leaf owning a streaming channel registers its own `ipcMain.handle` behind a `p
 **Logging and diagnostics duties.**
 `desktop-shell` creates the winston logger under `<userData>/logs` before the Nest container boots, and `diagnostics` owns the logger and its file (`desktop-shell-design.md`, "Process Start"; `diagnostics-design.md`, "The App Log").
 Every controller in any leaf logs `logger.debug('<ControllerName>: <pattern> invoked')` as its first line with identifiers only, and every failing service method logs and normalises (`.claude/rules/logging.md`; `docs/docs/components/management-app.md`, "Logging").
-Each leaf restates the entry-log rule for its own controllers in its specs (for example `APP-DIAG-SVC-005` and `IAC-RUN-IPC-002`), while the service-layer rule is held under `APP-DIAG-SVC` (see Open Questions 8).
+Each leaf restates the entry-log rule for its own controllers in its specs (for example `APP-DIAG-SVC-005` and `IAC-RUN-IPC-002`), while the service-layer rule is held under `APP-DIAG-SVC` (see Open Questions 6).
 `desktop-shell`'s `main.tsx` installs `diagnostics`' global error reporting, console forwarding and `ErrorBoundary`, so renderer failures land in the same file as main-process lines (`diagnostics-design.md`, "Renderer Error and Console Forwarding").
 
 **Credentials and bootstrap state, from the wizard into the rest.**
@@ -258,51 +257,41 @@ Each decision below is load-bearing for more than one child.
 
 ## Open Questions
 
-1. **First-run gate failure policy: the two owning children disagree.**
-   `APP-WIZARD-GATE-004` (marked a gap) says that when `window.hyveon.wizard` is missing or `wizard.state.get` rejects, the gate shall not open the dashboard as though the wizard were complete.
-   `APP-SHELL-GATE-004` and `APP-SHELL-GATE-005` (marked implemented) say the renderer shall skip the wizard and render the routed shell in exactly those cases, and `desktop-shell-design.md` records fail-open as a decision ("a failed IPC call must never lock a working install out of its dashboard", `app.component.tsx:22-26`).
-   `APP-SHELL-GATE-006` adds an operator-visible signal on the reject path, which fits the fail-open reading only.
-   Which policy is intended, and which leaf owns the gate's EARS (the code is `desktop-shell`'s)?
-
-2. **Who owns `iac-settings.controller.ts` and the auto-update download registration.**
+1. **Who owns `iac-settings.controller.ts` and the auto-update download registration.**
    `ipc-bridge-design.md` ("What it deliberately does not own") and `docs/arrows/operator-app/ipc-bridge.md` name `app-update-and-release` as owner of the self-bridged `iac-settings.controller.ts`.
    `app-update-and-release-design.md`, `docs/arrows/deployment-config.md`, `engine-design.md` and the `index.yaml` `blockedBy: [deployment-config, ipc-bridge]` edge name `deployment-config` as the file's owner, with the auto-update channels hosted there on `app-update-and-release`'s behalf.
    Two readings: file ownership (`deployment-config`) versus behaviour ownership (`app-update-and-release`). Which governs, and should the channels move to a controller of their own (`deployment-config-design.md` Deferred 6, `app-update-and-release-design.md` Deferred 12)?
 
-3. **How much of the renderer uses the `api.*` facade.**
+2. **How much of the renderer uses the `api.*` facade.**
    `desktop-shell-design.md` says the Settings update rows call `window.hyveon.iac.settings` directly, "not the `api.*` facade the rest of the renderer uses".
    `ipc-bridge-design.md` says the facade wraps only nine namespaces and that all of `iac.*`, `logs.*`, `wizard.*` and `window.*` are called directly.
    The second matches the facade's stated scope; the first reads as if direct calls were the exception. The open design question in both leaves is whether every caller should move behind the facade (`ipc-bridge-design.md` Deferred 8, `desktop-shell-design.md` Deferred 19).
 
-4. **Spec owner versus code owner for shared surfaces.**
+3. **Spec owner versus code owner for shared surfaces.**
    Several requirements live in one leaf's EARS while the code lives in another leaf: the Settings Updates rows (`APP-UPDATE-UI-*`, code in `desktop-shell`'s `settings.page.tsx`), the nested Logs sidebar group (`APP-LOGS-NAV-*`, code in `desktop-shell`'s `app-nav.component.tsx`), and the stack-init step (`APP-WIZARD` "Stack initialization step", code in `iac/engine`).
    `desktop-shell-design.md` also calls the engine-version and update rows "the page's own logic", while `app-update-and-release-design.md` describes the Settings UI as `desktop-shell`'s and specifies it under `APP-UPDATE`.
    Is the rule that EARS follow the behaviour's capability and `@spec` annotations cross segments, or should these specs move to the code-owning leaf?
 
-5. **ANSI log-line rendering is specified twice.**
-   `APP-DIAG-ANSI-001` to `004` (carried from `app-diagnostics-logging`) and `APP-LOGS-RENDER-001` / `002` both specify the shared `LogLineList` / ANSI renderer, which `infra-logs` implements and `diagnostics` and `iac/run` consume.
-   Should one segment own these requirements and the other reference them?
-
-6. **Owner of `desktop-main/src/env.ts`.**
+4. **Owner of `desktop-main/src/env.ts`.**
    `wizard-and-bootstrap-design.md` and its arrow doc assign `env.ts` (`isTestMode`) to `ipc-bridge`; `ipc-bridge-design.md` does not list it among its files; `docs/arrows/operator-app/desktop-shell.md` lists it under `desktop-shell`'s code.
    Which leaf owns it?
 
-7. **Stale status of `embed-file-browser` in `diagnostics`.**
+5. **Stale status of `embed-file-browser` in `diagnostics`.**
    `diagnostics-design.md` lists `openspec/changes/embed-file-browser/` as an active change (References, and its deferred question on the stray-helper button), while `ipc-bridge-design.md` records it as archived, and the change exists only at `openspec/changes/archive/2026-10-30-embed-file-browser/`.
    The deferred question in `diagnostics-design.md` (whether the diagnostics spec acknowledges hosting the stray-helper button) still needs an answer against the archived change.
 
-8. **No single owner for the controller entry-log rule.**
+6. **No single owner for the controller entry-log rule.**
    `.claude/rules/logging.md` rule 1 applies to every `@MessagePattern` handler in the app, but each leaf restates it only for its own controllers (for example `APP-DIAG-SVC-005`, `IAC-RUN-IPC-002`), while the service-layer half sits under `APP-DIAG-SVC-001` to `004`.
    Should the cross-cutting entry-log rule have one owning spec, and if so in `diagnostics` or `ipc-bridge`? `[inferred]` question; no source raises it.
 
-9. **Self-bridged channels sit outside the error and logging contract.**
+7. **Self-bridged channels sit outside the error and logging contract.**
    Nine hand-written registrations bypass both error normalisers and the bridge's failure log (`ipc-bridge-design.md`, Deferred 2), and shared-style streams have no main-side cancel (Deferred 3).
    Because these channels belong to `infra-logs`, `iac/run` and `app-update-and-release`, a fix through one shared helper in `ipc-bridge` changes three segments at once.
 
-10. **Main-process failures that never reach the log file.**
+8. **Main-process failures that never reach the log file.**
     `desktop-shell`'s four boot failure paths in `electron-entry.ts` use `console.error` rather than winston (`desktop-shell-design.md`, Deferred 3), so the record `diagnostics` exists to keep misses window-open, renderer-load, updater-init and Nest-bootstrap failures.
 
-11. **Region of truth for the cloud bindings.**
+9. **Region of truth for the cloud bindings.**
     The secrets and remote-file stores use `config.getRegion()` while the audit, Discord-config and runs stores prefer `outputs.awsRegion` (`desktop-shell-design.md`, Deferred 7; primary owner `game-runtime/task-and-dns`).
     The wizard writes `aws.region`; which source is authoritative when they differ?
 

@@ -88,7 +88,7 @@ Which operations take which lock:
 | destroy | yes (`:3007`) | yes, after the token check (`:2959`) |
 | rollback confirm | yes, `'rollback'` (`:3595`) | no |
 
-`RunService`'s file comment and `runs.ts:212-224` both say the lock guards plan/apply/destroy; the code and `docs/docs/app/iac.md:200-201` agree that plan does not take it. The `iac-rollback` spec requires "the shared operation lock" to be held across restore and plan (`openspec/specs/iac-rollback/spec.md:41`); today that is only the in-process `operationInFlight` guard.
+Plan never takes the durable lock (`IAC-RUN-LOCK-007`; `docs/docs/app/iac.md:200-201`). The `iac-rollback` spec requires "the shared operation lock" to be held across restore and plan (`openspec/specs/iac-rollback/spec.md:41`); today that is only the in-process `operationInFlight` guard.
 
 **Fresh-install gap.** `createRun`, `releaseRun` and `resolveCurrentLock` consult the durable lock only when `getStackOutputs().runsTableName` is set (`RunService.ts:179`, `:231`, `:272`). They have no pre-apply fallback, whereas `RunRecordService.resolveRunsTableName` and the store's own config do. So before the first successful apply the durable lock is skipped and only the in-memory lock guards the run, while the pre-flight marker in the same apply is written durably. `RunService.ts:16-21` describes this skip as intentional, but the reason it gives ("table not deployed") is no longer true since the table is created at bootstrap.
 
@@ -115,7 +115,7 @@ The token logic is `LockClearConfirmationGate<string>` bound on `runId` (`RunSer
 | `iac.destroy.mintToken`, `iac.destroy` | generic, self-bridged | token string; ack as apply (`:941`, `:971-1065`) | `IacController` |
 | `iac.rollback.resolve` | generic | target version + best-effort diff (`:1162`) | `IacController` |
 | `iac.rollback.confirm` | self-bridged | `{ confirmed, versionId?, error? }` after the whole plan (`:1219-1300`) | `IacController` |
-| `iac.lock.clear.mintToken`, `iac.lock.clear` | generic | Pulumi backend lock recovery (`:953`, `:1332`) | `IacController` (logic in `iac/engine`) |
+| `iac.lock.clear.mintToken`, `iac.lock.clear` | generic | Pulumi backend lock recovery (`:953`, `:1332`) | `IacController` (logic in `iac/engine`; specified here by `IAC-RUN-LCLR-009` to `-012`) |
 | `iac.output` | generic | stack outputs; `force` accepted and ignored (`:1076-1088`) | `IacController` |
 | `iac.runs.get` | generic | `{ found, status: RunDetailStatus, record }` from local `run.json` (`iac-runs.controller.ts:208-250`) | `IacRunsController` |
 | `iac.runs.logs` | self-bridged | `{ streamId }`, then `iac.runs.logs.chunk` / `.end` (`:257-313`) | `IacRunsController` |
@@ -187,7 +187,7 @@ Unit tests cover the services, store and controllers directly (`RunService.test.
 1. Should `AwsRunRecordStore.putRecord`/`toRunRecord` round-trip `partialApply` (`AwsRunRecordStore.ts:185-208`, `:336-374`)? Until they do, history and detail never show "partial", the marker reads as plain `aborted`, and the gate throws the generic wrong-kind error. Sweeps disagreed on durability; the code shows it is not durable.
 2. Should `RunService` resolve the runs table with the same pre-apply fallback as `RunRecordService` (`RunService.ts:179`, `:231`, `:272` vs `RunRecordService.ts:267-271`), or should the spec state that the first apply on a fresh install is guarded in-memory only? Sweeps 5 and 6 disagreed; both are describing real code paths.
 3. Does the status-filtered `listRuns` query fail against real DynamoDB because `status` is unescaped (`AwsRunRecordStore.ts:302`)? Needs a live check and an `ExpressionAttributeNames` fix.
-4. Should plan and rollback confirm take the durable apply lock, as `RunService.ts:1-4`, `runs.ts:212-224` and `iac-rollback/spec.md:41` imply, or should those texts be corrected to match `docs/docs/app/iac.md:200-201`?
+4. Should rollback confirm take the durable apply lock, as `iac-rollback/spec.md:41` ("the shared operation lock") implies, or is the in-process `operationInFlight` guard enough? Plan does not take it (`IAC-RUN-LOCK-007`).
 5. Should a rollback produce one plan or two (`PulumiService.ts:3631` plus `iac.page.tsx:130-135`)? Either drop the renderer's auto-submit and show the in-service plan, or drop the in-service plan.
 6. Should `iac.rollback.confirm` stream its plan to the renderer, or should `iac.rollback.confirm.chunk` be removed (`iac.controller.ts:44-56`)?
 7. The `iac.plan/apply/destroy` `.chunk`/`.end` sends have no subscriber (`hyveon-api.ts:2333-2339`). Remove them, or keep them and extract the three near-identical loops in `iac.controller.ts` (and the matching chunk setup in `PulumiService`) per the duplication rule?

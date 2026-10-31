@@ -5,7 +5,7 @@ Automatically stop a game nobody is playing, so the operator does not pay for an
 ## Status
 
 **MAPPED** — mapped 2026-10-30 (git SHA `2822efd1`), not yet audited.
-A single scheduled Lambda with its state in an ECS task tag; tested at the handler level, but the CloudWatch idle signal it relies on for most games is unverified against real Fargate metrics, and several robustness gaps exist in the per-run loop.
+A single scheduled Lambda with its state in an ECS task tag; tested at the handler level, but the CloudWatch idle signal it relies on for most games returns no data for Fargate tasks (verified live 2026-10-31), so games without a health check are never auto-stopped; several robustness gaps also exist in the per-run loop.
 
 ## References
 
@@ -93,7 +93,7 @@ A single scheduled Lambda with its state in an ECS task tag; tested at the handl
 
 1. **Idle state lives in the `idle_checks` ECS task tag**: read at `handler.ts:146-155` (any error or non-numeric value becomes 0), written at `:157-168` (failures only warned). Activity resets the tag to 0 only when it was non-zero (`:250-253`). Matches the CLAUDE.md invariant.
 2. **Exactly one verdict source per game**: a declared `HEALTH_CHECKS[game]` routes to the health-check invoke and never to CloudWatch, otherwise CloudWatch only (`handler.ts:211-228`); both paths fail active (`:94-101`, `:118-143`). Tests pin the exclusivity (`handler.test.ts:200-271`).
-3. **CloudWatch idle signal may never fire on Fargate** `[inferred, needs live verification]`: `getNetworkPackets` queries namespace `AWS/EC2`, metric `NetworkPacketsIn`, dimension `NetworkInterfaceId` (`handler.ts:85-87`). AWS/EC2 network metrics are published per instance, and Fargate tasks do not appear to emit per-ENI `AWS/EC2` metrics; if no datapoints ever return, every non-health-check game is treated as active forever (`:94-97`) and the watchdog never stops it. Unit tests mock CloudWatch so they cannot catch this.
+3. **CloudWatch idle signal never fires on Fargate (confirmed)**: `getNetworkPackets` queries namespace `AWS/EC2`, metric `NetworkPacketsIn`, dimension `NetworkInterfaceId` (`handler.ts:85-104`). Fargate tasks emit no per-ENI `AWS/EC2` metrics, so every query returns no datapoints, the fallback treats the task as active, and no game without a health check is ever auto-stopped. Verified live 2026-10-31 against the operator's `us-east-2` deployment: over the 7-day log retention the watchdog logged 368 `No CloudWatch datapoints for ENI … assuming active` lines and zero `idle check` lines, and `ListMetrics` returns no `AWS/EC2` `NetworkPacketsIn` metric in the region at all. Combined with fail-active and no declared health checks (`HEALTH_CHECKS={}` in that deployment), a running game stops only when someone stops it. Unit tests mock CloudWatch so they cannot catch this.
 4. **Single `DescribeTasks` over all ARNs**: `handler.ts:200` passes every listed ARN in one call even though `ListTasks` is paginated (`:170-181`); `DescribeTasks` accepts at most 100 tasks, so more than 100 RUNNING tasks in the cluster appears to throw and abort the run (sweep-8, confirmed by reading the code).
 5. **`StopTask` is unguarded**: `handler.ts:239-245` awaits `StopTaskCommand` with no try/catch, so one failure aborts evaluation of every remaining task in that run. Tag writes, by contrast, swallow errors (`:165-167`).
 6. **Serial synchronous health-check invokes under a 60 s timeout** `[inferred]`: tasks are processed sequentially (`handler.ts:203-255`), each health-check invoke is `RequestResponse` (`:126`), the health-check function has a 30 s timeout (`lambdas.ts:544-547`) and the watchdog 60 s (`lambdas.ts:568`). Two or more hung checks in one run would time out the watchdog before later tasks are evaluated.
@@ -111,7 +111,7 @@ A single scheduled Lambda with its state in an ECS task tag; tested at the handl
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-runtime/watchdog/watchdog-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-1. Verify in a live account whether `AWS/EC2` `NetworkPacketsIn` by `NetworkInterfaceId` returns datapoints for Fargate tasks; if not, replace the CloudWatch verdict source, since otherwise no game without a health check is ever auto-stopped (finding 3). (specs: `RT-WATCHDOG-CW-007`)
+1. Replace the CloudWatch verdict source with one that sees Fargate traffic; the options are in `watchdog-design.md` Deferred 1 and need an owner decision (finding 3). (specs: `RT-WATCHDOG-CW-007`)
 
 ### Should Fix
 2. Chunk `DescribeTasks` into batches of 100 (finding 4). (specs: `RT-WATCHDOG-SCOPE-005`)

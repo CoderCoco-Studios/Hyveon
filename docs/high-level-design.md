@@ -236,13 +236,13 @@ Rationale is marked `[stated]` when the cited source gives it and `[inferred]` w
 
 ## Success Metrics
 
-> **DRAFT: needs owner review.** Metric shapes follow the Goals above; every target marked `TBD` needs a number from the project owner.
+> **DRAFT: needs owner review.** Metric shapes follow the Goals above; targets marked "suggested" are proposals awaiting the project owner's confirmation. The idle-stop metric is not met today: games without a health check are never auto-stopped (`RT-WATCHDOG-CW-007`).
 
 | Metric | Measures goal | Target |
 |---|---|---|
-| Compute cost while no task runs | 1 | $0 (no hourly-billed compute); monthly storage-and-state baseline `TBD` |
-| Time from first launch to first running server, blank account | 2 | `TBD` minutes, in one session, zero CLI steps |
-| `/server-start` to joinable (task `RUNNING` and DNS record updated) | 3 | `TBD` minutes |
+| Compute cost while no task runs | 1 | $0 (no hourly-billed compute); monthly storage-and-state baseline under $5 (suggested) |
+| Time from first launch to first running server, blank account | 2 | 30 minutes or less (suggested), in one session, zero CLI steps |
+| `/server-start` to joinable (task `RUNNING` and DNS record updated) | 3 | 3 minutes or less (suggested) |
 | Idle server stopped after the last player leaves | 1 | within the configured idle window (`idle_checks` x watchdog interval) |
 | Files touched to add a game | 4 | one `gameServers` entry, no infra code change |
 | Secret values reaching the renderer or the app log | invariant | zero |

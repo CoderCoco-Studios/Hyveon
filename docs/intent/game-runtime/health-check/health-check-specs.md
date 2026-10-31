@@ -5,10 +5,6 @@ EARS requirements for prefix `RT-HEALTH`; design in `health-check-design.md` (sa
 ## Declaration and routing
 
 - [x] **RT-HEALTH-DECL-001**: The `GameServerConfig` entry for a game in `deployment-config.json` shall accept an optional `healthCheck` declaration carrying a `kind` discriminator, whose only accepted value is `http`. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
-- [x] **RT-HEALTH-DECL-002**: When the watchdog evaluates a running task whose game has no entry in its `HEALTH_CHECKS` env map (the opted-in games' declarations, rendered by infra), the watchdog shall derive that task's idle verdict from CloudWatch `NetworkPacketsIn` and shall not invoke the health-check Lambda. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
-- [x] **RT-HEALTH-DECL-003**: When the watchdog evaluates a running task whose game has an entry in `HEALTH_CHECKS`, the watchdog shall derive that task's idle verdict solely from the health-check Lambda's verdict and shall not query CloudWatch `NetworkPacketsIn` for that task. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
-- [x] **RT-HEALTH-DECL-004**: When infra renders the watchdog's `HEALTH_CHECKS` env var, it shall include exactly the games whose `GameServerConfig` declares `healthCheck`, keyed by game name in sorted order, each mapped to its full declaration. (observed)
-- [x] **RT-HEALTH-DECL-005**: When the watchdog invokes the health-check Lambda, it shall invoke synchronously (`RequestResponse`) with the payload `{ game, taskArn, healthCheck }`, where `healthCheck` is the declaration from `HEALTH_CHECKS`. (observed)
 - [x] **RT-HEALTH-DECL-006**: The health-check Lambda shall return a verdict of shape `{ active: boolean, reason: string, failureDerived: boolean }` for every invocation it completes. (observed)
 
 ## HTTP request
@@ -46,8 +42,6 @@ EARS requirements for prefix `RT-HEALTH`; design in `health-check-design.md` (sa
 - [x] **RT-HEALTH-FAIL-002**: If a health-check response body is not valid JSON, then the verdict engine shall return a failure-derived active verdict. (OpenSpec: game-health-checks / A failed check reports the server as active)
 - [x] **RT-HEALTH-FAIL-003**: If, for any operator other than `exists`, the declared `jsonPath` resolves no value, resolves an object or array, or resolves a value the operator cannot compare, then the verdict engine shall return a failure-derived active verdict. (OpenSpec: game-health-checks / A failed check reports the server as active)
 - [x] **RT-HEALTH-FAIL-004**: If the health-check Lambda's ECS lookup, secret fetch, credential construction, connection, or request timeout fails, then the Lambda shall return `active: true`, `failureDerived: true`, and a reason prefixed `health check failed:`. (OpenSpec: game-health-checks / A failed check reports the server as active)
-- [x] **RT-HEALTH-FAIL-005**: If the watchdog has no `HEALTH_CHECK_FUNCTION_NAME`, or the invoke throws, returns a `FunctionError`, or returns a payload without boolean `active` and string `reason`, then the watchdog shall treat the health-checked task as active with a failure-derived reason. (OpenSpec: game-health-checks / A failed check reports the server as active)
-- [ ] **RT-HEALTH-FAIL-006**: If a health-check invocation runs to its function timeout, then the watchdog shall still complete its run for every remaining running task, including CloudWatch-path games. (observed) (gap: `app/packages/lambda/watchdog/src/handler.ts:203-216` invokes sequentially with no per-invoke bound; health-check timeout 30 s at `app/packages/infra/src/lambdas.ts:547` against watchdog timeout 60 s at `:568`)
 
 ## Provisioning and runtime environment
 

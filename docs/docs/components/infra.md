@@ -100,11 +100,12 @@ separate lock table:
   resolution.
 - **Locking is a lock *object* written into the state bucket itself**, not a
   DynamoDB table — this is how Pulumi's CLI implements its self-managed S3
-  backend. A stale lock left by a crashed operation is recoverable through
-  `PulumiService.clearStaleLock()` after the app verifies the lock is
-  actually orphaned (same process identity, no longer alive).
+  backend. A lock the app can prove is its own dead orphan (same process
+  identity, no longer alive) is reclaimed automatically; any other stale lock
+  is cleared only through the operator-confirmed `PulumiService.clearStaleLock()`.
 - This is a distinct concept from the app's own **apply lock**: `RunService`
-  additionally guards concurrent plan/apply/destroy submissions with an
+  additionally guards concurrent apply and destroy submissions (plan takes only
+  the in-process workspace guard) with an
   in-memory lock mirrored to a DynamoDB item in the runs table. Don't confuse
   the two — one guards the Pulumi backend itself, the other guards the app's
   own IPC-level submission queue.

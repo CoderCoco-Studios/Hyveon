@@ -201,7 +201,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/wizard-and
 
 ### Must Fix
 1. Make `SafeStorageService.decrypt` fail loudly when the keychain is unavailable for an encrypted value instead of passing ciphertext through (finding 5). (specs: `APP-WIZARD-CUSTODY-007`)
-2. Move the `HYVEON_TEST_MODE` `wizardCompleted` default out of the production read path, and make the renderer gate fail closed (findings 1, 2). (specs: `APP-WIZARD-GATE-003`, `APP-WIZARD-GATE-004`)
+2. Move the `HYVEON_TEST_MODE` `wizardCompleted` default out of the production read path, (finding 1). The gate itself fails open by design and is specified by `desktop-shell` (`APP-SHELL-GATE-004` to `-006`). (specs: `APP-WIZARD-GATE-003`)
 
 ### Should Fix
 3. Wrap client creation inside each `BootstrapService.ensure*` try so credential errors return `{ status: 'failed' }` (finding 6). (specs: `APP-WIZARD-BOOT-004`)
