@@ -31,6 +31,8 @@ interface ConfirmDialogProps {
    * until the typed value exactly matches this string (e.g. a guild ID).
    */
   typeToConfirm?: string;
+  /** When set, the confirm button is disabled and this text is its title. */
+  confirmDisabledReason?: string;
 }
 
 /**
@@ -68,11 +70,12 @@ function ConfirmDialogBody({
   confirmLabel = 'Confirm',
   confirmKey,
   typeToConfirm,
+  confirmDisabledReason,
 }: Omit<ConfirmDialogProps, 'open' | 'onOpenChange'>) {
   const [typed, setTyped] = useState('');
   const [skipSession, setSkipSession] = useState(false);
 
-  const confirmDisabled = typeToConfirm !== undefined && typed !== typeToConfirm;
+  const confirmDisabled = (typeToConfirm !== undefined && typed !== typeToConfirm) || confirmDisabledReason !== undefined;
 
   function handleConfirm() {
     if (confirmKey && skipSession) suppress(confirmKey);
@@ -110,7 +113,7 @@ function ConfirmDialogBody({
 
       <AlertDialogFooter>
         <AlertDialogCancel>Cancel</AlertDialogCancel>
-        <AlertDialogAction onClick={handleConfirm} disabled={confirmDisabled}>
+        <AlertDialogAction onClick={handleConfirm} disabled={confirmDisabled} title={confirmDisabledReason}>
           {confirmLabel}
         </AlertDialogAction>
       </AlertDialogFooter>

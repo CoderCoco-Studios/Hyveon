@@ -79,4 +79,11 @@ describe('ConfirmDialog', () => {
     open({ confirmLabel: 'Yes, stop it' });
     expect(screen.getByRole('button', { name: 'Yes, stop it' })).toBeInTheDocument();
   });
+
+  it('should disable Confirm and show the reason as its title when confirmDisabledReason is set', () => {
+    open({ confirmDisabledReason: 'Not right now.' });
+    const confirm = screen.getByRole('button', { name: 'Confirm' });
+    expect(confirm).toBeDisabled();
+    expect(confirm).toHaveAttribute('title', 'Not right now.');
+  });
 });

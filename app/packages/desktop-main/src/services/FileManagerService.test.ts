@@ -209,62 +209,25 @@ const TWO_VOLUME_OUTPUTS: StackOutputs = {
 };
 
 describe('FileManagerService', () => {
-  describe('getStatus', () => {
-    it('should return not_deployed when stack outputs are missing', async () => {
-      const { service: ecs } = makeEcs();
-      const svc = buildService({ config: makeConfig(null), ecs });
-      expect((await svc.getStatus('minecraft')).state).toBe('not_deployed');
-    });
+  /** Launches a browse-run helper and asserts it succeeded. */
+  const launchOk = async (svc: FileManagerService, runId = BROWSE_RUN_ID) => {
+    const outcome = await svc.launchHelper('minecraft', { runId });
+    if (!outcome.ok) throw new Error(`expected launch to succeed: ${outcome.message}`);
+    return outcome;
+  };
 
-    it('should return stopped when no tasks exist', async () => {
-      const { stub, service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([]) });
-      const svc = buildService({ ecs });
-      expect((await svc.getStatus('minecraft')).state).toBe('stopped');
-      expect(stub.listTasksByStartedBy).toHaveBeenCalledWith('game-cluster', 'filemgr-minecraft');
-    });
+  /** Launches a browse-run helper and asserts it was refused or failed. */
+  const launchFailed = async (svc: FileManagerService) => {
+    const outcome = await svc.launchHelper('minecraft', { runId: BROWSE_RUN_ID });
+    if (outcome.ok) throw new Error('expected launch to fail');
+    return outcome;
+  };
 
-    it('should return running with a URL built from the public IP on port 8080', async () => {
-      const task: Task = { taskArn: 'arn-fm', lastStatus: 'RUNNING' };
-      const { service: ecs } = makeEcs({
-        listTasksByStartedBy: vi.fn().mockResolvedValue([task]),
-        extractEniId: vi.fn().mockReturnValue('eni-1'),
-      });
-      const svc = buildService({ ecs, ec2: makeEc2('5.6.7.8') });
-      const status = await svc.getStatus('minecraft');
-      expect(status.state).toBe('running');
-      expect(status.url).toBe('http://5.6.7.8:8080');
-      expect(status.taskArn).toBe('arn-fm');
-      expect(status).not.toHaveProperty('credentials');
-    });
-
-    it('should return running without a URL when the public IP cannot be resolved', async () => {
-      const { service: ecs } = makeEcs({
-        listTasksByStartedBy: vi.fn().mockResolvedValue([{ lastStatus: 'RUNNING' }]),
-        extractEniId: vi.fn().mockReturnValue('eni-1'),
-      });
-      const svc = buildService({ ecs, ec2: makeEc2(null) });
-      const status = await svc.getStatus('minecraft');
-      expect(status.state).toBe('running');
-      expect(status.url).toBeUndefined();
-    });
-
-    it('should return starting when the task is not yet running', async () => {
-      const { service: ecs } = makeEcs({
-        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-fm', lastStatus: 'PROVISIONING' }]),
-      });
-      const svc = buildService({ ecs });
-      const status = await svc.getStatus('minecraft');
-      expect(status.state).toBe('starting');
-      expect(status.taskArn).toBe('arn-fm');
-    });
-  });
-
-  describe('start', () => {
+  describe('launchHelper preconditions and task definition', () => {
     it('should fail if stack outputs are missing', async () => {
       const { service: ecs } = makeEcs();
       const svc = buildService({ config: makeConfig(null), ecs });
-      const result = await svc.start('minecraft');
-      expect(result.success).toBe(false);
+      const result = await launchFailed(svc);
       expect(result.message).toMatch(/not deployed/i);
     });
 
@@ -272,8 +235,7 @@ describe('FileManagerService', () => {
       const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, efsAccessPoints: {}, efsVolumeAccessPoints: {} };
       const { service: ecs } = makeEcs();
       const svc = buildService({ config: makeConfig(outputs), ecs });
-      const result = await svc.start('minecraft');
-      expect(result.success).toBe(false);
+      const result = await launchFailed(svc);
       expect(result.message).toMatch(/no efs access point/i);
     });
 
@@ -281,8 +243,7 @@ describe('FileManagerService', () => {
       const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, fileManagerSecurityGroupId: '' };
       const { service: ecs } = makeEcs();
       const svc = buildService({ config: makeConfig(outputs), ecs });
-      const result = await svc.start('minecraft');
-      expect(result.success).toBe(false);
+      const result = await launchFailed(svc);
       expect(result.message).toMatch(/fileManagerSecurityGroupId/);
     });
 
@@ -291,8 +252,7 @@ describe('FileManagerService', () => {
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'existing' }]),
       });
       const svc = buildService({ ecs });
-      const result = await svc.start('minecraft');
-      expect(result.success).toBe(false);
+      const result = await launchFailed(svc);
       expect(result.message).toMatch(/already running/i);
     });
 
@@ -301,8 +261,7 @@ describe('FileManagerService', () => {
         getTaskDefinition: vi.fn().mockResolvedValue(null),
       });
       const svc = buildService({ ecs });
-      const result = await svc.start('minecraft');
-      expect(result.success).toBe(false);
+      const result = await launchFailed(svc);
       expect(result.message).toMatch(/execution role/i);
     });
 
@@ -310,7 +269,7 @@ describe('FileManagerService', () => {
       const { stub, service: ecs } = makeEcs();
       const deploymentConfig = deploymentConfigStub({ declared: [gameServer('minecraft', { volumes: TWO_VOLUMES })] });
       const svc = buildService({ config: makeConfig(TWO_VOLUME_OUTPUTS), ecs, deploymentConfig });
-      expect((await svc.start('minecraft')).success).toBe(true);
+      await launchOk(svc);
 
       const regArgs = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0];
       expect(regArgs.volumes!.map((v) => v.efsVolumeConfiguration!.authorizationConfig!.accessPointId)).toEqual(['fsap-c', 'fsap-s']);
@@ -328,9 +287,8 @@ describe('FileManagerService', () => {
     it('should register a filebrowser task definition (auth flags, not --noauth) and then run it', async () => {
       const { stub, service: ecs } = makeEcs();
       const svc = buildService({ ecs });
-      const result = await svc.start('minecraft');
+      const result = await launchOk(svc);
 
-      expect(result.success).toBe(true);
       expect(result.taskArn).toBe('arn-fm');
 
       const regArgs = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0];
@@ -355,11 +313,11 @@ describe('FileManagerService', () => {
       expect(container.command).toContain('--username');
       expect(container.command).toContain('--password');
       // The password flag must carry a bcrypt hash, never the plaintext
-      // returned to the caller in `result.credentials.password`.
+      // returned in-process on `result.credentials.password`.
       const passwordIndex = container.command!.indexOf('--password') + 1;
       const passwordFlagValue = container.command![passwordIndex] as string;
       expect(passwordFlagValue).toMatch(/^\$2[aby]\$/);
-      expect(passwordFlagValue).not.toBe(result.credentials?.password);
+      expect(passwordFlagValue).not.toBe(result.credentials.password);
       expect(container.logConfiguration!.options!['awslogs-group']).toBe('/ecs/filebrowser-minecraft');
       expect(container.logConfiguration!.options!['awslogs-region']).toBe('us-east-1');
       // The group is pre-created by infra; the execution role can't create it.
@@ -377,24 +335,23 @@ describe('FileManagerService', () => {
     it('should launch the helper from an immutable image reference', async () => {
       const { stub, service: ecs } = makeEcs();
       const svc = buildService({ ecs });
-      await svc.start('minecraft');
+      await launchOk(svc);
 
       const container = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0].containerDefinitions![0]!;
       expect(container.image).toMatch(/^filebrowser\/filebrowser:v?2\.63\.23@sha256:[0-9a-f]{64}$/);
     });
 
-    it('should return a random plaintext username/password pair once, in credentials', async () => {
+    it('should generate a fresh random username/password pair for every launch', async () => {
       const { service: ecs } = makeEcs();
       const svc = buildService({ ecs });
 
-      const first = await svc.start('minecraft');
-      const second = await svc.start('minecraft');
+      const first = await launchOk(svc);
+      const second = await launchOk(svc);
 
-      expect(first.credentials?.username).toBe('admin');
-      expect(first.credentials?.password).toEqual(expect.any(String));
-      expect(first.credentials?.password.length).toBeGreaterThan(0);
-      // Every launch generates a fresh password.
-      expect(second.credentials?.password).not.toBe(first.credentials?.password);
+      expect(first.credentials.username).toBe('admin');
+      expect(first.credentials.password).toEqual(expect.any(String));
+      expect(first.credentials.password.length).toBeGreaterThan(0);
+      expect(second.credentials.password).not.toBe(first.credentials.password);
     });
 
     it('should write the bcrypt hash to Secrets Manager via the shared SecretsStore', async () => {
@@ -402,14 +359,14 @@ describe('FileManagerService', () => {
       const { stub: secretsStub, service: secrets } = makeSecrets();
       const svc = buildService({ ecs, secrets });
 
-      const result = await svc.start('minecraft');
+      const result = await launchOk(svc);
 
       expect(secretsStub.put).toHaveBeenCalledWith(
         'arn:aws:secretsmanager:us-east-1:123:secret:filebrowser-credential',
         expect.any(String),
       );
       const storedHash = vi.mocked(secretsStub.put).mock.calls[0]![1];
-      expect(storedHash).not.toBe(result.credentials?.password);
+      expect(storedHash).not.toBe(result.credentials.password);
     });
 
     it('should not fail the launch when the Secrets Manager write throws', async () => {
@@ -417,9 +374,8 @@ describe('FileManagerService', () => {
       const { service: secrets } = makeSecrets({ put: vi.fn().mockRejectedValue(new Error('AccessDenied')) });
       const svc = buildService({ ecs, secrets });
 
-      const result = await svc.start('minecraft');
+      const result = await launchOk(svc);
 
-      expect(result.success).toBe(true);
       expect(result.credentials).toBeDefined();
     });
 
@@ -428,7 +384,7 @@ describe('FileManagerService', () => {
       const { stub: schedulerStub, service: scheduler } = makeScheduler();
       const svc = buildService({ ecs, scheduler });
 
-      await svc.start('minecraft');
+      await launchOk(svc);
 
       expect(schedulerStub.createStopSchedule).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -449,11 +405,10 @@ describe('FileManagerService', () => {
       const { stub: schedulerStub, service: scheduler } = makeScheduler();
       const svc = buildService({ config: makeConfig(outputs), ecs, scheduler });
 
-      const result = await svc.start('minecraft');
+      const result = await launchOk(svc);
 
-      expect(result.success).toBe(true);
       expect(schedulerStub.createStopSchedule).not.toHaveBeenCalled();
-      expect(result.message).toMatch(/warning/i);
+      expect(result.scheduleWarning).toMatch(/warning/i);
     });
 
     it('should still succeed but warn in the message when schedule creation itself fails', async () => {
@@ -461,10 +416,9 @@ describe('FileManagerService', () => {
       const { service: scheduler } = makeScheduler({ createStopSchedule: vi.fn().mockResolvedValue(false) });
       const svc = buildService({ ecs, scheduler });
 
-      const result = await svc.start('minecraft');
+      const result = await launchOk(svc);
 
-      expect(result.success).toBe(true);
-      expect(result.message).toMatch(/warning/i);
+      expect(result.scheduleWarning).toMatch(/warning/i);
     });
 
     it('should not warn in the message when the schedule is created successfully', async () => {
@@ -472,19 +426,16 @@ describe('FileManagerService', () => {
       const { service: scheduler } = makeScheduler();
       const svc = buildService({ ecs, scheduler });
 
-      const result = await svc.start('minecraft');
+      const result = await launchOk(svc);
 
-      expect(result.success).toBe(true);
-      expect(result.message).not.toMatch(/warning/i);
+      expect(result.scheduleWarning).toBe('');
     });
 
     it('should fail when task-definition registration returns null', async () => {
       const { stub, service: ecs } = makeEcs({
         registerTaskDefinition: vi.fn().mockResolvedValue(null),
       });
-      const svc = buildService({ ecs });
-      const result = await svc.start('minecraft');
-      expect(result.success).toBe(false);
+      await launchFailed(buildService({ ecs }));
       expect(stub.runTask).not.toHaveBeenCalled();
     });
 
@@ -492,9 +443,7 @@ describe('FileManagerService', () => {
       const { service: ecs } = makeEcs({
         runTask: vi.fn().mockResolvedValue(null),
       });
-      const svc = buildService({ ecs });
-      const result = await svc.start('minecraft');
-      expect(result.success).toBe(false);
+      await launchFailed(buildService({ ecs }));
     });
   });
 
@@ -612,14 +561,13 @@ describe('FileManagerService', () => {
   describe('operator IP rule', () => {
     it('should authorize the detected public IP as a /32 on port 8080 with a description naming game and run', async () => {
       const ec2 = makeEc2();
-      await buildService({ ec2 }).start('minecraft');
+      await launchOk(buildService({ ec2 }));
       expect(ec2.authorizeIngress).toHaveBeenCalledWith('sg-files', '203.0.113.7/32', 8080, 'hyveon-filemgr:minecraft:browse');
     });
 
     it('should fail before registering anything when the public IP cannot be detected', async () => {
       const { stub, service: ecs } = makeEcs();
-      const result = await buildService({ ecs, publicIp: makePublicIp(null) }).start('minecraft');
-      expect(result.success).toBe(false);
+      const result = await launchFailed(buildService({ ecs, publicIp: makePublicIp(null) }));
       expect(result.message).toMatch(/public IP/);
       expect(stub.registerTaskDefinition).not.toHaveBeenCalled();
     });
@@ -627,8 +575,7 @@ describe('FileManagerService', () => {
     it('should fail without launching when the rule cannot be authorized', async () => {
       const { stub, service: ecs } = makeEcs();
       const ec2 = makeEc2('1.2.3.4', { authorizeIngress: vi.fn().mockRejectedValue(new Error('denied')) });
-      const result = await buildService({ ecs, ec2 }).start('minecraft');
-      expect(result.success).toBe(false);
+      const result = await launchFailed(buildService({ ecs, ec2 }));
       expect(result.message).toContain('denied');
       expect(stub.runTask).not.toHaveBeenCalled();
     });
@@ -638,8 +585,7 @@ describe('FileManagerService', () => {
       const ec2 = makeEc2('1.2.3.4', {
         listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([{ ruleId: 'sgr-1', description: 'hyveon-filemgr:minecraft:browse', cidr: '203.0.113.7/32' }]),
       });
-      const result = await buildService({ ecs, ec2 }).start('minecraft');
-      expect(result.success).toBe(false);
+      await launchFailed(buildService({ ecs, ec2 }));
       expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-1']);
       expect(stub.deregisterTaskDefinition).toHaveBeenCalledWith('arn:aws:ecs:::task-definition/filebrowser-minecraft:1');
     });
@@ -649,14 +595,14 @@ describe('FileManagerService', () => {
       const ec2 = makeEc2('1.2.3.4', {
         listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([{ ruleId: 'sgr-1', description: 'hyveon-filemgr:minecraft:browse', cidr: 'x' }]),
       });
-      await buildService({ ecs, ec2 }).start('minecraft');
+      await launchFailed(buildService({ ecs, ec2 }));
       expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-1']);
     });
 
     it('should not touch the rule of a game whose helper refused to start because one is open', async () => {
       const { service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'existing' }]) });
       const ec2 = makeEc2();
-      await buildService({ ecs, ec2 }).start('minecraft');
+      await launchFailed(buildService({ ecs, ec2 }));
       expect(ec2.authorizeIngress).not.toHaveBeenCalled();
       expect(ec2.revokeIngressRules).not.toHaveBeenCalled();
     });
@@ -715,10 +661,10 @@ describe('FileManagerService', () => {
     });
   });
 
-  describe('launchHelper with TLS and upload tags', () => {
-    /** Launches the way an upload run does: over TLS, tagged as a seed-upload session. */
+  describe('launchHelper with upload tags', () => {
+    /** Launches the way an upload run does: tagged as a seed-upload session. */
     const launchUpload = (svc: FileManagerService, layout?: HelperVolumeLayout) =>
-      svc.launchHelper('minecraft', { runId: 'run-1', tls: true, tags: UPLOAD_TAGS, layout });
+      svc.launchHelper('minecraft', { runId: 'run-1', tags: UPLOAD_TAGS, layout });
 
     it('should return the credential and certificate in-process and tag the task as a seed-upload session', async () => {
       const { stub, service: ecs } = makeEcs();
@@ -726,7 +672,7 @@ describe('FileManagerService', () => {
       if (!result.ok) throw new Error('expected launch to succeed');
       expect(result.credentials.username).toBe('admin');
       expect(result.credentials.password.length).toBeGreaterThan(10);
-      expect(result.cert!.fingerprint256).toMatch(/^[0-9A-F:]+$/);
+      expect(result.cert.fingerprint256).toMatch(/^[0-9A-F:]+$/);
       const runArgs = vi.mocked(stub.runTask).mock.calls[0]![0];
       expect(runArgs.startedBy).toBe('filemgr-minecraft');
       expect(runArgs.tags).toEqual([
@@ -744,8 +690,8 @@ describe('FileManagerService', () => {
       expect(container.entryPoint).toEqual(['sh', '-c']);
       expect(container.command![0]).toContain('exec filebrowser --cert /tmp/tls.crt --key /tmp/tls.key "$@"');
       const env = Object.fromEntries(container.environment!.map((e) => [e.name, e.value]));
-      expect(Buffer.from(env['FB_TLS_CERT_B64']!, 'base64').toString()).toBe(result.cert!.certPem);
-      expect(Buffer.from(env['FB_TLS_KEY_B64']!, 'base64').toString()).toBe(result.cert!.keyPem);
+      expect(Buffer.from(env['FB_TLS_CERT_B64']!, 'base64').toString()).toBe(result.cert.certPem);
+      expect(Buffer.from(env['FB_TLS_KEY_B64']!, 'base64').toString()).toBe(result.cert.keyPem);
       expect(container.command).toContain('--username');
     });
 
@@ -801,37 +747,25 @@ describe('FileManagerService', () => {
       expect(JSON.stringify(vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0])).not.toContain(result.credentials.password);
     });
 
-    it('should only record the operator IP on, and not wrap, ordinary browse launches', async () => {
+    it('should only record the operator IP when no tags are given', async () => {
       const { stub, service: ecs } = makeEcs();
-      await buildService({ ecs }).start('minecraft');
+      await launchOk(buildService({ ecs }));
       expect(vi.mocked(stub.runTask).mock.calls[0]![0].tags).toEqual([{ key: 'OperatorIp', value: '203.0.113.7' }]);
-      const container = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0].containerDefinitions![0]!;
-      expect(container.entryPoint).toBeUndefined();
-      expect(container.environment).toBeUndefined();
     });
   });
 
   describe('launchHelper', () => {
-    it('should launch with TLS container settings when tls is true', async () => {
+    it('should launch every helper with TLS container settings', async () => {
       const { stub, service: ecs } = makeEcs();
-      const outcome = await buildService({ ecs }).launchHelper('minecraft', { runId: 'run-1', tls: true });
-      if (!outcome.ok) throw new Error('expected launch to succeed');
+      const outcome = await launchOk(buildService({ ecs }), 'run-1');
       const container = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0].containerDefinitions![0]!;
       expect(container.entryPoint).toEqual(['sh', '-c']);
-      expect(outcome.cert!.fingerprint256).toMatch(/^[0-9A-F:]+$/);
-    });
-
-    it('should not generate a certificate or wrap the container when tls is false', async () => {
-      const { stub, service: ecs } = makeEcs();
-      const outcome = await buildService({ ecs }).launchHelper('minecraft', { runId: BROWSE_RUN_ID, tls: false });
-      if (!outcome.ok) throw new Error('expected launch to succeed');
-      expect(outcome.cert).toBeUndefined();
-      expect(vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0].containerDefinitions![0]!.entryPoint).toBeUndefined();
+      expect(outcome.cert.fingerprint256).toMatch(/^[0-9A-F:]+$/);
     });
 
     it('should apply the given tags plus the operator IP tag', async () => {
       const { stub, service: ecs } = makeEcs();
-      await buildService({ ecs }).launchHelper('minecraft', { runId: 'run-1', tls: true, tags: UPLOAD_TAGS });
+      await buildService({ ecs }).launchHelper('minecraft', { runId: 'run-1', tags: UPLOAD_TAGS });
       expect(vi.mocked(stub.runTask).mock.calls[0]![0].tags).toEqual([
         { key: 'Purpose', value: 'seed-upload' },
         { key: 'Project', value: 'hyveon' },
@@ -843,7 +777,7 @@ describe('FileManagerService', () => {
       vi.useFakeTimers();
       try {
         vi.setSystemTime(new Date('2026-10-28T12:00:00Z'));
-        const outcome = await buildService().launchHelper('minecraft', { runId: BROWSE_RUN_ID, tls: false });
+        const outcome = await buildService().launchHelper('minecraft', { runId: BROWSE_RUN_ID });
         if (!outcome.ok) throw new Error('expected launch to succeed');
         expect(outcome.autoStopAt - outcome.startedAt).toBe(2 * 60 * 60 * 1000);
         expect(outcome.startedAt).toBe(Date.parse('2026-10-28T12:00:00Z'));
@@ -854,14 +788,14 @@ describe('FileManagerService', () => {
 
     it('should schedule the auto-stop for the reported autoStopAt', async () => {
       const { stub, service: scheduler } = makeScheduler();
-      const outcome = await buildService({ scheduler }).launchHelper('minecraft', { runId: BROWSE_RUN_ID, tls: false });
+      const outcome = await buildService({ scheduler }).launchHelper('minecraft', { runId: BROWSE_RUN_ID });
       if (!outcome.ok) throw new Error('expected launch to succeed');
       expect(vi.mocked(stub.createStopSchedule).mock.calls[0]![0].at.getTime()).toBe(outcome.autoStopAt);
       expect(FILEBROWSER_AUTO_STOP_MS).toBe(2 * 60 * 60 * 1000);
     });
 
     it('should return the credential, operator IP and planned layout', async () => {
-      const outcome = await buildService().launchHelper('minecraft', { runId: BROWSE_RUN_ID, tls: false });
+      const outcome = await buildService().launchHelper('minecraft', { runId: BROWSE_RUN_ID });
       if (!outcome.ok) throw new Error('expected launch to succeed');
       expect(outcome).toMatchObject({ taskArn: 'arn-fm', operatorIp: '203.0.113.7', scheduleWarning: '' });
       expect(outcome.credentials.username).toBe('admin');
@@ -871,13 +805,13 @@ describe('FileManagerService', () => {
 
     it('should name the run in the security-group rule description', async () => {
       const ec2 = makeEc2();
-      await buildService({ ec2 }).launchHelper('minecraft', { runId: 'sess-9', tls: false });
+      await buildService({ ec2 }).launchHelper('minecraft', { runId: 'sess-9' });
       expect(ec2.authorizeIngress).toHaveBeenCalledWith('sg-files', '203.0.113.7/32', 8080, 'hyveon-filemgr:minecraft:sess-9');
     });
 
     it('should refuse with helper-open when a helper is already running', async () => {
       const { stub, service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'existing' }]) });
-      const outcome = await buildService({ ecs }).launchHelper('minecraft', { runId: BROWSE_RUN_ID, tls: false });
+      const outcome = await buildService({ ecs }).launchHelper('minecraft', { runId: BROWSE_RUN_ID });
       expect(outcome).toMatchObject({ ok: false, code: 'helper-open' });
       expect(stub.runTask).not.toHaveBeenCalled();
     });

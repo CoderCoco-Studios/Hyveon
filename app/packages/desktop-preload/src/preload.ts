@@ -470,12 +470,6 @@ const api: HyveonApi = {
     },
   },
 
-  files: {
-    list: (game: string) => invoke('files.list', game),
-    start: (game: string) => invoke('files.start', game),
-    stop: (game: string) => invoke('files.stop', game),
-  },
-
   folderUpload: {
     pickFolder: () => invoke<FolderScanResult | null>('folderUpload.pickFolder'),
     rescanSelection: (game: string) => invoke<FolderScanResult | null>('folderUpload.rescanSelection', game),

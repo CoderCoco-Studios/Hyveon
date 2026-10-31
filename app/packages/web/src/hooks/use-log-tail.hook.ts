@@ -173,9 +173,8 @@ function formatAge(ms: number): string {
 export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   // Latest `api` used inside effect/callback closures below. Synced in an
   // effect rather than assigned during render: a render-phase ref write is
-  // visible to renders React may discard (`react-hooks/refs`), mirroring
-  // `useFileManager`'s `gameRef` sync. Declared before the effects that read
-  // it so it is up to date before they run on the same commit.
+  // visible to renders React may discard (`react-hooks/refs`). Declared before
+  // the effects that read it so it is up to date before they run on the same commit.
   const apiRef = useRef(api);
   useEffect(() => {
     apiRef.current = api;

@@ -103,7 +103,7 @@ Starting is refused while a file or folder upload into that game's volumes is in
 
 Two more buttons sit alongside:
 
-- **Files** opens the [file-manager modal](#the-file-manager) for that game.
+- **Files** opens the game's in-app [file browser](#files) and starts a browsing session for it.
 - **Logs** jumps to the [Logs](/app/logs) page with this game pre-selected.
 
 ## The stop confirmation
@@ -136,67 +136,20 @@ with an **Undo** action, visible for five seconds. Pressing **Undo** issues a
 start for the same game and schedules a status refresh. It appears whether the
 stop went through the dialog or the suppressed fast path.
 
-## The file manager
+## Files
 
-**Files** on a game card opens a small modal titled `File Manager — Minecraft`:
+**Files** on a game card navigates to that game's file browser page, `/games/<name>/files`, and asks it to start a session on arrival. There is no modal, external link, or one-time password any more: browsing, uploading, downloading, renaming and deleting all happen inside Hyveon.
 
-> Mounts the game's EFS save data — browse, upload, and download files.
+What happens when you press it:
 
-The modal itself does not list files. It launches an on-demand
-[FileBrowser](https://filebrowser.org/) container on Fargate that mounts *that
-game's* EFS volumes read-write, then hands you a link to it.
+- If the game's session is stopped or has failed, the page launches a session immediately, so you do not need to press a second button.
+- If a session is already starting or running, the page just shows it. Nothing is relaunched.
+- If a previous session is still running from before (shown as orphaned), the page does not adopt it. It says so and waits for you to restart it from the page.
+- If the game's volume has not been deployed yet, the page shows **Nothing to browse yet** and asks you to apply the infrastructure first.
 
-**One folder per volume.** The helper mounts every applied volume of the game, each through its own EFS access point, and FileBrowser's root lists one folder per volume. A folder is named after the volume when that name is a safe folder name (letters, digits, `.`, `_` and `-`, up to 64 characters, but not `.` or `..` on their own) and no other volume of the game shares it; otherwise it is called `volume-<n>`, where `<n>` is the volume's position in the game's volume list, counting from 0. A volume named like `volume-1` itself also falls back to its index so it cannot collide with another volume's fallback folder. A volume that has not been applied yet has no folder.
+The auto-start request is one-shot. The page clears it after acting, so pressing Back or reloading the page does not launch another session. Opening the page any other way (for example from the **Files** button on the game's detail screen) only shows the session's current state.
 
-**After upgrading.** The per-volume access points are a new stack output. Until you run a plan and apply once from [Infrastructure](/app/iac) (the new output by itself creates or changes no resources, but review the plan in case your configuration has other pending changes), the helper mounts only the game's first volume, and folder uploads are refused for every volume, including the first.
-
-| Button | Behaviour |
-|---|---|
-| **Launch** | Starts the helper task. Disabled while it is already running or starting |
-| **Stop** | Stops it. Disabled when nothing is running |
-| **Close** | Dismisses the modal. The helper task keeps running |
-
-The status line tracks the helper:
-
-- `Not running. Click Launch to start FileBrowser.`
-- `Starting… checking again in 5 seconds.`
-- `Running — click the link below to open FileBrowser.` — followed by an
-  `Open FileBrowser at http://<ip>:8080 ↗` link that opens in your browser.
-
-Once launched, all browsing, uploading, downloading, renaming and deleting
-happens in FileBrowser's own web UI, not in Hyveon.
-
-**Login.** Each launch generates a random password, bcrypt-hashes it, and
-starts the container with that hash instead of `--noauth` — FileBrowser
-enforces a real login instead of being wide open on its public port. The
-modal shows the username (`admin`) and the one-time plaintext password inline
-next to the connection link, right after a successful **Launch** — copy it
-now, since Hyveon never displays it again (a fresh, different password is
-generated on every launch, including a re-launch of the same game).
-
-Things worth knowing:
-
-- Only **one helper per game** can run at a time.
-- **The helper auto-stops after 2 hours** if you don't stop it yourself — an
-  EventBridge Scheduler one-time schedule calls `ecs:StopTask` directly the
-  moment the task starts. Pressing **Stop** cancels that schedule too, so
-  stopping early doesn't leave a stale auto-stop behind. This exists because
-  the watchdog Lambda's idle-shutdown logic only ever looks at `{game}-server`
-  tasks, never the FileBrowser helper's `filemgr-*` ones — a forgotten session
-  used to run (and bill) indefinitely.
-- The file manager's security group declares no ingress rules; the desktop app opens port 8080 at runtime for your public IP only (`<ip>/32`), so the helper is reachable only from the operator's own address.
-- Interactive Files sessions use plain `http://`, not `https://` — there is no TLS in
-  front of the helper task, so the one-time password (and the FileBrowser
-  session it starts) travels in cleartext. Treat the link as you would any
-  unencrypted admin panel: fine for a quick trusted-network session, not for
-  browsing it over an untrusted network. (The helpers the app launches for [folder uploads](/app/games#seeding-a-volume-from-a-folder) are different: they are served over HTTPS with a per-launch certificate the app pins, and you never open them in a browser.)
-- Startup takes roughly 30 seconds; the modal polls every 5 seconds while the
-  task is transitioning and stops polling once it settles.
-- If infrastructure has not been deployed you get `Infrastructure not
-  deployed. Deploy first.` in the status line.
-
-Dismiss the modal with **Close**, by clicking the backdrop, or by pressing
-`Escape`.
+The session bar, volume picker, and file operations are documented with the rest of the game screens on the [Games](/app/games#files) page. If you start a [folder upload](/app/games#seeding-a-volume-from-a-folder) while a leftover session is running, the upload card says "A file manager session for this game is already running. Stop it, then the upload starts its own session." and offers **Stop session and upload**.
 
 ## The pending-changes banner
 

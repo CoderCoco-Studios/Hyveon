@@ -1,11 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Search, Server, ExternalLink, AlertTriangle } from 'lucide-react';
 import { useGameStatus } from '../polling/game-status-provider.component.js';
-import { useFileManager } from '../hooks/use-file-manager.hook.js';
 import { GameCard } from '../components/game-card.component.js';
 import { KpiStrip } from '../components/kpi-strip.component.js';
-import { FileManagerModal } from '../components/file-manager-modal.component.js';
 import { PendingChangesBanner } from '../components/pending-changes-banner.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { Input } from '@/components/ui/input.component';
@@ -21,7 +19,7 @@ import { AsyncContent } from '@/components/async-content.component';
  */
 export function DashboardPage() {
   const { statuses, estimates, loading, error, refresh, refreshGame } = useGameStatus();
-  const fileMgr = useFileManager();
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
 
   const visible = useMemo(() => {
@@ -79,26 +77,13 @@ export function DashboardPage() {
                   status={s}
                   estimate={estimates?.games[s.game]}
                   onRefresh={refreshGame}
-                  onOpenFiles={fileMgr.open}
+                  onOpenFiles={(game) => navigate(`/games/${game}/files`, { state: { autoStart: true } })}
                 />
               ))
             )}
           </AsyncContent>
         </div>
       </div>
-
-      {/* File manager modal */}
-      {fileMgr.activeGame && (
-        <FileManagerModal
-          game={fileMgr.activeGame}
-          status={fileMgr.status}
-          message={fileMgr.message}
-          credentials={fileMgr.credentials}
-          onClose={fileMgr.close}
-          onStart={fileMgr.start}
-          onStop={fileMgr.stop}
-        />
-      )}
     </>
   );
 }

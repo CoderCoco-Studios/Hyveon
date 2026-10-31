@@ -209,29 +209,6 @@ export interface HyveonStreamHandle<T> {
   [Symbol.asyncIterator]: () => HyveonStreamHandle<T>;
 }
 
-/** State of the EFS FileBrowser helper task for a game. */
-export interface FileMgrStatus {
-  game: string;
-  state: 'running' | 'starting' | 'stopped' | 'not_deployed';
-  url?: string;
-  taskArn?: string;
-}
-
-/** The plaintext credential a FileBrowser launch was just seeded with — shown to the operator exactly once, in {@link FileMgrResult.credentials}. */
-export interface FileMgrCredentials {
-  username: string;
-  password: string;
-}
-
-/** Result of a file-manager start or stop operation. */
-export interface FileMgrResult {
-  success: boolean;
-  message: string;
-  taskArn?: string;
-  /** Only present on a successful start — the one-time plaintext credential for this launch. Never present on a stop result. */
-  credentials?: FileMgrCredentials;
-}
-
 /** Admin user/role ID lists. */
 export interface DiscordAdmins {
   userIds: string[];
@@ -1563,16 +1540,6 @@ export interface HyveonLambdaLogsApi {
   stream: (functionKey: LambdaFunctionKey) => HyveonStreamHandle<LogChunk>;
 }
 
-/** EFS file-manager task endpoints: list, start, and stop per game. */
-export interface HyveonFilesApi {
-  /** Lists the file-manager task for `game`, returning whether it is running plus connection details. */
-  list: (game: string) => Promise<FileMgrStatus>;
-  /** Launches an ECS file-manager task for `game`. */
-  start: (game: string) => Promise<FileMgrResult>;
-  /** Stops the file-manager task for `game`. */
-  stop: (game: string) => Promise<FileMgrResult>;
-}
-
 /** Seeding a game's volume from a local folder: scan, selection, upload control, and progress. */
 export interface HyveonFolderUploadApi {
   /** Opens the native folder dialog and scans the choice; `null` when cancelled. */
@@ -2688,8 +2655,6 @@ export interface HyveonApi {
   costs: HyveonCostsApi;
   /** CloudWatch log endpoints (request/response only; the live tail is a separate IPC stream). */
   logs: HyveonLogsApi;
-  /** EFS file-manager task endpoints: status, start, and stop per game. */
-  files: HyveonFilesApi;
   /** Folder-to-volume upload: scan, selection, start/cancel, progress, and stray-helper cleanup. */
   folderUpload: HyveonFolderUploadApi;
   /** Volume file browser: session control, file operations, transfers, and session/transfer push events. */

@@ -54,9 +54,10 @@ Playwright test process (single Node process, no HTTP server, no BrowserWindow)
 | `app/packages/web/e2e/fixtures/stack-outputs.fixture.ts` | Exports `DEFAULT_STACK_OUTPUTS: StackOutputs` — a synthetic, fully-deployed stack-outputs value (`minecraft` + `valheim`, `us-east-1`, `test.example.com`) that specs script onto `ipc.mocks.pulumi` via `scriptStackOutputs()`. Replaces the deleted `tfstate.fixture.json`; re-exported from `integration-specs/index.ts`. Includes `efsVolumeAccessPoints` (game → volume → access point) alongside the first-volume-only `efsAccessPoints`. |
 | `app/packages/desktop-main/src/testing/fake-filebrowser-server.ts` | `startFakeFileBrowser()` — an in-process HTTPS server standing in for the FileBrowser helper, using a real ephemeral cert. It speaks the FileBrowser endpoints `FileBrowserClient` uses: login, directory create (missing parents included), upload (`override=false` on an existing file answers 409), listing and single-entry stat, raw download, zip archive, rename (the `destination` is query-decoded a second time, as the real server does) and delete. Options let a test reject an upload with a status code, drop the socket on a given attempt (`onUpload`), pre-seed files already on the "volume" (`seed`), set their modification times (`seedModified`) or give them exact content (`seedContent`). |
 | `app/packages/desktop-main/src/testing/fake-volume-backend.ts` | `fakeBackend()` — a scriptable in-memory `VolumeFileBackend` that records writes and serves listings from them (a directory with no recorded files rejects with `not-found`). `stat`, `readStream`, `move` and `remove` reject until a test overrides them; any method can be overridden. Used by unit specs that don't need a socket. |
-| `app/packages/desktop-main/src/testing/no-secret-fields.ts` | `expectNoSecretFields(value)` — a unit-test assertion that walks an IPC result and fails if any key or string value looks like a credential, token, certificate, fingerprint, IP address or URL (keys and values are matched against `password`, `credential`, `token`, `fingerprint`, `cert`, `http(s)://` and dotted-quad patterns). Used by `volume-files.controller.test.ts` and `VolumeFilesService.test.ts` to prove helper connection details never cross IPC. |
+| `app/packages/shared/src/testing/secretFields.ts` | `findSecretFields(value)` — the vitest-free core of the no-secret-fields check: it walks a result and returns one description (with its path, e.g. `result.status.helperPassword (key)`) per key or string value that looks like a credential, token, certificate, fingerprint, IP address or URL (matched against `password`, `credential`, `token`, `fingerprint`, `cert`, `http(s)://` and dotted-quad patterns), or `[]` when clean. Deep-import it as `@hyveon/shared/testing/secretFields` (a `package.json` subpath export, aliased in `app/vitest.config.ts`); it is deliberately absent from the `@hyveon/shared` barrel. Because it has no test-runner dependency, Playwright specs can use it directly: assert `expect(findSecretFields(responses)).toEqual([])`. Covered by `secretFields.test.ts` alongside it. |
+| `app/packages/desktop-main/src/testing/no-secret-fields.ts` | `expectNoSecretFields(value)` — the vitest wrapper around `findSecretFields` (`expect(findSecretFields(value)).toEqual([])`), a unit-test assertion that fails if an IPC result carries any of those patterns. Used by `volume-files.controller.test.ts` and `VolumeFilesService.test.ts` to prove helper connection details never cross IPC. Importing it pulls in `vitest`, so Playwright specs use `findSecretFields` instead. |
 | `app/packages/desktop-main/src/services/FolderUpload.integration.test.ts` | Vitest spec that runs `FolderUploadService` through a real `HelperSessionRegistry` and the real `FileBrowserClientFactory` (TLS pinning included) against the fake server, so browsing and upload share one helper session as in production; the AWS-facing collaborators (`FileManagerService`, `PublicIpService`, `EcsService`) and the config services (`ConfigService`, `DeploymentConfigService`) are stubbed, and the registry's `timings` are overridden (`helperPort` points at the fake server, `pollMs = 1`). |
-| `app/packages/web/e2e/fixtures/hyveon-http-bridge.ts` | Besides the HTTP bridge, carries an in-page `folderUpload` fake (folder upload has no HTTP route): it scans a canned folder and walks a run through starting-helper, uploading, verifying and done so e2e specs can drive the UI flow. Setting `window.__e2eFolderConflicts` before starting makes the run pause in `awaiting-confirmation` with a canned overwrite summary until the spec answers through `confirmOverwrite`. It also carries a minimal `volumeFiles` fake (the volume file browser has no HTTP route either): the session reports `stopped`, listings are empty, mutations and transfers resolve to a `no-session` failure, and `onSession`/`onTransfer` return an unsubscribe no-op. |
+| `app/packages/web/e2e/fixtures/hyveon-http-bridge.ts` | Besides the HTTP bridge, carries an in-page `folderUpload` fake (folder upload has no HTTP route): it scans a canned folder and walks a run through starting-helper, uploading, verifying and done so e2e specs can drive the UI flow. Setting `window.__e2eFolderConflicts` before starting makes the run pause in `awaiting-confirmation` with a canned overwrite summary until the spec answers through `confirmOverwrite`. It also carries a `volumeFiles` fake (the volume file browser has no HTTP route either) that a spec seeds through `window.__e2eVolumeFiles` — see [Tier-1 chromium: in-page bridge fakes](#tier-1-chromium-in-page-bridge-fakes). Every method's return value except `cancelTransfer`, `onSession` and `onTransfer` is appended to `window.__e2eVolumeFilesResponses`. The legacy `files:` entry (`list`/`start`/`stop` against `/api/files/*`) is gone along with the old file-manager modal. |
 | `app/packages/web/playwright.integration.config.ts` | Playwright config: `testDir: e2e/integration-specs`, `workers: 1`, no `webServer`, no `projects`. |
 | `app/packages/web/e2e/integration-specs/` | All integration specs; import `test`/`expect`/`DEFAULT_STACK_OUTPUTS` from `./index.js`, not `@playwright/test`. |
 
@@ -236,8 +237,55 @@ state `GuidedIamService.test.ts`'s unit tests target, scoped to the fresh
 | Config | `testDir` | Purpose |
 |--------|-----------|---------|
 | `playwright.integration.config.ts` | `e2e/integration-specs` | The tier-2 suite documented above. No `webServer`, no `projects` — see [How to Run](#how-to-run). |
-| `playwright.config.ts` | `e2e/specs` | The tier-1 suite (`npm run app:test:e2e`). Two projects run side by side: `electron` (`ELECTRON_SPECS`, ~line 50 — `electron-smoke.spec.ts`, `electron-clean-quit.spec.ts`, `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`, `streaming-handle-roundtrip.spec.ts`, `dashboard.spec.ts`, `costs.spec.ts`, `logs.spec.ts`, `discord.spec.ts`, `iac.spec.ts`, `guided-iam-wizard.spec.ts`) launches the packaged main bundle via `_electron.launch()`; every other spec runs under `chromium` against the Vite dev/preview server. `npm run app:test:e2e` (root `package.json`) builds `@hyveon/shared`, `@hyveon/cloud-aws`, `@hyveon/infra`, and `@hyveon/desktop-preload` first, then the workspace's own `test:e2e` script additionally runs `desktop:build` (electron-vite) before invoking `playwright test` — so the `electron` project always launches an up-to-date `out/main`/`out/preload`/`out/renderer`. |
+| `playwright.config.ts` | `e2e/specs` | The tier-1 suite (`npm run app:test:e2e`). Two projects run side by side: `electron` (`ELECTRON_SPECS`, ~line 40 — `electron-smoke.spec.ts`, `electron-clean-quit.spec.ts`, `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`, `streaming-handle-roundtrip.spec.ts`, `dashboard.spec.ts`, `costs.spec.ts`, `logs.spec.ts`, `discord.spec.ts`, `iac.spec.ts`, `guided-iam-wizard.spec.ts`, `volume-files-electron.spec.ts`) launches the packaged main bundle via `_electron.launch()`; every other spec runs under `chromium` against the Vite dev/preview server. `npm run app:test:e2e` (root `package.json`) builds `@hyveon/shared`, `@hyveon/cloud-aws`, `@hyveon/infra`, and `@hyveon/desktop-preload` first, then the workspace's own `test:e2e` script additionally runs `desktop:build` (electron-vite) before invoking `playwright test` — so the `electron` project always launches an up-to-date `out/main`/`out/preload`/`out/renderer`. |
 | `playwright.screenshots.config.ts` | `e2e/screenshots` | Standalone docs-screenshot harness (`docs:screenshots` in the root `package.json`) — deliberately separate from `playwright.config.ts` so neither suite picks up the other's specs. No `projects`/`webServer`; the one spec (`e2e/screenshots/capture.spec.ts`) manages its own `_electron.launch()` calls, same pattern as the `electron` project above. `workers: 1`/`fullyParallel: false` because output file paths are fixed (`docs/static/img/app/*.png`) and concurrent writers would race. |
+
+## Tier-1 chromium: in-page bridge fakes
+
+The `chromium` project runs the web bundle in a plain browser, so `installHyveonHttpBridge()` (`e2e/fixtures/hyveon-http-bridge.ts`) installs `window.hyveon` and forwards most calls to the `/api/*` routes that `stubApis()` stubs with `page.route`. Surfaces that are IPC-only in production have no route to stub, so the bridge carries a self-contained fake for them instead (`folderUpload`, `volumeFiles`). Those fakes are canned by default and steered by **window flags that a spec sets before the page loads**:
+
+| Flag | Fake | Effect |
+|------|------|--------|
+| `window.__e2eFolderConflicts = true` | `folderUpload` | The run pauses in `awaiting-confirmation` with a canned overwrite summary until the spec answers. Set from `page.addInitScript` in `games.spec.ts`. |
+| `window.__e2eVolumeFiles = { state, volumes, listings }` | `volumeFiles` | Seeds the session state (`'stopped'` default, or `'running'`), the volumes it reports, and the entries `list` returns per clean absolute directory path (`/`, `/world`). Unseeded paths list empty. |
+| `window.__e2eVolumeFilesResponses` (read-only) | `volumeFiles` | Every value any recorded method returned, oldest first (`cancelTransfer`, `onSession` and `onTransfer` are not recorded). |
+
+Seed with the helper rather than writing the `addInitScript` by hand, and read the record back with its counterpart. Both are exported from `e2e/fixtures/index.ts`, along with the `VolumeFilesSeed` type:
+
+```ts
+import { test, expect, stubApis, seedVolumeFiles, readVolumeFilesResponses, STOPPED_GAME } from '../fixtures/index.js';
+import { findSecretFields } from '@hyveon/shared/testing/secretFields';
+
+test('should browse a seeded volume', async ({ dashboard, volumeFiles }) => {
+  await stubApis(dashboard.page, { statuses: [STOPPED_GAME] });
+  // Call before navigating: it registers an init script, so it only affects pages loaded afterwards.
+  await seedVolumeFiles(dashboard.page, {
+    volumes: [{ name: 'data', containerPath: '/data', mounted: true }],
+    listings: { '/': [{ name: 'world', isDir: true, size: 0, modifiedMs: 1_700_000_000_000 }] },
+  });
+  await dashboard.goto();
+  await dashboard.filesButton('minecraft').click();
+  await expect(volumeFiles.row('world')).toBeVisible();
+
+  // Prove nothing sensitive reached the page; assert the record is non-trivial so this cannot pass vacuously.
+  const responses = await readVolumeFilesResponses(dashboard.page);
+  expect(responses.length).toBeGreaterThan(0);
+  expect(findSecretFields(responses)).toEqual([]);
+});
+```
+
+Behaviours of the `volumeFiles` fake worth knowing before you write a spec:
+
+- **The seed is read on every call, not at install.** A spec's init script may be registered after the bridge's, so the fake looks up `window.__e2eVolumeFiles` lazily.
+- **`sessionStart` flips the session to `running`** for the rest of the page's life (adding `startedAt` and a 30-minute `autoStopAt`), whatever `state` was seeded. This is why arriving from the dashboard "Files" action (which auto-starts the session) shows `Running` even with the default `stopped` seed.
+- **Mutations and transfers fail closed.** `mkdir`, `rename`, `remove`, `readText`, `writeText`, `download`, `sessionStop`, `sessionRestart` and the three upload methods resolve `{ ok: false, code: 'no-session' }`. `cancelTransfer` resolves `{ cancelled: false }` and is not recorded. `onSession`/`onTransfer` return an unsubscribe no-op, so no push events arrive; cover those in jsdom.
+- **Recording is per-page.** The record is an array on `window`, re-created each time the bridge installs (every full page load), so read it before reloading. Hash-route navigation, such as dashboard to files, keeps it.
+
+Page objects: `VolumeFilesPage` (`e2e/pages/VolumeFilesPage.ts`, registered as the `volumeFiles` fixture) wraps the `/games/:name/files` route — `goto(game)` for chromium, `gotoElectron(game)` for the packaged app (two-step hash change, see below), `sessionState(label)`, `startButton()`/`stopButton()`/`restartButton()`, `row(name)`, `openFolder(name)`, `breadcrumb()`, `newFolderButton()`, `uploadFilesButton()`, `readOnlyBanner()`, `externalTargets()` (a locator for any link or media element in `main` that targets an `http(s)://` URL) and `renderedStrings()` (the text of `main` plus its `href`/`src`/`title`/`aria-label`/`alt`/`placeholder`/`value` attribute values). `DashboardPage.filesButton(game)` is the dashboard card's "Files" action, scoped through the card heading because cards carry no per-game test id.
+
+Specs: `volume-files.spec.ts` (chromium) covers browsing into a folder from the dashboard action, the read-only banner and disabled toolbar while the server runs, the fixture-response no-secret assertion above (`should keep the bridge fixture responses free of secret fields`), and a rendered-output audit (`should render no credential, IP or URL and no link out to the helper`) that runs `findSecretFields` over `renderedStrings()` and expects `externalTargets()` to have a count of zero. `volume-files-electron.spec.ts` is the Electron counterpart, in `ELECTRON_SPECS` in `playwright.config.ts`: it mocks the `volumeFiles.session.status`/`attach`/`detach`/`start` and `volumeFiles.list` channels with `window.hyveon.__test.mock` (see [the Electron mock seam](#related-the-tier-1-electron-e2e-ipc-mock-seam)), appends each served channel to `window.__e2eVolumeCalls` and each return value to `window.__e2eVolumeResponses`, then reads both back with `win.evaluate` to assert that `attach` and `start` were called and that `findSecretFields` finds nothing; after Start it also runs the same rendered-output checks (`renderedStrings()` and `externalTargets()`) against the DOM the app produced. It shares one `ElectronApplication` across the file and calls `clearMocks()` in `afterEach`.
+
+The Playwright specs import `@hyveon/shared/testing/secretFields` through the package's `dist/` export, so `@hyveon/shared` must be built first — `npm run app:test:e2e` does that.
 
 ## Related: the tier-1 Electron e2e IPC mock seam
 
@@ -349,6 +397,8 @@ jsdom, `node` collects everything else under `node`.
   cover how that page wires the hook's result into its markup, not the
   tail/pause/level-filter/autoscroll state machine itself.
 
+- Hooks that belong to one feature live **next to that feature** rather than in `src/hooks/`: `src/components/volume-files/` holds `use-volume-session.hook.test.tsx`, `use-volume-files.hook.test.tsx` and `use-volume-transfers.hook.test.tsx`, each mocking `../../api.service.js` with a `vi.hoisted` `apiMock` and capturing the `volumeOnSession`/`volumeOnTransfer` callback so a test can push an event inside `act(...)`. `use-volume-session` needs a `PollingProvider` wrapper. The shared builders `makeSessionStatus`, `makeDirEntry`, `makeFileEntry` and `makeTransfer` come from `volume-files.test-utils.ts` in the same folder — reuse them (the three hook tests, `volume-files.utils.test.ts` and the routed-page spec `pages/volume-files.page.test.tsx` all do) instead of hand-rolling status objects.
+
 ### Component specs
 
 - Live **next to the component** (`foo.component.tsx` → `foo.component.test.tsx`),
@@ -370,7 +420,7 @@ jsdom, `node` collects everything else under `node`.
 ### Routed-page specs
 
 Each routed page (`DashboardPage`, `CostsPage`, `DiscordPage`, `LogsPage`,
-`InfrastructureLogsPage`, `SettingsPage`, …) has a co-located `*.test.tsx` that mounts it through
+`InfrastructureLogsPage`, `SettingsPage`, `VolumeFilesPage`, …) has a co-located `*.test.tsx` that mounts it through
 `renderPage()` from `app/packages/web/src/test-utils/render-page.utils.tsx`. That
 helper wraps children in the production provider stack —
 `PollingProvider → GameStatusProvider → MemoryRouter` — so the page is exercised
@@ -378,7 +428,7 @@ under the same context it gets at runtime. Pass `initialEntries` when the page
 reads `useLocation` (a `{ pathname, state }` entry when it also reads
 `location.state`, as the rollback flow does).
 
-Mock `../api.js` with `vi.mock` + `vi.hoisted` so the page runs off canned data,
+Mock `../api.service.js` with `vi.mock` + `vi.hoisted` so the page runs off canned data,
 and **stub every method the provider stack calls, not just the ones the page
 calls** — at minimum `api.status` *and* `api.costsEstimate`. `GameStatusProvider`
 invokes `api.costsEstimate()` unconditionally on mount
@@ -388,6 +438,8 @@ every page mounted this way. That call's rejection is swallowed
 hang the test — it silently leaves `estimates` at its initial `null` instead,
 which can mask a real assertion failure with a confusing symptom rather than a
 useful message, so stub it anyway.
+
+A page that reads a route parameter needs the matching `<Routes>` around it. `volume-files.page.test.tsx` renders `<Routes><Route path="/games/:name/files" element={<VolumeFilesPage />} /></Routes>` through `renderPage()`, passing `initialEntries` as `[{ pathname: '/games/mc/files', state: { autoStart: true } }]` to cover arriving from the dashboard "Files" action (and a bare path string for opening the route directly). It stubs the page's whole `volume*` surface of `api` plus `folder*` and the provider-stack methods, captures the `volumeOnTransfer` and `folderOnProgress` callbacks to push progress events, and enables `vi.useFakeTimers({ shouldAdvanceTime: true })` only inside the describe block that needs timers.
 
 Keep the scope tight: smoke-render each header section, exercise controls not
 already covered by a child component's own spec, and verify the polling-indicator

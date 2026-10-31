@@ -695,23 +695,23 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
 
 **Files:**
 - Modify: `app/packages/web/src/api.service.ts` (add `volume*` wrappers over `hyveon().volumeFiles`)
-- Create: `app/packages/web/src/components/volume-files/use-volume-session.hook.ts` (+test), `use-volume-files.hook.ts` (+test)
+- Create: `app/packages/web/src/components/volume-files/use-volume-session.hook.ts` (+test), `use-volume-files.hook.ts` (+test) Also `use-volume-transfers.hook.ts` (+test), `volume-files.utils.ts` (+test) and `volume-files.test-utils.ts`, split out of `useVolumeFiles` to keep it small.
 
 **Interfaces:**
 - Produces:
   - `useVolumeSession(game: string): { status: VolumeSessionStatus | null; start(): Promise<void>; stop(): Promise<void>; restart(): Promise<void>; error: string | null }` — on mount `sessionAttach`; on unmount `sessionDetach`; subscribes to `onSession`; registers `usePoller(VOLUME_SESSION_POLLER = 'volumeSession', refresh, 3000, status?.state === 'starting' || status?.state === 'stopping')`, so polling continues until `running` (ready) or a terminal state.
   - `useVolumeFiles(game: string, volume: string | null, enabled: boolean): { path: string; listing: VolumeEntryInfo[] | null; sort: { key: 'name' | 'size' | 'modifiedMs'; dir: 'asc' | 'desc' }; setSort; open(path: string): void; refresh(); mkdir(name); rename(path, newName); remove(path); readText(path); writeText(path, content, expectedModifiedMs); download(entry); uploadFiles(); uploadDropped(files: File[]); uploadFolder(); transfers: VolumeTransferProgress[]; error: string | null }` — changing `volume` resets `path` to `/`; directories sort before files; each mutation refreshes the listing on success and sets `error` from `result.message` on failure.
 
-- [ ] **Step 1: Write the failing tests** (jsdom, `vi.mock('../../api.service.js')`):
+- [x] **Step 1: Write the failing tests** (jsdom, `vi.mock('../../api.service.js')`):
   - `should attach on mount and detach on unmount`.
   - `should keep polling while starting and stop once running` — status sequence `starting`, `starting`, `running`; fake timers; `sessionStatus` called 3 times then not again.
   - `should list the root when enabled and sort folders first` — entries `b.txt`, `A/`, `a.txt` → `['A', 'a.txt', 'b.txt']`.
   - `should surface a conflict message and keep the listing` — `rename` → `{ ok: false, code: 'conflict', message: 'x exists' }` → `error === 'x exists'`.
   - `should not list while disabled`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/web/src/components/volume-files` → FAIL.
-- [ ] **Step 3: Implement** (re-arm any `mountedRef` in the effect body per `typescript-conventions.md`).
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `feat(web): add volume session and listing hooks`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/web/src/components/volume-files` → FAIL.
+- [x] **Step 3: Implement** (re-arm any `mountedRef` in the effect body per `typescript-conventions.md`).
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `feat(web): add volume session and listing hooks`.
 
 ### Task 22: Page and components (tasks.md 5.2, 5.3)
 
@@ -733,7 +733,7 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
   - Folder download action hidden when `status.supportsArchive` is false.
   - `not_deployed` → `EmptyStateCard` "This game's volume doesn't exist yet. Apply the infrastructure first." with no session or file actions.
 
-- [ ] **Step 1: Write the failing routed-page tests** with `renderPage(<Routes><Route path="/games/:name/files" element={<VolumeFilesPage />} /></Routes>, { initialEntries: ['/games/mc/files'] })` and a mocked `api`:
+- [x] **Step 1: Write the failing routed-page tests** with `renderPage(<Routes><Route path="/games/:name/files" element={<VolumeFilesPage />} /></Routes>, { initialEntries: ['/games/mc/files'] })` and a mocked `api`:
   - `should show session state without starting a helper when opened directly` — `sessionStart` not called.
   - `should start the session when arriving from the dashboard Files action` — `initialEntries: [{ pathname: '/games/mc/files', state: { autoStart: true } }]` → `sessionStart` called once.
   - `should navigate into a folder and update the breadcrumb`.
@@ -749,10 +749,10 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
   - `should warn when fewer than ten minutes remain before auto-stop`.
   - `should hide folder download when the backend has no archive support`.
   - Dashboard: update `dashboard.page.test.tsx` Files case to `should navigate to the game's files page when Files is clicked`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/web/src/pages/volume-files.page.test.tsx packages/web/src/pages/dashboard.page.test.tsx` → FAIL.
-- [ ] **Step 3: Implement**; each component body < ~200 lines; the `.map()` row in `file-table` is its own `FileRow` component.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `feat(web): add the in-app file browser page`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/web/src/pages/volume-files.page.test.tsx packages/web/src/pages/dashboard.page.test.tsx` → FAIL.
+- [x] **Step 3: Implement**; each component body < ~200 lines; the `.map()` row in `file-table` is its own `FileRow` component.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `feat(web): add the in-app file browser page`.
 
 ### Task 23: Remove the external-link path (tasks.md 5.4)
 
@@ -760,10 +760,10 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
 - Delete: `web/src/components/file-manager-modal.component.tsx` (+test), `web/src/hooks/use-file-manager.hook.ts` (+test), `desktop-main/src/controllers/files.controller.ts` (+test)
 - Modify: `desktop-main/src/app.module.ts` (drop `FilesController`), `desktop-main/src/services/FileManagerService.ts` (delete `start`, `getStatus`, `FileMgrStatus`, `FileMgrResult.credentials`, the `tls: false` branch — every launch is TLS; `HelperLaunchOptions.tls` removed), `desktop-preload/src/preload.ts:444-448` and `hyveon-api.ts` (`files` namespace, `FileMgrStatus`, `FileMgrCredentials`, `FileMgrResult`), `web/src/api.service.ts:184-200,286-288` (`FileMgr*`, `filesMgr*`), `web/src/pages/dashboard.page.tsx` (modal mount), `web/src/components/folder-upload/folder-upload-card.component.tsx:97-106` (`stopHelperAndRetry` → `api.volumeSessionStop(game)` then retry; prompt text "Restart the file manager session"), `web/e2e/fixtures/hyveon-http-bridge.ts:54-57`
 
-- [ ] **Step 1: Delete and update**; `grep -rn "files\.list\|files\.start\|files\.stop\|filesMgr\|FileMgrCredentials\|FileManagerModal\|useFileManager\|credentials?:" app/packages --include='*.ts' --include='*.tsx'` → no hits outside `node_modules` (the `credentials` hits that remain are the registry's private entry field only).
-- [ ] **Step 2: Update** `folder-upload-card.component.test.tsx`'s helper-open case: `should stop the orphaned session and retry the upload` (`volumeSessionStop` then `folderStartUpload` called).
-- [ ] **Step 3: Run** `npm run app:typecheck && npm run app:test` → exit 0.
-- [ ] **Step 4: Commit** — `refactor(app): remove the external FileBrowser link and legacy files channels`.
+- [x] **Step 1: Delete and update**; `grep -rn "files\.list\|files\.start\|files\.stop\|filesMgr\|FileMgrCredentials\|FileManagerModal\|useFileManager\|credentials?:" app/packages --include='*.ts' --include='*.tsx'` → no hits outside `node_modules` (the `credentials` hits that remain are the registry's private entry field only).
+- [x] **Step 2: Update** `folder-upload-card.component.test.tsx`'s helper-open case: `should stop the orphaned session and retry the upload` (`volumeSessionStop` then `folderStartUpload` called).
+- [x] **Step 3: Run** `npm run app:typecheck && npm run app:test` → exit 0.
+- [x] **Step 4: Commit** — `refactor(app): remove the external FileBrowser link and legacy files channels`.
 
 ### Task 24: Playwright specs and docs (tasks.md 5.5, 5.6)
 
@@ -774,12 +774,12 @@ Branch from PR 4's branch. Covers tasks.md 5.1–5.6.
 **Interfaces:**
 - `VolumeFilesPage`: `sessionState()`, `startButton()`, `stopButton()`, `restartButton()`, `row(name)`, `breadcrumb()`, `newFolderButton()`, `readOnlyBanner()`, `goto(game)` (uses `hashRoute`).
 
-- [ ] **Step 1: Write the chromium spec** (through the page object and bridge routes): `should browse into a folder from the dashboard Files action`; `should show the read-only banner while the server runs`; `should never receive a credential, IP or URL in volumeFiles responses` (intercept every `/api/volume-files/*` response and assert no key/value matches the `expectNoSecretFields` pattern).
-- [ ] **Step 2: Write the electron smoke spec**: `should render the files route and call volumeFiles.session.start on Start` (`__test.mock('volumeFiles.session.status', …stopped…)`, record calls to `volumeFiles.session.start`).
-- [ ] **Step 3: Run** `npm run app:test:e2e` → exit 0 (both projects).
-- [ ] **Step 4: Docs** — `write-docs`: the files page, session behaviour (Start, grace stop, quit, auto-stop warning), the read-only rule, and the removal of the external link/password in `dashboard.md` and `games.md`; screenshots only if `e2e/screenshots/capture.spec.ts` covers these pages.
-- [ ] **Step 5: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:e2e` → exit 0.
-- [ ] **Step 6: Commit** — `docs: document the in-app file browser`. Open PR 5 with `/pr` (base: PR 4 branch).
+- [x] **Step 1: Write the chromium spec** (through the page object and bridge routes): `should browse into a folder from the dashboard Files action`; `should show the read-only banner while the server runs`; `should keep the bridge fixture responses free of secret fields` (the chromium bridge's `volumeFiles` is an in-page fake seeded through `window.__e2eVolumeFiles`; every value it returns is recorded and checked with `findSecretFields` from `@hyveon/shared/testing/secretFields`); `should render no credential, IP or URL and no link out to the helper` (the page's rendered text and attributes have no secret match and no `http(s)` target).
+- [x] **Step 2: Write the electron smoke spec**: `should render the files route and call volumeFiles.session.start on Start` (`__test.mock('volumeFiles.session.status', …stopped…)`, record calls to `volumeFiles.session.start`).
+- [x] **Step 3: Run** `npm run app:test:e2e` → exit 0 (both projects).
+- [x] **Step 4: Docs** — `write-docs`: the files page, session behaviour (Start, grace stop, quit, auto-stop warning), the read-only rule, and the removal of the external link/password in `dashboard.md` and `games.md`; screenshots only if `e2e/screenshots/capture.spec.ts` covers these pages.
+- [x] **Step 5: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:e2e` → exit 0.
+- [x] **Step 6: Commit** — `docs: document the in-app file browser`. Open PR 5 with `/pr` (base: PR 4 branch).
 
 ---
 

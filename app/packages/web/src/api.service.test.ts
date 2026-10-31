@@ -26,11 +26,6 @@ function makeHyveonMock() {
       get: vi.fn().mockResolvedValue({ game: 'minecraft', lines: [] }),
       stream: vi.fn(),
     },
-    files: {
-      list: vi.fn().mockResolvedValue({ game: 'minecraft', state: 'stopped' }),
-      start: vi.fn().mockResolvedValue({ success: true, message: 'ok' }),
-      stop: vi.fn().mockResolvedValue({ success: true, message: 'ok' }),
-    },
     folderUpload: {
       pickFolder: vi.fn().mockResolvedValue(null),
       rescanSelection: vi.fn().mockResolvedValue(null),
@@ -43,6 +38,27 @@ function makeHyveonMock() {
       getProgress: vi.fn().mockResolvedValue(null),
       cleanupStrayHelpers: vi.fn().mockResolvedValue({ stopped: [], skipped: 0, revokedRules: 0, errors: [] }),
       onProgress: vi.fn().mockReturnValue(() => undefined),
+    },
+    volumeFiles: {
+      sessionStatus: vi.fn().mockResolvedValue({ game: 'minecraft', state: 'stopped' }),
+      sessionStart: vi.fn().mockResolvedValue({ game: 'minecraft', state: 'starting' }),
+      sessionAttach: vi.fn().mockResolvedValue({ game: 'minecraft', state: 'running' }),
+      sessionDetach: vi.fn().mockResolvedValue({ game: 'minecraft', state: 'running' }),
+      sessionStop: vi.fn().mockResolvedValue({ ok: true, value: { game: 'minecraft', state: 'stopping' } }),
+      sessionRestart: vi.fn().mockResolvedValue({ ok: true, value: { game: 'minecraft', state: 'starting' } }),
+      list: vi.fn().mockResolvedValue({ ok: true, value: { path: '/', entries: [] } }),
+      mkdir: vi.fn().mockResolvedValue({ ok: true, value: { name: 'd', isDir: true, size: 0, modifiedMs: 1 } }),
+      rename: vi.fn().mockResolvedValue({ ok: true, value: { name: 'n', isDir: false, size: 0, modifiedMs: 1 } }),
+      remove: vi.fn().mockResolvedValue({ ok: true, value: true }),
+      readText: vi.fn().mockResolvedValue({ ok: true, value: { path: '/a', content: '', modifiedMs: 1 } }),
+      writeText: vi.fn().mockResolvedValue({ ok: true, value: { modifiedMs: 2 } }),
+      download: vi.fn().mockResolvedValue({ ok: true, value: { transferId: 't' } }),
+      cancelTransfer: vi.fn().mockResolvedValue({ cancelled: true }),
+      uploadFiles: vi.fn().mockResolvedValue({ ok: true, value: { transferId: 't' } }),
+      uploadDropped: vi.fn().mockResolvedValue({ ok: true, value: { transferId: 't' } }),
+      uploadFolder: vi.fn().mockResolvedValue({ ok: true, value: { started: true, runId: 'r' } }),
+      onSession: vi.fn().mockReturnValue(() => undefined),
+      onTransfer: vi.fn().mockReturnValue(() => undefined),
     },
     discord: {
       getConfig: vi.fn().mockResolvedValue({ clientId: '', allowedGuilds: [], gamePermissions: {} }),
@@ -125,21 +141,6 @@ describe('IPC bridge delegation', () => {
     expect('costsActual' in api).toBe(false);
   });
 
-  it('should delegate api.filesMgrStatus() to window.hyveon.files.list() with the game id', async () => {
-    await api.filesMgrStatus('minecraft');
-    expect(hyveon.files.list).toHaveBeenCalledWith('minecraft');
-  });
-
-  it('should delegate api.filesMgrStart() to window.hyveon.files.start() with the game id', async () => {
-    await api.filesMgrStart('minecraft');
-    expect(hyveon.files.start).toHaveBeenCalledWith('minecraft');
-  });
-
-  it('should delegate api.filesMgrStop() to window.hyveon.files.stop() with the game id', async () => {
-    await api.filesMgrStop('minecraft');
-    expect(hyveon.files.stop).toHaveBeenCalledWith('minecraft');
-  });
-
   it('should delegate the folder upload wrappers to window.hyveon.folderUpload', async () => {
     const request = { game: 'minecraft', scanId: 's', include: ['Data'], destination: '/data' };
     await api.folderPick();
@@ -170,6 +171,47 @@ describe('IPC bridge delegation', () => {
     const cb = vi.fn();
     expect(api.folderOnProgress(cb)).toBe(unsubscribe);
     expect(hyveon.folderUpload.onProgress).toHaveBeenCalledWith(cb);
+  });
+
+  it.each([
+    ['volumeSessionStatus', 'sessionStatus', ['minecraft']],
+    ['volumeSessionStart', 'sessionStart', ['minecraft']],
+    ['volumeSessionAttach', 'sessionAttach', ['minecraft']],
+    ['volumeSessionDetach', 'sessionDetach', ['minecraft']],
+    ['volumeSessionStop', 'sessionStop', ['minecraft']],
+    ['volumeSessionRestart', 'sessionRestart', ['minecraft']],
+    ['volumeList', 'list', ['minecraft', 'data', '/']],
+    ['volumeMkdir', 'mkdir', ['minecraft', 'data', '/', 'new']],
+    ['volumeRename', 'rename', ['minecraft', 'data', '/a', 'b']],
+    ['volumeRemove', 'remove', ['minecraft', 'data', '/a']],
+    ['volumeReadText', 'readText', ['minecraft', 'data', '/a']],
+    ['volumeWriteText', 'writeText', ['minecraft', 'data', '/a', 'text', 5]],
+    ['volumeDownload', 'download', ['minecraft', 'data', '/a', true]],
+    ['volumeCancelTransfer', 'cancelTransfer', ['minecraft', 't']],
+    ['volumeUploadFiles', 'uploadFiles', ['minecraft', 'data', '/']],
+    ['volumeUploadFolder', 'uploadFolder', ['minecraft', 'data', '/']],
+  ] as const)('should delegate api.%s() to window.hyveon.volumeFiles.%s() with its arguments', async (wrapper, method, args) => {
+    const call = api[wrapper] as (...a: readonly unknown[]) => Promise<unknown>;
+    await call(...args);
+    expect(hyveon.volumeFiles[method]).toHaveBeenCalledWith(...args);
+  });
+
+  it('should delegate api.volumeUploadDropped() to window.hyveon.volumeFiles.uploadDropped() with the files', async () => {
+    const files = [new File(['x'], 'x.txt')];
+    await api.volumeUploadDropped('minecraft', 'data', '/', files);
+    expect(hyveon.volumeFiles.uploadDropped).toHaveBeenCalledWith('minecraft', 'data', '/', files);
+  });
+
+  it('should return the unsubscribe function from the volume push wrappers synchronously', () => {
+    const unsubscribeSession = vi.fn();
+    const unsubscribeTransfer = vi.fn();
+    hyveon.volumeFiles.onSession.mockReturnValue(unsubscribeSession);
+    hyveon.volumeFiles.onTransfer.mockReturnValue(unsubscribeTransfer);
+    const cb = vi.fn();
+    expect(api.volumeOnSession(cb)).toBe(unsubscribeSession);
+    expect(api.volumeOnTransfer(cb)).toBe(unsubscribeTransfer);
+    expect(hyveon.volumeFiles.onSession).toHaveBeenCalledWith(cb);
+    expect(hyveon.volumeFiles.onTransfer).toHaveBeenCalledWith(cb);
   });
 
   it('should delegate api.createGame() to window.hyveon.games.create() with the exact payload', async () => {

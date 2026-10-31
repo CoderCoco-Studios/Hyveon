@@ -5,7 +5,7 @@ import type { FolderUploadProgress } from '@hyveon/shared/folderUpload';
 
 const apiMock = vi.hoisted(() => ({
   statusGame: vi.fn(),
-  filesMgrStop: vi.fn(),
+  volumeSessionStop: vi.fn(),
   folderPick: vi.fn(),
   folderRescan: vi.fn(),
   folderGetSelection: vi.fn(),
@@ -88,19 +88,30 @@ describe('FolderUploadCard', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('scan expired');
   });
 
-  it('should ask to stop an open file-manager session, then retry the upload', async () => {
+  it('should stop the orphaned session and retry the upload', async () => {
     apiMock.folderStartUpload
-      .mockResolvedValueOnce({ started: false, error: "A file manager session is already open for 'minecraft'. Stop it first, then retry." })
+      .mockResolvedValueOnce({ started: false, error: "A file manager session is already open for 'minecraft'. Restart it, then retry." })
       .mockResolvedValueOnce({ started: true, runId: 'r1' });
-    apiMock.filesMgrStop.mockResolvedValue({ success: true, message: 'stopped' });
+    apiMock.volumeSessionStop.mockResolvedValue({ ok: true, value: { game: 'minecraft', state: 'stopped' } });
     setup();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Upload folder' })).toBeEnabled());
     await userEvent.click(screen.getByRole('button', { name: 'Upload folder' }));
     expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
-    expect(apiMock.filesMgrStop).not.toHaveBeenCalled();
+    expect(apiMock.volumeSessionStop).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: 'Stop session and upload' }));
     await waitFor(() => expect(apiMock.folderStartUpload).toHaveBeenCalledTimes(2));
-    expect(apiMock.filesMgrStop).toHaveBeenCalledWith('minecraft');
+    expect(apiMock.volumeSessionStop).toHaveBeenCalledWith('minecraft');
+  });
+
+  it('should show the stop failure and not retry the upload when stopping the orphaned session fails', async () => {
+    apiMock.folderStartUpload.mockResolvedValue({ started: false, error: "A file manager session is already open for 'minecraft'. Restart it, then retry." });
+    apiMock.volumeSessionStop.mockResolvedValue({ ok: false, code: 'failed', message: 'Could not stop the session.' });
+    setup();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Upload folder' })).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', { name: 'Upload folder' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop session and upload' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not stop the session.');
+    expect(apiMock.folderStartUpload).toHaveBeenCalledTimes(1);
   });
 
   it('should follow pushed progress and lock the controls during a run', async () => {

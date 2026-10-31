@@ -49,6 +49,7 @@ const ELECTRON_SPECS = [
   '**/discord.spec.ts',
   '**/iac.spec.ts',
   '**/guided-iam-wizard.spec.ts',
+  '**/volume-files-electron.spec.ts',
 ];
 
 export default defineConfig({

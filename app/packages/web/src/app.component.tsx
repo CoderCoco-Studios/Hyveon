@@ -12,6 +12,7 @@ import { IacRunDetailPage } from './pages/iac-run-detail.page.js';
 import { SettingsPage } from './pages/settings.page.js';
 import { GamesPage } from './pages/games.page.js';
 import { GameDetailPage } from './pages/game-detail.page.js';
+import { VolumeFilesPage } from './pages/volume-files.page.js';
 import { AuditPage } from './pages/audit.page.js';
 import { PollingProvider } from './polling/polling-provider.component.js';
 import { GameStatusProvider } from './polling/game-status-provider.component.js';
@@ -105,6 +106,7 @@ export default function App() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/games" element={<GamesPage />} />
               <Route path="/games/:name" element={<GameDetailPage />} />
+              <Route path="/games/:name/files" element={<VolumeFilesPage />} />
               <Route path="/audit" element={<AuditPage />} />
             </Routes>
           </AppLayout>

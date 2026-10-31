@@ -111,6 +111,16 @@ export class DashboardPage {
     return this.page.getByRole('button', { name: 'Stop' });
   }
 
+  /**
+   * "Files" action on the card of `game`, which opens that game's file browser page. Scoped through the card's
+   * heading because a card has no per-game test id and several cards render side by side.
+   */
+  filesButton(game: string): Locator {
+    return this.gameCardHeading(game)
+      .locator('xpath=ancestor::*[contains(@class, "overflow-hidden")][1]')
+      .getByRole('button', { name: 'Files' });
+  }
+
   /** Confirmation button inside the stop-confirmation dialog. */
   confirmStopButton(): Locator {
     return this.page.getByRole('button', { name: /stop server/i });

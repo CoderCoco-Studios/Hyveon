@@ -101,6 +101,12 @@ describe('GameDetailPage', () => {
       expect(screen.getByRole('button', { name: 'Upload folder' })).toBeDisabled();
     });
 
+    it('should link to the game files page from the header', async () => {
+      renderDetailPage('minecraft');
+
+      expect(await screen.findByRole('link', { name: 'Files' })).toHaveAttribute('href', '/games/minecraft/files');
+    });
+
     it('should render the game name and the "In sync" drift chip', async () => {
       renderDetailPage('minecraft');
 

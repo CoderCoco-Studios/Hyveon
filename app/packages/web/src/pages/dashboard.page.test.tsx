@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import type { DriftEntry } from '../api.service.js';
 
@@ -10,9 +11,6 @@ const apiMock = vi.hoisted(() => ({
   stop: vi.fn(),
   costsEstimate: vi.fn(),
   costsActual: vi.fn(),
-  filesMgrStatus: vi.fn(),
-  filesMgrStart: vi.fn(),
-  filesMgrStop: vi.fn(),
   drift: vi.fn(),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
@@ -32,6 +30,12 @@ const ESTIMATES = {
   },
   totalPerHourIfAllOn: 0.12,
 };
+
+/** Stand-in for the files route that exposes the router state it was reached with. */
+function FilesRouteProbe() {
+  const { pathname, state } = useLocation();
+  return <p>{`${pathname} ${JSON.stringify(state)}`}</p>;
+}
 
 describe('DashboardPage', () => {
   beforeEach(() => {
@@ -117,5 +121,20 @@ describe('DashboardPage', () => {
     // the filter typing because it reads from the persistent registry, not
     // from the filtered grid below.
     expect(screen.getByText(/^Updated\b/)).toBeInTheDocument();
+  });
+
+  it("should navigate to the game's files page when Files is clicked", async () => {
+    const user = userEvent.setup();
+    renderPage(
+      <Routes>
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/games/:name/files" element={<FilesRouteProbe />} />
+      </Routes>,
+    );
+    await screen.findByRole('heading', { name: 'minecraft' });
+
+    await user.click(screen.getAllByRole('button', { name: 'Files' })[0]);
+
+    expect(await screen.findByText('/games/minecraft/files {"autoStart":true}')).toBeInTheDocument();
   });
 });

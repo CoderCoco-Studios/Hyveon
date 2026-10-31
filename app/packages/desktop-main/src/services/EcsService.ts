@@ -381,7 +381,7 @@ export class EcsService {
 
   /**
    * Register a new task-definition revision on the fly. Used exclusively by
-   * {@link FileManagerService.start} to build the FileBrowser task def per
+   * {@link FileManagerService.launchHelper} to build the FileBrowser task def per
    * game — game-server task definitions themselves are managed by the infra
    * program (`app/packages/infra/src/ecs.ts`).
    */
