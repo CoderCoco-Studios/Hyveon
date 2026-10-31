@@ -54,6 +54,7 @@ export class FileOps {
     private readonly ecs: EcsService,
   ) {}
 
+  // @spec HELPER-FB-031
   /**
    * Runs one file operation: validate, check the server, run inside the session, map failures.
    *
@@ -90,6 +91,7 @@ export class FileOps {
     return result.ok ? result : logRefusal(ref, spec.path, result);
   }
 
+  // @spec HELPER-FB-007, HELPER-FB-031, HELPER-LAYOUT-004
   /** Refuses a volume the session did not mount, and mutations of a legacy fallback layout. */
   private checkVolume(ref: VolumeRef, layout: HelperVolumeLayout, mutates: boolean): VolumeFailure | null {
     if (!isVolumeMounted(layout, ref.volume)) {
@@ -103,6 +105,7 @@ export class FileOps {
     return null;
   }
 
+  // @spec HELPER-FB-034, HELPER-FB-035
   /**
    * Refuses a change while the game's server task exists or its state can't be confirmed (fail closed).
    *

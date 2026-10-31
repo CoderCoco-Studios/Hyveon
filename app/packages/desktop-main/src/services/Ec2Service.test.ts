@@ -112,6 +112,7 @@ describe('Ec2Service', () => {
   });
 
   describe('authorizeIngress', () => {
+    // @spec HELPER-REACH-001
     it('should open the cidr on the tcp port with the description', async () => {
       ec2Mock.on(AuthorizeSecurityGroupIngressCommand).resolves({});
       await service.authorizeIngress('sg-1', '1.2.3.4/32', 8080, 'hyveon-filemgr:g:r');
@@ -135,6 +136,7 @@ describe('Ec2Service', () => {
   });
 
   describe('listIngressRulesByDescriptionPrefix', () => {
+    // @spec HELPER-REACH-005
     it('should return only ingress rules whose description has the prefix', async () => {
       ec2Mock.on(DescribeSecurityGroupRulesCommand).resolves({
         SecurityGroupRules: [
@@ -155,6 +157,7 @@ describe('Ec2Service', () => {
   });
 
   describe('revokeIngressRules', () => {
+    // @spec HELPER-REACH-005
     it('should revoke by rule id', async () => {
       ec2Mock.on(RevokeSecurityGroupIngressCommand).resolves({});
       expect(await service.revokeIngressRules('sg-1', ['sgr-1'])).toBe(true);

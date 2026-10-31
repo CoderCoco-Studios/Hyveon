@@ -231,6 +231,7 @@ describe('FileManagerService', () => {
       expect(result.message).toMatch(/not deployed/i);
     });
 
+    // @spec HELPER-LAUNCH-003
     it('should fail when the game has no EFS access point', async () => {
       const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, efsAccessPoints: {}, efsVolumeAccessPoints: {} };
       const { service: ecs } = makeEcs();
@@ -239,6 +240,7 @@ describe('FileManagerService', () => {
       expect(result.message).toMatch(/no efs access point/i);
     });
 
+    // @spec HELPER-LAUNCH-003
     it('should fail when file_manager_security_group_id is not set', async () => {
       const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, fileManagerSecurityGroupId: '' };
       const { service: ecs } = makeEcs();
@@ -247,6 +249,7 @@ describe('FileManagerService', () => {
       expect(result.message).toMatch(/fileManagerSecurityGroupId/);
     });
 
+    // @spec HELPER-LAUNCH-002
     it('should fail when the file manager is already running', async () => {
       const { service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'existing' }]),
@@ -265,6 +268,7 @@ describe('FileManagerService', () => {
       expect(result.message).toMatch(/execution role/i);
     });
 
+    // @spec HELPER-LAYOUT-001
     it('should register one EFS volume and mount point per mounted volume', async () => {
       const { stub, service: ecs } = makeEcs();
       const deploymentConfig = deploymentConfigStub({ declared: [gameServer('minecraft', { volumes: TWO_VOLUMES })] });
@@ -284,6 +288,7 @@ describe('FileManagerService', () => {
       expect(container.command).toContain('/srv');
     });
 
+    // @spec HELPER-LAUNCH-001, HELPER-REACH-002
     it('should register a filebrowser task definition (auth flags, not --noauth) and then run it', async () => {
       const { stub, service: ecs } = makeEcs();
       const svc = buildService({ ecs });
@@ -332,6 +337,7 @@ describe('FileManagerService', () => {
       expect(runArgs.networkConfiguration!.awsvpcConfiguration!.assignPublicIp).toBe('ENABLED');
     });
 
+    // @spec HELPER-LAUNCH-007
     it('should launch the helper from an immutable image reference', async () => {
       const { stub, service: ecs } = makeEcs();
       const svc = buildService({ ecs });
@@ -354,6 +360,7 @@ describe('FileManagerService', () => {
       expect(second.credentials.password).not.toBe(first.credentials.password);
     });
 
+    // @spec HELPER-LAUNCH-008
     it('should write the bcrypt hash to Secrets Manager via the shared SecretsStore', async () => {
       const { service: ecs } = makeEcs();
       const { stub: secretsStub, service: secrets } = makeSecrets();
@@ -369,6 +376,7 @@ describe('FileManagerService', () => {
       expect(storedHash).not.toBe(result.credentials.password);
     });
 
+    // @spec HELPER-LAUNCH-008
     it('should not fail the launch when the Secrets Manager write throws', async () => {
       const { service: ecs } = makeEcs();
       const { service: secrets } = makeSecrets({ put: vi.fn().mockRejectedValue(new Error('AccessDenied')) });
@@ -379,6 +387,7 @@ describe('FileManagerService', () => {
       expect(result.credentials).toBeDefined();
     });
 
+    // @spec HELPER-LAUNCH-004
     it('should create a one-time auto-stop schedule after a successful RunTask, targeting the new task and the deployed scheduler role', async () => {
       const { service: ecs } = makeEcs();
       const { stub: schedulerStub, service: scheduler } = makeScheduler();
@@ -472,6 +481,7 @@ describe('FileManagerService', () => {
       expect(stub.stopTask).toHaveBeenCalledWith('game-cluster', 'arn-1', expect.any(String));
     });
 
+    // @spec HELPER-LAUNCH-004
     it('should delete the game auto-stop schedule after stopping the task', async () => {
       const { service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
@@ -494,6 +504,7 @@ describe('FileManagerService', () => {
       expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', []);
     });
 
+    // @spec HELPER-REACH-005
     it('should revoke the shared rule once the last helper using it stops, even when it carries another game\'s description', async () => {
       const { service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-2' }]),
@@ -516,6 +527,7 @@ describe('FileManagerService', () => {
       expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-minecraft-1.1.1.1']);
     });
 
+    // @spec HELPER-REACH-005
     it('should revoke the rule when no other helper is running', async () => {
       const { service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
@@ -526,6 +538,7 @@ describe('FileManagerService', () => {
       expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-minecraft-1.1.1.1']);
     });
 
+    // @spec HELPER-REACH-008
     it('should keep every rule when another helper has no recorded operator IP', async () => {
       const { service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
@@ -536,6 +549,7 @@ describe('FileManagerService', () => {
       expect(ec2.revokeIngressRules).not.toHaveBeenCalled();
     });
 
+    // @spec HELPER-REACH-008
     it('should keep the rule when the other-helpers lookup fails', async () => {
       const { service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
@@ -559,6 +573,7 @@ describe('FileManagerService', () => {
   });
 
   describe('operator IP rule', () => {
+    // @spec HELPER-REACH-001
     it('should authorize the detected public IP as a /32 on port 8080 with a description naming game and run', async () => {
       const ec2 = makeEc2();
       await launchOk(buildService({ ec2 }));
@@ -638,6 +653,7 @@ describe('FileManagerService', () => {
       expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-minecraft']);
     });
 
+    // @spec HELPER-LAUNCH-001
     it('should deregister the helper\'s task definition on stop', async () => {
       const { stub, service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1', taskDefinitionArn: 'arn:td/filebrowser-minecraft:3' }]),
@@ -652,6 +668,7 @@ describe('FileManagerService', () => {
       expect(await buildService({ config: makeConfig(null) }).planHelperLayout('minecraft')).toBeNull();
     });
 
+    // @spec HELPER-LAYOUT-001
     it('should plan from the game\'s declared volumes and the exported access points', async () => {
       const outputs = { ...DEFAULT_OUTPUTS, efsVolumeAccessPoints: { minecraft: { config: 'fsap-c' } } };
       const deploymentConfig = deploymentConfigStub({ declared: [gameServer('minecraft', { volumes: TWO_VOLUMES })] });
@@ -666,6 +683,7 @@ describe('FileManagerService', () => {
     const launchUpload = (svc: FileManagerService, layout?: HelperVolumeLayout) =>
       svc.launchHelper('minecraft', { runId: 'run-1', tags: UPLOAD_TAGS, layout });
 
+    // @spec HELPER-STRAY-001, HELPER-FB-008
     it('should return the credential and certificate in-process and tag the task as a seed-upload session', async () => {
       const { stub, service: ecs } = makeEcs();
       const result = await launchUpload(buildService({ ecs }));
@@ -682,6 +700,7 @@ describe('FileManagerService', () => {
       ]);
     });
 
+    // @spec HELPER-REACH-003
     it('should serve over TLS through a sh -c wrapper that writes the env-provided certificate and key', async () => {
       const { stub, service: ecs } = makeEcs();
       const result = await launchUpload(buildService({ ecs }));
@@ -733,6 +752,7 @@ describe('FileManagerService', () => {
       expect(ec2.authorizeIngress).toHaveBeenCalledWith('sg-files', '203.0.113.7/32', 8080, 'hyveon-filemgr:minecraft:run-1');
     });
 
+    // @spec HELPER-LAUNCH-002
     it('should refuse with helper-open when a session is already running, without launching', async () => {
       const { stub, service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'existing' }]) });
       const result = await launchUpload(buildService({ ecs }));
@@ -740,6 +760,7 @@ describe('FileManagerService', () => {
       expect(stub.runTask).not.toHaveBeenCalled();
     });
 
+    // @spec HELPER-REACH-002
     it('should never put the plaintext password in the task definition', async () => {
       const { stub, service: ecs } = makeEcs();
       const result = await launchUpload(buildService({ ecs }));
@@ -755,6 +776,7 @@ describe('FileManagerService', () => {
   });
 
   describe('launchHelper', () => {
+    // @spec HELPER-REACH-003
     it('should launch every helper with TLS container settings', async () => {
       const { stub, service: ecs } = makeEcs();
       const outcome = await launchOk(buildService({ ecs }), 'run-1');
@@ -773,6 +795,7 @@ describe('FileManagerService', () => {
       ]);
     });
 
+    // @spec HELPER-LAUNCH-004
     it('should report autoStopAt two hours after launch', async () => {
       vi.useFakeTimers();
       try {
@@ -786,6 +809,7 @@ describe('FileManagerService', () => {
       }
     });
 
+    // @spec HELPER-LAUNCH-004
     it('should schedule the auto-stop for the reported autoStopAt', async () => {
       const { stub, service: scheduler } = makeScheduler();
       const outcome = await buildService({ scheduler }).launchHelper('minecraft', { runId: BROWSE_RUN_ID });
@@ -834,6 +858,7 @@ describe('FileManagerService', () => {
     });
   });
 
+  // @spec HELPER-FB-012
   describe('reauthorizeOperatorIp', () => {
     const OLD_IP = '198.51.100.1';
     const NEW_IP = '198.51.100.2';
@@ -846,6 +871,7 @@ describe('FileManagerService', () => {
       expect(stub.tagTask).toHaveBeenCalledWith('game-cluster', 'arn-minecraft', [{ key: 'OperatorIp', value: NEW_IP }]);
     });
 
+    // @spec HELPER-REACH-005
     it('should revoke the old rule when no other helper still carries the old IP', async () => {
       const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: vi.fn().mockResolvedValue([sgRule('minecraft', OLD_IP)]) });
       const { service: ecs } = makeEcs({ listTasksByStartedByPrefix: vi.fn().mockResolvedValue([helperTask('minecraft', NEW_IP)]) });
@@ -911,6 +937,7 @@ describe('FileManagerService', () => {
       expect(await buildService({ ecs }).getHelperPublicIp('minecraft')).toBeNull();
     });
 
+    // @spec HELPER-UPLOAD-014
     it('should throw the ECS stop reason when the launched task stopped before it was reachable', async () => {
       const { service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([]),
@@ -945,6 +972,7 @@ describe('FileManagerService', () => {
     });
   });
 
+  // @spec HELPER-STRAY-004
   describe('sweepStrayHelpers', () => {
     const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
     const task = (game: string, ageMin: number, extra: Partial<Task> = {}): Task => ({
@@ -965,6 +993,7 @@ describe('FileManagerService', () => {
       expect(stub.listTasksByStartedByPrefix).toHaveBeenCalledWith('game-cluster', 'filemgr-');
     });
 
+    // @spec HELPER-STRAY-003, HELPER-STRAY-005
     it('should leave helpers younger than the threshold and helpers owned by an active run', async () => {
       const { stub, service: ecs } = makeEcs({
         listTasksByStartedByPrefix: vi.fn().mockResolvedValue([task('minecraft', 5), task('palworld', 60)]),
@@ -974,6 +1003,7 @@ describe('FileManagerService', () => {
       expect(report).toMatchObject({ stopped: [], skipped: 2 });
     });
 
+    // @spec HELPER-STRAY-004
     it('should stop everything regardless of age on an explicit operator action (minAgeMs 0)', async () => {
       const { stub, service: ecs } = makeEcs({ listTasksByStartedByPrefix: vi.fn().mockResolvedValue([task('minecraft', 1)]) });
       const report = await buildService({ ecs }).sweepStrayHelpers({ activeGames: new Set(), minAgeMs: 0 });
@@ -1003,6 +1033,7 @@ describe('FileManagerService', () => {
       expect(ec2.revokeIngressRules).not.toHaveBeenCalled();
     });
 
+    // @spec HELPER-REACH-008
     it('should record the error and revoke nothing when the helper listing fails', async () => {
       const rules = [{ ruleId: 'sgr-g', description: 'hyveon-filemgr:minecraft:r', cidr: 'x' }];
       const { stub, service: ecs } = makeEcs({ listTasksByStartedByPrefix: vi.fn().mockRejectedValue(new Error('throttled')) });

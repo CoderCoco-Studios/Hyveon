@@ -12,6 +12,7 @@ export interface FileToolbarProps {
   onUploadFolder(): void;
 }
 
+// @spec HELPER-FB-034
 /** Directory-level actions: new folder and the two upload routes. */
 export function FileToolbar({ disabledReason, onNewFolder, onUploadFiles, onUploadFolder }: FileToolbarProps) {
   const disabled = disabledReason !== null;
@@ -50,6 +51,7 @@ export interface RowActionsProps {
   onDelete(entry: VolumeEntryInfo): void;
 }
 
+// @spec HELPER-FB-040, HELPER-EDIT-001
 /**
  * Per-entry actions. Download and Edit (view) stay available while the server runs; Rename and Delete follow
  * `disabledReason`. Edit appears only for files small enough for the in-app editor. An entry whose name is not a valid

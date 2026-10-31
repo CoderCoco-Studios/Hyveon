@@ -1,6 +1,8 @@
+// @spec HELPER-EDIT-001, HELPER-EDIT-002
 /** Largest text file the in-app editor will open or save, in bytes. */
 export const MAX_TEXT_EDIT_BYTES = 1_048_576;
 
+// @spec HELPER-FB-023
 /** How long before an automatic stop the renderer warns the operator, in milliseconds. */
 export const AUTO_STOP_WARNING_MS = 10 * 60 * 1000;
 
@@ -92,6 +94,7 @@ export interface VolumeTransferProgress {
   error?: string;
 }
 
+// @spec HELPER-IPC-008
 /** IPC push channel carrying {@link VolumeSessionStatus} updates. */
 export const VOLUME_FILES_SESSION_CHANNEL = 'volumeFiles.session';
 

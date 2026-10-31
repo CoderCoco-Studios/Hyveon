@@ -63,6 +63,7 @@ function nonEmptyStrings<K extends string>(raw: Raw, keys: readonly K[]): Record
   return out;
 }
 
+// @spec HELPER-IPC-007
 /** The string fields of `payload` named in `keys`; anything else (including content and local paths) is left out. */
 function safeFields(payload: unknown, keys: readonly string[]): Raw {
   const raw = asRecord(payload);
@@ -82,6 +83,7 @@ interface FileSpec<K extends string> {
   check?: (raw: Raw) => boolean;
 }
 
+// @spec HELPER-IPC-001, HELPER-FB-008
 /**
  * IPC-only controller behind the operator's volume file browser. The helper credential, address and certificate pin
  * never cross this boundary; the renderer sees volume-relative paths and fixed operator messages only.
@@ -96,6 +98,7 @@ export class VolumeFilesController implements OnModuleInit, OnModuleDestroy {
 
   constructor(private readonly files: VolumeFilesService) {}
 
+  // @spec HELPER-IPC-008
   /**
    * Forwards session and transfer events to every open window over {@link VOLUME_FILES_SESSION_CHANNEL} and
    * {@link VOLUME_FILES_TRANSFER_CHANNEL}; a no-op outside Electron.
@@ -227,6 +230,7 @@ export class VolumeFilesController implements OnModuleInit, OnModuleDestroy {
     return this.fileOp(CH.uploadFolder, payload, { strings: ['dir'] }, (ref, { dir }) => this.files.uploadFolder(ref, dir));
   }
 
+  // @spec HELPER-IPC-006, HELPER-IPC-007
   /**
    * Logs the invocation (identifiers only), validates a file channel's payload, and runs `run` on a valid one.
    *
@@ -253,6 +257,7 @@ export class VolumeFilesController implements OnModuleInit, OnModuleDestroy {
     return this.gameOp(channel, game, run, () => failedSessionStatus(typeof game === 'string' ? game : '', INVALID_REQUEST));
   }
 
+  // @spec HELPER-IPC-006
   /** Logs a bare-game channel and runs `run` for a valid game, else answers with `invalid()`. */
   private async gameOp<T>(channel: string, game: unknown, run: (game: string) => Promise<T>, invalid: () => T): Promise<T> {
     logger.debug(`VolumeFilesController: ${channel} invoked`, safeFields({ game }, []));

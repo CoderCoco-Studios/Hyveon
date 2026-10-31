@@ -741,6 +741,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       const logGroup = lambdaLogGroup(projectName, `efs-seeder-${game}`, opts, { Game: game });
       efsSeederLogGroups[game] = logGroup;
 
+      // @spec HELPER-SEED-001
       efsSeederFunctions[game] = new aws.lambda.Function(
         `${projectName}-efs-seeder-${game}`,
         {

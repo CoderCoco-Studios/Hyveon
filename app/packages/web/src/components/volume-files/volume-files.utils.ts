@@ -31,6 +31,7 @@ function compareNames(a: string, b: string): number {
   return a < b ? -1 : 1;
 }
 
+// @spec HELPER-FB-024
 /**
  * Sorts directory entries with folders first, then by the chosen key.
  *

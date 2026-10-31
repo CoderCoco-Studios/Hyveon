@@ -49,6 +49,7 @@ export interface VolumeFiles {
 const ROOT = '/';
 const DEFAULT_SORT: VolumeSort = { key: 'name', dir: 'asc' };
 
+// @spec HELPER-FB-025, HELPER-FB-029
 /**
  * Lists and operates on one volume of a game's file-browser session.
  *

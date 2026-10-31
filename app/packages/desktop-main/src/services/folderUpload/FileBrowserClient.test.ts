@@ -46,6 +46,7 @@ async function setup(
 }
 
 describe('generateEphemeralCert', () => {
+  // @spec HELPER-REACH-003
   it('should produce a distinct certificate, key and fingerprint per call', () => {
     expect(cert.fingerprint256).not.toBe(otherCert.fingerprint256);
     expect(cert.keyPem).toContain('PRIVATE KEY');
@@ -81,6 +82,7 @@ describe('FileBrowserClient', () => {
     await client.close();
   });
 
+  // @spec HELPER-REACH-004, HELPER-FB-011
   it('should abort with PinMismatchError and send nothing when the server presents a different certificate', async () => {
     const { server, options } = await setup(otherCert, cert);
     const client = new FileBrowserClient(options);
@@ -89,6 +91,7 @@ describe('FileBrowserClient', () => {
     expect(server.requests).toHaveLength(0);
   });
 
+  // @spec HELPER-REACH-004
   it('should reject a certificate whose fingerprint differs even when the CA matches', async () => {
     const { server, options } = await setup(cert, cert);
     const client = new FileBrowserClient({ ...options, fingerprint256: otherCert.fingerprint256 });
@@ -187,6 +190,7 @@ describe('FileBrowserClient read operations', () => {
     await client.close();
   });
 
+  // @spec HELPER-FB-040
   it('should stream a zip for a directory archive', async () => {
     const client = await connected();
     expect(client.supportsArchive).toBe(true);
@@ -208,6 +212,7 @@ describe('FileBrowserClient read operations', () => {
     await client.close();
   });
 
+  // @spec HELPER-REACH-004
   it('should fail closed on a different certificate before sending the credential', async () => {
     const { server, options } = await setup(otherCert, cert);
     const client = new FileBrowserClient(options);

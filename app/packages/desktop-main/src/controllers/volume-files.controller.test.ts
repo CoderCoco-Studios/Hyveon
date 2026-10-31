@@ -58,6 +58,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('VolumeFilesController', () => {
+  // @spec HELPER-IPC-001
   it('should register every volumeFiles channel', () => {
     expectChannels(VolumeFilesController.prototype, [
       ['sessionStatus', 'volumeFiles.session.status'],
@@ -135,6 +136,7 @@ describe('VolumeFilesController', () => {
     });
   });
 
+  // @spec HELPER-IPC-006
   describe('malformed payloads', () => {
     const ref = { game: 'mc', volume: 'saves' };
 
@@ -202,6 +204,7 @@ describe('VolumeFilesController', () => {
   });
 
   describe('logging', () => {
+    // @spec HELPER-IPC-001, HELPER-IPC-007
     it('should log each invocation with the game and without file content', async () => {
       const { controller } = make();
       await controller.writeText({ game: 'mc', volume: 'saves', path: '/a.txt', content: 'SECRET-CONTENT', expectedModifiedMs: 1 });
@@ -213,6 +216,7 @@ describe('VolumeFilesController', () => {
       expect(JSON.stringify(vi.mocked(logger.debug).mock.calls)).not.toContain('SECRET-CONTENT');
     });
 
+    // @spec HELPER-IPC-007
     it('should not log local paths', async () => {
       const { controller } = make();
       await controller.uploadFiles({ game: 'mc', volume: 'saves', dir: '/mods', localPaths: ['/home/me/secret.txt'] });
@@ -250,6 +254,7 @@ describe('VolumeFilesController', () => {
       expect(service.onTransfer).not.toHaveBeenCalled();
     });
 
+    // @spec HELPER-IPC-008
     it('should forward session and transfer events on their channels', async () => {
       const stop = vi.fn();
       forward.mockImplementation(async (subscribe: (cb: () => void) => void) => {
@@ -271,6 +276,7 @@ describe('VolumeFilesController', () => {
     });
   });
 
+  // @spec HELPER-FB-008
   it('should return results free of secret fields', async () => {
     const { controller } = make();
     const ref = { game: 'mc', volume: 'saves' };

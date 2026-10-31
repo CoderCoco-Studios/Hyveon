@@ -63,6 +63,7 @@ function FileRow({ entry, onOpenFolder, ...actions }: Omit<FileTableProps, 'entr
   );
 }
 
+// @spec HELPER-FB-024
 /** Sortable listing of one directory. */
 export function FileTable({ entries, sort, onSort, ...rowProps }: FileTableProps) {
   return (

@@ -52,6 +52,7 @@ async function scriptHelperWithoutPublicIp(serverMocks: ServerMocks): Promise<vo
 }
 
 test.describe('HelperSessionRegistry — file manager helper sessions', () => {
+  // @spec HELPER-FB-021
   test('should report starting while the helper has no public IP', async ({ ipc, serverMocks }) => {
     scriptDeployedStack(ipc);
     await scriptHelperWithoutPublicIp(serverMocks);
@@ -75,6 +76,7 @@ test.describe('HelperSessionRegistry — file manager helper sessions', () => {
     expect(registry.ownedGames().has('minecraft')).toBe(false);
   });
 
+  // @spec HELPER-FB-019
   test('should report orphaned for an unowned helper', async ({ ipc, serverMocks }) => {
     scriptDeployedStack(ipc);
     await serverMocks.pushListTasks({ type: 'success', data: { taskArns: [HELPER_TASK_ARN] } });

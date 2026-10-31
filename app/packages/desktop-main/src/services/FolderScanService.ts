@@ -29,12 +29,14 @@ export class FolderScanService {
 
   constructor(private readonly dialogs: NativeDialogService) {}
 
+  // @spec HELPER-SELECT-001
   /** Picks a folder and scans it; `null` when the operator cancels. */
   async pickAndScan(): Promise<FolderScanResult | null> {
     const picked = await this.dialogs.pickDirectory();
     return picked ? this.scan(picked) : null;
   }
 
+  // @spec HELPER-SELECT-007, HELPER-SAFE-001
   /**
    * Scans `rootPath` and holds the result under a fresh `scanId`.
    *

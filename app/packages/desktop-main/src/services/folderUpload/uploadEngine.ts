@@ -24,6 +24,7 @@ export interface UploadEngineOptions {
   sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
+// @spec HELPER-RESUME-007
 /** Production defaults: four files in flight, three attempts per file. */
 export const DEFAULT_ENGINE_OPTIONS: UploadEngineOptions = {
   concurrency: 4,
@@ -130,6 +131,7 @@ export async function ensureDirs(client: VolumeFileBackend, items: UploadItem[],
   }
 }
 
+// @spec HELPER-OVER-001
 /** Lists the parent directory of every planned file; missing directories are absent from the result. */
 export async function listPlannedDirs(
   client: VolumeFileBackend,
@@ -171,6 +173,7 @@ export async function listRemoteSizes(
   return remoteSizesOf(await listPlannedDirs(client, items, signal, concurrency));
 }
 
+// @spec HELPER-OVER-001, HELPER-OVER-008
 /**
  * Classifies each planned file against the volume: new, identical (same size; resume skips it) or a conflict (exists
  * with a different size and would be overwritten). Existing files the plan does not include are only counted.
@@ -194,6 +197,7 @@ export function classifyUpload(items: UploadItem[], remoteSizes: Map<string, num
   return summary;
 }
 
+// @spec HELPER-VERIFY-001
 /** Compares the volume's listing against the plan (count and per-file size). */
 export async function verifyUpload(client: VolumeFileBackend, items: UploadItem[], signal?: AbortSignal): Promise<VerifyResult> {
   const sizes = await listRemoteSizes(client, items, signal);
@@ -228,6 +232,7 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new UploadCancelledError();
 }
 
+// @spec HELPER-RESUME-003, HELPER-RESUME-006, HELPER-PROG-003
 /** Uploads one file with bounded retries, rolling back its counted bytes after each failed attempt. */
 async function uploadOne(
   client: VolumeFileBackend,
@@ -267,6 +272,7 @@ async function uploadOne(
   }
 }
 
+// @spec HELPER-RESUME-001, HELPER-RESUME-002, HELPER-RESUME-004, HELPER-RESUME-007
 /**
  * Uploads `items`, skipping files the volume already holds at the expected size (resume), with bounded concurrency.
  *

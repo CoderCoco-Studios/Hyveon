@@ -62,6 +62,7 @@ describe('ensureDirs', () => {
 });
 
 describe('uploadAll', () => {
+  // @spec HELPER-PROG-003
   it('should upload every file and count their bytes and completions', async () => {
     const items = [await makeItem('a.txt', 10), await makeItem('b.txt', 20)];
     const client = fakeBackend();
@@ -71,6 +72,7 @@ describe('uploadAll', () => {
     expect(agg.snapshot()).toMatchObject({ bytesDone: 30, filesDone: 2 });
   });
 
+  // @spec HELPER-RESUME-007
   it('should never have more than four uploads in flight', async () => {
     const items = await Promise.all(Array.from({ length: 12 }, (_, i) => makeItem(`f${i}.txt`, 5)));
     let inFlight = 0;
@@ -88,6 +90,7 @@ describe('uploadAll', () => {
     expect(peak).toBe(4);
   });
 
+  // @spec HELPER-RESUME-001, HELPER-RESUME-002
   it('should skip files already present with the expected size and overwrite partial ones (resume)', async () => {
     const items = [await makeItem('done.txt', 10), await makeItem('partial.txt', 20)];
     const client = fakeBackend();
@@ -98,6 +101,7 @@ describe('uploadAll', () => {
     expect(agg.snapshot()).toMatchObject({ bytesDone: 30, filesDone: 2 });
   });
 
+  // @spec HELPER-RESUME-003, HELPER-PROG-003
   it('should retry a transient failure, roll back the failed attempt\'s bytes, then succeed', async () => {
     const items = [await makeItem('a.txt', 10)];
     let calls = 0;
@@ -115,6 +119,7 @@ describe('uploadAll', () => {
     expect(agg.snapshot()).toMatchObject({ bytesDone: 10, filesDone: 1 });
   });
 
+  // @spec HELPER-RESUME-004, HELPER-RESUME-003
   it('should fail the run naming the path after three attempts', async () => {
     const items = [await makeItem('bad.txt', 10), await makeItem('ok.txt', 10)];
     const writeStream = vi.fn(async (remotePath: string) => {
@@ -127,6 +132,7 @@ describe('uploadAll', () => {
     expect(writeStream).toHaveBeenCalledTimes(3);
   });
 
+  // @spec HELPER-RESUME-003
   it('should not retry a 4xx response, a pin mismatch, or an auth, not-found or conflict failure', async () => {
     const items = [await makeItem('a.txt', 10)];
     const failures = [
@@ -143,6 +149,7 @@ describe('uploadAll', () => {
     }
   });
 
+  // @spec HELPER-RESUME-003
   it.each([
     ['a 5xx response', new VolumeFileError('failed', 'x', 503)],
     ['a 408 response', new VolumeFileError('failed', 'x', 408)],
@@ -154,6 +161,7 @@ describe('uploadAll', () => {
     expect(writeStream).toHaveBeenCalledTimes(3);
   });
 
+  // @spec HELPER-RESUME-003
   it('should retry an unreachable error up to maxAttempts', async () => {
     const items = [await makeItem('a.txt', 10)];
     const writeStream = vi.fn().mockRejectedValue(new VolumeFileError('unreachable', 'The file manager helper is unreachable'));
@@ -173,6 +181,7 @@ describe('uploadAll', () => {
     expect(writeStream).toHaveBeenCalledWith('/Data/a.txt', expect.anything(), expect.objectContaining({ size: 10, overwrite: true }));
   });
 
+  // @spec HELPER-RESUME-006
   it('should fail without sending when the local file changed since the scan', async () => {
     const items = [await makeItem('a.txt', 10)];
     await writeFile(items[0]!.localPath, Buffer.alloc(11, 2));
@@ -181,6 +190,7 @@ describe('uploadAll', () => {
     expect(writeStream).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-RESUME-006
   it('should fail when only the mtime changed', async () => {
     const items = [await makeItem('a.txt', 10)];
     await utimes(items[0]!.localPath, 1_800_000_000, 1_800_000_000);
@@ -207,6 +217,7 @@ describe('uploadAll', () => {
   });
 });
 
+// @spec HELPER-VERIFY-001
 describe('verifyUpload', () => {
   it('should pass when every planned file exists with the planned size', async () => {
     const items = [await makeItem('a.txt', 10)];
@@ -225,6 +236,7 @@ describe('verifyUpload', () => {
 });
 
 describe('listRemoteSizes', () => {
+  // @spec HELPER-VERIFY-001
   it('should list each parent directory once', async () => {
     const items = [await makeItem('a.txt', 1), await makeItem('b.txt', 1)];
     const client = fakeBackend();
@@ -233,6 +245,7 @@ describe('listRemoteSizes', () => {
   });
 });
 
+// @spec HELPER-OVER-001
 describe('listPlannedDirs', () => {
   it('should omit directories the volume does not have yet', async () => {
     const items = [await makeItem('a.txt', 1, '/Data/a.txt'), await makeItem('b.txt', 1, '/New/b.txt')];
@@ -263,6 +276,7 @@ describe('listPlannedDirs', () => {
 describe('classifyUpload', () => {
   const item = (relPath: string, size: number, remotePath = `/Data/${relPath}`) => ({ relPath, size, remotePath }) as UploadItem;
 
+  // @spec HELPER-OVER-001, HELPER-OVER-008
   it('should split planned files into new, identical and conflicting and count unrelated files as context only', () => {
     const items = [item('new.txt', 5), item('same.txt', 5), item('diff.txt', 9)];
     const remote = new Map([
@@ -283,6 +297,7 @@ describe('classifyUpload', () => {
     expect(classifyUpload([item('a', 0)], new Map([['/Data/a', 3]])).conflictCount).toBe(1);
   });
 
+  // @spec HELPER-OVER-002
   it('should cap the samples at 20 while still counting every conflict', () => {
     const items = Array.from({ length: 25 }, (_, i) => item(`f${i}`, 10));
     const remote = new Map(items.map((i) => [i.remotePath, 1] as [string, number]));

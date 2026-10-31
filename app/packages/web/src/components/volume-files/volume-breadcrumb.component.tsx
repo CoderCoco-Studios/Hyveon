@@ -10,6 +10,7 @@ export interface VolumeBreadcrumbProps {
   onOpen(path: string): void;
 }
 
+// @spec HELPER-FB-024
 /** Path trail from the volume root to the current directory; every ancestor is a button, the current folder is text. */
 export function VolumeBreadcrumb({ rootLabel, path, onOpen }: VolumeBreadcrumbProps) {
   const segments = path.split('/').filter((segment) => segment !== '');

@@ -94,6 +94,7 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe('HelperSessionRegistry', () => {
+  // @spec HELPER-SESS-001, HELPER-FB-013
   it('should share one launch between concurrent acquires', async () => {
     const { registry, fm } = harness();
 
@@ -104,6 +105,7 @@ describe('HelperSessionRegistry', () => {
     expect(await registry.status('mc')).toMatchObject({ state: 'running', browseHeld: true, uploadHolders: 1 });
   });
 
+  // @spec HELPER-FB-041
   it('should report upload holders of a game but not a browse hold or another game', async () => {
     const { registry } = harness();
     expect(registry.hasUploadHolders('mc')).toBe(false);
@@ -119,6 +121,7 @@ describe('HelperSessionRegistry', () => {
     expect(registry.hasUploadHolders('mc')).toBe(false);
   });
 
+  // @spec HELPER-FB-041
   it('should not count a download hold as an upload holder, in hasUploadHolders or the snapshot', async () => {
     const { registry } = harness();
     await Promise.all([registry.acquire('mc', 'download:xfer-1'), registry.acquire('mc', 'upload:xfer-2')]);
@@ -142,6 +145,7 @@ describe('HelperSessionRegistry', () => {
     expect(fm.stop).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-FB-041
   it('should keep reporting an upload holder while its session is stopping, until teardown drops the entry', async () => {
     const { registry, fm } = harness();
     await registry.acquire('mc', 'upload:xfer-1');
@@ -161,6 +165,7 @@ describe('HelperSessionRegistry', () => {
     expect(registry.hasUploadHolders('mc')).toBe(false);
   });
 
+  // @spec HELPER-REACH-003, HELPER-FB-010, HELPER-STRAY-001
   it('should launch over TLS with the browse run id and pass tags only to the launching acquire', async () => {
     const { registry, fm } = harness();
     const tags = [{ key: 'Purpose', value: 'upload' }];
@@ -173,6 +178,7 @@ describe('HelperSessionRegistry', () => {
     expect(second.fm.launchHelper).toHaveBeenCalledWith('mc', expect.objectContaining({ runId: 'browse' }));
   });
 
+  // @spec HELPER-FB-010
   it('should connect a backend built from the launch credentials and the configured port', async () => {
     const { registry, create, backend } = harness();
     registry.timings.helperPort = 9443;
@@ -190,6 +196,7 @@ describe('HelperSessionRegistry', () => {
     expect(backend.connect).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-SESS-003
   it('should keep the helper while another holder remains', async () => {
     const { registry, fm } = harness();
     await Promise.all([registry.acquire('mc', 'browse'), registry.acquire('mc', 'upload:r1')]);
@@ -200,6 +207,7 @@ describe('HelperSessionRegistry', () => {
     expect(fm.stop).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-015
   it('should stop the helper after the browse grace period', async () => {
     const { registry, fm } = harness();
     await registry.acquire('mc', 'browse');
@@ -214,6 +222,7 @@ describe('HelperSessionRegistry', () => {
     expect(await registry.status('mc')).toMatchObject({ state: 'stopped' });
   });
 
+  // @spec HELPER-FB-016
   it('should cancel the grace timer when the page re-attaches', async () => {
     const { registry, fm } = harness();
     await registry.acquire('mc', 'browse');
@@ -231,6 +240,7 @@ describe('HelperSessionRegistry', () => {
     expect(harness().registry.attach('mc')).toBe(false);
   });
 
+  // @spec HELPER-SESS-003, HELPER-STRAY-006
   it('should stop an upload-only session as soon as the upload releases', async () => {
     const { registry, fm } = harness();
     await registry.acquire('mc', 'upload:r1');
@@ -252,6 +262,7 @@ describe('HelperSessionRegistry', () => {
     expect(fm.stop).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-SESS-003
   it('should keep the helper for the browse grace period when an upload releases after the page left', async () => {
     const { registry, fm } = harness();
     await Promise.all([registry.acquire('mc', 'browse'), registry.acquire('mc', 'upload:r1')]);
@@ -313,6 +324,7 @@ describe('HelperSessionRegistry', () => {
     expect(fm.stop).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-SESS-003
   it('should stop immediately when the upload releases after the grace period already lapsed', async () => {
     const { registry, fm } = harness();
     await Promise.all([registry.acquire('mc', 'browse'), registry.acquire('mc', 'upload:r1')]);
@@ -340,6 +352,7 @@ describe('HelperSessionRegistry', () => {
     expect(await registry.status('mc')).toMatchObject({ state: 'running' });
   });
 
+  // @spec HELPER-SESS-008
   it('should run beforeStop listeners before tearing down', async () => {
     const { registry, fm, backend } = harness();
     const order: string[] = [];
@@ -377,6 +390,7 @@ describe('HelperSessionRegistry', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-SESS-008
   it('should call beforeStop listeners before a starting session finishes launching when stop() is explicit', async () => {
     const { registry, fm } = harness();
     let release!: () => void;
@@ -415,6 +429,7 @@ describe('HelperSessionRegistry', () => {
     expect(fm.stop).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-LAUNCH-002, HELPER-FB-019
   it('should report orphaned when ECS has a helper the registry does not own', async () => {
     const { registry, fm, ecs } = harness();
     ecs.add('mc');
@@ -425,6 +440,7 @@ describe('HelperSessionRegistry', () => {
     expect(registry.ownedGames().has('mc')).toBe(false);
   });
 
+  // @spec HELPER-FB-019
   it('should stop an orphan on stop()', async () => {
     const { registry, fm, ecs } = harness();
     ecs.add('mc');
@@ -435,6 +451,7 @@ describe('HelperSessionRegistry', () => {
     expect(fm.stop).toHaveBeenCalledWith('mc');
   });
 
+  // @spec HELPER-FB-019
   it('should restart an orphan by stopping it and launching a fresh session', async () => {
     const { registry, fm, ecs } = harness();
     ecs.add('mc');
@@ -454,6 +471,7 @@ describe('HelperSessionRegistry', () => {
     expect(fm.launchHelper).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-022, HELPER-SESS-005
   it('should report failed when the session task disappears from ECS', async () => {
     const { registry, fm, ecs, backend } = harness();
     await registry.acquire('mc', 'browse');
@@ -470,6 +488,7 @@ describe('HelperSessionRegistry', () => {
     expect(registry.ownedGames().has('mc')).toBe(false);
   });
 
+  // @spec HELPER-SESS-005
   it('should not stop a foreign helper that replaced the session task', async () => {
     const { registry, fm, backend } = harness();
     await registry.acquire('mc', 'browse');
@@ -485,6 +504,7 @@ describe('HelperSessionRegistry', () => {
     expect(await registry.status('mc')).toMatchObject({ state: 'orphaned' });
   });
 
+  // @spec HELPER-SESS-006
   it('should keep reporting failed until the next acquire', async () => {
     const { registry, fm, ecs } = harness();
     await registry.acquire('mc', 'browse');
@@ -499,6 +519,7 @@ describe('HelperSessionRegistry', () => {
     expect(await registry.status('mc')).toMatchObject({ state: 'running' });
   });
 
+  // @spec HELPER-SESS-006
   it('should drop the entry, keep the error and emit failed when the launch fails', async () => {
     const { registry, fm } = harness();
     fm.launchHelper.mockResolvedValue({ ok: false, code: 'failed', message: 'No EFS access point' });
@@ -513,6 +534,7 @@ describe('HelperSessionRegistry', () => {
     expect(await registry.status('mc')).toMatchObject({ state: 'failed' });
   });
 
+  // @spec HELPER-REACH-005
   it('should stop a launched helper when it never becomes reachable', async () => {
     const { registry, fm, backend } = harness();
     vi.mocked(backend.connect).mockRejectedValue(new VolumeFileError('unreachable', 'connect refused'));
@@ -527,6 +549,7 @@ describe('HelperSessionRegistry', () => {
     expect(await registry.status('mc')).toMatchObject({ state: 'failed', error: 'connect refused' });
   });
 
+  // @spec HELPER-SESS-002
   it('should wait for an in-flight teardown before launching a fresh session', async () => {
     const { registry, fm, ecs } = harness();
     await registry.acquire('mc', 'browse');
@@ -554,6 +577,7 @@ describe('HelperSessionRegistry', () => {
     expect(fm.launchHelper).toHaveBeenCalledTimes(2);
   });
 
+  // @spec HELPER-QUIT-003
   it('should stop every owned game without throwing', async () => {
     const { registry, fm } = harness();
     await registry.acquire('mc', 'browse');
@@ -566,6 +590,7 @@ describe('HelperSessionRegistry', () => {
     expect(registry.ownedGames().size).toBe(0);
   });
 
+  // @spec HELPER-FB-007
   it('should report every declared volume with its mounted flag', async () => {
     const { registry } = harness();
     await registry.acquire('mc', 'browse');
@@ -578,6 +603,7 @@ describe('HelperSessionRegistry', () => {
     ]);
   });
 
+  // @spec HELPER-FB-040
   it('should report archive support from the backend', async () => {
     const { registry, backend } = harness();
     await registry.acquire('mc', 'browse');
@@ -615,6 +641,7 @@ describe('HelperSessionRegistry', () => {
   });
 
   describe('readiness', () => {
+    // @spec HELPER-FB-021, HELPER-UPLOAD-015
     it('should stay starting until the backend accepts the login', async () => {
       const { registry, backend } = harness();
       vi.mocked(backend.connect)
@@ -632,6 +659,7 @@ describe('HelperSessionRegistry', () => {
       expect(await registry.status('mc')).toMatchObject({ state: 'running' });
     });
 
+    // @spec HELPER-FB-021
     it('should stay starting while the task has no public IP', async () => {
       const { registry, fm, create } = harness();
       fm.getHelperPublicIp.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValue('127.0.0.1');
@@ -646,6 +674,7 @@ describe('HelperSessionRegistry', () => {
       expect(fm.getHelperPublicIp).toHaveBeenCalledTimes(3);
     });
 
+    // @spec HELPER-UPLOAD-014
     it('should fail when the task never gets a public IP in time', async () => {
       const { registry, fm } = harness();
       fm.getHelperPublicIp.mockResolvedValue(null);
@@ -663,6 +692,7 @@ describe('HelperSessionRegistry', () => {
       expect(fm.stop).toHaveBeenCalledWith('mc');
     });
 
+    // @spec HELPER-UPLOAD-014, HELPER-UPLOAD-016, HELPER-FB-022
     it('should fail with the stop reason when the task exits during start', async () => {
       const { registry, fm } = harness();
       fm.getHelperPublicIp.mockRejectedValue(new Error('The file manager helper stopped before it was reachable: CannotPullContainerError'));
@@ -677,6 +707,7 @@ describe('HelperSessionRegistry', () => {
       expect(await registry.status('mc')).toMatchObject({ state: 'failed', error: expect.stringContaining('CannotPullContainerError') });
     });
 
+    // @spec HELPER-FB-011
     it('should fail closed on a pin mismatch without retrying login', async () => {
       const { registry, fm, backend } = harness();
       vi.mocked(backend.connect).mockRejectedValue(new PinMismatchError());
@@ -721,6 +752,7 @@ describe('HelperSessionRegistry', () => {
   describe('operator IP recovery', () => {
     const unreachable = () => new VolumeFileError('unreachable', 'timed out');
 
+    // @spec HELPER-FB-012
     it('should re-authorize and retry once when the operator IP changed', async () => {
       const { registry, fm, publicIp } = harness();
       await registry.acquire('mc', 'browse');
@@ -744,6 +776,7 @@ describe('HelperSessionRegistry', () => {
       expect(fm.reauthorizeOperatorIp).not.toHaveBeenCalled();
     });
 
+    // @spec HELPER-REACH-006
     it('should retry only once and rethrow the second failure', async () => {
       const { registry, publicIp } = harness();
       await registry.acquire('mc', 'browse');
@@ -857,6 +890,7 @@ describe('HelperSessionRegistry', () => {
       expect(op).toHaveBeenCalledTimes(1);
     });
 
+    // @spec HELPER-SESS-004
     it('should fail the session closed when an operation hits a pin mismatch', async () => {
       const { registry, fm, backend, publicIp } = harness();
       await registry.acquire('mc', 'browse');
@@ -872,6 +906,7 @@ describe('HelperSessionRegistry', () => {
       expect(await registry.status('mc')).toMatchObject({ state: 'failed' });
     });
 
+    // @spec HELPER-SESS-004
     it('should stop the helper once when concurrent operations all hit a pin mismatch', async () => {
       const { registry, fm } = harness();
       await registry.acquire('mc', 'browse');
@@ -883,6 +918,7 @@ describe('HelperSessionRegistry', () => {
     });
   });
 
+  // @spec HELPER-FB-008, HELPER-FB-009
   it('should not expose credentials, cert or address in a snapshot', async () => {
     const { registry } = harness();
     const seen: HelperSessionSnapshot[] = [];

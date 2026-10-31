@@ -311,6 +311,7 @@ describe('defineSecurityGroups', () => {
   });
 
   // @spec IAC-PROGRAM-SG-009
+  // @spec HELPER-REACH-001
   it('should declare the file-manager security group with no ingress rules', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineSecurityGroups({

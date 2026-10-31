@@ -14,6 +14,7 @@ export interface OverwriteConfirmationProps {
 
 const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
+// @spec HELPER-OVER-002, HELPER-OVER-003, HELPER-OVER-004
 /**
  * Warning shown while an upload is paused before writing anything because some planned files already exist on the
  * volume with a different size. Overwrite continues the run; Cancel ends it (helper stopped) with nothing written.

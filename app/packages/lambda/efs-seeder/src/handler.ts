@@ -19,6 +19,7 @@ interface SeederEvent {
 // Must stay identical to `infra/src/lambdas.ts`'s `localMountPath: '/mnt/efs'` — changing one without the other breaks the mount.
 const MOUNT_POINT = '/mnt/efs';
 
+// @spec HELPER-SEED-002
 /**
  * Strips the container_path prefix from a seed path and resolves it to an
  * absolute destination under MOUNT_POINT.  Throws on path-traversal attempts
@@ -48,6 +49,7 @@ function resolveDestination(seedPath: string, containerPath: string): string {
   return dest;
 }
 
+// @spec HELPER-SEED-001, HELPER-SEED-003, HELPER-SEED-004
 /**
  * Writes each `file_seeds` entry to the EFS access point mounted at
  * `/mnt/efs`.  Invoked synchronously by the `aws.lambda.Invocation` resource

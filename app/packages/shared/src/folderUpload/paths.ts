@@ -17,6 +17,7 @@ const segments = (path: string): string[] => path.split('/').filter((s) => s !==
 const isWithin = (base: string[], path: string[]): boolean =>
   path.length >= base.length && base.every((seg, i) => path[i] === seg);
 
+// @spec HELPER-SELECT-003, HELPER-SELECT-004
 /**
  * Flattens a scan tree into the files to upload.
  *
@@ -44,6 +45,7 @@ export function planUpload(tree: FolderScanNode, include: string[]): PlannedFile
   return out;
 }
 
+// @spec HELPER-SELECT-004, HELPER-SAFE-002
 /**
  * Resolves the path a file is uploaded to within its owning volume.
  *
@@ -77,6 +79,7 @@ export function toRemotePath(destination: string, containerPath: string, relPath
   return '/' + [...dest.slice(base.length), ...relSegs].join('/');
 }
 
+// @spec HELPER-SELECT-005, HELPER-SELECT-006
 /**
  * Checks that `destination` is a clean absolute path equal to or beneath one of the game's volume mount paths.
  *

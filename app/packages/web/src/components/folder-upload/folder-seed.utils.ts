@@ -44,11 +44,13 @@ export function compressInclude(tree: FolderScanNode, selected: Set<string>): st
   return out;
 }
 
+// @spec HELPER-SELECT-002
 /** The `include` list selecting everything in the scan (the default after picking a folder). */
 export function selectAll(tree: FolderScanNode): string[] {
   return compressInclude(tree, new Set(filesUnder(tree).map((file) => file.relPath)));
 }
 
+// @spec HELPER-SELECT-003
 /**
  * Toggles `node` (and so all of its descendants): a `checked` node is cleared; `unchecked` and `mixed` nodes become
  * fully selected.

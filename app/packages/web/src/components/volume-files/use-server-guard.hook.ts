@@ -15,6 +15,7 @@ export interface ServerGuard {
   retry(): Promise<void>;
 }
 
+// @spec HELPER-FB-034, HELPER-FB-035
 /**
  * Decides whether the game's server state allows changing files.
  *

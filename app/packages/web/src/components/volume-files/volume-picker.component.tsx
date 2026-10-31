@@ -13,6 +13,7 @@ export interface VolumePickerProps {
 /** Text shown for a volume the current session layout could not mount. */
 export const UNMOUNTED_VOLUME_HINT = 'Apply the infrastructure to browse this volume.';
 
+// @spec HELPER-FB-001, HELPER-FB-007
 /**
  * Select over a game's declared volumes, showing each one's name and container path.
  *

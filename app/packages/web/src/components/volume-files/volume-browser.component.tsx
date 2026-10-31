@@ -47,6 +47,7 @@ type Dialog =
   | { kind: 'delete'; entry: VolumeEntryInfo }
   | { kind: 'edit'; entry: VolumeEntryInfo };
 
+// @spec HELPER-FB-026, HELPER-FB-028, HELPER-FB-034, HELPER-EDIT-003
 /**
  * The browsing surface for one volume of a running session: toolbar, breadcrumb, listing, dialogs and transfers.
  *

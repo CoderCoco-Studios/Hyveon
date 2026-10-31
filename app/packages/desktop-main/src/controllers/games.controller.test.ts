@@ -244,6 +244,7 @@ describe('GamesController', () => {
     });
 
     // @spec GAME-IPC-009
+    // @spec HELPER-FB-041
     it('should refuse to start a game while an upload holds it, without calling ECS', async () => {
       const ecs = makeEcs();
       const result = await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft(), makeRegistry(['palworld'])).start('palworld');

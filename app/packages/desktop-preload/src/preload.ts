@@ -523,6 +523,7 @@ const api: HyveonApi = {
     uploadFiles: (game: string, volume: string, dir: string) =>
       invoke<VolumeResult<{ transferId: string } | null>>('volumeFiles.uploadFiles', { game, volume, dir }),
     // @spec APP-IPC-CALL-013
+    // @spec HELPER-FB-033, HELPER-FB-029
     // Paths are resolved here so the renderer never handles path strings; main rejects an empty one.
     uploadDropped: (game: string, volume: string, dir: string, files: File[]) =>
       invoke<VolumeResult<{ transferId: string } | null>>('volumeFiles.uploadFiles', {

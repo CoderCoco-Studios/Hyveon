@@ -83,6 +83,7 @@ export class TransferOps {
     this.manager.abortGame(game);
   }
 
+  // @spec HELPER-FB-027, HELPER-XFER-001
   /**
    * Saves a file, or a folder as a zip archive, to a location the operator picks.
    *
@@ -138,6 +139,8 @@ export class TransferOps {
     }
   }
 
+  // @spec HELPER-FB-029, HELPER-FB-030, HELPER-FB-033, HELPER-XFER-007, HELPER-XFER-008, HELPER-RSV-002
+  // @spec HELPER-RSV-004
   /**
    * Uploads local files into a directory of a volume, never overwriting.
    *
@@ -250,6 +253,7 @@ export class TransferOps {
     }
   }
 
+  // @spec HELPER-FB-028, HELPER-SAFE-006
   /**
    * Uploads a local folder into a directory of a volume through the folder-upload flow, which asks before
    * overwriting and verifies the result.
@@ -288,6 +292,7 @@ export class TransferOps {
     }
   }
 
+  // @spec HELPER-XFER-009
   /**
    * Best-effort removal of the file an upload was writing when it failed or was cancelled.
    *

@@ -39,6 +39,7 @@ afterEach(() => {
 });
 
 describe('useVolumeSession', () => {
+  // @spec HELPER-FB-015, HELPER-FB-016
   it('should attach on mount and detach on unmount', async () => {
     const { result, unmount } = renderHook(() => useVolumeSession('minecraft'), { wrapper });
 
@@ -51,6 +52,7 @@ describe('useVolumeSession', () => {
     expect(unsubscribe).toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-021
   it('should keep polling while starting and stop once running', async () => {
     vi.useFakeTimers();
     apiMock.volumeSessionAttach.mockResolvedValue(makeSessionStatus({ state: 'starting' }));

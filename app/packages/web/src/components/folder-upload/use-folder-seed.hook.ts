@@ -38,6 +38,7 @@ export interface FolderSeedState {
   setLastRun: (lastRun: FolderUploadLastRun | null) => void;
 }
 
+// @spec HELPER-SELECT-002, HELPER-SELECT-005, HELPER-SAFE-004
 /**
  * Owns the "seed from folder" selection: the scanned tree, the included paths, and the destination, restoring them from
  * the persisted per-game state and writing each change back with `setSelection`.

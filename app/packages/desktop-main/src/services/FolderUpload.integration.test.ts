@@ -151,6 +151,7 @@ async function run(options: Parameters<typeof wire>[0]) {
 }
 
 describe('folder upload against a fake FileBrowser helper', () => {
+  // @spec HELPER-UPLOAD-001, HELPER-FB-010, HELPER-REACH-003
   it('should stream every file over pinned TLS, verify the listing, and stop the helper', async () => {
     const r = await run({});
     expect(r.last).toMatchObject({ phase: 'done', filesDone: 2, bytesDone: 200_005, bytesTotal: 200_005 });
@@ -159,6 +160,7 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(r.fm.stop).toHaveBeenCalledWith('minecraft');
   });
 
+  // @spec HELPER-UPLOAD-003, HELPER-FB-008
   it('should never publish or persist the helper credential', async () => {
     const r = await run({});
     expect(r.last.phase).toBe('done');
@@ -172,6 +174,7 @@ describe('folder upload against a fake FileBrowser helper', () => {
     }
   });
 
+  // @spec HELPER-UPLOAD-010, HELPER-FB-014
   it('should leave an existing browse session running after the upload', async () => {
     const r = await run({ browse: true });
     expect(r.last.phase).toBe('done');
@@ -200,6 +203,7 @@ describe('folder upload against a fake FileBrowser helper', () => {
     await w.registry.stop('minecraft');
   });
 
+  // @spec HELPER-SESS-002
   it('should release a hold acquired after its run was cancelled while waiting out a teardown', async () => {
     let openGate!: () => void;
     const stopGate = new Promise<void>((resolve) => { openGate = resolve; });
@@ -218,6 +222,7 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(w.fm.stop).toHaveBeenCalledTimes(2);
   });
 
+  // @spec HELPER-UPLOAD-002
   it('should write a second-volume upload into that volume and nothing into the first', async () => {
     const r = await run({
       volumes: configAndSavesVolumes(),
@@ -230,6 +235,7 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect([...r.server.files.keys()].filter((p) => p.startsWith('/config/'))).toEqual([]);
   });
 
+  // @spec HELPER-RESUME-001, HELPER-RESUME-002
   it('should resume by skipping files the volume already holds and re-sending partial ones once overwriting is confirmed', async () => {
     const r = await run({ seed: { '/saves/Data/worlds/a.db': 200_000, '/saves/Data/b.txt': 2 }, answer: true });
     expect(r.progress.find((p) => p.phase === 'awaiting-confirmation')?.overwrite).toMatchObject({ conflictCount: 1, identicalCount: 1, newCount: 0 });
@@ -239,18 +245,21 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(r.server.files.get('/saves/Data/b.txt')).toBe(5);
   });
 
+  // @spec HELPER-RESUME-003
   it('should retry a dropped connection and still finish', async () => {
     const r = await run({ onUpload: (path, attempt) => (path.endsWith('b.txt') && attempt === 1 ? 'drop' : undefined) });
     expect(r.last.phase).toBe('done');
     expect(r.server.files.get('/saves/Data/b.txt')).toBe(5);
   });
 
+  // @spec HELPER-RESUME-005
   it('should fail the run and stop the helper when uploads keep failing (helper expiry)', async () => {
     const r = await run({ onUpload: () => 'drop' });
     expect(r.last.phase).toBe('failed');
     expect(r.fm.stop).toHaveBeenCalled();
   });
 
+  // @spec HELPER-REACH-004, HELPER-FB-011
   it('should abort before sending the credential when the endpoint presents a different certificate', async () => {
     const imposter = await generateEphemeralCert();
     const r = await run({ presentedCert: imposter });
@@ -259,6 +268,7 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(r.fm.stop).toHaveBeenCalled();
   });
 
+  // @spec HELPER-OVER-004
   it('should write nothing and stop the helper when the operator declines to overwrite', async () => {
     const r = await run({ seed: { '/saves/Data/b.txt': 2 }, answer: false });
     expect(r.last.phase).toBe('cancelled');
@@ -267,6 +277,7 @@ describe('folder upload against a fake FileBrowser helper', () => {
     await vi.waitFor(() => expect(r.fm.stop).toHaveBeenCalledWith('minecraft'));
   });
 
+  // @spec HELPER-OVER-006
   it('should not prompt when the volume has no differing files', async () => {
     const r = await run({ seed: { '/saves/Data/worlds/a.db': 200_000, '/saves/Data/unrelated.txt': 1 } });
     expect(r.last.phase).toBe('done');

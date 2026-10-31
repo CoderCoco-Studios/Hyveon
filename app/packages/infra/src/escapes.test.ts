@@ -254,6 +254,7 @@ const SEEDED_GAME: GameServerConfig = {
   file_seeds: [{ path: '/data/config.yml', content: 'foo: bar' }],
 };
 
+// @spec HELPER-SEED-001
 describe('defineEfsSeederInvocations', () => {
   let mocks: ReturnType<typeof installPulumiMocks>;
 

@@ -316,6 +316,7 @@ describe('preload dispatcher', () => {
       });
 
       // @spec APP-IPC-CALL-013
+      // @spec HELPER-FB-033
       it('should resolve dropped files to paths in the preload', async () => {
         getPathForFile.mockReturnValue('/tmp/a.txt');
         ipcInvoke.mockResolvedValue(null);

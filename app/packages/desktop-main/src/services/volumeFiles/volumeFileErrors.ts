@@ -38,6 +38,7 @@ export const isAbort = (err: unknown): boolean => err instanceof Error && (err.n
 export const isAbortOrWrapped = (err: unknown): boolean =>
   isAbort(err) || (err instanceof VolumeFileError && err.code === 'unreachable' && isAbort(err.cause));
 
+// @spec HELPER-FB-030
 /** The code and fixed operator message for `err`. */
 export function describeFailure(err: unknown, names: OpNames): VolumeFailure {
   if (err instanceof NoSessionError) return fail('no-session', 'No file manager session is running. Start one to browse files.');
@@ -71,6 +72,7 @@ export function logRefusal<T extends VolumeFailure>(ref: VolumeRef, path: string
   return failure;
 }
 
+// @spec HELPER-SESS-007
 /** Replaces URLs and IPv4 literals (with an optional `/NN` or `:port`) in text that crosses IPC from AWS or the registry. */
 export function scrubAddresses(text: string): string {
   return text.replace(/https?:\/\/\S+/gi, '<address>').replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2}|:\d{1,5})?(?!\d)/g, '<address>');

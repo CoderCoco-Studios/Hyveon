@@ -20,6 +20,7 @@ describe('FolderUploadProgressMeter', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  // @spec HELPER-PROG-004
   it('should show only a starting-helper phase with no percent while the helper launches', () => {
     render(<FolderUploadProgressMeter game="minecraft" progress={makeProgress({ phase: 'starting-helper', bytesDone: 0 })} onRestart={vi.fn()} />);
     expect(screen.getByText('Starting helper')).toBeInTheDocument();
@@ -27,6 +28,7 @@ describe('FolderUploadProgressMeter', () => {
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
   });
 
+  // @spec HELPER-PROG-001
   it('should show percent, bytes, files, current file, rate and ETA while uploading', () => {
     render(<FolderUploadProgressMeter game="minecraft" progress={makeProgress()} onRestart={vi.fn()} />);
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
@@ -38,12 +40,14 @@ describe('FolderUploadProgressMeter', () => {
     expect(screen.getByText('1m 05s')).toBeInTheDocument();
   });
 
+  // @spec HELPER-PROG-004
   it('should hold the bar at 99% until verification completes', () => {
     render(<FolderUploadProgressMeter game="minecraft" progress={makeProgress({ phase: 'verifying', bytesDone: 1000 })} onRestart={vi.fn()} />);
     expect(screen.getByText('Verifying')).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '99');
   });
 
+  // @spec HELPER-PROG-004, HELPER-VERIFY-002
   it('should show 100% and a verified summary when done', () => {
     render(<FolderUploadProgressMeter game="minecraft" progress={makeProgress({ phase: 'done', bytesDone: 1000 })} onRestart={vi.fn()} />);
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
@@ -51,12 +55,14 @@ describe('FolderUploadProgressMeter', () => {
     expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
   });
 
+  // @spec HELPER-PROG-005
   it('should cancel through the bridge', async () => {
     render(<FolderUploadProgressMeter game="minecraft" progress={makeProgress()} onRestart={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(apiMock.folderCancelUpload).toHaveBeenCalledWith('minecraft');
   });
 
+  // @spec HELPER-RESUME-005
   it('should offer Resume with the error when the run failed', async () => {
     const onRestart = vi.fn();
     render(<FolderUploadProgressMeter game="minecraft" progress={makeProgress({ phase: 'failed', error: 'connection reset' })} onRestart={onRestart} />);
@@ -65,6 +71,7 @@ describe('FolderUploadProgressMeter', () => {
     expect(onRestart).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-VERIFY-003
   it('should list missing and mismatched paths and offer Retry on a verification failure', () => {
     render(
       <FolderUploadProgressMeter
@@ -78,6 +85,7 @@ describe('FolderUploadProgressMeter', () => {
     expect(screen.getByRole('button', { name: 'Retry upload' })).toBeInTheDocument();
   });
 
+  // @spec HELPER-PROG-005
   it('should offer Resume after a cancel', () => {
     render(<FolderUploadProgressMeter game="minecraft" progress={makeProgress({ phase: 'cancelled' })} onRestart={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Resume upload' })).toBeEnabled();
@@ -96,6 +104,7 @@ describe('FolderUploadProgressMeter', () => {
     expect(onSettled).toHaveBeenCalledWith('done');
   });
 
+  // @spec HELPER-PROG-006
   it('should show the persisted last run with Resume when no run exists in this session', async () => {
     const onRestart = vi.fn();
     render(
@@ -124,6 +133,7 @@ describe('FolderUploadProgressMeter', () => {
     expect(screen.queryByRole('button', { name: 'Resume upload' })).not.toBeInTheDocument();
   });
 
+  // @spec HELPER-OVER-002
   describe('awaiting confirmation', () => {
     const overwrite = {
       conflictCount: 1,
@@ -151,6 +161,7 @@ describe('FolderUploadProgressMeter', () => {
       expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
     });
 
+    // @spec HELPER-OVER-005
     it('should explain a confirmation timeout in the cancelled state', () => {
       render(
         <FolderUploadProgressMeter

@@ -64,6 +64,7 @@ export class RegistryUploadBackend implements VolumeFileBackend {
     return this.registry.withBackend(this.game, (b) => b.remove(path, signal));
   }
 
+  // @spec HELPER-UPLOAD-019
   /**
    * Writes `source` once; a registry retry after an operator-IP recovery cannot replay the consumed stream, so it fails
    * with `unreachable` and the caller reopens the source.

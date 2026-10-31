@@ -143,6 +143,7 @@ async function request(include: string[], destination = '/data') {
 }
 
 describe('FolderUploadService guards', () => {
+  // @spec HELPER-UPLOAD-005
   it('should refuse when the game is not deployed and keep the selection', async () => {
     const h = harness({ outputs: null });
     const res = await h.svc.startUpload(await request(['Config']));
@@ -150,6 +151,7 @@ describe('FolderUploadService guards', () => {
     expect(h.registry.acquire).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-UPLOAD-002
   it("should target the second volume's mount for a second-volume destination", async () => {
     await writeFile(join(root, 'a.db'), 'x');
     const h = harness({
@@ -161,6 +163,7 @@ describe('FolderUploadService guards', () => {
     expect(h.client.uploads).toEqual(['/saves/worlds/a.db']);
   });
 
+  // @spec HELPER-UPLOAD-020
   it("should map remote paths through the live session's layout rather than the preflight one", async () => {
     const h = harness({
       sessionLayout: (planned) => ({ ...planned, mounts: planned.mounts.map((m) => ({ ...m, dir: 'moved' })) }),
@@ -170,6 +173,7 @@ describe('FolderUploadService guards', () => {
     expect(h.client.uploads).toEqual(['/moved/Config/a.json']);
   });
 
+  // @spec HELPER-UPLOAD-020
   it('should fail before writing when the live session does not mount the destination volume', async () => {
     const h = harness({
       volumes: configAndSavesVolumes(),
@@ -184,6 +188,7 @@ describe('FolderUploadService guards', () => {
     expect(h.registry.release).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-UPLOAD-020
   it('should fail before writing when the live session used the legacy fallback layout', async () => {
     const h = harness({ sessionLayout: (planned) => ({ ...planned, usedFallback: true }) });
     await h.svc.startUpload(await request(['Config']));
@@ -191,6 +196,7 @@ describe('FolderUploadService guards', () => {
     expect(h.client.writeStream).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-UPLOAD-009
   it('should refuse before launch when the destination volume is not mounted', async () => {
     const h = harness({
       volumes: configAndSavesVolumes(),
@@ -202,6 +208,7 @@ describe('FolderUploadService guards', () => {
     expect(h.registry.acquire).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-UPLOAD-017
   it('should refuse an upload into the first volume when the layout is the legacy fallback', async () => {
     const h = harness({
       volumes: configAndSavesVolumes(),
@@ -213,6 +220,7 @@ describe('FolderUploadService guards', () => {
     expect(h.registry.acquire).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-UPLOAD-006
   it('should refuse when the game server task is running', async () => {
     const h = harness();
     h.ecs.findRunningTaskOrThrow.mockResolvedValue({ taskArn: 'x' });
@@ -220,6 +228,7 @@ describe('FolderUploadService guards', () => {
     expect(h.registry.acquire).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-UPLOAD-008
   it("should refuse the upload when the server state can't be confirmed", async () => {
     const h = harness();
     h.ecs.findRunningTaskOrThrow.mockRejectedValue(new Error('ListTasks failed'));
@@ -230,6 +239,7 @@ describe('FolderUploadService guards', () => {
     expect(h.registry.acquire).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-UPLOAD-011
   it('should refuse with a restart message when an orphaned helper exists', async () => {
     const h = harness();
     h.registry.status.mockResolvedValue(snapshot('orphaned'));
@@ -241,6 +251,7 @@ describe('FolderUploadService guards', () => {
     expect(h.registry.release).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-UPLOAD-010, HELPER-FB-014
   it('should reuse the browse session instead of refusing', async () => {
     const h = harness();
     h.registry.status.mockResolvedValue(snapshot('running'));
@@ -251,6 +262,7 @@ describe('FolderUploadService guards', () => {
     expect(h.registry.acquire).toHaveBeenCalledWith('minecraft', `upload:${runId}`, expect.objectContaining({ runId }));
   });
 
+  // @spec HELPER-UPLOAD-012
   it('should refuse a second overlapping start for the same game while the first is still preparing', async () => {
     const h = harness();
     let release!: (task: null) => void;
@@ -279,6 +291,7 @@ describe('FolderUploadService guards', () => {
     expect(await h.svc.startUpload(await request(['Config'], '/etc'))).toMatchObject({ started: false });
   });
 
+  // @spec HELPER-SAFE-002
   it('should reject a path-traversal entry before any request or launch', async () => {
     const h = harness();
     const req = await request(['Config']);
@@ -290,6 +303,7 @@ describe('FolderUploadService guards', () => {
     expect(h.registry.withBackend).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-SELECT-007
   it('should refuse an empty selection and an expired scan', async () => {
     const h = harness();
     expect(await h.svc.startUpload(await request([]))).toMatchObject({ started: false, error: expect.stringMatching(/Nothing is selected/) });
@@ -299,6 +313,7 @@ describe('FolderUploadService guards', () => {
     });
   });
 
+  // @spec HELPER-UPLOAD-012
   it('should refuse a second concurrent run for the same game', async () => {
     const h = harness();
     let ready!: (result: AcquireResult) => void;
@@ -312,6 +327,7 @@ describe('FolderUploadService guards', () => {
 });
 
 describe('FolderUploadService runs', () => {
+  // @spec HELPER-SELECT-004, HELPER-UPLOAD-001, HELPER-VERIFY-002
   it('should upload only the included entries to the stripped remote paths, verify, and stop the helper', async () => {
     const h = harness();
     const res = await h.svc.startUpload(await request(['Config', 'Data']));
@@ -325,6 +341,7 @@ describe('FolderUploadService runs', () => {
     expect(h.progress.map((p) => p.phase)).toEqual(expect.arrayContaining(['starting-helper', 'uploading', 'verifying', 'done']));
   });
 
+  // @spec HELPER-PROG-004, HELPER-STRAY-002
   it('should report 100% only in the done phase, after the session was released', async () => {
     const h = harness();
     const order: string[] = [];
@@ -337,6 +354,7 @@ describe('FolderUploadService runs', () => {
     expect(order.slice(0, 2)).toEqual(['release', 'done']);
   });
 
+  // @spec HELPER-RESUME-001
   it('should skip files already on the volume with the right size when resuming', async () => {
     const client = fakeBackend();
     client.sizes.set('/saves/Config/a.json', 4);
@@ -347,6 +365,7 @@ describe('FolderUploadService runs', () => {
     expect(last).toMatchObject({ phase: 'done', filesDone: 2, bytesDone: 12 });
   });
 
+  // @spec HELPER-RESUME-004, HELPER-STRAY-002
   it('should fail with the path when a file keeps failing, persist a failed last run, and still release the session', async () => {
     const client = fakeBackend({
       writeStream: async () => {
@@ -361,6 +380,7 @@ describe('FolderUploadService runs', () => {
     expect(h.svc.getSelection('minecraft')?.lastRun?.status).toBe('failed');
   });
 
+  // @spec HELPER-RESUME-005
   it('should fail with a resumable error when the helper expires mid-run (connections refused) and release the session', async () => {
     let calls = 0;
     const client = fakeBackend({
@@ -380,6 +400,7 @@ describe('FolderUploadService runs', () => {
     expect(h.svc.getSelection('minecraft')?.lastRun).toMatchObject({ status: 'failed', files: 1 });
   });
 
+  // @spec HELPER-VERIFY-003
   it('should fail verification listing the missing path', async () => {
     const client = fakeBackend();
     const original = client.writeStream;
@@ -393,6 +414,7 @@ describe('FolderUploadService runs', () => {
     expect(last).toMatchObject({ phase: 'failed', error: expect.stringContaining('Data/b.db (missing)') });
   });
 
+  // @spec HELPER-PROG-005, HELPER-STRAY-002, HELPER-STRAY-006
   it('should cancel mid-run, release the session, and record a cancelled last run', async () => {
     const writeStream = vi.fn(
       (_path: string, _source: Readable, { signal }: WriteOptions) =>
@@ -412,6 +434,7 @@ describe('FolderUploadService runs', () => {
     expect(h.svc.getSelection('minecraft')?.lastRun?.status).toBe('cancelled');
   });
 
+  // @spec HELPER-STRAY-002
   it('should cancel while the helper is still booting, without waiting for acquire, and release its hold', async () => {
     const h = harness();
     h.registry.acquire.mockReturnValue(new Promise<AcquireResult>(() => undefined));
@@ -423,6 +446,7 @@ describe('FolderUploadService runs', () => {
     expect(h.client.writeStream).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-UPLOAD-016
   it('should append the helper stop reason when a run fails after the helper died', async () => {
     const writeStream = vi.fn().mockRejectedValue(new VolumeFileError('failed', 'ECONNRESET'));
     const h = harness({ client: fakeBackend({ writeStream }) });
@@ -435,6 +459,7 @@ describe('FolderUploadService runs', () => {
     expect(h.registry.release).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-SESS-008
   it('should cancel the run when the session is force-stopped', async () => {
     const writeStream = vi.fn(
       (_path: string, _source: Readable, { signal }: WriteOptions) =>
@@ -455,6 +480,7 @@ describe('FolderUploadService runs', () => {
     expect(h.svc.cancel('minecraft')).toEqual({ cancelled: false });
   });
 
+  // @spec HELPER-STRAY-006
   it('should release its hold on success, failure and cancel', async () => {
     const failing = harness({ acquired: { ok: false, code: 'failed', message: 'launch failed' } });
     const failedId = runIdOf(await failing.svc.startUpload(await request(['Config'])));
@@ -507,6 +533,7 @@ function conflictedClient(): FakeBackend {
 }
 
 describe('FolderUploadService overwrite confirmation', () => {
+  // @spec HELPER-OVER-001, HELPER-OVER-002, HELPER-OVER-003
   it('should pause with a summary before writing anything and upload only after the operator confirms', async () => {
     const client = conflictedClient();
     const h = harness({ client });
@@ -532,6 +559,7 @@ describe('FolderUploadService overwrite confirmation', () => {
     expect(h.progress.find((p) => p.phase === 'uploading')?.overwrite).toBeUndefined();
   });
 
+  // @spec HELPER-OVER-004
   it('should cancel cleanly with nothing written and the helper stopped when the operator declines', async () => {
     const client = conflictedClient();
     const h = harness({ client });
@@ -558,6 +586,7 @@ describe('FolderUploadService overwrite confirmation', () => {
     expect(h.svc.confirmOverwrite('minecraft', true)).toEqual({ resolved: false });
   });
 
+  // @spec HELPER-OVER-005
   it('should cancel with a reason and stop the helper when nobody answers before the timeout', async () => {
     const client = conflictedClient();
     const h = harness({ client });
@@ -569,6 +598,7 @@ describe('FolderUploadService overwrite confirmation', () => {
     expect(h.registry.release).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-OVER-006
   it('should not prompt when nothing on the volume would be overwritten', async () => {
     const client = fakeBackend();
     client.sizes.set('/saves/Config/a.json', 4);
@@ -584,6 +614,7 @@ describe('FolderUploadService overwrite confirmation', () => {
     expect(h.svc.confirmOverwrite('minecraft', true)).toEqual({ resolved: false });
   });
 
+  // @spec HELPER-OVER-007
   describe('resuming this app\'s own cut-short run', () => {
     /** Persists the selection and a failed last run that had copied one file. */
     async function afterFailedRun(h: Harness, include: string[]) {
@@ -638,6 +669,7 @@ describe('FolderUploadService overwrite confirmation', () => {
   });
 });
 
+// @spec HELPER-SAFE-006
 describe('FolderUploadService without persisting the selection', () => {
   const NOT_PERSISTED = { persistSelection: false };
 
@@ -676,6 +708,7 @@ describe('FolderUploadService without persisting the selection', () => {
 });
 
 describe('FolderUploadService selection and cleanup', () => {
+  // @spec HELPER-SAFE-003, HELPER-SAFE-004
   it('should persist a selection and rescan its folder for a live scan id', async () => {
     const h = harness();
     h.svc.setSelection(await request(['Data']));
@@ -685,12 +718,14 @@ describe('FolderUploadService selection and cleanup', () => {
     expect(await h.svc.rescanSelection('other')).toBeNull();
   });
 
+  // @spec HELPER-STRAY-004
   it('should sweep with age 0 and the currently active games on an explicit cleanup', async () => {
     const h = harness();
     await h.svc.cleanupStrayHelpers();
     expect(h.fm.sweepStrayHelpers).toHaveBeenCalledWith({ activeGames: new Set(), minAgeMs: 0 });
   });
 
+  // @spec HELPER-STRAY-005
   it('should exclude registry-owned games from the stray sweep', async () => {
     const h = harness();
     h.registry.ownedGames.mockReturnValue(new Set(['mc']));
@@ -698,6 +733,7 @@ describe('FolderUploadService selection and cleanup', () => {
     expect(h.fm.sweepStrayHelpers).toHaveBeenCalledWith({ activeGames: new Set(['mc']), minAgeMs: 0 });
   });
 
+  // @spec HELPER-STRAY-003
   it('should run the 15-minute startup sweep only inside Electron', async () => {
     const h = harness();
     h.svc.onApplicationBootstrap();

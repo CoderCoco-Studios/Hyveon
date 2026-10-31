@@ -734,6 +734,7 @@ describe('defineLambdas', () => {
       expect(await handlerAsset.path).toBe(bundlePath(LAMBDA_BUNDLES_DIR, 'efs-seeder'));
     });
 
+    // @spec HELPER-SEED-001
     it('should declare one seeder function per role in roles.efsSeederRoles, never drifting from that set', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         ...FIXTURE_GAME_SERVERS,

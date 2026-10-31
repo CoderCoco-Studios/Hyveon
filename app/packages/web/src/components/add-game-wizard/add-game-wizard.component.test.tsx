@@ -285,6 +285,7 @@ describe('AddGameWizard — seed from folder', () => {
     await screen.findByLabelText('Destination in container');
   }
 
+  // @spec HELPER-SAFE-005
   it('should show the folder section beside, not instead of, the inline file seeds', async () => {
     await openWizard();
     await fillIdentityStep();

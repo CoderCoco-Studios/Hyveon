@@ -28,6 +28,7 @@ test.describe('volume files page (electron)', () => {
     await win.evaluate(() => window.hyveon?.__test?.clearMocks());
   });
 
+  // @spec HELPER-FB-001
   test('should render the files route and call volumeFiles.session.start on Start', async () => {
     await applyHyveonMocks(win, { statuses: [STOPPED_GAME] });
     await win.evaluate(() => {

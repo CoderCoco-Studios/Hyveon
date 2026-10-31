@@ -8,6 +8,7 @@ const WINDOWS_RESERVED_STEM = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
 /** Name used when nothing usable is left of the requested one. */
 const FALLBACK_NAME = 'download';
 
+// @spec HELPER-XFER-003
 /**
  * Turns a volume entry name into one the local file system accepts, for the save dialog's default name.
  *

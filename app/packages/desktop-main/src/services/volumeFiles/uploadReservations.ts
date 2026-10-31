@@ -14,6 +14,7 @@ export type ReserveResult = { ok: true; release: () => void } | { ok: false; con
 export class UploadReservations {
   private readonly held = new Map<string, Set<string>>();
 
+  // @spec HELPER-RSV-001
   /**
    * Reserves every path of `paths` for `ref`'s volume, or none of them.
    *

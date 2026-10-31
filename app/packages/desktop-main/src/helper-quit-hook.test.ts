@@ -34,6 +34,7 @@ describe('installHelperQuitHook', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  // @spec HELPER-QUIT-001
   it('should not delay quit when no helpers are owned', () => {
     const { app, stopAll, fire } = setup([], async () => undefined);
     const event = fire();
@@ -42,6 +43,7 @@ describe('installHelperQuitHook', () => {
     expect(app.quit).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-QUIT-002, HELPER-FB-018
   it('should stop owned helpers before quitting and let the second before-quit through', async () => {
     const { app, stopAll, fire } = setup(['mc'], async () => undefined);
     const first = fire();
@@ -55,6 +57,7 @@ describe('installHelperQuitHook', () => {
     expect(stopAll).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-QUIT-002
   it('should quit after the timeout when stopAll never settles', async () => {
     const { app, fire } = setup(['mc'], () => new Promise<void>(() => undefined));
     fire();
@@ -65,6 +68,7 @@ describe('installHelperQuitHook', () => {
     expect(logger.warn).toHaveBeenCalled();
   });
 
+  // @spec HELPER-QUIT-002
   it('should still quit when stopAll rejects', async () => {
     const { app, fire } = setup(['mc'], async () => {
       throw new Error('boom');

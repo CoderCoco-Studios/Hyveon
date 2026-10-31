@@ -3,6 +3,7 @@ import { UploadReservations } from './uploadReservations.js';
 
 const SAVES = { game: 'mc', volume: 'saves' };
 
+// @spec HELPER-RSV-001
 describe('UploadReservations', () => {
   it('should refuse a path that is already reserved and report which one', () => {
     const reservations = new UploadReservations();

@@ -131,6 +131,7 @@ afterEach(() => {
 });
 
 describe('VolumeFilesService path and volume validation', () => {
+  // @spec HELPER-FB-031
   it('should reject a traversal path without contacting the backend', async () => {
     const h = harness();
     const result = await h.service.list(SAVES, '/a/../b');
@@ -139,18 +140,21 @@ describe('VolumeFilesService path and volume validation', () => {
     expect(h.backend.list).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-031
   it('should reject a traversal path even when no session is running', async () => {
     const h = harness();
     h.registry.withBackend.mockRejectedValue(new NoSessionError('mc'));
     expect(await h.service.list(SAVES, '/a/../b')).toMatchObject({ ok: false, code: 'invalid-path' });
   });
 
+  // @spec HELPER-FB-032
   it('should reject a new folder name containing a slash', async () => {
     const h = harness();
     expect(await h.service.mkdir(SAVES, '/', 'a/b')).toMatchObject({ ok: false, code: 'invalid-path' });
     expect(h.backend.mkdir).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-031
   it('should reject a volume the session did not mount', async () => {
     const h = harness({}, PARTIAL_LAYOUT);
     const result = await h.service.list(SAVES, '/');
@@ -158,6 +162,7 @@ describe('VolumeFilesService path and volume validation', () => {
     expect(h.backend.list).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-031
   it('should name a volume the game never declared as not belonging to the game', async () => {
     const h = harness();
     const result = await h.service.list({ game: 'mc', volume: 'nope' }, '/');
@@ -198,6 +203,7 @@ describe('VolumeFilesService path and volume validation', () => {
 });
 
 describe('VolumeFilesService write guards', () => {
+  // @spec HELPER-FB-034
   it('should refuse mutations while the server runs and still allow listing', async () => {
     const h = harness({ list: vi.fn().mockResolvedValue([]) });
     h.ecs.findRunningTaskOrThrow.mockResolvedValue({ taskArn: 'arn:t' });
@@ -231,6 +237,7 @@ describe('VolumeFilesService write guards', () => {
     expect(logger.info).toHaveBeenCalledWith('VolumeFilesService: file operation refused', expect.objectContaining({ code: 'unknown-volume' }));
   });
 
+  // @spec HELPER-FB-035
   it("should refuse mutations when the server state can't be confirmed", async () => {
     const h = harness({ list: vi.fn().mockResolvedValue([]) });
     h.ecs.findRunningTaskOrThrow.mockRejectedValue(new Error('ecs down'));
@@ -247,6 +254,7 @@ describe('VolumeFilesService write guards', () => {
     expect(h.ecs.findRunningTaskOrThrow).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-LAYOUT-004
   it('should refuse every mutation on a fallback layout while still listing', async () => {
     const h = harness({ list: vi.fn().mockResolvedValue([]) }, FALLBACK_LAYOUT);
     const config: VolumeRef = { game: 'mc', volume: 'config' };
@@ -264,6 +272,7 @@ describe('VolumeFilesService write guards', () => {
 });
 
 describe('VolumeFilesService mutations', () => {
+  // @spec HELPER-FB-030
   it('should map a backend conflict on rename', async () => {
     const h = harness({
       stat: vi.fn().mockResolvedValue(stat({ isDir: true })),
@@ -272,6 +281,7 @@ describe('VolumeFilesService mutations', () => {
     expect(await h.service.rename(SAVES, '/old', 'new')).toEqual({ ok: false, code: 'conflict', message: "'new' already exists." });
   });
 
+  // @spec HELPER-FB-025
   it('should rename to a sibling path and return the renamed entry without a helper path', async () => {
     const h = harness({
       stat: vi.fn().mockResolvedValueOnce(stat({ name: 'old', isDir: true })).mockResolvedValueOnce(stat({ name: 'new', isDir: true, size: 0, modifiedMs: 9 })),
@@ -290,6 +300,7 @@ describe('VolumeFilesService mutations', () => {
     expect(await h.service.rename(SAVES, '/old', 'new')).toEqual({ ok: true, value: { name: 'new', isDir: true, size: 0, modifiedMs: 0 } });
   });
 
+  // @spec HELPER-FB-025
   it('should create a folder and return its entry', async () => {
     const h = harness({ mkdir: vi.fn().mockResolvedValue(undefined), stat: vi.fn().mockResolvedValue(stat({ name: 'new', isDir: true, size: 0, modifiedMs: 7 })) });
     const result = await h.service.mkdir(SAVES, '/worlds', 'new');
@@ -302,11 +313,13 @@ describe('VolumeFilesService mutations', () => {
     expect(await h.service.mkdir(SAVES, '/', 'new')).toEqual({ ok: true, value: { name: 'new', isDir: true, size: 0, modifiedMs: 0 } });
   });
 
+  // @spec HELPER-FB-030
   it('should name the entry in a mkdir conflict', async () => {
     const h = harness({ mkdir: vi.fn().mockRejectedValue(new VolumeFileError('conflict', 'mkdir /saves/new failed (409)', 409)) });
     expect(await h.service.mkdir(SAVES, '/', 'new')).toEqual({ ok: false, code: 'conflict', message: "'new' already exists." });
   });
 
+  // @spec HELPER-FB-025
   it('should delete a path', async () => {
     const h = harness({ remove: vi.fn().mockResolvedValue(undefined) });
     expect(await h.service.remove(SAVES, '/old')).toEqual({ ok: true, value: true });
@@ -319,6 +332,7 @@ describe('VolumeFilesService text files', () => {
   const textBackend = (size: number, content: Buffer | Readable, over: Partial<VolumeStat> = {}) =>
     harness({ stat: vi.fn().mockResolvedValue(stat({ size, ...over })), readStream: vi.fn().mockResolvedValue(content instanceof Readable ? content : Readable.from([content])) });
 
+  // @spec HELPER-FB-036
   it('should read a UTF-8 file and return the volume path, not the helper path', async () => {
     const h = textBackend(5, Buffer.from('héllo'), { modifiedMs: 42 });
     expect(await h.service.readText(SAVES, '/level.dat')).toEqual({ ok: true, value: { path: '/level.dat', content: 'héllo', modifiedMs: 42 } });
@@ -329,6 +343,7 @@ describe('VolumeFilesService text files', () => {
     expect(await h.service.readText(SAVES, '/level.dat')).toMatchObject({ ok: true, value: { content: '\uFEFFhi' } });
   });
 
+  // @spec HELPER-FB-038, HELPER-EDIT-001
   it('should refuse to open a file over 1 MiB', async () => {
     const over = textBackend(MAX_TEXT_EDIT_BYTES + 1, Buffer.from('x'));
     expect(await over.service.readText(SAVES, '/big.txt')).toMatchObject({ ok: false, code: 'too-large' });
@@ -337,6 +352,7 @@ describe('VolumeFilesService text files', () => {
     expect((await exact.service.readText(SAVES, '/big.txt')).ok).toBe(true);
   });
 
+  // @spec HELPER-EDIT-001
   it('should refuse a file whose stream outgrows the cap after the stat', async () => {
     const stream = Readable.from([Buffer.alloc(MAX_TEXT_EDIT_BYTES, 0x61), Buffer.from('b')]);
     const h = textBackend(10, stream);
@@ -344,21 +360,25 @@ describe('VolumeFilesService text files', () => {
     expect(stream.destroyed).toBe(true);
   });
 
+  // @spec HELPER-FB-038, HELPER-EDIT-001
   it('should refuse to open a non-UTF-8 file', async () => {
     const h = textBackend(2, Buffer.from([0xff, 0xfe]));
     expect(await h.service.readText(SAVES, '/bin')).toMatchObject({ ok: false, code: 'binary' });
   });
 
+  // @spec HELPER-EDIT-001
   it('should refuse to open a file containing a NUL byte', async () => {
     const h = textBackend(3, Buffer.from([0x61, 0x00, 0x62]));
     expect(await h.service.readText(SAVES, '/bin')).toMatchObject({ ok: false, code: 'binary' });
   });
 
+  // @spec HELPER-EDIT-001
   it('should refuse to open a folder as text', async () => {
     const h = textBackend(0, Buffer.alloc(0), { isDir: true });
     expect(await h.service.readText(SAVES, '/worlds')).toMatchObject({ ok: false, code: 'invalid-path' });
   });
 
+  // @spec HELPER-FB-037
   it('should refuse a save when the modification time changed', async () => {
     const h = harness({ stat: vi.fn().mockResolvedValue(stat({ modifiedMs: 2 })) });
     const result = await h.service.writeText(SAVES, '/level.dat', 'x', 1);
@@ -366,6 +386,7 @@ describe('VolumeFilesService text files', () => {
     expect(h.backend.writeStream).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-EDIT-002
   it('should refuse a save when either modification time is unknown', async () => {
     const unknownActual = harness({ stat: vi.fn().mockResolvedValue(stat({ modifiedMs: 0 })) });
     expect(await unknownActual.service.writeText(SAVES, '/a', 'x', 0)).toMatchObject({ ok: false, code: 'conflict' });
@@ -375,6 +396,7 @@ describe('VolumeFilesService text files', () => {
     expect(unknownExpected.backend.writeStream).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-EDIT-002
   it('should refuse to save content over 1 MiB', async () => {
     const h = harness();
     const result = await h.service.writeText(SAVES, '/a', 'x'.repeat(MAX_TEXT_EDIT_BYTES + 1), 1);
@@ -382,6 +404,7 @@ describe('VolumeFilesService text files', () => {
     expect(h.backend.writeStream).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-036
   it('should save and return the new modification time', async () => {
     const h = harness({
       stat: vi.fn().mockResolvedValueOnce(stat({ modifiedMs: 1 })).mockResolvedValueOnce(stat({ modifiedMs: 5 })),
@@ -480,6 +503,7 @@ describe('VolumeFilesService error mapping', () => {
 });
 
 describe('VolumeFilesService sessions', () => {
+  // @spec HELPER-FB-009, HELPER-FB-008
   it('should map session times to ISO strings and keep only the public fields', async () => {
     const h = harness();
     expect(await h.service.sessionStatus('mc')).toEqual({
@@ -517,6 +541,7 @@ describe('VolumeFilesService sessions', () => {
     });
   });
 
+  // @spec HELPER-SESS-007
   it('should scrub addresses from a session error and keep the full text in the log', async () => {
     const h = harness();
     const raw = 'Could not open the file manager port to your IP: rule 1.2.3.4/32 exists, see https://5.6.7.8:8080/x for 9.9.9.9';
@@ -526,6 +551,7 @@ describe('VolumeFilesService sessions', () => {
     expectNoSecretFields(status);
   });
 
+  // @spec HELPER-SESS-007
   it('should scrub addresses from pushed session errors and lookup failures', async () => {
     const h = harness();
     let emit: (s: HelperSessionSnapshot) => void = () => undefined;
@@ -553,6 +579,7 @@ describe('VolumeFilesService sessions', () => {
     expectNoSecretFields([stop, restart]);
   });
 
+  // @spec HELPER-IPC-008
   it('should push registry state changes as the mapped public status', () => {
     const h = harness();
     const unsubscribe = () => undefined;
@@ -579,6 +606,7 @@ describe('VolumeFilesService sessions', () => {
     });
   });
 
+  // @spec HELPER-FB-009
   it('should start a session without waiting for it to become ready', async () => {
     const h = harness();
     h.registry.acquire.mockReturnValue(new Promise(() => {}));
@@ -593,6 +621,7 @@ describe('VolumeFilesService sessions', () => {
     await expect(h.service.sessionStart('mc')).resolves.toMatchObject({ game: 'mc' });
   });
 
+  // @spec HELPER-FB-016
   it('should re-hold the browse page on attach and release it on detach', async () => {
     const h = harness();
     expect(await h.service.sessionAttach('mc')).toMatchObject({ game: 'mc' });
@@ -615,6 +644,7 @@ describe('VolumeFilesService sessions', () => {
     expect(h.registry.acquire).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-019
   it('should restart by stopping, then starting without waiting for readiness', async () => {
     const h = harness();
     h.registry.acquire.mockReturnValue(new Promise(() => {}));
@@ -626,6 +656,7 @@ describe('VolumeFilesService sessions', () => {
 });
 
 describe('VolumeFilesService results', () => {
+  // @spec HELPER-FB-008, HELPER-LAYOUT-005
   it('should carry no secret fields in any result', async () => {
     const h = harness({
       list: vi.fn().mockResolvedValue([{ name: 'a', isDir: false, size: 1, modifiedMs: 1 }]),
@@ -682,6 +713,7 @@ describe('VolumeFilesService downloads', () => {
     expect(h.registry.acquire).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-027
   it('should emit progress and done with the saved file name', async () => {
     const h = harness(fileBackend('hello'));
     const target = join(local, 'out.dat');
@@ -708,6 +740,7 @@ describe('VolumeFilesService downloads', () => {
     expect(h.registry.release).toHaveBeenCalledWith('mc', holder);
   });
 
+  // @spec HELPER-FB-027
   it('should stream a folder as an archive with an unknown total and a .zip default name', async () => {
     const h = harness({
       supportsArchive: true,
@@ -722,6 +755,7 @@ describe('VolumeFilesService downloads', () => {
     expect(h.backend.archiveStream).toHaveBeenCalledWith('/saves/worlds', expect.any(AbortSignal));
   });
 
+  // @spec HELPER-FB-040
   it('should refuse a folder download when the backend has no archive support', async () => {
     const h = harness();
     const result = await h.service.download(SAVES, '/worlds', true);
@@ -739,6 +773,7 @@ describe('VolumeFilesService downloads', () => {
     expect(h.dialogs.pickSavePath).toHaveBeenCalledWith(expected);
   });
 
+  // @spec HELPER-XFER-003
   it('should sanitize the default name for the local platform', async () => {
     const h = harness(fileBackend());
     h.dialogs.pickSavePath.mockResolvedValue(null);
@@ -747,6 +782,7 @@ describe('VolumeFilesService downloads', () => {
     expect(h.dialogs.pickSavePath).toHaveBeenCalledWith('_con.txt');
   });
 
+  // @spec HELPER-FB-034
   it('should still download when the server state cannot be confirmed', async () => {
     const h = harness(fileBackend());
     h.ecs.findRunningTaskOrThrow.mockRejectedValue(new Error('ecs down'));
@@ -756,6 +792,7 @@ describe('VolumeFilesService downloads', () => {
     expect((await settled()).phase).toBe('done');
   });
 
+  // @spec HELPER-XFER-004
   it('should return no-session before opening the dialog when no session is running', async () => {
     const h = harness(fileBackend());
     h.registry.withBackend.mockRejectedValue(new NoSessionError('mc'));
@@ -773,6 +810,7 @@ describe('VolumeFilesService downloads', () => {
     expect(h.registry.acquire).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-XFER-001
   it('should report a missing file and a folder asked for as a file before the dialog', async () => {
     const h = harness({ stat: vi.fn().mockRejectedValue(new VolumeFileError('not-found', 'stat /saves/x failed (404)', 404)) });
     expect(await h.service.download(SAVES, '/x', false)).toEqual({ ok: false, code: 'not-found', message: "'/x' no longer exists." });
@@ -788,6 +826,7 @@ describe('VolumeFilesService downloads', () => {
     expect(h.dialogs.pickSavePath).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-027
   it('should cancel a running download and leave no file behind', async () => {
     const stuck = new PassThrough();
     const h = harness({ ...fileBackend(), readStream: vi.fn().mockResolvedValue(stuck) });
@@ -802,6 +841,7 @@ describe('VolumeFilesService downloads', () => {
     expect(await readdir(local)).toEqual([]);
   });
 
+  // @spec HELPER-FB-017
   it('should cancel running transfers when the game session is stopping', async () => {
     const stuck = new PassThrough();
     const h = harness({ ...fileBackend(), readStream: vi.fn().mockResolvedValue(stuck) });
@@ -835,6 +875,7 @@ describe('VolumeFilesService downloads', () => {
     expect(JSON.stringify(end)).not.toContain(local);
   });
 
+  // @spec HELPER-XFER-010
   it('should say a transfer is not running for an unknown id', () => {
     const h = harness();
     expect(h.service.cancelTransfer('mc', 'nope')).toEqual({ cancelled: false });
@@ -857,6 +898,7 @@ describe('VolumeFilesService file uploads', () => {
     return path;
   }
 
+  // @spec HELPER-FB-029, HELPER-XFER-007
   it('should upload dropped files without overwriting and report progress', async () => {
     const h = harness({ stat: missing() });
     const a = await localFile('a.txt', 'aaa');
@@ -886,6 +928,7 @@ describe('VolumeFilesService file uploads', () => {
     expect(h.registry.acquire).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-030, HELPER-XFER-007
   it('should refuse an upload whose name already exists', async () => {
     const h = harness({ stat: vi.fn().mockResolvedValue(stat({ name: 'a.txt', size: 10 })) });
     const a = await localFile('a.txt', 'aaa');
@@ -910,6 +953,7 @@ describe('VolumeFilesService file uploads', () => {
     expect(logger.info).toHaveBeenCalledWith('VolumeFilesService: file operation refused', expect.objectContaining({ code: 'unknown-volume', volume: 'nope' }));
   });
 
+  // @spec HELPER-XFER-007
   it('should refuse the whole upload when any one name exists', async () => {
     const h = harness({
       stat: vi.fn().mockImplementation(async (path: string) => {
@@ -922,6 +966,7 @@ describe('VolumeFilesService file uploads', () => {
     expect(h.backend.writeStream).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-XFER-007
   it('should refuse two files that share a name', async () => {
     const h = harness({ stat: missing() });
     await mkdir(join(local, 'sub'));
@@ -931,6 +976,7 @@ describe('VolumeFilesService file uploads', () => {
     expect(await h.service.uploadFiles(SAVES, '/', [a, b])).toMatchObject({ ok: false, code: 'conflict' });
   });
 
+  // @spec HELPER-FB-033
   it('should reject a dropped path that did not resolve', async () => {
     const h = harness();
     expect(await h.service.uploadFiles(SAVES, '/', [''])).toMatchObject({ ok: false, code: 'invalid-path' });
@@ -938,6 +984,7 @@ describe('VolumeFilesService file uploads', () => {
     expect(h.dialogs.pickFiles).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-XFER-007
   it('should reject a folder, a missing path and a bad destination', async () => {
     const h = harness({ stat: missing() });
     expect(await h.service.uploadFiles(SAVES, '/', [local])).toMatchObject({ ok: false, code: 'invalid-path', message: expect.stringContaining('isn\'t a file') });
@@ -952,6 +999,7 @@ describe('VolumeFilesService file uploads', () => {
     expect(JSON.stringify(result)).not.toContain(local);
   });
 
+  // @spec HELPER-FB-034
   it('should refuse before the dialog while the server is running or unconfirmable', async () => {
     const h = harness();
     h.ecs.findRunningTaskOrThrow.mockResolvedValue({ taskArn: 'arn' });
@@ -961,6 +1009,7 @@ describe('VolumeFilesService file uploads', () => {
     expect(h.dialogs.pickFiles).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-XFER-004
   it('should return no-session before the dialog when the session is not running', async () => {
     const h = harness();
     h.registry.status.mockResolvedValue(snapshot({ state: 'stopped' }));
@@ -968,6 +1017,7 @@ describe('VolumeFilesService file uploads', () => {
     expect(h.dialogs.pickFiles).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-LAYOUT-004
   it('should refuse uploads into a legacy fallback layout before any bytes move', async () => {
     const h = harness({ stat: missing() }, FALLBACK_LAYOUT);
     const result = await h.service.uploadFiles({ game: 'mc', volume: 'config' }, '/', [await localFile('a.txt', 'a')]);
@@ -1011,6 +1061,7 @@ describe('VolumeFilesService file uploads', () => {
     expect(sources[0]).not.toBe(sources[1]);
   });
 
+  // @spec HELPER-XFER-008, HELPER-FB-034
   it('should check the server again before each file and stop the transfer when it has started', async () => {
     const remove = vi.fn().mockResolvedValue(undefined);
     const h = harness({ stat: missing(), remove });
@@ -1061,6 +1112,7 @@ describe('VolumeFilesService file uploads', () => {
         new Promise<void>((_resolve, reject) => options.signal?.addEventListener('abort', () => reject(new Error('aborted')))),
       );
 
+    // @spec HELPER-RSV-002
     it('should refuse an overlapping upload of the same name without writing anything', async () => {
       const h = harness({ stat: missing(), writeStream: hangingWrite(), remove: vi.fn().mockResolvedValue(undefined) });
       const { settled } = watchTransfers(h);
@@ -1077,6 +1129,7 @@ describe('VolumeFilesService file uploads', () => {
       await settled();
     });
 
+    // @spec HELPER-RSV-001
     it('should reserve the targets of two simultaneous calls atomically', async () => {
       const h = harness({ stat: missing(), writeStream: hangingWrite(), remove: vi.fn().mockResolvedValue(undefined) });
       const a = await localFile('a.txt', 'a');
@@ -1094,6 +1147,7 @@ describe('VolumeFilesService file uploads', () => {
       h.beforeStop('mc');
     });
 
+    // @spec HELPER-RSV-004
     it('should release the reservation after a successful upload', async () => {
       const h = harness({ stat: missing() });
       const { settled } = watchTransfers(h);
@@ -1103,6 +1157,7 @@ describe('VolumeFilesService file uploads', () => {
       expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
     });
 
+    // @spec HELPER-RSV-004
     it('should release the reservation after a failed upload', async () => {
       const dropped = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
       const h = harness({ stat: missing(), writeStream: vi.fn().mockRejectedValue(dropped), remove: vi.fn().mockResolvedValue(undefined) });
@@ -1113,6 +1168,7 @@ describe('VolumeFilesService file uploads', () => {
       expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
     });
 
+    // @spec HELPER-RSV-004
     it('should release the reservation after a cancelled upload, once its partial file is gone', async () => {
       const remove = vi.fn().mockResolvedValue(undefined);
       const h = harness({ stat: missing(), writeStream: hangingWrite(), remove });
@@ -1138,6 +1194,7 @@ describe('VolumeFilesService file uploads', () => {
       expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
     });
 
+    // @spec HELPER-RSV-004
     it('should release the reservation when the pre-upload check refuses the upload', async () => {
       const h = harness({ stat: vi.fn().mockResolvedValue(stat({ name: 'a.txt' })) });
       const a = await localFile('a.txt', 'a');
@@ -1154,6 +1211,7 @@ describe('VolumeFilesService file uploads', () => {
       expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
     });
 
+    // @spec HELPER-RSV-004
     it('should release the reservation when the transfer cannot start', async () => {
       const h = harness({ stat: missing() });
       h.registry.status.mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(snapshot({ state: 'stopped' }));
@@ -1163,6 +1221,7 @@ describe('VolumeFilesService file uploads', () => {
       expect(await h.service.uploadFiles(SAVES, '/', [a])).toMatchObject({ ok: true });
     });
 
+    // @spec HELPER-RSV-003, HELPER-RSV-002
     it('should refuse to save a text file that an upload is writing, and the other way round', async () => {
       const h = harness({ stat: missing(), writeStream: hangingWrite(), remove: vi.fn().mockResolvedValue(undefined) });
       const { settled } = watchTransfers(h);
@@ -1204,6 +1263,7 @@ describe('VolumeFilesService file uploads', () => {
         new Promise<void>((_resolve, reject) => options.signal?.addEventListener('abort', () => reject(new Error('aborted')))),
       );
 
+    // @spec HELPER-XFER-009
     it('should remove the partial file when an upload is cancelled', async () => {
       const remove = vi.fn().mockResolvedValue(undefined);
       const h = harness({ stat: missing(), writeStream: hangingWrite(), remove });
@@ -1217,6 +1277,7 @@ describe('VolumeFilesService file uploads', () => {
       expect(remove.mock.calls[0]![1].aborted).toBe(false);
     });
 
+    // @spec HELPER-XFER-009
     it('should remove the partial file and say so when an upload fails mid-body', async () => {
       const remove = vi.fn().mockResolvedValue(undefined);
       const dropped = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
@@ -1228,6 +1289,7 @@ describe('VolumeFilesService file uploads', () => {
       expect(end).toMatchObject({ phase: 'failed', error: expect.stringContaining('partial file was removed') });
     });
 
+    // @spec HELPER-XFER-009
     it('should tell the operator to delete the file when the partial file cannot be removed', async () => {
       const remove = vi.fn().mockRejectedValue(new VolumeFileError('unreachable', 'remove /saves/a.txt failed', undefined));
       const dropped = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
@@ -1291,6 +1353,7 @@ describe('VolumeFilesService file uploads', () => {
 });
 
 describe('VolumeFilesService folder uploads', () => {
+  // @spec HELPER-FB-028, HELPER-SAFE-006
   it("should start a folder upload into the selected volume's current directory without persisting the selection", async () => {
     const h = harness();
     h.dialogs.pickDirectory.mockResolvedValue('/home/me/world');

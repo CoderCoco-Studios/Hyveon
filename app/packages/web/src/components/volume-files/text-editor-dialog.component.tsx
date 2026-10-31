@@ -29,6 +29,7 @@ export interface TextEditorDialogProps {
 
 type Loaded = { phase: 'loading' } | { phase: 'ready'; modifiedMs: number } | { phase: 'unavailable' } | { phase: 'error'; message: string };
 
+// @spec HELPER-EDIT-004, HELPER-FB-037
 /** Editor body, mounted per opened file so its content and errors never carry over to the next file. */
 function EditorBody({ entry, path, saveDisabledReason, notice, readText, writeText, onDownload, onSaved, onClose }: TextEditorDialogProps & { entry: VolumeEntryInfo; path: string }) {
   const [loaded, setLoaded] = useState<Loaded>({ phase: 'loading' });
@@ -109,6 +110,7 @@ function EditorBody({ entry, path, saveDisabledReason, notice, readText, writeTe
   );
 }
 
+// @spec HELPER-FB-036, HELPER-FB-037, HELPER-FB-038
 /**
  * Edits a small text file in a dialog.
  *

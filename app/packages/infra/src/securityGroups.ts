@@ -339,6 +339,7 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     opts,
   );
 
+  // @spec HELPER-REACH-001
   const fileManagerSg = new aws.ec2.SecurityGroup(
     `${projectName}-filemgr-sg`,
     {

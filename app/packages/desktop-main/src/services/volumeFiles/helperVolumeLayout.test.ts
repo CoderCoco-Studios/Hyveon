@@ -6,6 +6,7 @@ import { configAndSavesVolumes } from '../../testing/deployment-config.fixture.j
 const CONFIG_AND_SAVES = configAndSavesVolumes();
 
 describe('buildHelperVolumeLayout', () => {
+  // @spec HELPER-LAYOUT-001
   it('should mount each applied volume under its own directory', () => {
     const layout = buildHelperVolumeLayout('mc', CONFIG_AND_SAVES, {
       efsAccessPoints: { mc: 'fsap-c' },
@@ -20,6 +21,7 @@ describe('buildHelperVolumeLayout', () => {
     expect(layout.usedFallback).toBe(false);
   });
 
+  // @spec HELPER-LAYOUT-002
   it('should fall back to an index directory for an unsafe or duplicate volume name', () => {
     const volumes = ['../x', 'a b', 'saves', 'saves'].map((name) => ({ name, container_path: '/data' }));
     const layout = buildHelperVolumeLayout('mc', volumes, {
@@ -30,6 +32,7 @@ describe('buildHelperVolumeLayout', () => {
     expect(layout.mounts.map((m) => m.dir)).toEqual(['volume-0', 'volume-1', 'volume-2', 'volume-3']);
   });
 
+  // @spec HELPER-LAYOUT-002
   it('should not let a volume named like an index directory collide with a fallback directory', () => {
     const volumes = [
       { name: 'volume-1', container_path: '/a' },
@@ -43,6 +46,7 @@ describe('buildHelperVolumeLayout', () => {
     expect(layout.mounts.map((m) => m.dir)).toEqual(['volume-0', 'volume-1']);
   });
 
+  // @spec HELPER-LAYOUT-002
   it.each(['.', '..', 'a'.repeat(65), ''])('should not use %j as a directory name', (name) => {
     const layout = buildHelperVolumeLayout('mc', [{ name, container_path: '/data' }], {
       efsAccessPoints: {},
@@ -52,6 +56,7 @@ describe('buildHelperVolumeLayout', () => {
     expect(layout.mounts[0]?.dir).toBe('volume-0');
   });
 
+  // @spec HELPER-LAYOUT-003
   it('should mount only the first volume when the per-volume output is missing', () => {
     const layout = buildHelperVolumeLayout('mc', CONFIG_AND_SAVES, {
       efsAccessPoints: { mc: 'fsap-1' },
@@ -82,6 +87,7 @@ describe('buildHelperVolumeLayout', () => {
     expect(layout.usedFallback).toBe(true);
   });
 
+  // @spec HELPER-LAYOUT-001
   it('should list a declared but unapplied volume as unmounted', () => {
     const volumes = [...CONFIG_AND_SAVES, { name: 'mods', container_path: '/data/mods' }];
     const layout = buildHelperVolumeLayout('mc', volumes, {

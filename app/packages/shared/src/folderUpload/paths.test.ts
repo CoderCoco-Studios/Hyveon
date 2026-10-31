@@ -26,6 +26,7 @@ const TREE = dir('', [
 ]);
 
 describe('planUpload', () => {
+  // @spec HELPER-SELECT-004
   it('should include a whole directory when it is listed', () => {
     expect(planUpload(TREE, ['Data'])).toEqual([
       { relPath: 'Data/b.db', size: 20 },
@@ -33,6 +34,7 @@ describe('planUpload', () => {
     ]);
   });
 
+  // @spec HELPER-SELECT-003
   it('should exclude a directory and its contents when it is not listed', () => {
     const paths = planUpload(TREE, ['Config']).map((f) => f.relPath);
     expect(paths).toEqual(['Config/a.json']);
@@ -55,10 +57,12 @@ describe('planUpload', () => {
 });
 
 describe('toRemotePath', () => {
+  // @spec HELPER-SELECT-004
   it('should strip the container path prefix from the destination', () => {
     expect(toRemotePath('/data/foundry', '/data', 'Config/a.json')).toBe('/foundry/Config/a.json');
   });
 
+  // @spec HELPER-UPLOAD-002
   it('should return a path relative to the owning volume for a second-volume destination', () => {
     expect(toRemotePath('/data/saves/worlds', '/data/saves', 'a.db')).toBe('/worlds/a.db');
   });
@@ -75,6 +79,7 @@ describe('toRemotePath', () => {
     expect(toRemotePath('/x', '/', 'a')).toBe('/x/a');
   });
 
+  // @spec HELPER-SAFE-002
   it.each(['../evil', 'a/../../evil', '/abs/path', 'a//b', './a', 'a\\b', '', 'a\0b'])(
     'should reject relPath %j',
     (rel) => {
@@ -82,6 +87,7 @@ describe('toRemotePath', () => {
     },
   );
 
+  // @spec HELPER-SAFE-002
   it('should reject a destination outside the container path', () => {
     expect(() => toRemotePath('/other', '/data', 'a')).toThrow(/outside/);
   });
@@ -105,6 +111,7 @@ describe('validateDestination', () => {
     { name: 'cfg', container_path: '/data/config' },
   ];
 
+  // @spec HELPER-SELECT-006
   it('should accept a path inside a volume and return the deepest matching volume', () => {
     expect(validateDestination('/data/config/x', volumes)).toEqual({ ok: true, volume: volumes[1] });
   });
@@ -113,10 +120,12 @@ describe('validateDestination', () => {
     expect(validateDestination('/data', volumes)).toEqual({ ok: true, volume: volumes[0] });
   });
 
+  // @spec HELPER-SELECT-005
   it('should reject a path outside every volume', () => {
     expect(validateDestination('/etc', volumes).ok).toBe(false);
   });
 
+  // @spec HELPER-SELECT-005
   it('should reject traversal and relative paths', () => {
     expect(validateDestination('/data/../etc', volumes).ok).toBe(false);
     expect(validateDestination('data', volumes).ok).toBe(false);
