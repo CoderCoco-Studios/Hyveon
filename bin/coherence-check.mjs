@@ -63,7 +63,19 @@ function collectSpecIdsFromCode() {
       { cwd: ROOT, encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024 }
     );
   } catch (e) {
-    output = e.stdout || '';
+    // grep exits 1 for "no matches" (a legitimate empty result) and >1 for a
+    // real error; a missing binary surfaces as a spawn error with no status.
+    // Only the no-match case may be treated as an empty scan — anything else
+    // must fail loudly, or the report would claim a clean annotation scan
+    // without having scanned the code (e.g. on a Windows host without grep).
+    if (e.status === 1) {
+      output = e.stdout || '';
+    } else {
+      const detail = e.status != null ? `grep exited with status ${e.status}` : (e.message || String(e));
+      console.error(`  [ERROR] @spec annotation scan failed: ${detail}`);
+      console.error('  Install grep (or run from a POSIX shell such as Git Bash / WSL) and re-run.');
+      process.exit(2);
+    }
   }
 
   const codeRefs = new Map(); // specId -> [{file, line}]
