@@ -11,6 +11,7 @@ function makeDiff(overrides: Partial<DeploymentConfigDiff> = {}): DeploymentConf
   };
 }
 
+// @spec IAC-RUN-RBK-003
 describe('formatDiffSummary', () => {
   it('should render "No configuration differences detected." when the diff has zero changes in every field', () => {
     expect(formatDiffSummary(makeDiff())).toBe('No configuration differences detected.');

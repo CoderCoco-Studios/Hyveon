@@ -105,6 +105,7 @@ export interface IpcHarness {
   close(): Promise<void>;
 }
 
+// @spec IAC-RUN-ITEST-001, IAC-RUN-ITEST-002
 /**
  * Compiles the in-process IPC test harness.
  *

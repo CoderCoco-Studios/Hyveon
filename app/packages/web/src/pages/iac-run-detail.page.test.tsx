@@ -86,6 +86,7 @@ describe('IacRunDetailPage', () => {
     expect(await screen.findByText(/No run history record was found for "run-missing"\./)).toBeInTheDocument();
   });
 
+  // @spec IAC-RUN-DETL-001
   it('should render the record status, kind, and approver once resolved', async () => {
     hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ approvedBy: 'alice', approvedAt: '2026-07-17T00:02:00.000Z' })],
@@ -98,6 +99,7 @@ describe('IacRunDetailPage', () => {
     expect(screen.getByText('alice')).toBeInTheDocument();
   });
 
+  // @spec IAC-RUN-DETL-002
   it('should replay the log via streamLogs when local run artifacts exist', async () => {
     hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord()] });
     hyveonMock.iac.runs.streamLogs.mockImplementation(
@@ -111,6 +113,7 @@ describe('IacRunDetailPage', () => {
     expect(hyveonMock.iac.runs.logUrl).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-DETL-002
   it('should fall back to the inline log when streamLogs yields nothing', async () => {
     hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ logInline: 'inline log text' })],
@@ -121,6 +124,7 @@ describe('IacRunDetailPage', () => {
     expect(hyveonMock.iac.runs.logUrl).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-DETL-002
   it('should fall back to streamLogs throwing, then a presigned URL fetch when logS3Key is set', async () => {
     hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ logS3Key: 'runs/run-1.log' })],
@@ -162,6 +166,7 @@ describe('IacRunDetailPage', () => {
     expect(screen.queryByText('<Error>AccessDenied</Error>')).not.toBeInTheDocument();
   });
 
+  // @spec IAC-RUN-DETL-003
   it('should not render any approve/apply controls for a terminal run', async () => {
     hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
     renderDetailPage('run-1');
@@ -200,6 +205,7 @@ describe('IacRunDetailPage', () => {
       expect(screen.getByText('1 to update')).toBeInTheDocument();
     });
 
+    // @spec IAC-RUN-PLAN-008
     it('should render "Change summary unavailable" when the record has no changeSummary', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
       renderDetailPage('run-1');

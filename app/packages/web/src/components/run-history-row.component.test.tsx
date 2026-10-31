@@ -54,6 +54,7 @@ describe('RunHistoryRow', () => {
     expect(screen.getByRole('link', { name: 'apply' })).toHaveAttribute('href', '/iac/history/run-42');
   });
 
+  // @spec IAC-RUN-HIST-005
   it('should render a rollback badge when the record carries rolledBackFrom', () => {
     renderRow(makeRecord({ kind: 'plan', rolledBackFrom: 'apply-1' }));
 
@@ -78,12 +79,14 @@ describe('RunHistoryRow', () => {
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 
+  // @spec IAC-RUN-HIST-005
   it('should render approvedBy when present', () => {
     renderRow(makeRecord({ approvedBy: 'alice' }));
 
     expect(screen.getByText('alice')).toBeInTheDocument();
   });
 
+  // @spec IAC-RUN-RBK-001
   it('should show a Rollback action only for apply rows with a configVersionId', () => {
     renderRow(makeRecord({ kind: 'apply', configVersionId: 'v-1' }));
 

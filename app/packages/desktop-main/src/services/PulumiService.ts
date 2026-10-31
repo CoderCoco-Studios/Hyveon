@@ -1408,6 +1408,7 @@ export class PulumiService {
     return redacted;
   }
 
+  // @spec IAC-RUN-GATE-002, IAC-RUN-REC-007, IAC-RUN-LOCK-007
   /**
    * Runs `pulumi preview` against the current deployment configuration,
    * yielding a {@link PulumiRunChunk} per line of stdout/stderr as the
@@ -1848,6 +1849,9 @@ export class PulumiService {
     }
   }
 
+  // @spec IAC-RUN-GATE-003, IAC-RUN-GATE-004, IAC-RUN-GATE-005, IAC-RUN-GATE-006, IAC-RUN-GATE-007, IAC-RUN-GATE-008
+  // @spec IAC-RUN-GATE-009, IAC-RUN-GATE-010, IAC-RUN-GATE-011, IAC-RUN-GATE-012, IAC-RUN-GATE-013, IAC-RUN-PART-001
+  // @spec IAC-RUN-PART-002, IAC-RUN-LOCK-007, IAC-RUN-RBK-008, IAC-RUN-REC-007
   /**
    * Runs `pulumi up` constrained by a previously approved, unexpired plan,
    * behind a **self-contained** 8-step gate this method owns end-to-end —
@@ -2714,6 +2718,7 @@ export class PulumiService {
     }
   }
 
+  // @spec IAC-RUN-DSTR-003
   /**
    * Mints a fresh, single-use confirmation token for a subsequent
    * {@link destroy} call, valid for {@link DESTROY_CONFIRMATION_TTL_MS},
@@ -2759,6 +2764,8 @@ export class PulumiService {
     });
   }
 
+  // @spec IAC-RUN-DSTR-004, IAC-RUN-DSTR-005, IAC-RUN-DSTR-006, IAC-RUN-DSTR-007, IAC-RUN-DSTR-010, IAC-RUN-DSTR-012
+  // @spec IAC-RUN-GATE-013, IAC-RUN-LOCK-007
   /**
    * Runs `pulumi destroy` against the deployed stack, yielding a
    * {@link PulumiRunChunk} per line of stdout/stderr as the operation
@@ -3354,6 +3361,7 @@ export class PulumiService {
     }
   }
 
+  // @spec IAC-RUN-RBK-002, IAC-RUN-RBK-004
   /**
    * Resolves the configuration-object version that was live immediately
    * before the given `apply` run — the target {@link confirmRollback} would
@@ -3450,6 +3458,7 @@ export class PulumiService {
     return normalizeDeploymentConfigGames(parsed as DeploymentConfig);
   }
 
+  // @spec IAC-RUN-RBK-003
   /**
    * Best-effort computation of how `targetVersionId` (a rollback target
    * identified by {@link resolveRollbackTarget}) differs from the current
@@ -3520,6 +3529,7 @@ export class PulumiService {
     }
   }
 
+  // @spec IAC-RUN-RBK-004, IAC-RUN-RBK-005, IAC-RUN-RBK-006, IAC-RUN-RBK-007, IAC-RUN-LOCK-007
   /**
    * Confirms a rollback of `applyRunId`: re-resolves the rollback target
    * (catching a late expiry before any write), restores its exact historic

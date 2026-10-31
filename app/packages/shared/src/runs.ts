@@ -1,5 +1,7 @@
 import type { ChangeSummary } from './changeSummary.js';
 
+// @spec IAC-RUN-REC-001
+// @spec IAC-RUN-REC-009
 /**
  * Which operation a {@link RunRecord} describes, encoded with the vocabulary
  * of the app's original IaC tool's subcommands (`plan`/`apply`/`destroy`) —
@@ -13,6 +15,7 @@ import type { ChangeSummary } from './changeSummary.js';
  */
 export type RunKind = 'plan' | 'apply' | 'destroy';
 
+// @spec IAC-RUN-REC-003
 /**
  * Lifecycle status of a {@link RunRecord}, derived (never stored ad hoc) via
  * {@link deriveRunStatus}. Also the hash key of the `status-index` GSI on the
@@ -23,6 +26,7 @@ export type RunKind = 'plan' | 'apply' | 'destroy';
  */
 export type RunStatus = 'success' | 'failed' | 'aborted';
 
+// @spec IAC-RUN-REC-005, IAC-RUN-REC-006
 /**
  * A single row in the DynamoDB run-history table (`${project_name}-runs`,
  * `pk = "RUN"`, `sk = ` {@link buildRunSk}). Records one plan/apply/destroy
@@ -161,6 +165,7 @@ export interface RunRecord {
   partialApply?: boolean;
 }
 
+// @spec IAC-RUN-HIST-001
 /**
  * A page of run records returned by {@link RunRecordStore.listRuns},
  * newest-first, plus an optional cursor for fetching the next page.
@@ -172,6 +177,7 @@ export interface RunPageResult {
   nextBefore?: string;
 }
 
+// @spec IAC-RUN-REC-004
 /**
  * Builds a DynamoDB sort key for a new {@link RunRecord}: the run's ISO-8601
  * `startedAt` timestamp followed by a `#`-separated `runId`, e.g.
@@ -191,6 +197,7 @@ export function buildRunSk(startedAt: string, runId: string): string {
   return `${startedAt}#${runId}`;
 }
 
+// @spec IAC-RUN-REC-002
 /**
  * Derives a {@link RunStatus} from the run's process exit code, so `status`
  * never has to be set independently of it (and can't drift out of sync).
@@ -209,6 +216,7 @@ export function deriveRunStatus(exitCode: number | null): RunStatus {
   return exitCode === 0 ? 'success' : 'failed';
 }
 
+// @spec IAC-RUN-LOCK-001
 /**
  * Describes the single non-terminal run currently holding the apply lock —
  * the value returned by `RunService.getCurrentLock()` (desktop-main).
@@ -235,6 +243,7 @@ export interface RunLock {
   expiresAt: string;
 }
 
+// @spec IAC-RUN-LOCK-005
 /**
  * Determines whether a {@link RunLock} is stale and should be treated as
  * released, based on whether `now` has passed the lock's `expiresAt`.
@@ -251,6 +260,7 @@ export function isRunLockExpired(lock: RunLock, now: Date = new Date()): boolean
   return now.getTime() >= new Date(lock.expiresAt).getTime();
 }
 
+// @spec IAC-RUN-APPR-005
 /**
  * Duration (in milliseconds) an admin's approval of a plan run remains valid
  * before the apply IPC handler must reject it and require
@@ -260,6 +270,7 @@ export function isRunLockExpired(lock: RunLock, now: Date = new Date()): boolean
  */
 export const APPROVAL_WINDOW_MS = 15 * 60 * 1000;
 
+// @spec IAC-RUN-APPR-005
 /**
  * Determines whether a plan {@link RunRecord}'s approval has expired, based
  * on whether `now` has passed {@link RunRecord.approvedAt} plus
@@ -292,6 +303,7 @@ export function isApprovalExpired(approvedAt: string, now: Date = new Date()): b
  */
 export type RunDetailStatus = RunStatus | 'running' | 'awaiting_approval';
 
+// @spec IAC-RUN-IPC-009
 /**
  * Derives the {@link RunDetailStatus} the run-detail view should render for
  * a given run.

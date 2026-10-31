@@ -59,6 +59,7 @@ function isNoOpSummary(summary: ChangeSummary): boolean {
   return (same ?? 0) > 0 && Object.values(rest).every((count) => !count);
 }
 
+// @spec IAC-RUN-REC-006, IAC-RUN-REC-008, IAC-RUN-PLAN-007, IAC-RUN-PLAN-008, IAC-RUN-HIST-009
 /**
  * Resource-change summary display shared by the plan, apply, and destroy
  * sections — reads the structured {@link ChangeSummary} the Pulumi engine

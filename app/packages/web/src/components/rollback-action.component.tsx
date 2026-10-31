@@ -22,6 +22,7 @@ interface RollbackActionProps {
   onRolledBack: (result: RollbackResult) => void;
 }
 
+// @spec IAC-RUN-RBK-002, IAC-RUN-RBK-003
 /**
  * "Rollback" action for an apply row in `/iac/history`.
  * Two-step flow, mirroring the backend's resolve-then-confirm split so

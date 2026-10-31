@@ -81,6 +81,8 @@ function PartialApplyBanner({ onStartOver }: { onStartOver: () => void }) {
   );
 }
 
+// @spec IAC-RUN-PLAN-002, IAC-RUN-PLAN-007, IAC-RUN-APPR-001, IAC-RUN-APPR-004, IAC-RUN-APPR-005, IAC-RUN-GATE-001
+// @spec IAC-RUN-GATE-006, IAC-RUN-GATE-014, IAC-RUN-GATE-015, IAC-RUN-PART-003, IAC-RUN-LCLR-007
 /**
  * Infrastructure plan/apply route (`/iac`) — lets an operator trigger a
  * Pulumi plan (preview), watch its live ANSI output, review the

@@ -86,6 +86,7 @@ function useLockClearConfirmation(options: {
   return { confirmOpen, setConfirmOpen, clearing, clearError, handleConfirmClear };
 }
 
+// @spec IAC-RUN-LCLR-001, IAC-RUN-LCLR-002, IAC-RUN-LCLR-003, IAC-RUN-LCLR-007
 /**
  * Lock banner shown when a plan/apply/destroy submission was rejected
  * because the shared Pulumi workspace is busy (`PulumiOperationInFlightError`).

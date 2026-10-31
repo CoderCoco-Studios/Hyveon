@@ -74,6 +74,7 @@ describe('AwsRunRecordStore', () => {
     getSignedUrlMock.mockReset();
   });
 
+  // @spec IAC-RUN-REC-004, IAC-RUN-REC-005
   describe('putRecord', () => {
     it('should send a PutCommand with pk RUN, the record sk, and status on the written item', async () => {
       ddbMock.on(PutCommand).resolves({});
@@ -197,6 +198,7 @@ describe('AwsRunRecordStore', () => {
       expect(input.Item?.['changeSummary']).toEqual({ create: 2, same: 1 });
     });
 
+    // @spec IAC-RUN-REC-006
     it('should omit changeSummary from the written item when absent on the record (older-record shape)', async () => {
       ddbMock.on(PutCommand).resolves({});
 
@@ -308,6 +310,7 @@ describe('AwsRunRecordStore', () => {
       expect(result?.changeSummary).toEqual({ create: 3, update: 1, same: 5 });
     });
 
+    // @spec IAC-RUN-REC-006
     it('should deserialize an older record with no changeSummary field without error', async () => {
       const record = makeRecord();
       ddbMock.on(QueryCommand).resolves({ Items: [{ pk: 'RUN', ...record }] });
@@ -327,6 +330,7 @@ describe('AwsRunRecordStore', () => {
     });
   });
 
+  // @spec IAC-RUN-STORE-002
   describe('putLog', () => {
     it('should write the body to the runs/<runId>.log S3 key and return that key', async () => {
       s3Mock.on(PutObjectCommand).resolves({});
@@ -349,6 +353,7 @@ describe('AwsRunRecordStore', () => {
     });
   });
 
+  // @spec IAC-RUN-STORE-006
   describe('getLogUrl', () => {
     it('should return a presigned URL for a stored log key', async () => {
       getSignedUrlMock.mockResolvedValue('https://hyveon-runs-logs.s3.amazonaws.com/runs/run-123.log?X-Amz-Signature=abc');
@@ -384,6 +389,7 @@ describe('AwsRunRecordStore', () => {
     });
   });
 
+  // @spec IAC-RUN-LOCK-003, IAC-RUN-LOCK-004
   describe('acquireRunLock', () => {
     it('should resolve without throwing when no lock item currently exists', async () => {
       ddbMock.on(PutCommand).resolves({});
@@ -487,6 +493,7 @@ describe('AwsRunRecordStore', () => {
     });
   });
 
+  // @spec IAC-RUN-HIST-001, IAC-RUN-HIST-003
   describe('listRuns', () => {
     it('should query pk = RUN newest-first with the given Limit and no sk condition on the first page', async () => {
       ddbMock.on(QueryCommand).resolves({ Items: [] });
@@ -604,6 +611,7 @@ describe('AwsRunRecordStore', () => {
     });
   });
 
+  // @spec IAC-RUN-LOCK-006
   describe('releaseRunLock', () => {
     it('should send a DeleteCommand scoped to the given runId', async () => {
       ddbMock.on(DeleteCommand).resolves({});

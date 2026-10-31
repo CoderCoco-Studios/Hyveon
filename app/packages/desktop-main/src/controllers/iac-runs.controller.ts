@@ -124,6 +124,7 @@ interface IacRunsLogsAck {
   streamId: string;
 }
 
+// @spec IAC-RUN-IPC-001, IAC-RUN-IPC-002
 /**
  * IPC-only controller for reading the status/detail of a single Pulumi
  * preview/apply/destroy run (issue #108) — no HTTP routes are registered
@@ -149,6 +150,7 @@ export class IacRunsController implements OnModuleInit {
     private readonly runRecordService: RunRecordService,
   ) {}
 
+  // @spec IAC-RUN-IPC-005
   /**
    * Registers an `ipcMain.handle` bridge for the `iac.runs.logs`
    * channel after the Nest module initialises, so that
@@ -185,6 +187,7 @@ export class IacRunsController implements OnModuleInit {
     );
   }
 
+  // @spec IAC-RUN-IPC-009
   /**
    * Looks up a single run by `runId` and returns its current
    * {@link RunDetailStatus}:
@@ -237,6 +240,7 @@ export class IacRunsController implements OnModuleInit {
     return { found: true, status, record };
   }
 
+  // @spec IAC-RUN-PLAN-004
   /**
    * Opens a live/replayed log stream for the run identified by `payload.runId`
    * and returns an opaque `streamId` immediately. Chunks are pushed to the
@@ -303,6 +307,7 @@ export class IacRunsController implements OnModuleInit {
     return { streamId };
   }
 
+  // @spec IAC-RUN-HIST-001
   /**
    * Returns a page of persisted run records, newest-first — see
    * `RunRecordService.listRuns()`. `opts` mirrors {@link ListRunsOpts}
@@ -325,6 +330,7 @@ export class IacRunsController implements OnModuleInit {
     return this.runRecordService.listRuns(opts ?? {});
   }
 
+  // @spec IAC-RUN-STORE-006
   /**
    * Resolves a temporary, fetchable URL for a run's log once it has been
    * offloaded to the store's remote file backend (i.e. the run's
@@ -349,6 +355,7 @@ export class IacRunsController implements OnModuleInit {
     return { url };
   }
 
+  // @spec IAC-RUN-LCLR-003, IAC-RUN-LCLR-004
   /**
    * Mints a fresh, single-use confirmation token the renderer must supply
    * back on {@link clearLock}'s payload before it expires — the RunLock
@@ -391,6 +398,7 @@ export class IacRunsController implements OnModuleInit {
     }
   }
 
+  // @spec IAC-RUN-LCLR-003, IAC-RUN-LCLR-005
   /**
    * Clears the current run lock by invoking `RunService.clearLock()`,
    * gated behind `payload.confirmationToken` (minted via

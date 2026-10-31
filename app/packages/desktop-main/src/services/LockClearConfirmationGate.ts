@@ -50,6 +50,7 @@ export type LockClearAssertResult<TBinding> =
   | { ok: true; binding: TBinding }
   | { ok: false; reason: 'no-token-minted' | 'token-mismatch' | 'expired' | 'binding-mismatch' };
 
+// @spec IAC-RUN-LCLR-006
 /**
  * Generic mint/assert/consume lock-clear confirmation token gate — see this
  * file's top-level doc comment for the full rationale.

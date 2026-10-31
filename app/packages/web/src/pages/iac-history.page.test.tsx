@@ -61,6 +61,7 @@ describe('IacHistoryPage', () => {
     navigateMock.mockClear();
   });
 
+  // @spec IAC-RUN-HIST-005
   it('should render recent runs newest-first with kind, status, and timestamps', async () => {
     hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord()] });
     renderPage(<IacHistoryPage />);
@@ -77,6 +78,7 @@ describe('IacHistoryPage', () => {
     expect(await screen.findByText(/No runs match the current filters\./)).toBeInTheDocument();
   });
 
+  // @spec IAC-RUN-HIST-006
   it('should fetch the next, older page and append it when Load more is clicked', async () => {
     hyveonMock.iac.runs.list.mockResolvedValueOnce({
       records: [makeRecord({ runId: 'run-1', sk: 'sk-1' })],
@@ -94,6 +96,7 @@ describe('IacHistoryPage', () => {
     expect(hyveonMock.iac.runs.list).toHaveBeenLastCalledWith({ limit: 25, before: 'sk-1', status: undefined });
   });
 
+  // @spec IAC-RUN-HIST-007
   it('should re-fetch with the selected status filter', async () => {
     hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ status: 'failed' })] });
     renderPage(<IacHistoryPage />);
@@ -106,6 +109,7 @@ describe('IacHistoryPage', () => {
     );
   });
 
+  // @spec IAC-RUN-HIST-008
   it('should apply the kind filter client-side without an extra fetch', async () => {
     hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ runId: 'run-apply', kind: 'apply' }), makeRecord({ runId: 'run-plan', sk: 'sk-2', kind: 'plan' })],
@@ -129,6 +133,7 @@ describe('IacHistoryPage', () => {
     expect(link).toHaveAttribute('href', '/iac/history/run-42');
   });
 
+  // @spec IAC-RUN-HIST-005
   it('should show approvedBy when present, else an em dash', async () => {
     hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ runId: 'run-1', approvedBy: 'alice' }), makeRecord({ runId: 'run-2', sk: 'sk-2', kind: 'plan' })],
@@ -152,6 +157,7 @@ describe('IacHistoryPage', () => {
       expect(screen.getByText('1 to update')).toBeInTheDocument();
     });
 
+    // @spec IAC-RUN-HIST-009, IAC-RUN-PLAN-008
     it('should render "Change summary unavailable" for a row with no changeSummary', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord()] });
       renderPage(<IacHistoryPage />);
@@ -188,6 +194,7 @@ describe('IacHistoryPage', () => {
   });
 
   describe('rollback action (#112)', () => {
+    // @spec IAC-RUN-RBK-001
     it('should show a Rollback button only for apply rows that recorded a configVersionId', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({
         records: [
@@ -203,6 +210,7 @@ describe('IacHistoryPage', () => {
       expect(rollbackButtons).toHaveLength(1);
     });
 
+    // @spec IAC-RUN-RBK-002
     it('should resolve the rollback target and open a confirmation dialog naming it on click', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({
         records: [makeRecord({ runId: 'apply-1', kind: 'apply', configVersionId: 'v-1' })],

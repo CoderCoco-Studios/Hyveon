@@ -13,6 +13,7 @@ import { makeFakeIacCtx, waitForIacMessage } from './support/iac-ctx.js';
 const STDOUT_ANSI_LINE = '[32mresource created successfully[0m';
 const STDERR_ANSI_LINE = '[31mwarning: deprecated provider option[0m';
 
+// @spec IAC-RUN-ITEST-008
 /**
  * Verifies the `orchestrator-integration-coverage` delta spec's "Streamed
  * run chunks preserve ANSI escape sequences" requirement — both halves of

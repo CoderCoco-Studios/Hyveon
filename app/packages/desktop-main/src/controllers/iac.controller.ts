@@ -492,6 +492,7 @@ interface IacDestroyEndMessage {
   result?: PulumiDestroyResult;
 }
 
+// @spec IAC-RUN-IPC-001, IAC-RUN-IPC-002
 /**
  * IPC-only Iac controller. Handles Electron main-process messages via `@MessagePattern` — no
  * HTTP routes are registered here. Every orchestration call site delegates to `PulumiService`.
@@ -548,6 +549,7 @@ export class IacController implements OnModuleInit {
    */
   private readonly activeDestroys = new Map<string, AbortController>();
 
+  // @spec IAC-RUN-IPC-005
   /**
    * Registers an `ipcMain.handle` bridge for the streaming channels (`iac.plan`, `iac.apply`,
    * `iac.destroy`, `iac.rollback.confirm`, `iac.stack.initialize`) after the Nest module
@@ -696,6 +698,7 @@ export class IacController implements OnModuleInit {
     return { started: true, streamId };
   }
 
+  // @spec IAC-RUN-PLAN-003, IAC-RUN-LCLR-002, IAC-RUN-IPC-003, IAC-RUN-IPC-004, IAC-RUN-IPC-007
   /**
    * Kicks off a Pulumi preview and streams its output back to the renderer — pre-mints a
    * `runId` since `PulumiService.preview` needs one to name its saved plan artifact directory.
@@ -794,6 +797,8 @@ export class IacController implements OnModuleInit {
     return { started: true, runId };
   }
 
+  // @spec IAC-RUN-GATE-012, IAC-RUN-GATE-014, IAC-RUN-LCLR-001, IAC-RUN-LCLR-002, IAC-RUN-IPC-003, IAC-RUN-IPC-004
+  // @spec IAC-RUN-IPC-007
   /**
    * Applies the approved plan run `payload.planRunId` and streams its output back to the
    * renderer — mirrors {@link plan}'s streaming shape, but the gate underneath is different:
@@ -956,6 +961,8 @@ export class IacController implements OnModuleInit {
     return { token: this.pulumi.mintLockClearConfirmationToken() };
   }
 
+  // @spec IAC-RUN-DSTR-008, IAC-RUN-DSTR-009, IAC-RUN-DSTR-010, IAC-RUN-LCLR-001, IAC-RUN-LCLR-002, IAC-RUN-IPC-003
+  // @spec IAC-RUN-IPC-004, IAC-RUN-IPC-007
   /**
    * Destroys the deployed stack and streams its output back to the renderer — mirrors
    * {@link apply}'s streaming/gate-awaiting shape, gated behind `payload.confirmationToken`
@@ -1065,6 +1072,7 @@ export class IacController implements OnModuleInit {
     return { started: true, runId };
   }
 
+  // @spec IAC-RUN-ITEST-010
   /**
    * Returns the current stack outputs. Resolves a single value, so the generic `ipcMain.handle`
    * bridge wires this automatically — no manual bridging needed.
@@ -1089,6 +1097,7 @@ export class IacController implements OnModuleInit {
     return this.config ? this.config.getStackOutputs() : this.pulumi.getStackOutputs();
   }
 
+  // @spec IAC-RUN-APPR-002, IAC-RUN-APPR-007
   /**
    * Approves a successful `plan` run for a later apply, delegating the write to
    * `RunRecordService.approveRun` (see issue #109).
@@ -1138,6 +1147,7 @@ export class IacController implements OnModuleInit {
     }
   }
 
+  // @spec IAC-RUN-RBK-002, IAC-RUN-RBK-003
   /**
    * Previews the rollback flow's (#112) target configuration version for
    * `payload.applyRunId`, without writing anything — delegates to
@@ -1194,6 +1204,7 @@ export class IacController implements OnModuleInit {
     }
   }
 
+  // @spec IAC-RUN-RBK-007, IAC-RUN-RBK-009, IAC-RUN-IPC-007
   /**
    * Confirms the rollback flow (#112) for `payload.applyRunId`. `PulumiService.confirmRollback`
    * fuses a historic-configuration restore write and its follow-up plan into one guarded

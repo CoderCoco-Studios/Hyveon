@@ -33,6 +33,7 @@ export interface EditGameFormProps {
   onSaved?: (result: GameWriteSuccess) => void;
 }
 
+// @spec IAC-RUN-PLAN-010
 /**
  * Self-contained "Edit game" form: prefills a {@link WizardDraft} from
  * `game`, renders every wizard step flattened in one view (name read-only),

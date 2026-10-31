@@ -15,6 +15,7 @@ interface RunHistoryRowProps {
   onRolledBack: (result: RollbackResult) => void;
 }
 
+// @spec IAC-RUN-HIST-005, IAC-RUN-RBK-001
 /**
  * One row in `/iac/history`'s run table: kind (with a "rollback" badge when the run itself was a
  * rollback), status (with a "partial" badge for a partial apply), the `ChangeSummaryStatus` cell,

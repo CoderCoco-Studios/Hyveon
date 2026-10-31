@@ -20,6 +20,7 @@ describe('RollbackAction', () => {
     hyveonMock.iac.rollback.confirm.mockReset();
   });
 
+  // @spec IAC-RUN-RBK-002
   it('should not call confirm until the operator confirms the dialog', async () => {
     hyveonMock.iac.rollback.resolve.mockResolvedValue({
       resolved: true,
@@ -92,6 +93,7 @@ describe('RollbackAction', () => {
     expect(onRolledBack).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-RBK-003
   it('should render the identify-target-only dialog with no diff line when the resolve ack has no diff', async () => {
     hyveonMock.iac.rollback.resolve.mockResolvedValue({
       resolved: true,

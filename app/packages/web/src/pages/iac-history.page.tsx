@@ -14,6 +14,7 @@ import { useRunHistory, type StatusFilter } from '../hooks/use-run-history.hook.
 /** `kind` filter options, `'all'` meaning no filter is applied. */
 type KindFilter = IacRunKind | 'all';
 
+// @spec IAC-RUN-HIST-005, IAC-RUN-HIST-007, IAC-RUN-HIST-008
 /**
  * Iac run-history route (`/iac/history`) — a newest-first table
  * of persisted plan/apply/destroy runs backed by

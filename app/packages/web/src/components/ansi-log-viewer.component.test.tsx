@@ -23,6 +23,7 @@ describe('AnsiLogViewer', () => {
     expect(screen.getByText('Nothing yet')).toBeInTheDocument();
   });
 
+  // @spec IAC-RUN-PLAN-005
   it('should render chunks in order', () => {
     const chunks: AnsiLogChunk[] = [
       { stream: 'stdout', line: 'first line' },
@@ -34,6 +35,7 @@ describe('AnsiLogViewer', () => {
     expect(lines[1]).toHaveTextContent('second line');
   });
 
+  // @spec IAC-RUN-PLAN-005
   it('should render an ANSI-colored line as styled spans', () => {
     render(<AnsiLogViewer chunks={[{ stream: 'stdout', line: '\x1b[31merror text\x1b[0m' }]} />);
     const span = screen.getByText('error text');

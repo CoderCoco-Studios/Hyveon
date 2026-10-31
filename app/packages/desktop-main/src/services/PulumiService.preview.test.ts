@@ -273,6 +273,7 @@ beforeEach(() => {
   loggerMock.warn.mockReset();
 });
 
+// @spec IAC-RUN-GATE-002
 describe('PulumiService.preview spawning and artifact persistence', () => {
   it('should mint a runId, create its run directory, and call stack.preview with the plan artifact path', async () => {
     const workspace = makeWorkspace(makeHappyPathPreview());
@@ -675,6 +676,7 @@ describe('PulumiService.preview structured changeSummary', () => {
 });
 
 describe('PulumiService.preview plan hash and engine version', () => {
+  // @spec IAC-RUN-GATE-002
   it('should compute planHash as sha256(artifactBytes ++ utf8(configVersionId))', async () => {
     const artifactBytes = Buffer.from(JSON.stringify({ manifest: { version: 'v3.255.0' } }));
     readFileSyncMock.mockReturnValue(artifactBytes);

@@ -20,6 +20,7 @@ export interface AnsiLogViewerProps {
 /** Scroll distance (px) from the bottom within which the viewer still counts as "pinned to bottom". */
 const BOTTOM_PIN_THRESHOLD_PX = 24;
 
+// @spec IAC-RUN-PLAN-005
 /**
  * Renders streamed Pulumi output chunks as ANSI-colored HTML, in order,
  * inside a scrollable box.

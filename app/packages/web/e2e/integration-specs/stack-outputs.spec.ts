@@ -1,6 +1,7 @@
 import { IacController } from '@hyveon/desktop-main/dist/controllers/iac.controller.js';
 import { test, expect, DEFAULT_STACK_OUTPUTS } from './index.js';
 
+// @spec IAC-RUN-ITEST-010
 /**
  * Verifies the `orchestrator-integration-coverage` delta spec's "Stack
  * outputs integration coverage" requirement: the `iac.output` IPC channel

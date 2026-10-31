@@ -14,6 +14,7 @@ function writeTempLog(content: string): string {
   return logFilePath;
 }
 
+// @spec IAC-RUN-ITEST-009
 /**
  * Verifies the `orchestrator-integration-coverage` delta spec's "Run
  * records persisted for every run" requirement. `IacController.plan`/
@@ -65,6 +66,7 @@ test.describe('RunRecordService — run-record persistence and retrieval', () =>
     expect(record?.planHash).toBeUndefined();
   });
 
+  // @spec IAC-RUN-STORE-002
   test('should embed a captured log inline, matching the run log content, when under the 350KB limit', async ({
     ipc,
     serverMocks: _reset,

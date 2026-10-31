@@ -79,6 +79,7 @@ beforeEach(() => {
 
 describe('RunService', () => {
   describe('createRun', () => {
+    // @spec IAC-RUN-LOCK-001
     it('should acquire the lock, mirror it to the DynamoDB-backed store, and return it', async () => {
       const service = makeService();
 
@@ -92,6 +93,7 @@ describe('RunService', () => {
       expect(acquireRunLockMock).toHaveBeenCalledWith(lock);
     });
 
+    // @spec IAC-RUN-LOCK-002, IAC-RUN-LOCK-004
     it('should reject the second of two simultaneous createRun calls with RunLockHeldError', async () => {
       const service = makeService();
       // Never resolves within this test — proves the in-memory guard rejects
@@ -108,6 +110,7 @@ describe('RunService', () => {
       void firstCall.catch(() => {});
     });
 
+    // @spec IAC-RUN-LOCK-004
     it('should roll back the in-memory lock when the DynamoDB acquisition is rejected by another holder', async () => {
       const service = makeService();
       const remoteLock: RunLock = {
@@ -197,6 +200,7 @@ describe('RunService', () => {
       expect(service.getCurrentLock()).toBeUndefined();
     });
 
+    // @spec IAC-RUN-LOCK-005
     it('should take over an expired in-memory lock instead of throwing RunLockHeldError', async () => {
       const service = makeService();
 
@@ -234,6 +238,7 @@ describe('RunService', () => {
       expect(service.getCurrentLock()).toEqual(lock);
     });
 
+    // @spec IAC-RUN-LOCK-005
     it('should return undefined once the held lock has expired, without releaseRun being called', async () => {
       const service = makeService();
 
@@ -252,6 +257,7 @@ describe('RunService', () => {
     });
   });
 
+  // @spec IAC-RUN-LOCK-006
   describe('releaseRun', () => {
     it('should free the lock for the next createRun call and release the DynamoDB-backed lock', async () => {
       const service = makeService();
@@ -318,6 +324,7 @@ describe('RunService', () => {
     });
   });
 
+  // @spec IAC-RUN-LCLR-004
   describe('RunService.mintLockClearConfirmationToken', () => {
     it('should throw when no lock is currently held, in-memory or durable', async () => {
       const service = makeService();
@@ -399,6 +406,7 @@ describe('RunService', () => {
     });
   });
 
+  // @spec IAC-RUN-LCLR-005
   describe('RunService.clearLock', () => {
     it('should throw RunLockClearNotConfirmedError when no token has ever been minted', async () => {
       const service = makeService();
