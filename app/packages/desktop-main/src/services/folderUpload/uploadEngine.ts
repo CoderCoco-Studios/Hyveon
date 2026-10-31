@@ -1,7 +1,8 @@
+import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { errMessage } from '@hyveon/shared';
 import { MAX_OVERWRITE_SAMPLES, type OverwriteSummary } from '@hyveon/shared/folderUpload';
-import { FileBrowserHttpError, PinMismatchError, type FileBrowserApi, type RemoteEntry } from './FileBrowserClient.js';
+import { VolumeFileError, type VolumeEntry, type VolumeFileBackend } from '../volumeFiles/VolumeFileBackend.js';
 import type { ProgressAggregator } from './ProgressAggregator.js';
 
 /** A file resolved for upload: where it is locally, where it lands on the helper, and what the scan recorded. */
@@ -122,26 +123,29 @@ async function mapPool<T>(inputs: T[], limit: number, fn: (input: T) => Promise<
 }
 
 /** Creates every ancestor directory of the planned files, parents first. */
-export async function ensureDirs(client: FileBrowserApi, items: UploadItem[], signal?: AbortSignal): Promise<void> {
+export async function ensureDirs(client: VolumeFileBackend, items: UploadItem[], signal?: AbortSignal): Promise<void> {
   for (const dir of ancestorDirs(items.map((i) => i.remotePath))) {
     throwIfAborted(signal);
-    await client.mkdir(dir, signal);
+    await client.mkdir(dir, { existOk: true, signal });
   }
 }
 
 /** Lists the parent directory of every planned file; missing directories are absent from the result. */
 export async function listPlannedDirs(
-  client: FileBrowserApi,
+  client: VolumeFileBackend,
   items: UploadItem[],
   signal?: AbortSignal,
   concurrency = DEFAULT_ENGINE_OPTIONS.concurrency,
-): Promise<Map<string, RemoteEntry[]>> {
+): Promise<Map<string, VolumeEntry[]>> {
   const parents = [...new Set(items.map((i) => i.remotePath.slice(0, i.remotePath.lastIndexOf('/')) || '/'))];
-  const listings = new Map<string, RemoteEntry[]>();
+  const listings = new Map<string, VolumeEntry[]>();
   await mapPool(parents, concurrency, async (dir) => {
     throwIfAborted(signal);
-    const entries = await client.list(dir, signal);
-    if (entries) listings.set(dir, entries);
+    try {
+      listings.set(dir, await client.list(dir, signal));
+    } catch (err) {
+      if (!(err instanceof VolumeFileError && err.code === 'not-found')) throw err;
+    }
   });
   return listings;
 }
@@ -149,7 +153,7 @@ export async function listPlannedDirs(
 const joinRemote = (dir: string, name: string): string => `${dir === '/' ? '' : dir}/${name}`;
 
 /** Flattens directory listings into `remotePath -> size` for the files that exist. */
-export function remoteSizesOf(listings: Map<string, RemoteEntry[]>): Map<string, number> {
+export function remoteSizesOf(listings: Map<string, VolumeEntry[]>): Map<string, number> {
   const sizes = new Map<string, number>();
   for (const [dir, entries] of listings) {
     for (const e of entries) if (!e.isDir) sizes.set(joinRemote(dir, e.name), e.size);
@@ -159,7 +163,7 @@ export function remoteSizesOf(listings: Map<string, RemoteEntry[]>): Map<string,
 
 /** Lists the parent directory of every planned file and returns `remotePath -> size` for the files that exist. */
 export async function listRemoteSizes(
-  client: FileBrowserApi,
+  client: VolumeFileBackend,
   items: UploadItem[],
   signal?: AbortSignal,
   concurrency = DEFAULT_ENGINE_OPTIONS.concurrency,
@@ -191,7 +195,7 @@ export function classifyUpload(items: UploadItem[], remoteSizes: Map<string, num
 }
 
 /** Compares the volume's listing against the plan (count and per-file size). */
-export async function verifyUpload(client: FileBrowserApi, items: UploadItem[], signal?: AbortSignal): Promise<VerifyResult> {
+export async function verifyUpload(client: VolumeFileBackend, items: UploadItem[], signal?: AbortSignal): Promise<VerifyResult> {
   const sizes = await listRemoteSizes(client, items, signal);
   const missing: string[] = [];
   const mismatched: string[] = [];
@@ -203,11 +207,21 @@ export async function verifyUpload(client: FileBrowserApi, items: UploadItem[], 
   return { ok: missing.length === 0 && mismatched.length === 0, missing, mismatched };
 }
 
-/** Errors a retry cannot fix: cancellation, a pin failure, a changed local file, or a 4xx other than 408/429. */
+/** Errors a retry cannot fix: cancellation, a changed local file, a pin/auth/not-found/conflict failure, or a 4xx other than 408/429. */
 function isPermanent(err: unknown): boolean {
-  if (err instanceof UploadCancelledError || err instanceof PinMismatchError || err instanceof FileChangedError) return true;
-  if (err instanceof FileBrowserHttpError) return err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429;
-  return false;
+  if (err instanceof UploadCancelledError || err instanceof FileChangedError) return true;
+  if (!(err instanceof VolumeFileError)) return false;
+  switch (err.code) {
+    case 'pin-mismatch':
+    case 'auth':
+    case 'not-found':
+    case 'conflict':
+      return true;
+    case 'failed':
+      return err.status !== undefined && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429;
+    default:
+      return false;
+  }
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -216,7 +230,7 @@ function throwIfAborted(signal?: AbortSignal): void {
 
 /** Uploads one file with bounded retries, rolling back its counted bytes after each failed attempt. */
 async function uploadOne(
-  client: FileBrowserApi,
+  client: VolumeFileBackend,
   item: UploadItem,
   progress: ProgressAggregator,
   signal: AbortSignal | undefined,
@@ -225,15 +239,16 @@ async function uploadOne(
   for (let attempt = 1; ; attempt += 1) {
     throwIfAborted(signal);
     let counted = 0;
+    let source: ReturnType<typeof createReadStream> | undefined;
     try {
       const local = await stat(item.localPath);
       if (local.size !== item.size || local.mtimeMs !== item.mtimeMs) throw new FileChangedError(item.relPath);
       throwIfAborted(signal);
       progress.setCurrent(item.relPath);
-      await client.uploadFile({
-        remotePath: item.remotePath,
-        localPath: item.localPath,
+      source = createReadStream(item.localPath);
+      await client.writeStream(item.remotePath, source, {
         size: item.size,
+        overwrite: true,
         signal,
         onBytes: (n) => {
           counted += n;
@@ -243,6 +258,7 @@ async function uploadOne(
       progress.fileDone();
       return;
     } catch (err) {
+      source?.destroy();
       progress.addBytes(-counted);
       if (signal?.aborted) throw new UploadCancelledError();
       if (isPermanent(err) || attempt >= opts.maxAttempts) throw new UploadFileError(item.relPath, err);
@@ -259,7 +275,7 @@ async function uploadOne(
  * @throws UploadCancelledError when `signal` aborts; UploadFileError for the first file to exhaust its attempts.
  */
 export async function uploadAll(
-  client: FileBrowserApi,
+  client: VolumeFileBackend,
   items: UploadItem[],
   remoteSizes: Map<string, number>,
   progress: ProgressAggregator,

@@ -33,6 +33,7 @@
       // narrower entry second here keeps the ordering readable and mirrors
       // vitest.config.ts's own ordering for the same reason.
       "@hyveon/shared/folderUpload": ["../shared/src/folderUpload/index.ts"],
+      "@hyveon/shared/volumeFiles": ["../shared/src/volumeFiles/index.ts"],
       "@hyveon/shared/gameServerValidator": ["../shared/src/gameServerValidator.ts"],
       "@hyveon/shared/secrets/secretsStore": ["../shared/src/secrets/secretsStore.ts"],
       "@hyveon/shared": ["../shared/src/index.ts"]

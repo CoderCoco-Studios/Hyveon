@@ -1,8 +1,14 @@
-import { createReadStream } from 'node:fs';
-import { Transform } from 'node:stream';
+import { Transform, type Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
 import { Agent, request } from 'undici';
 import { errMessage } from '@hyveon/shared';
+import {
+  VolumeFileError,
+  type VolumeEntry,
+  type VolumeFileBackend,
+  type VolumeStat,
+  type WriteOptions,
+} from '../volumeFiles/VolumeFileBackend.js';
 
 /** Where and how to reach one FileBrowser helper. */
 export interface FileBrowserClientOptions {
@@ -17,59 +23,19 @@ export interface FileBrowserClientOptions {
   fingerprint256: string;
 }
 
-/** One entry of a remote directory listing. */
-export interface RemoteEntry {
-  name: string;
-  isDir: boolean;
-  size: number;
-}
-
-/** Arguments to {@link FileBrowserApi.uploadFile}. */
-export interface UploadFileArgs {
-  /** Absolute path on the helper, such as `/Data/worlds/a.db`. */
-  remotePath: string;
-  localPath: string;
-  /** Byte length announced as `Content-Length`; the stream must produce exactly this many bytes. */
-  size: number;
-  signal?: AbortSignal;
-  /** Called with the byte count of each chunk as it is handed to the socket. */
-  onBytes: (n: number) => void;
-}
-
-/** The FileBrowser REST surface the uploader depends on; fake this in tests. */
-export interface FileBrowserApi {
-  login(signal?: AbortSignal): Promise<void>;
-  mkdir(remoteDir: string, signal?: AbortSignal): Promise<void>;
-  uploadFile(args: UploadFileArgs): Promise<void>;
-  /** Lists `remoteDir`, or returns `null` when it does not exist. */
-  list(remoteDir: string, signal?: AbortSignal): Promise<RemoteEntry[] | null>;
-  close(): Promise<void>;
-}
-
 /** The server presented a certificate other than the one generated for this launch; nothing was sent. */
-export class PinMismatchError extends Error {
+export class PinMismatchError extends VolumeFileError {
   constructor(message = 'The helper presented an unexpected TLS certificate; aborting without sending credentials.') {
-    super(message);
+    super('pin-mismatch', message);
     this.name = 'PinMismatchError';
   }
 }
 
-/** A non-2xx response from the helper. */
-export class FileBrowserHttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'FileBrowserHttpError';
-  }
-}
-
-/** Builds {@link FileBrowserApi} instances; a separate injectable so the upload service can be tested without sockets. */
+/** Builds {@link VolumeFileBackend} instances; a separate injectable so the upload service can be tested without sockets. */
 @Injectable()
 export class FileBrowserClientFactory {
   /** Creates a client bound to one helper and pinned to its certificate. */
-  create(options: FileBrowserClientOptions): FileBrowserApi {
+  create(options: FileBrowserClientOptions): VolumeFileBackend {
     return new FileBrowserClient(options);
   }
 }
@@ -86,6 +52,35 @@ const TLS_TRUST_CODES = new Set([
   'ERR_TLS_CERT_ALTNAME_INVALID',
   'ERR_PIN_MISMATCH',
 ]);
+
+/** Maps a non-2xx response to the modeled {@link VolumeFileError} vocabulary. */
+function toVolumeError(status: number, op: string, path: string): VolumeFileError {
+  const message = `${op} ${path} failed (${status})`;
+  if (status === 401 || status === 403) return new VolumeFileError('auth', message, status);
+  if (status === 404) return new VolumeFileError('not-found', message, status);
+  if (status === 409) return new VolumeFileError('conflict', message, status);
+  return new VolumeFileError('failed', message, status);
+}
+
+/** Parses FileBrowser's RFC 3339 `modified` field; `0` when absent or malformed. */
+function parseModifiedMs(modified: string | undefined): number {
+  const ms = Date.parse(modified ?? '');
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+/** The per-item JSON FileBrowser returns for `GET /api/resources`. */
+interface ResourceJson {
+  name: string;
+  isDir: boolean;
+  size: number;
+  modified?: string;
+  items?: ResourceJson[];
+}
+
+/** Maps one FileBrowser item to a {@link VolumeEntry}. */
+function toVolumeEntry(item: ResourceJson): VolumeEntry {
+  return { name: item.name, isDir: item.isDir, size: item.size, modifiedMs: parseModifiedMs(item.modified) };
+}
 
 /** Encodes each segment of an absolute POSIX path for use after `/api/resources`. */
 function encodePath(path: string): string {
@@ -110,10 +105,17 @@ function isTrustFailure(err: unknown): boolean {
  * per-launch certificate and whose server-identity check compares the certificate fingerprint, so a different
  * certificate fails the handshake before any request bytes (credential or file) are written.
  *
- * Endpoints (verified against `filebrowser/filebrowser:latest` v2.63): `POST /api/login` (plain-text JWT, sent back as
- * `X-Auth`), `POST /api/resources/<path>` (creates missing parent directories), `GET /api/resources/<dir>` (404 when absent).
+ * Endpoints (verified against `filebrowser/filebrowser` `v2.63.23`):
+ * - `POST /api/login` returns a plain-text JWT, sent back as `X-Auth`.
+ * - `POST /api/resources<dir>/` is `MkdirAll` (200 even when the directory exists); `POST /api/resources<file>` uploads and creates missing parents.
+ * - `GET /api/resources<path>` stats a path (404 when absent).
+ * - `PATCH /api/resources<from>?action=rename&destination=...` renames; the server decodes `destination` twice, so it is double-encoded.
+ * - `DELETE /api/resources<path>` deletes recursively.
+ * - `GET /api/raw<path>` returns file bytes; `?algo=zip` on a directory returns a zip archive.
  */
-export class FileBrowserClient implements FileBrowserApi {
+export class FileBrowserClient implements VolumeFileBackend {
+  readonly supportsArchive = true;
+
   private readonly dispatcher: Agent;
   private readonly origin: string;
   private token: string | null = null;
@@ -125,76 +127,128 @@ export class FileBrowserClient implements FileBrowserApi {
         ca: options.certPem,
         rejectUnauthorized: true,
         checkServerIdentity: (_host, cert) =>
-          cert.fingerprint256 === options.fingerprint256 ? undefined : Object.assign(new PinMismatchError(), { code: 'ERR_PIN_MISMATCH' }),
+          cert.fingerprint256 === options.fingerprint256
+            ? undefined
+            : Object.assign(new Error('The helper presented an unexpected TLS certificate; aborting without sending credentials.'), { code: 'ERR_PIN_MISMATCH' }),
       },
     });
   }
 
-  /** Authenticates and stores the JWT for subsequent calls. Throws {@link PinMismatchError} on an untrusted certificate. */
-  async login(signal?: AbortSignal): Promise<void> {
+  /**
+   * Authenticates and stores the JWT for subsequent calls.
+   *
+   * @param signal - Aborts the request.
+   * @throws {@link PinMismatchError} on an untrusted certificate, and {@link VolumeFileError} with `auth` on rejected credentials.
+   */
+  async connect(signal?: AbortSignal): Promise<void> {
     const res = await this.send('POST', '/api/login', {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ username: this.options.username, password: this.options.password, recaptcha: '' }),
       signal,
     });
     const text = await res.body.text();
-    if (res.statusCode !== 200) throw new FileBrowserHttpError(res.statusCode, `Login failed (${res.statusCode})`);
+    if (res.statusCode !== 200) throw toVolumeError(res.statusCode, 'login', '/api/login');
     this.token = text.trim();
   }
 
-  /** Creates a directory; an already-existing one is not an error. */
-  async mkdir(remoteDir: string, signal?: AbortSignal): Promise<void> {
-    const res = await this.send('POST', `/api/resources${encodePath(remoteDir)}/`, { headers: this.authHeaders(), signal });
-    await res.body.dump();
-    if (res.statusCode === 409) return;
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw new FileBrowserHttpError(res.statusCode, `mkdir ${remoteDir} failed (${res.statusCode})`);
+  /**
+   * Creates a directory, including missing parents.
+   *
+   * @remarks
+   * FileBrowser creates directories with `MkdirAll`, so the server answers 200 for an existing directory. Without
+   * `existOk` the path is `stat`-ed first and an existing entry is reported as `conflict`; with `existOk` the check is
+   * skipped.
+   *
+   * @param path - Absolute directory path.
+   * @param options - `existOk` tolerates an existing directory; `signal` aborts the request.
+   * @throws {@link VolumeFileError} with `conflict` when something exists at `path` and `existOk` is not set.
+   */
+  async mkdir(path: string, { existOk = false, signal }: { existOk?: boolean; signal?: AbortSignal } = {}): Promise<void> {
+    if (!existOk && (await this.exists(path, signal))) {
+      throw new VolumeFileError('conflict', `mkdir ${path} failed: already exists`, 409);
     }
+    const res = await this.send('POST', `/api/resources${encodePath(path)}/`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'mkdir', path);
+    await res.body.dump();
   }
 
-  /** Streams a local file to `remotePath` (overwriting any partial copy) through a byte-counting transform. */
-  async uploadFile({ remotePath, localPath, size, signal, onBytes }: UploadFileArgs): Promise<void> {
+  /** {@inheritDoc VolumeFileBackend.writeStream} */
+  async writeStream(path: string, source: Readable, { size, overwrite, signal, onBytes }: WriteOptions): Promise<void> {
     const counter = new Transform({
       transform(chunk: Buffer, _enc, cb) {
-        onBytes(chunk.length);
+        onBytes?.(chunk.length);
         cb(null, chunk);
       },
     });
-    const source = createReadStream(localPath);
     const body = source.pipe(counter);
-    source.on('error', (err) => counter.destroy(err));
+    let sourceError: unknown;
+    source.on('error', (err) => {
+      sourceError = err;
+      counter.destroy(err);
+    });
     try {
-      const res = await this.send('POST', `/api/resources${encodePath(remotePath)}?override=true`, {
+      const res = await this.send('POST', `/api/resources${encodePath(path)}?override=${overwrite}`, {
         headers: { ...this.authHeaders(), 'content-length': String(size), 'content-type': 'application/octet-stream' },
         body,
         signal,
       });
+      await this.expectOk(res, 'write', path);
       await res.body.dump();
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        throw new FileBrowserHttpError(res.statusCode, `upload ${remotePath} failed (${res.statusCode})`);
+    } catch (err) {
+      // A failing local read aborts the request; report it as such rather than as an unreachable helper.
+      if (sourceError !== undefined) {
+        throw new VolumeFileError('failed', `Reading the local file failed: ${errMessage(sourceError)}`, undefined, { cause: sourceError });
       }
+      throw err;
     } finally {
       source.destroy();
       counter.destroy();
     }
   }
 
-  /** Lists a directory's immediate children; `null` when the directory does not exist. */
-  async list(remoteDir: string, signal?: AbortSignal): Promise<RemoteEntry[] | null> {
-    const res = await this.send('GET', `/api/resources${encodePath(remoteDir).replace(/\/$/, '')}/`, {
-      headers: this.authHeaders(),
-      signal,
-    });
-    if (res.statusCode === 404) {
-      await res.body.dump();
-      return null;
-    }
-    if (res.statusCode !== 200) {
-      await res.body.dump();
-      throw new FileBrowserHttpError(res.statusCode, `list ${remoteDir} failed (${res.statusCode})`);
-    }
-    const json = (await res.body.json()) as { items?: { name: string; isDir: boolean; size: number }[] };
-    return (json.items ?? []).map((i) => ({ name: i.name, isDir: i.isDir, size: i.size }));
+  /** {@inheritDoc VolumeFileBackend.move} */
+  async move(from: string, to: string, signal?: AbortSignal): Promise<void> {
+    // The server query-unescapes `destination` again, so it is path-encoded first and then query-encoded.
+    const query = `action=rename&destination=${encodeURIComponent(encodePath(to))}&override=false&rename=false`;
+    const res = await this.send('PATCH', `/api/resources${encodePath(from)}?${query}`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'move', from);
+    await res.body.dump();
+  }
+
+  /** {@inheritDoc VolumeFileBackend.remove} */
+  async remove(path: string, signal?: AbortSignal): Promise<void> {
+    const res = await this.send('DELETE', `/api/resources${encodePath(path)}`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'remove', path);
+    await res.body.dump();
+  }
+
+  /** {@inheritDoc VolumeFileBackend.list} */
+  async list(dir: string, signal?: AbortSignal): Promise<VolumeEntry[]> {
+    const res = await this.send('GET', `/api/resources${encodePath(dir).replace(/\/$/, '')}/`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'list', dir);
+    const json = (await res.body.json()) as ResourceJson;
+    return (json.items ?? []).map(toVolumeEntry);
+  }
+
+  /** {@inheritDoc VolumeFileBackend.stat} */
+  async stat(path: string, signal?: AbortSignal): Promise<VolumeStat> {
+    const res = await this.send('GET', `/api/resources${encodePath(path)}`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'stat', path);
+    return { ...toVolumeEntry((await res.body.json()) as ResourceJson), path };
+  }
+
+  /** {@inheritDoc VolumeFileBackend.readStream} */
+  async readStream(path: string, signal?: AbortSignal): Promise<Readable> {
+    const res = await this.send('GET', `/api/raw${encodePath(path)}`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'read', path);
+    return res.body;
+  }
+
+  /** {@inheritDoc VolumeFileBackend.archiveStream} */
+  async archiveStream(dir: string, signal?: AbortSignal): Promise<Readable> {
+    const res = await this.send('GET', `/api/raw${encodePath(dir).replace(/\/$/, '')}/?algo=zip`, { headers: this.authHeaders(), signal });
+    await this.expectOk(res, 'archive', dir);
+    return res.body;
   }
 
   /** Closes pooled connections. */
@@ -202,18 +256,40 @@ export class FileBrowserClient implements FileBrowserApi {
     await this.dispatcher.close();
   }
 
+  /** Whether anything exists at `path`; any failure other than `not-found` propagates. */
+  private async exists(path: string, signal?: AbortSignal): Promise<boolean> {
+    try {
+      await this.stat(path, signal);
+      return true;
+    } catch (err) {
+      if (err instanceof VolumeFileError && err.code === 'not-found') return false;
+      throw err;
+    }
+  }
+
   private authHeaders(): Record<string, string> {
     if (!this.token) throw new Error('Not logged in to the file manager helper');
     return { 'x-auth': this.token };
   }
 
-  /** Issues one request, mapping TLS trust failures to {@link PinMismatchError} and normalizing other errors. */
-  private async send(method: 'GET' | 'POST', path: string, init: Parameters<typeof request>[1]) {
+  /** Drains the body and throws the mapped {@link VolumeFileError} unless the response is 2xx. */
+  private async expectOk(res: Awaited<ReturnType<FileBrowserClient['send']>>, op: string, path: string): Promise<void> {
+    if (res.statusCode >= 200 && res.statusCode < 300) return;
+    await res.body.dump();
+    throw toVolumeError(res.statusCode, op, path);
+  }
+
+  /**
+   * Issues one request, mapping TLS trust failures to {@link PinMismatchError} and other network errors to
+   * `unreachable` with a fixed message, since the raw error text carries the helper's address (kept only in `cause`).
+   */
+  private async send(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, init: Parameters<typeof request>[1]) {
     try {
       return await request(`${this.origin}${path}`, { ...init, method, dispatcher: this.dispatcher });
     } catch (err) {
       if (err instanceof PinMismatchError || isTrustFailure(err)) throw new PinMismatchError();
-      throw err instanceof Error && !(err.name === 'AbortError') ? new Error(errMessage(err), { cause: err }) : err;
+      if (err instanceof Error && err.name === 'AbortError') throw err;
+      throw new VolumeFileError('unreachable', 'The file manager helper is unreachable', undefined, { cause: err });
     }
   }
 }

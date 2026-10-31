@@ -22,6 +22,10 @@ export default defineConfig({
         replacement: fileURLToPath(new URL('../shared/src/folderUpload/index.ts', import.meta.url)),
       },
       {
+        find: '@hyveon/shared/volumeFiles',
+        replacement: fileURLToPath(new URL('../shared/src/volumeFiles/index.ts', import.meta.url)),
+      },
+      {
         find: '@hyveon/shared/gameServerValidator',
         replacement: fileURLToPath(new URL('../shared/src/gameServerValidator.ts', import.meta.url)),
       },

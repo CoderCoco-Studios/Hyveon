@@ -96,7 +96,7 @@ Branch from `main`. Covers tasks.md 1.1–1.6.
   - `parentOfVolumePath(path: string): string` — `/a/b` → `/a`, `/a` → `/`.
   - `class VolumePathError extends Error` (`name = 'VolumePathError'`).
 
-- [ ] **Step 1: Write the failing tests** in `paths.test.ts`:
+- [x] **Step 1: Write the failing tests** in `paths.test.ts`:
 
 ```ts
 it('should accept the root and nested absolute paths', () => {
@@ -116,10 +116,10 @@ it('should return the parent of a nested path and root for a top-level one', () 
 });
 ```
 
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/shared/src/volumeFiles/paths.test.ts` → FAIL (module not found).
-- [ ] **Step 3: Implement** the functions above in `paths.ts`; `index.ts` re-exports `./paths.js` with a one-line module comment matching `folderUpload/index.ts`. Replace `isCleanAbsolute` in `folderUpload/paths.ts` with an import of `isCleanVolumePath` (behaviour identical except empty segments, which `segments()` already drops; keep `paths.test.ts` there green).
-- [ ] **Step 4: Run** `cd app && npx vitest run packages/shared/src` → PASS, including the existing `folderUpload/paths.test.ts`.
-- [ ] **Step 5: Commit** — `refactor(shared): add volume path validator subpath`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/shared/src/volumeFiles/paths.test.ts` → FAIL (module not found).
+- [x] **Step 3: Implement** the functions above in `paths.ts`; `index.ts` re-exports `./paths.js` with a one-line module comment matching `folderUpload/index.ts`. Replace `isCleanAbsolute` in `folderUpload/paths.ts` with an import of `isCleanVolumePath` (behaviour identical except empty segments, which `segments()` already drops; keep `paths.test.ts` there green).
+- [x] **Step 4: Run** `cd app && npx vitest run packages/shared/src` → PASS, including the existing `folderUpload/paths.test.ts`.
+- [x] **Step 5: Commit** — `refactor(shared): add volume path validator subpath`.
 
 ### Task 2: `VolumeFileBackend` interface and FileBrowser read operations (tasks.md 1.1, 1.2, 1.6)
 
@@ -166,8 +166,8 @@ export interface VolumeFileBackend {
 | `readStream` | `GET /api/raw<path>` |
 | `archiveStream` | `GET /api/raw<dir>/?algo=zip`; `supportsArchive = true` |
 
-- [ ] **Step 1: Extend the fake server** with per-file `modified` (default `2026-01-01T00:00:00Z`, overridable via a new `seedModified?: Record<string, string>` option), `GET /api/resources<file>` stat, `GET /api/raw<path>` (bytes are `size` repetitions of `0x61`, or a `seedContent?: Record<string, Buffer>` value), and `GET /api/raw<dir>/?algo=zip` (returns `application/zip` with a fixed `PK\x03\x04` body; the fake does not need a real archive). Existing upload tests must stay green.
-- [ ] **Step 2: Write the failing tests** in `FileBrowserClient.test.ts`, each against `startFakeFileBrowser` with the launch cert:
+- [x] **Step 1: Extend the fake server** with per-file `modified` (default `2026-01-01T00:00:00Z`, overridable via a new `seedModified?: Record<string, string>` option), `GET /api/resources<file>` stat, `GET /api/raw<path>` (bytes are `size` repetitions of `0x61`, or a `seedContent?: Record<string, Buffer>` value), and `GET /api/raw<dir>/?algo=zip` (returns `application/zip` with a fixed `PK\x03\x04` body; the fake does not need a real archive). Existing upload tests must stay green.
+- [x] **Step 2: Write the failing tests** in `FileBrowserClient.test.ts`, each against `startFakeFileBrowser` with the launch cert:
   - `should list entries with modification times in milliseconds` — seed `/Data/a #1 ?%é.txt` size 3; `list('/Data')` deep-equals `[{ name: 'a #1 ?%é.txt', isDir: false, size: 3, modifiedMs: Date.parse('2026-01-01T00:00:00Z') }]`.
   - `should throw not-found when listing a missing directory` — rejects with `VolumeFileError` `code: 'not-found'`.
   - `should stat a file` — `stat('/Data/a #1 ?%é.txt')` → `{ path: '/Data/a #1 ?%é.txt', isDir: false, size: 3 }` (partial match).
@@ -175,10 +175,10 @@ export interface VolumeFileBackend {
   - `should stream a zip for a directory archive` — first four bytes `PK\x03\x04`; `supportsArchive === true`.
   - `should map 401 to auth` — client constructed with a wrong password: `connect()` rejects with `code: 'auth'`.
   - `should fail closed on a different certificate before sending the credential` — existing pin test re-pointed at `connect()`; fake `requests` has no `/api/login` entry.
-- [ ] **Step 3: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/folderUpload/FileBrowserClient.test.ts` → FAIL.
-- [ ] **Step 4: Implement** `VolumeFileBackend.ts` and the read operations on `FileBrowserClient` (`implements FileBrowserApi, VolumeFileBackend` for now). `send()` widens to `'GET' | 'POST' | 'PATCH' | 'DELETE'`. Streams return `res.body` (undici `BodyReadable`) after a status check; dump the body on error statuses.
-- [ ] **Step 5: Run** the same command → PASS; `cd app && npx vitest run packages/desktop-main/src/services` → PASS.
-- [ ] **Step 6: Commit** — `refactor(desktop-main): add VolumeFileBackend read operations to FileBrowserClient`.
+- [x] **Step 3: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/folderUpload/FileBrowserClient.test.ts` → FAIL.
+- [x] **Step 4: Implement** `VolumeFileBackend.ts` and the read operations on `FileBrowserClient` (`implements FileBrowserApi, VolumeFileBackend` for now). `send()` widens to `'GET' | 'POST' | 'PATCH' | 'DELETE'`. Streams return `res.body` (undici `BodyReadable`) after a status check; dump the body on error statuses.
+- [x] **Step 5: Run** the same command → PASS; `cd app && npx vitest run packages/desktop-main/src/services` → PASS.
+- [x] **Step 6: Commit** — `refactor(desktop-main): add VolumeFileBackend read operations to FileBrowserClient`.
 
 ### Task 3: FileBrowser write operations (tasks.md 1.2, 1.6)
 
@@ -198,16 +198,16 @@ export interface VolumeFileBackend {
 
 - `uploadFile(args)` becomes a thin wrapper over `writeStream(remotePath, createReadStream(localPath).pipe(counter), { size, overwrite: true, signal, onBytes })` until Task 4 deletes it.
 
-- [ ] **Step 1: Extend the fake server**: `POST` honours `override=false` (409 when the file exists), `PATCH ?action=rename` (409 when `destination` exists, 404 when source is missing; moves a directory with its descendants), `DELETE` (removes a file or a directory subtree; 404 when missing).
-- [ ] **Step 2: Write the failing tests**:
+- [x] **Step 1: Extend the fake server**: `POST` honours `override=false` (409 when the file exists), `PATCH ?action=rename` (409 when `destination` exists, 404 when source is missing; moves a directory with its descendants), `DELETE` (removes a file or a directory subtree; 404 when missing).
+- [x] **Step 2: Write the failing tests**:
   - `should write a stream and report its bytes` — `writeStream('/n.txt', Readable.from([Buffer.from('hello')]), { size: 5, overwrite: true, onBytes })` → fake `files.get('/n.txt') === 5`, `onBytes` total 5.
   - `should refuse to overwrite when overwrite is false` — seed `/n.txt`; rejects `code: 'conflict'`; size unchanged.
   - `should create a directory and treat an existing one as success only when existOk` — second `mkdir('/d')` rejects `conflict`; `mkdir('/d', { existOk: true })` resolves.
   - `should rename a file whose name needs encoding` — `move('/a #1 ?%é.txt', '/b #2.txt')` → fake has `/b #2.txt`, not the source.
   - `should refuse a rename onto an existing name` — rejects `conflict`, both files still present.
   - `should delete a directory recursively` — seed `/d/x`, `/d/y/z`; `remove('/d')` → no entry under `/d`.
-- [ ] **Step 3: Run to verify failure**, **Step 4: implement**, **Step 5: run** — same command as Task 2 → PASS.
-- [ ] **Step 6: Commit** — `refactor(desktop-main): add VolumeFileBackend write operations to FileBrowserClient`.
+- [x] **Step 3: Run to verify failure**, **Step 4: implement**, **Step 5: run** — same command as Task 2 → PASS.
+- [x] **Step 6: Commit** — `refactor(desktop-main): add VolumeFileBackend write operations to FileBrowserClient`.
 
 ### Task 4: Move the upload engine onto `VolumeFileBackend` (tasks.md 1.3)
 
@@ -221,11 +221,11 @@ export interface VolumeFileBackend {
 - Produces: unchanged exported engine function names (`ensureDirs`, `listPlannedDirs`, `remoteSizesOf`, `listRemoteSizes`, `classifyUpload`, `verifyUpload`, `uploadAll`) with `client: VolumeFileBackend`. `listPlannedDirs` treats `not-found` as an absent directory. `ensureDirs` calls `mkdir(dir, { existOk: true, signal })`. `uploadOne` builds the counting stream itself and calls `writeStream(..., { overwrite: true })`.
 - `isPermanent(err)`: cancellation, `FileChangedError`, and `VolumeFileError` with code `pin-mismatch` | `auth` | `not-found` | `conflict`, or `failed` with `status` 4xx other than 408/429. `unreachable` and 5xx retry.
 
-- [ ] **Step 1: Update the failing expectations** in `uploadEngine.test.ts`: replace `FileBrowserHttpError(403)` cases with `new VolumeFileError('failed', 'x', 403)` and add `should retry an unreachable error up to maxAttempts` (three `writeStream` calls, then `UploadFileError`).
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/folderUpload packages/desktop-main/src/services/FolderUpload*` → FAIL.
-- [ ] **Step 3: Implement** the migration and deletions; `grep -rn "FileBrowserApi\|FileBrowserHttpError\|fake-filebrowser-client" app/packages` returns nothing.
-- [ ] **Step 4: Run** the same command and `npm run app:typecheck` → PASS / clean.
-- [ ] **Step 5: Commit** — `refactor(desktop-main): run the upload engine on VolumeFileBackend`. PR body names the extraction: "one FileBrowser HTTP client (`FileBrowserClient`) behind `VolumeFileBackend`; `FileBrowserApi` removed".
+- [x] **Step 1: Update the failing expectations** in `uploadEngine.test.ts`: replace `FileBrowserHttpError(403)` cases with `new VolumeFileError('failed', 'x', 403)` and add `should retry an unreachable error up to maxAttempts` (three `writeStream` calls, then `UploadFileError`).
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/folderUpload packages/desktop-main/src/services/FolderUpload*` → FAIL.
+- [x] **Step 3: Implement** the migration and deletions; `grep -rn "FileBrowserApi\|FileBrowserHttpError\|fake-filebrowser-client" app/packages` returns nothing.
+- [x] **Step 4: Run** the same command and `npm run app:typecheck` → PASS / clean.
+- [x] **Step 5: Commit** — `refactor(desktop-main): run the upload engine on VolumeFileBackend`. PR body names the extraction: "one FileBrowser HTTP client (`FileBrowserClient`) behind `VolumeFileBackend`; `FileBrowserApi` removed".
 
 ### Task 5: Pin the archived FileBrowser image (tasks.md 1.5)
 
@@ -233,11 +233,11 @@ export interface VolumeFileBackend {
 - Modify: `app/packages/desktop-main/src/services/FileManagerService.ts:17`
 - Test: `app/packages/desktop-main/src/services/FileManagerService.test.ts`
 
-- [ ] **Step 1: Look up the digest** from Docker Hub (do not write one from memory): `curl -s 'https://hub.docker.com/v2/repositories/filebrowser/filebrowser/tags?page_size=100&name=2.63.23' | jq -r '.results[] | "\(.name) \(.digest)"'`. Expected: one line for the `v2.63.23` tag (or `2.63.23`) with a `sha256:` manifest-list digest. If no such tag exists, stop and report.
-- [ ] **Step 2: Write the failing test** `should launch the helper from an immutable image reference` — capture `registerTaskDefinition`'s argument; `containerDefinitions[0].image` matches `/^filebrowser\/filebrowser:v?2\.63\.23@sha256:[0-9a-f]{64}$/`.
-- [ ] **Step 3: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FileManagerService.test.ts` → FAIL.
-- [ ] **Step 4: Set** `FILEBROWSER_IMAGE = 'filebrowser/filebrowser:<tag>@<digest>'` with a TSDoc line: upstream archived 2026-09-01, `v2.63.23` is the final release, the pin is deliberate. Update the two `@remarks` that say "verified against `filebrowser/filebrowser:latest`" (`tlsLaunch.ts`, `FileBrowserClient.ts`) to name `v2.63.23`.
-- [ ] **Step 5: Run** → PASS. Then the PR gate: `npm run app:lint && npm run app:typecheck && npm run app:test` → exit 0.
+- [x] **Step 1: Look up the digest** from Docker Hub (do not write one from memory): `curl -s 'https://hub.docker.com/v2/repositories/filebrowser/filebrowser/tags?page_size=100&name=2.63.23' | jq -r '.results[] | "\(.name) \(.digest)"'`. Expected: one line for the `v2.63.23` tag (or `2.63.23`) with a `sha256:` manifest-list digest. If no such tag exists, stop and report.
+- [x] **Step 2: Write the failing test** `should launch the helper from an immutable image reference` — capture `registerTaskDefinition`'s argument; `containerDefinitions[0].image` matches `/^filebrowser\/filebrowser:v?2\.63\.23@sha256:[0-9a-f]{64}$/`.
+- [x] **Step 3: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FileManagerService.test.ts` → FAIL.
+- [x] **Step 4: Set** `FILEBROWSER_IMAGE = 'filebrowser/filebrowser:<tag>@<digest>'` with a TSDoc line: upstream archived 2026-09-01, `v2.63.23` is the final release, the pin is deliberate. Update the two `@remarks` that say "verified against `filebrowser/filebrowser:latest`" (`tlsLaunch.ts`, `FileBrowserClient.ts`) to name `v2.63.23`.
+- [x] **Step 5: Run** → PASS. Then the PR gate: `npm run app:lint && npm run app:typecheck && npm run app:test` → exit 0.
 - [ ] **Step 6: Commit** — `build(desktop-main): pin the FileBrowser helper image to v2.63.23`. Open PR 1 with `/pr`.
 
 ---

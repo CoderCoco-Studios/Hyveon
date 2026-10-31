@@ -1,3 +1,4 @@
+import { isCleanVolumePath } from '../volumeFiles/paths.js';
 import type { FolderScanNode, PlannedFile } from './types.js';
 
 /** Structural subset of `GameServerVolume` needed for destination checks. */
@@ -11,10 +12,6 @@ export type DestinationValidation = { ok: true; volume: VolumeLike } | { ok: fal
 
 /** Splits a POSIX path into segments, dropping empty ones produced by leading, trailing, or doubled slashes. */
 const segments = (path: string): string[] => path.split('/').filter((s) => s !== '');
-
-/** True when an absolute POSIX path is well-formed: starts with `/`, no NUL, backslash, `.`, or `..` segments. */
-const isCleanAbsolute = (path: string): boolean =>
-  path.startsWith('/') && !path.includes('\0') && !path.includes('\\') && !segments(path).some((s) => s === '.' || s === '..');
 
 /** True when `path` equals `base` or sits beneath it, comparing whole segments. */
 const isWithin = (base: string[], path: string[]): boolean =>
@@ -66,7 +63,7 @@ export function toRemotePath(destination: string, containerPath: string, relPath
   if (relSegs.some((s) => s === '' || s === '.' || s === '..')) {
     throw new Error(`Invalid relative path: ${relPath}`);
   }
-  if (!isCleanAbsolute(destination) || !isCleanAbsolute(containerPath)) {
+  if (!isCleanVolumePath(destination) || !isCleanVolumePath(containerPath)) {
     throw new Error(`Destination must be a clean absolute path: ${destination}`);
   }
   const base = segments(containerPath);
@@ -85,12 +82,12 @@ export function toRemotePath(destination: string, containerPath: string, relPath
  * @returns The owning volume (the deepest matching mount) or a human-readable error.
  */
 export function validateDestination(destination: string, volumes: VolumeLike[]): DestinationValidation {
-  if (!isCleanAbsolute(destination)) {
-    return { ok: false, error: 'Destination must be an absolute path without ".." or "." segments.' };
+  if (!isCleanVolumePath(destination)) {
+    return { ok: false, error: 'Destination must be an absolute path without "..", "." or empty segments.' };
   }
   const dest = segments(destination);
   const matches = volumes
-    .filter((v) => isCleanAbsolute(v.container_path) && isWithin(segments(v.container_path), dest))
+    .filter((v) => isCleanVolumePath(v.container_path) && isWithin(segments(v.container_path), dest))
     .sort((a, b) => segments(b.container_path).length - segments(a.container_path).length);
   if (matches.length === 0) {
     return { ok: false, error: 'Destination must be inside one of the game volume paths.' };

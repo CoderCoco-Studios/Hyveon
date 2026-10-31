@@ -14,7 +14,12 @@ import { generateEphemeralCert, type EphemeralCert } from './folderUpload/epheme
 import { buildTlsContainerSettings } from './folderUpload/tlsLaunch.js';
 import { SECRETS_STORE } from '../modules/cloud-provider.tokens.js';
 
-const FILEBROWSER_IMAGE = 'filebrowser/filebrowser:latest';
+/**
+ * Pinned by digest on purpose: upstream FileBrowser was archived on 2026-09-01 and `v2.63.23` is its final release, so
+ * there is nothing newer to track and a moving tag would only add supply-chain risk.
+ */
+const FILEBROWSER_IMAGE =
+  'filebrowser/filebrowser:v2.63.23@sha256:a469ea076d4a1b4b1d86a41d130f2f536cd9da996a2b1fb39c0d7635f9d89b9a';
 const FILEBROWSER_PORT = 8080;
 const STARTED_BY_PREFIX = 'filemgr-';
 /** Fixed admin username the per-launch credential is created under — only the password is randomized/rotated. */

@@ -22,7 +22,8 @@ import { EcsService } from './EcsService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { FileManagerService, type UploadHelperSession } from './FileManagerService.js';
 import { FolderScanService, type HeldScan } from './FolderScanService.js';
-import { FileBrowserClientFactory, PinMismatchError, type FileBrowserApi } from './folderUpload/FileBrowserClient.js';
+import { FileBrowserClientFactory, PinMismatchError } from './folderUpload/FileBrowserClient.js';
+import type { VolumeFileBackend } from './volumeFiles/VolumeFileBackend.js';
 import { ProgressAggregator } from './folderUpload/ProgressAggregator.js';
 import {
   abortableSleep,
@@ -80,7 +81,7 @@ interface PreparedRun {
  * progress/last-run reporting.
  *
  * @remarks
- * The helper's credential lives only in this process: it is handed to the {@link FileBrowserApi} client and never
+ * The helper's credential lives only in this process: it is handed to the {@link VolumeFileBackend} client and never
  * returned over IPC or logged. The helper is stopped in a `finally` on every exit path, which also revokes the
  * operator-IP rule.
  */
@@ -303,7 +304,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     progress.start();
 
     let session: UploadHelperSession | undefined;
-    let client: FileBrowserApi | undefined;
+    let client: VolumeFileBackend | undefined;
     let terminal: { phase: FolderUploadPhase; error?: string } = { phase: 'done' };
     try {
       progress.setPhase('starting-helper');
@@ -428,7 +429,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
   }
 
   /** Closes the client and stops the helper (revoking its IP rule). Only stops a helper this run launched. */
-  private async releaseHelper(game: string, runId: string, client: FileBrowserApi | undefined, launched: boolean): Promise<void> {
+  private async releaseHelper(game: string, runId: string, client: VolumeFileBackend | undefined, launched: boolean): Promise<void> {
     try {
       await client?.close();
     } catch (err) {
@@ -475,12 +476,12 @@ export class FolderUploadService implements OnApplicationBootstrap {
   }
 
   /** Retries login while the container boots; a certificate-pin failure aborts immediately (fail closed). */
-  private async waitForLogin(client: FileBrowserApi, signal: AbortSignal): Promise<void> {
+  private async waitForLogin(client: VolumeFileBackend, signal: AbortSignal): Promise<void> {
     const deadline = Date.now() + this.timings.loginTimeoutMs;
     for (;;) {
       if (signal.aborted) throw new UploadCancelledError();
       try {
-        await client.login(signal);
+        await client.connect(signal);
         return;
       } catch (err) {
         if (err instanceof PinMismatchError || Date.now() > deadline) throw err;

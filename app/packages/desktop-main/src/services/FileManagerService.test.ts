@@ -339,6 +339,15 @@ describe('FileManagerService', () => {
       expect(runArgs.networkConfiguration!.awsvpcConfiguration!.assignPublicIp).toBe('ENABLED');
     });
 
+    it('should launch the helper from an immutable image reference', async () => {
+      const { stub, service: ecs } = makeEcs();
+      const svc = buildService({ ecs });
+      await svc.start('minecraft');
+
+      const container = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0].containerDefinitions![0]!;
+      expect(container.image).toMatch(/^filebrowser\/filebrowser:v?2\.63\.23@sha256:[0-9a-f]{64}$/);
+    });
+
     it('should return a random plaintext username/password pair once, in credentials', async () => {
       const { service: ecs } = makeEcs();
       const svc = buildService({ ecs });
