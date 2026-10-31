@@ -799,6 +799,7 @@ export class IacController implements OnModuleInit {
 
   // @spec IAC-RUN-GATE-012, IAC-RUN-GATE-014, IAC-RUN-LCLR-001, IAC-RUN-LCLR-002, IAC-RUN-IPC-003, IAC-RUN-IPC-004
   // @spec IAC-RUN-IPC-007
+  // @spec IAC-RUN-LCLR-009
   /**
    * Applies the approved plan run `payload.planRunId` and streams its output back to the
    * renderer — mirrors {@link plan}'s streaming shape, but the gate underneath is different:
@@ -949,6 +950,7 @@ export class IacController implements OnModuleInit {
     return { token: this.pulumi.mintDestroyConfirmationToken() };
   }
 
+  // @spec IAC-RUN-LCLR-010
   /**
    * Mints a fresh, single-use confirmation token the renderer must supply
    * back on {@link clearStaleLock}'s payload before it expires — mirrors
@@ -963,6 +965,7 @@ export class IacController implements OnModuleInit {
 
   // @spec IAC-RUN-DSTR-008, IAC-RUN-DSTR-009, IAC-RUN-DSTR-010, IAC-RUN-LCLR-001, IAC-RUN-LCLR-002, IAC-RUN-IPC-003
   // @spec IAC-RUN-IPC-004, IAC-RUN-IPC-007
+  // @spec IAC-RUN-LCLR-009
   /**
    * Destroys the deployed stack and streams its output back to the renderer — mirrors
    * {@link apply}'s streaming/gate-awaiting shape, gated behind `payload.confirmationToken`
@@ -1319,6 +1322,7 @@ export class IacController implements OnModuleInit {
     }
   }
 
+  // @spec IAC-RUN-LCLR-010, IAC-RUN-LCLR-012
   /**
    * Clears an unrecognized Pulumi backend lock after the operator has
    * explicitly confirmed it via the renderer's stale-lock recovery UI —

@@ -3674,6 +3674,7 @@ export class PulumiService {
   }
 
   // @spec IAC-ENGINE-LOCK-005
+  // @spec IAC-RUN-LCLR-010, IAC-RUN-LCLR-011, IAC-RUN-LCLR-012
   /**
    * Clears an UNRECOGNIZED Pulumi backend lock after an operator has
    * explicitly confirmed they believe it's genuinely stale — the

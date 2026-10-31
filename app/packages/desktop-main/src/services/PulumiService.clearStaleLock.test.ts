@@ -150,6 +150,7 @@ describe('PulumiService.clearStaleLock', () => {
     );
   });
 
+  // @spec IAC-RUN-LCLR-011
   it('should reject with PulumiOperationInFlightError, and never call getOrCreateStack, when destroy() is already in flight', async () => {
     // Uses a genuinely concurrent destroy() (rather than faking
     // `operationInFlight` directly — a private field, deliberately not
@@ -233,6 +234,7 @@ describe('PulumiService.clearStaleLock', () => {
     await destroyGen.next();
   });
 
+  // @spec IAC-RUN-LCLR-011
   it('should reject with a plain Error, and never call getOrCreateStack, when initializeStack() is already in flight (Finding 2, final review)', async () => {
     // Before this fix, clearStaleLock() only checked `operationInFlight` —
     // `initializeStack()` never sets that flag (see PulumiService.ts's own
@@ -282,6 +284,7 @@ describe('PulumiService.clearStaleLock', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-LCLR-012
   it('should reject with PulumiLockClearError (wrapping the cause), and leave the lock standing, when stack.cancel() itself fails', async () => {
     const cause = new Error('cancel command failed');
     const cancelMock = vi.fn().mockRejectedValue(cause);
@@ -345,7 +348,7 @@ describe('PulumiService.clearStaleLock', () => {
     await expect(service.clearStaleLock(secondToken)).resolves.toBeUndefined();
   });
 
-  // @spec IAC-ENGINE-LOCK-005
+  // @spec IAC-ENGINE-LOCK-005, IAC-RUN-LCLR-010
   describe('confirmation token gate', () => {
     it('should reject with LockClearNotConfirmedError, and never call getOrCreateStack, when no token has ever been minted', async () => {
       const workspace = makeWorkspace();
