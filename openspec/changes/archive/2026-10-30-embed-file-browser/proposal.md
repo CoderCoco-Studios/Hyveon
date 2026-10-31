@@ -18,7 +18,7 @@ The dashboard's file manager hands the operator a plain-HTTP link to a raw task 
 
 **Helper session ownership**
 - From: one helper per game, with upload refusing (`helper-open`) whenever a browse session exists because the app does not hold its credential.
-- To: a main-process helper session registry per game. Browse and upload acquire and release a shared session, and the helper stops when the last holder releases, when the operator clicks Stop, after leaving the Files page (after a grace period), or on app quit. The 2 h auto-stop and startup orphan sweep stay as backstops. A helper with no registry entry (after an app restart) is offered as **Restart session**.
+- To: a main-process helper session registry per game. Browse and upload acquire and release a shared session, and the helper stops when the last holder releases, when the operator clicks Stop, after leaving the Files page (after a grace period), or on app quit. The 2 h auto-stop and startup orphan sweep stay as backstops. A helper with no registry entry (after an app restart) is offered as **Restart**.
 - Reason: browse sessions are now app-owned, so the refusal's premise is gone, and sessions end with use instead of idling.
 - Impact: modifies the in-flight `game-volume-folder-upload` behaviour for an already-open session.
 

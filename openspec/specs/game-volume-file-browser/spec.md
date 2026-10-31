@@ -1,4 +1,10 @@
-## ADDED Requirements
+# game-volume-file-browser Specification
+
+## Purpose
+
+Lets an operator browse and manage every applied EFS volume of a game from a page inside the desktop app, through an application-owned helper session that only the main process can reach, instead of opening the helper's web interface in an external browser.
+
+## Requirements
 
 ### Requirement: In-app file browser page per game
 The application SHALL provide a page inside the desktop app, routed per game, for browsing and managing every applied EFS volume of that game, with a volume picker that lists each volume's name and container path. The page SHALL be reachable from the dashboard game card's Files action and from the game detail page. The application SHALL NOT open the game's volume files in an external browser or in any embedded remote web content.
@@ -9,7 +15,7 @@ The application SHALL provide a page inside the desktop app, routed per game, fo
 
 #### Scenario: Opening the page directly
 - **WHEN** the operator navigates to a game's file browser page without using the dashboard Files action
-- **THEN** the page shows the current session state and does not start a helper until the operator clicks Start session
+- **THEN** the page shows the current session state and does not start a helper until the operator clicks Start
 
 #### Scenario: Game not deployed
 - **WHEN** the game's infrastructure has not been applied
@@ -51,26 +57,30 @@ Every helper session, whether launched for browsing or uploading, SHALL be serve
 
 #### Scenario: Operator IP changes mid-session
 - **WHEN** a file operation fails to connect and the operator's detected public IP has changed since launch
-- **THEN** the application authorizes the new address, revokes the access rule no remaining helper needs, and retries the operation once before reporting the helper unreachable with a Restart action
+- **THEN** the application authorizes the new address, revokes the access rule no remaining helper needs, and retries the operation once before reporting the helper unreachable and directing the operator to stop and start the session
 
 ### Requirement: One application-owned helper session per game shared by browsing and uploading
-The application SHALL hold at most one helper session per game in the main process. Browsing and uploads SHALL share it. The application SHALL stop the helper when the operator stops the session, when no browse page or upload run holds it any longer (for the browse page, after a grace period following departure from the page), and on application quit. The helper's auto-stop schedule SHALL remain as a backstop. No long-running ECS service SHALL be used.
+The application SHALL hold at most one helper session per game in the main process. Browsing and uploads SHALL share it. The application SHALL stop the helper when the operator stops the session, when no browse page, upload or download holds it any longer (for the browse page, after a grace period following departure from the page), and on application quit. The helper's auto-stop schedule SHALL remain as a backstop. No long-running ECS service SHALL be used.
 
 #### Scenario: Upload while browsing
 - **WHEN** an upload starts for a game whose browse session is running
 - **THEN** the upload uses the existing helper instead of launching a second one or asking the operator to stop it
 
 #### Scenario: Leaving the page
-- **WHEN** the operator leaves the file browser page, no upload holds the session, and the grace period elapses
+- **WHEN** the operator leaves the file browser page, no upload or download holds the session, and the grace period elapses
 - **THEN** the helper is stopped and its access rule is revoked
 
 #### Scenario: Returning within the grace period
 - **WHEN** the operator returns to the page before the grace period elapses
 - **THEN** the existing session is reused without relaunching the helper
 
-#### Scenario: Stop while an upload holds the session
-- **WHEN** the operator clicks Stop while an upload run holds the session
-- **THEN** the application asks for confirmation, then cancels the upload and stops the helper
+#### Scenario: Stop while a transfer holds the session
+- **WHEN** the operator clicks Stop while an upload or download is running for the game
+- **THEN** the application asks for confirmation, then cancels the transfer and stops the helper
+
+#### Scenario: Server start while an upload holds the session
+- **WHEN** the operator starts the game's server from the app while an upload holds the game's helper session
+- **THEN** the start is refused with an explanation that an upload is in progress, and no server task is started
 
 #### Scenario: Application quit
 - **WHEN** the application quits with a helper session open
