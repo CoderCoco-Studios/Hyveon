@@ -233,6 +233,7 @@ describe('IacController', () => {
   // onModuleInit — ipcMain.handle bridge for iac.plan/apply/destroy/stack.initialize
 
   // @spec IAC-RUN-IPC-005
+  // @spec APP-IPC-CALL-009
   describe('onModuleInit', () => {
     // onModuleInit only wires the bridge when running inside a real Electron
     // main process, detected via `process.versions.electron`. Vitest runs under

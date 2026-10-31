@@ -58,6 +58,7 @@ function pendingPhases(): Record<StackInitPhase, StackInitPhaseState> {
 
 // @spec IAC-ENGINE-INIT-006, IAC-ENGINE-INIT-007, IAC-ENGINE-PFAIL-005
 // @spec APP-WIZARD-STACK-001, APP-WIZARD-STACK-002, APP-WIZARD-STACK-003, APP-WIZARD-STACK-004
+// @spec APP-IPC-STREAM-006
 /**
  * Final step of the first-run wizard: initializes the one Pulumi stack this
  * app manages via `hyveon.iac.stack.initialize()`, rendering a

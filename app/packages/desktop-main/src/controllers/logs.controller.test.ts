@@ -110,6 +110,7 @@ describe('LogsController', () => {
 
   // onModuleInit — ipcMain.handle bridge for logs.stream
 
+  // @spec APP-IPC-CALL-009
   describe('onModuleInit', () => {
     // onModuleInit only wires the bridge when running inside a real Electron
     // main process, detected via `process.versions.electron`. Vitest runs under
@@ -368,6 +369,7 @@ describe('LogsController', () => {
     });
 
     // @spec APP-LOGS-IPC-005
+    // @spec APP-IPC-STREAM-008
     it('should abort the stream when the cancel IPC listener is invoked', async () => {
       // Make streamLogs block until signalled so we can inspect the abort state.
       let capturedSignal: AbortSignal | null = null;
@@ -605,6 +607,7 @@ describe('LogsController', () => {
     });
 
     // @spec APP-LOGS-IPC-005
+    // @spec APP-IPC-STREAM-008
     it('should abort the stream when the cancel IPC listener is invoked', async () => {
       let capturedSignal: AbortSignal | null = null;
       async function* waitForAbort(

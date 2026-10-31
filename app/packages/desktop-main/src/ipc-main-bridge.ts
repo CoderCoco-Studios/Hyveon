@@ -37,6 +37,7 @@ export const SELF_BRIDGED_PATTERNS: ReadonlySet<string> = new Set([
   'iac.settings.autoUpdate.download',
 ]);
 
+// @spec APP-IPC-CALL-006
 /**
  * `ElectronIPCTransport` (from `nestjs-electron-ipc-transport`) only exposes
  * its registered `@MessagePattern` handlers via the `messageHandlers` map it
@@ -83,6 +84,7 @@ export class BridgedElectronIPCTransport extends ElectronIPCTransport {
   }
 }
 
+// @spec APP-IPC-CALL-001, APP-IPC-CALL-002, APP-IPC-CALL-003, APP-IPC-CALL-004, APP-IPC-CALL-005, APP-IPC-ERR-003
 /**
  * Bridges every NestJS `@MessagePattern` handler registered on `transport`
  * (except those in {@link SELF_BRIDGED_PATTERNS}) onto a matching

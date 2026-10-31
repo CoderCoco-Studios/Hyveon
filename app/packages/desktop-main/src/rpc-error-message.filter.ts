@@ -3,6 +3,7 @@ import type { ArgumentsHost, RpcExceptionFilter } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
 import { errMessage } from '@hyveon/shared';
 
+// @spec APP-IPC-ERR-002
 /**
  * Global RPC exception filter that preserves the real `.message` of any
  * exception thrown from a `@MessagePattern` handler.

@@ -84,6 +84,7 @@ describe('StackInitializationStep', () => {
   });
 
   // @spec APP-WIZARD-STACK-002
+  // @spec APP-IPC-STREAM-006
   it('should show each phase as in progress and then done as start/end events stream in', async () => {
     let resolvePluginsEnd!: () => void;
     hyveonMock.iac.stack.initialize.mockImplementation(

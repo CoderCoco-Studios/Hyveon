@@ -39,6 +39,7 @@ export interface RunLogState {
   error: string | null;
 }
 
+// @spec APP-IPC-STREAM-007
 /**
  * Attaches to `hyveon.iac.runs.streamLogs(runId)` for the lifetime of
  * `runId`, accumulating chunks in order. Mirrors `LogsPage`'s

@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron';
 
+// @spec APP-IPC-CALL-012
 /**
  * Pushes every event from `subscribe` to all open renderer windows on `channel`.
  *

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { firstValueFrom } from 'rxjs';
 import { RpcErrorMessageFilter } from './rpc-error-message.filter.js';
 
+// @spec APP-IPC-ERR-002
 describe('RpcErrorMessageFilter', () => {
   const filter = new RpcErrorMessageFilter();
   // catch() never reads `host`, so an empty object stands in for the real

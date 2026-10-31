@@ -39,6 +39,7 @@ import { GameWizardDraftService } from './services/GameWizardDraftService.js';
 import { AuditService } from './services/AuditService.js';
 import { WindowService } from './services/WindowService.js';
 
+// @spec APP-IPC-XPORT-003
 /**
  * Root Nest module. Wires the feature modules (`AwsModule`, `DiscordModule`,
  * `DeploymentConfigModule`, `RunRecordModule`, `PulumiEngineModule`,

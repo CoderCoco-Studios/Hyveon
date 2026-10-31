@@ -550,6 +550,7 @@ export class IacController implements OnModuleInit {
   private readonly activeDestroys = new Map<string, AbortController>();
 
   // @spec IAC-RUN-IPC-005
+  // @spec APP-IPC-CALL-009
   /**
    * Registers an `ipcMain.handle` bridge for the streaming channels (`iac.plan`, `iac.apply`,
    * `iac.destroy`, `iac.rollback.confirm`, `iac.stack.initialize`) after the Nest module
@@ -616,6 +617,7 @@ export class IacController implements OnModuleInit {
     );
   }
 
+  // @spec APP-IPC-ERR-006
   /**
    * Replacement for the `iac.init` channel — Pulumi has no one-shot CLI init analogue, so this
    * streams `PulumiService.initializeStack`'s phase-by-phase provisioning instead. Mints a

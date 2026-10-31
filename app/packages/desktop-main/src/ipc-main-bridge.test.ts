@@ -68,6 +68,7 @@ describe('registerIpcMainBridges', () => {
   });
   afterEach(() => setElectron(realElectronVersion));
 
+  // @spec APP-IPC-CALL-005
   it('should be a silent no-op when not running inside an Electron main process', async () => {
     // Plain-Node runtimes (integration test server, Docker, CI) have no
     // `process.versions.electron`; importing electron there would throw, so
@@ -81,6 +82,7 @@ describe('registerIpcMainBridges', () => {
     expect(mockIpcMainRemoveHandler).not.toHaveBeenCalled();
   });
 
+  // @spec APP-IPC-CALL-001
   it('should register a removeHandler-then-handle pair for every non-excluded pattern', async () => {
     const patterns = ['games.list', 'games.status', 'env.get', 'costs.estimate', 'logs.get'];
     const { transport } = makeTransport(patterns);
@@ -93,6 +95,7 @@ describe('registerIpcMainBridges', () => {
     }
   });
 
+  // @spec APP-IPC-CALL-002
   it('should call removeHandler before handle for each bridged pattern', async () => {
     const { transport } = makeTransport(['games.list']);
 
@@ -103,6 +106,7 @@ describe('registerIpcMainBridges', () => {
     expect(removeCall).toBeLessThan(handleCall);
   });
 
+  // @spec APP-IPC-CALL-003
   it('should invoke the underlying NestJS handler as handler(payload, { evt }) when the ipcMain.handle callback fires', async () => {
     const { transport, handlers } = makeTransport(['games.list']);
     const handler = handlers.get('games.list')!;
@@ -220,6 +224,7 @@ describe('registerIpcMainBridges', () => {
     expect(mockLoggerError).not.toHaveBeenCalled();
   });
 
+  // @spec APP-IPC-ERR-003
   it('should normalize an Error with non-cloneable custom fields to a plain, cloneable Error and log it', async () => {
     const { transport, handlers } = makeTransport(['wizard.guidedIam.submitBootstrapKey']);
     // Mirrors an AWS SDK exception: extends Error but carries non-plain
@@ -278,6 +283,7 @@ describe('registerIpcMainBridges', () => {
     await expect(registeredCallback({ sender: {} }, {})).rejects.toThrow('error-like object rejection');
   });
 
+  // @spec APP-IPC-CALL-004
   it('should normalize a handler that resolves with an RxJS Observable error instead of rejecting', async () => {
     // Mirrors NestJS's own RpcProxy: an uncaught throw inside a
     // @MessagePattern handler is caught internally and the handler's promise

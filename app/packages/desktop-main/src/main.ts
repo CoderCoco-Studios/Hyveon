@@ -28,6 +28,7 @@ const { app } = await import('electron') as unknown as { app: { getPath(name: st
 createLogger(path.join(app.getPath('userData'), 'logs'));
 
 // @spec APP-SHELL-BOOT-005
+// @spec APP-IPC-XPORT-001, APP-IPC-XPORT-004, APP-IPC-ERR-001
 /**
  * Bootstraps the NestJS IPC microservice.
  *

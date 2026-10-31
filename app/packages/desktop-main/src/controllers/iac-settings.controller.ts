@@ -103,6 +103,7 @@ export class IacSettingsController implements OnModuleInit {
   ) {}
 
   // @spec APP-UPDATE-IPC-005
+  // @spec APP-IPC-CALL-009
   /**
    * Registers the `ipcMain.handle` bridge for `iac.settings.autoUpdate.download`. It pushes progress/end
    * messages to the calling renderer, so it needs the `IpcMainInvokeEvent` that the generic bridge in

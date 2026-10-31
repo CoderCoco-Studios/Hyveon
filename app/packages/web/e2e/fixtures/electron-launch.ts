@@ -44,6 +44,7 @@ export interface ElectronHandle {
   win: Page;
 }
 
+// @spec APP-IPC-HARN-004
 /**
  * Launches the packaged Electron app and waits for the first `BrowserWindow`.
  *
@@ -59,6 +60,7 @@ export async function launchElectron(): Promise<ElectronHandle> {
 
 // applyHyveonMocks
 
+// @spec APP-IPC-SEAM-003
 /**
  * Seeds `window.hyveon.__test.mock()` for every IPC channel the dashboard and
  * its shared provider stack call at startup.

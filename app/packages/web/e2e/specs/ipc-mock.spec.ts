@@ -13,6 +13,7 @@ import type { GameStatus } from '../fixtures/index.js';
  * self-contained and runnable independently of the global setup.
  */
 test.describe('IPC mock seam', () => {
+  // @spec APP-IPC-SEAM-001
   test('should expose window.hyveon.__test in test mode', async () => {
     const { app, win } = await launchElectron();
 
@@ -27,6 +28,7 @@ test.describe('IPC mock seam', () => {
     }
   });
 
+  // @spec APP-IPC-SEAM-003, APP-IPC-SEAM-004
   test('should return the mocked response instead of the real IPC response', async () => {
     const { app, win } = await launchElectron();
 

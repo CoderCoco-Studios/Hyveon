@@ -51,6 +51,7 @@
  * with no streaming involved.
  */
 
+// @spec APP-IPC-XPORT-006
 import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron';
 
 import { createBufferedStream } from './stream-bridge.js';
@@ -184,6 +185,7 @@ function registerMock(channel: string, handler: unknown): void {
   mockRegistry.set(channel, typeof handler === 'function' ? (handler as (...args: unknown[]) => unknown) : () => handler);
 }
 
+// @spec APP-IPC-SEAM-004
 /**
  * Mock-aware `ipcRenderer.invoke` wrapper.  If a mock is registered for
  * the channel it is called with the supplied args and its return value
@@ -205,6 +207,7 @@ function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
   return ipcRenderer.invoke(channel, ...args) as Promise<T>;
 }
 
+// @spec APP-IPC-CALL-011
 /**
  * Subscribes `cb` to a main-to-renderer push channel, dropping the Electron event argument.
  *
@@ -350,6 +353,7 @@ const streamIacRunLogs = createBufferedStream<string, IacRunLogsWireChunk, IacRu
   { invoke, mockRegistry },
 );
 
+// @spec APP-IPC-STREAM-002, APP-IPC-STREAM-004
 /**
  * Wraps a preload-internal `AsyncGenerator` in a plain, contextBridge-safe
  * {@link HyveonStreamHandle} — see the module doc comment's "Streaming
@@ -376,6 +380,7 @@ function bridgeStream<T>(source: AsyncGenerator<T>, controller: AbortController)
   return handle;
 }
 
+// @spec APP-IPC-STREAM-001, APP-IPC-STREAM-003
 /**
  * Mints an `AbortController` that never leaves preload, invokes `source` with `arg` and its
  * signal, and wraps the result via {@link bridgeStream} — the shared body behind each
@@ -392,6 +397,7 @@ function openBufferedStream<TArg, TOut>(
   return bridgeStream(source(arg, controller.signal), controller);
 }
 
+// @spec APP-IPC-STREAM-005
 /** Bridge-facing wrapper for {@link streamLogs} — see {@link openBufferedStream}. */
 function openLogsStream(game: string): HyveonStreamHandle<LogChunk> {
   return openBufferedStream(streamLogs, game);
@@ -402,6 +408,7 @@ function openLambdaLogsStream(functionKey: LambdaFunctionKey): HyveonStreamHandl
   return openBufferedStream(streamLambdaLogs, functionKey);
 }
 
+// @spec APP-IPC-STREAM-006, APP-IPC-STREAM-015
 /** Bridge-facing wrapper for {@link streamStackInitialize} — see {@link openBufferedStream}. */
 function openStackInitializeStream(): HyveonStreamHandle<StackInitPhaseEvent> {
   return openBufferedStream(streamStackInitialize, undefined);
@@ -412,11 +419,13 @@ function openUpdateDownloadStream(): HyveonStreamHandle<UpdateDownloadProgress> 
   return openBufferedStream(streamUpdateDownload, undefined);
 }
 
+// @spec APP-IPC-STREAM-007
 /** Bridge-facing wrapper for {@link streamIacRunLogs} — see {@link openBufferedStream}. */
 function openIacRunLogsStream(runId: string): HyveonStreamHandle<IacRunChunk> {
   return openBufferedStream(streamIacRunLogs, runId);
 }
 
+// @spec APP-IPC-NAME-003, APP-IPC-CALL-007, APP-IPC-CALL-008
 const api: HyveonApi = {
   games: {
     list: () => invoke('games.list'),
@@ -509,9 +518,11 @@ const api: HyveonApi = {
       invoke<VolumeResult<{ transferId: string } | null>>('volumeFiles.download', { game, volume, path, isDir }),
     cancelTransfer: (game: string, transferId: string) =>
       invoke<{ cancelled: boolean }>('volumeFiles.cancelTransfer', { game, transferId }),
+    // @spec APP-IPC-SEC-002
     // `localPaths` is left out so main opens its file dialog.
     uploadFiles: (game: string, volume: string, dir: string) =>
       invoke<VolumeResult<{ transferId: string } | null>>('volumeFiles.uploadFiles', { game, volume, dir }),
+    // @spec APP-IPC-CALL-013
     // Paths are resolved here so the renderer never handles path strings; main rejects an empty one.
     uploadDropped: (game: string, volume: string, dir: string, files: File[]) =>
       invoke<VolumeResult<{ transferId: string } | null>>('volumeFiles.uploadFiles', {
@@ -669,6 +680,7 @@ const isTestMode = isTestModeEnabled();
 
 const hyveonBridge: HyveonApi & { __test?: HyveonTestApi } = { ...api };
 
+// @spec APP-IPC-SEAM-001, APP-IPC-SEAM-002
 if (isTestMode) {
   /**
    * Test-only injection surface, present only when `HYVEON_TEST_MODE=1`.
@@ -687,4 +699,5 @@ if (isTestMode) {
   };
 }
 
+// @spec APP-IPC-NAME-001, APP-IPC-NAME-002
 contextBridge.exposeInMainWorld('hyveon', hyveonBridge);

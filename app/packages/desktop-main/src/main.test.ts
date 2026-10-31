@@ -123,6 +123,7 @@ describe('main bootstrap', () => {
     await expect(import('./main.js')).rejects.toThrow('Electron main process');
   });
 
+  // @spec APP-IPC-XPORT-004
   it('should bootstrap as a NestJS microservice using ElectronIPCTransport', async () => {
     /*
      * Reset the module registry so re-importing main.ts forces the module to
@@ -159,6 +160,7 @@ describe('main bootstrap', () => {
   });
 
   // @spec APP-SHELL-BOOT-005
+  // @spec APP-IPC-ERR-001
   it('should register RpcErrorMessageFilter as a global filter before app.listen()', async () => {
     // NestJS reads global filters while building each handler's exception
     // handler during listen(), so this must run first — see main.ts's comment.

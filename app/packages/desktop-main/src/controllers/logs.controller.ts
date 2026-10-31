@@ -19,6 +19,7 @@ export class LogsController implements OnModuleInit {
   constructor(private readonly logs: LogsService) {}
 
   // @spec APP-LOGS-IPC-003
+  // @spec APP-IPC-CALL-009
   /**
    * Registers an `ipcMain.handle` bridge for `logs.stream` after Nest module
    * init, since `@MessagePattern` alone never calls `ipcMain.handle` and
@@ -122,6 +123,7 @@ export class LogsController implements OnModuleInit {
   }
 
   // @spec APP-LOGS-IPC-004, APP-LOGS-IPC-005, APP-LOGS-IPC-006, APP-LOGS-IPC-007, APP-LOGS-IPC-008
+  // @spec APP-IPC-STREAM-008, APP-IPC-ERR-006
   /**
    * Opens a live log stream and returns an opaque `streamId` immediately.
    * Chunks are pushed to the renderer via `sender.send` on the

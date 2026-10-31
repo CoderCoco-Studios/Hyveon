@@ -350,6 +350,7 @@ describe('IPC bridge delegation', () => {
   });
 });
 
+// @spec APP-IPC-ERR-008
 describe('missing IPC bridge', () => {
   it('should throw a descriptive error when window.hyveon is unavailable', async () => {
     vi.stubGlobal('hyveon', undefined);

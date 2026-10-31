@@ -115,6 +115,7 @@ describe('preload dispatcher', () => {
       bridge = await loadPreloadBridge('0');
     });
 
+    // @spec APP-IPC-CALL-008
     it('should forward games.list to ipcRenderer.invoke when no mock is registered', async () => {
       const games = bridge['games'] as { list: () => Promise<unknown> };
       const result = await games.list();
@@ -169,6 +170,7 @@ describe('preload dispatcher', () => {
       expect(ipcInvoke).toHaveBeenCalledWith('audit.list', undefined);
     });
 
+    // @spec APP-IPC-CALL-007
     it('should forward games.create with a single payload object to ipcRenderer.invoke', async () => {
       const writeResult = { ok: true, games: [] };
       ipcInvoke.mockResolvedValue(writeResult);
@@ -250,6 +252,7 @@ describe('preload dispatcher', () => {
         expect(ipcInvoke).toHaveBeenCalledWith(channel, ...payload);
       });
 
+      // @spec APP-IPC-CALL-011
       it('should deliver folderUpload.progress pushes to onProgress and unsubscribe cleanly', () => {
         const api = bridge['folderUpload'] as FolderUploadBridge;
         const cb = vi.fn();
@@ -312,6 +315,7 @@ describe('preload dispatcher', () => {
         expect(Object.keys(payload)).not.toContain('localPaths');
       });
 
+      // @spec APP-IPC-CALL-013
       it('should resolve dropped files to paths in the preload', async () => {
         getPathForFile.mockReturnValue('/tmp/a.txt');
         ipcInvoke.mockResolvedValue(null);
@@ -343,6 +347,7 @@ describe('preload dispatcher', () => {
         unsubscribeTransfer();
       });
 
+      // @spec APP-IPC-CALL-011
       it('should subscribe and unsubscribe session events', () => {
         const cb = vi.fn();
         const unsubscribe = api().onSession(cb);
@@ -353,6 +358,7 @@ describe('preload dispatcher', () => {
         expect(ipcRemoveListener).toHaveBeenCalledWith('volumeFiles.session', listener);
       });
 
+      // @spec APP-IPC-CALL-011
       it('should subscribe and unsubscribe transfer events', () => {
         const cb = vi.fn();
         const unsubscribe = api().onTransfer(cb);
@@ -415,6 +421,7 @@ describe('preload dispatcher', () => {
         expect(cb).toHaveBeenCalledWith(true);
       });
 
+      // @spec APP-IPC-CALL-011
       it('should remove the listener when the onMaximizedChange unsubscribe function is called', () => {
         const windowApi = bridge['window'] as {
           onMaximizedChange: (cb: (isMaximized: boolean) => void) => () => void;
@@ -435,6 +442,7 @@ describe('preload dispatcher', () => {
       bridge = await loadPreloadBridge('1');
     });
 
+    // @spec APP-IPC-SEAM-004
     it('should call the registered mock instead of ipcRenderer.invoke when a mock covers the channel', async () => {
       const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
       const mockHandler = vi.fn().mockResolvedValue({ games: ['factorio'] });
@@ -472,6 +480,7 @@ describe('preload dispatcher', () => {
       expect(mockHandler).toHaveBeenCalledWith('terraria');
     });
 
+    // @spec APP-IPC-SEAM-004
     it('should wrap a plain non-function value registered as a mock so callers receive a resolved Promise', async () => {
       const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
       // Register a plain object — not a function — as the mock return value.
@@ -567,6 +576,7 @@ describe('preload dispatcher', () => {
 
   // Test-mode gating
 
+  // @spec APP-IPC-SEAM-001, APP-IPC-SEAM-002
   describe('test-mode gating', () => {
     it('should expose __test on the bridge when HYVEON_TEST_MODE is "1"', async () => {
       const bridge = await loadPreloadBridge('1');
@@ -666,6 +676,7 @@ describe('preload dispatcher', () => {
 
     // Mocked-delegation branch
 
+    // @spec APP-IPC-SEAM-005
     describe('mocked-delegation branch', () => {
       let bridge: Record<string, unknown>;
 
@@ -693,6 +704,7 @@ describe('preload dispatcher', () => {
         expect(chunks).toEqual(['chunk-a', 'chunk-b']);
       });
 
+      // @spec APP-IPC-STREAM-003
       it('should forward the game argument and an internally-minted AbortSignal to the mock handler', async () => {
         const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
 
@@ -777,6 +789,7 @@ describe('preload dispatcher', () => {
         expect(chunks).toEqual([]);
       });
 
+      // @spec APP-IPC-STREAM-004, APP-IPC-STREAM-012
       it('should yield chunks received over the chunk IPC channel', async () => {
         const streamId = 'sid-002';
         ipcInvoke.mockResolvedValue({ streamId });
@@ -816,6 +829,7 @@ describe('preload dispatcher', () => {
         expect(chunks).toEqual(['line-1', 'line-2']);
       });
 
+      // @spec APP-IPC-ERR-006
       it('should throw when the end event carries an error field', async () => {
         const streamId = 'sid-003';
         ipcInvoke.mockResolvedValue({ streamId });
@@ -833,6 +847,7 @@ describe('preload dispatcher', () => {
         await expect(collectChunks(logs.stream('valheim'))).rejects.toThrow('stream-failed');
       });
 
+      // @spec APP-IPC-STREAM-008
       it('should send cancel immediately and remove listeners once the main process acks the cancel', async () => {
         const streamId = 'sid-004';
         ipcInvoke.mockResolvedValue({ streamId });
@@ -904,6 +919,7 @@ describe('preload dispatcher', () => {
 
     // Mocked-delegation branch
 
+    // @spec APP-IPC-SEAM-005
     describe('mocked-delegation branch', () => {
       let bridge: Record<string, unknown>;
 
@@ -1007,6 +1023,7 @@ describe('preload dispatcher', () => {
         expect(chunks).toEqual([]);
       });
 
+      // @spec APP-IPC-STREAM-004, APP-IPC-STREAM-012
       it('should yield chunks received over the chunk IPC channel', async () => {
         const streamId = 'sid-102';
         ipcInvoke.mockResolvedValue({ streamId });
@@ -1038,6 +1055,7 @@ describe('preload dispatcher', () => {
         expect(chunks).toEqual(['line-1', 'line-2']);
       });
 
+      // @spec APP-IPC-ERR-006
       it('should throw when the end event carries an error field', async () => {
         const streamId = 'sid-103';
         ipcInvoke.mockResolvedValue({ streamId });
@@ -1055,6 +1073,7 @@ describe('preload dispatcher', () => {
         await expect(collectChunks(logs.lambda.stream('dns-updater'))).rejects.toThrow('stream-failed');
       });
 
+      // @spec APP-IPC-STREAM-008
       it('should send cancel immediately and remove listeners once the main process acks the cancel', async () => {
         const streamId = 'sid-104';
         ipcInvoke.mockResolvedValue({ streamId });
@@ -1114,6 +1133,7 @@ describe('preload dispatcher', () => {
 
     // Mocked-delegation branch
 
+    // @spec APP-IPC-SEAM-005
     describe('mocked-delegation branch', () => {
       let bridge: Record<string, unknown>;
 
@@ -1218,6 +1238,7 @@ describe('preload dispatcher', () => {
         bridge = await loadPreloadBridge('0');
       });
 
+      // @spec APP-IPC-STREAM-014
       it('should attach the chunk/end listeners before calling ipcRenderer.invoke so no early event is dropped', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
@@ -1266,6 +1287,7 @@ describe('preload dispatcher', () => {
         expect(events).toEqual([]);
       });
 
+      // @spec APP-IPC-STREAM-006
       it('should yield phase events received over the iac.stack.initialize.chunk IPC channel in order', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
@@ -1303,6 +1325,7 @@ describe('preload dispatcher', () => {
         ]);
       });
 
+      // @spec APP-IPC-STREAM-014
       it('should ignore chunk/end events tagged with a foreign streamId so a rejected concurrent call cannot cross-terminate this stream', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
@@ -1336,6 +1359,7 @@ describe('preload dispatcher', () => {
         expect(events).toEqual([{ phase: 'engine', status: 'start' }]);
       });
 
+      // @spec APP-IPC-ERR-006
       it('should throw when the iac.stack.initialize.end event carries an error field', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
@@ -1356,6 +1380,7 @@ describe('preload dispatcher', () => {
         );
       });
 
+      // @spec APP-IPC-STREAM-015
       it('should throw using the ack error, after cleaning up the listeners, when the invoke resolves with started: false', async () => {
         ipcInvoke.mockResolvedValue({
           started: false,
@@ -1418,6 +1443,7 @@ describe('preload dispatcher', () => {
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
       });
 
+      // @spec APP-IPC-STREAM-010
       it('should stop the stream and clean up listeners when cancelled mid-stream', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
@@ -2289,6 +2315,7 @@ describe('preload dispatcher', () => {
 
     // Mocked-delegation branch
 
+    // @spec APP-IPC-SEAM-005
     describe('mocked-delegation branch', () => {
       let bridge: Record<string, unknown>;
 
@@ -2397,6 +2424,7 @@ describe('preload dispatcher', () => {
         bridge = await loadPreloadBridge('0');
       });
 
+      // @spec APP-IPC-STREAM-014
       it('should attach the chunk/end listeners before calling ipcRenderer.invoke so no early chunk is dropped', async () => {
         ipcInvoke.mockResolvedValue({ streamId: STREAM_ID });
 
@@ -2448,6 +2476,7 @@ describe('preload dispatcher', () => {
         expect(chunks).toEqual([]);
       });
 
+      // @spec APP-IPC-STREAM-007
       it('should yield chunks received over the iac.runs.logs.chunk IPC channel in order', async () => {
         ipcInvoke.mockResolvedValue({ streamId: STREAM_ID });
 
@@ -2484,6 +2513,7 @@ describe('preload dispatcher', () => {
         ]);
       });
 
+      // @spec APP-IPC-STREAM-014
       it('should ignore chunk/end events tagged with a foreign streamId so an overlapping subscription to a different run cannot cross-terminate this stream', async () => {
         ipcInvoke.mockResolvedValue({ streamId: STREAM_ID });
 
@@ -2518,6 +2548,7 @@ describe('preload dispatcher', () => {
         expect(chunks).toEqual([{ stream: 'stdout', line: 'Refreshing state...' }]);
       });
 
+      // @spec APP-IPC-ERR-006
       it('should throw when the iac.runs.logs.end event carries an error field', async () => {
         ipcInvoke.mockResolvedValue({ streamId: STREAM_ID });
 
@@ -2585,6 +2616,7 @@ describe('preload dispatcher', () => {
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.runs.logs.end', expect.any(Function));
       });
 
+      // @spec APP-IPC-STREAM-010
       it('should stop the stream and clean up listeners when cancelled mid-stream', async () => {
         ipcInvoke.mockResolvedValue({ streamId: STREAM_ID });
 

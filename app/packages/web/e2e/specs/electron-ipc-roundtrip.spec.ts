@@ -18,6 +18,7 @@ import { test, expect, launchElectron } from '../fixtures/index.js';
  * together.
  */
 test.describe('electron IPC round-trip (unmocked)', () => {
+  // @spec APP-IPC-HARN-004
   test('should resolve window.hyveon.env.get() against the real main process instead of rejecting', async () => {
     const { app, win } = await launchElectron();
 

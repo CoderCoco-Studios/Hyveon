@@ -151,6 +151,7 @@ export class IacRunsController implements OnModuleInit {
   ) {}
 
   // @spec IAC-RUN-IPC-005
+  // @spec APP-IPC-CALL-009
   /**
    * Registers an `ipcMain.handle` bridge for the `iac.runs.logs`
    * channel after the Nest module initialises, so that
@@ -241,6 +242,7 @@ export class IacRunsController implements OnModuleInit {
   }
 
   // @spec IAC-RUN-PLAN-004
+  // @spec APP-IPC-ERR-006
   /**
    * Opens a live/replayed log stream for the run identified by `payload.runId`
    * and returns an opaque `streamId` immediately. Chunks are pushed to the

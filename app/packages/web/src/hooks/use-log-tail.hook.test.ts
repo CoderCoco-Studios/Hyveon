@@ -47,6 +47,7 @@ afterEach(() => {
 
 describe('useLogTail', () => {
   // @spec APP-LOGS-ENGINE-001
+  // @spec APP-IPC-STREAM-005
   it('should seed lines from api.get and call api.stream on mount for a non-empty target', async () => {
     const api = makeApi({ get: vi.fn().mockResolvedValue({ lines: [line('line one', 1000), line('line two', 2000)] }) });
     const { result } = renderHook(() => useLogTail('watchdog', api));

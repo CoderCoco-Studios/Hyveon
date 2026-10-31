@@ -27,6 +27,7 @@ import { test, expect, launchElectron } from '../fixtures/index.js';
  * itself crosses renderer→preload and hits the same clone wall in reverse.
  * What's under test is the real preload's `HyveonStreamHandle` crossing back.
  */
+// @spec APP-IPC-STREAM-002
 test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
   test('should stream chunks from window.hyveon.logs.stream() without a clone error', async () => {
     const { app, win } = await launchElectron();

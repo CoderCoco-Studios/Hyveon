@@ -75,6 +75,8 @@ export interface BufferedStreamDeps {
   mockRegistry: Map<string, (...args: unknown[]) => unknown>;
 }
 
+// @spec APP-IPC-STREAM-008, APP-IPC-STREAM-010, APP-IPC-STREAM-012, APP-IPC-STREAM-014, APP-IPC-ERR-006
+// @spec APP-IPC-SEAM-005
 /**
  * Builds a preload-internal `async function*` implementing one buffered IPC stream — the shared
  * body behind `streamLogs`, `streamLambdaLogs`, `streamStackInitialize`, and `streamIacRunLogs`.

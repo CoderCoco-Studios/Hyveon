@@ -357,6 +357,7 @@ export type RedactedGameServer = Omit<GameServer, 'healthCheck'> & {
 };
 
 // @spec RT-HEALTH-REDACT-001
+// @spec APP-IPC-SEC-001
 /**
  * Redacts a {@link GameServer} for the renderer: replaces
  * `healthCheck.auth` with a `secretSet` boolean, never the credential
