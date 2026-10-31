@@ -50,6 +50,7 @@ export interface HealthCheckFieldsProps {
   onChange: (patch: Partial<WizardDraftHealthCheck>) => void;
 }
 
+// @spec RT-HEALTH-REDACT-002, RT-HEALTH-REDACT-003
 /**
  * Renders the enabled health-check's fields: scheme/port/method/timeout,
  * request path, response-matching condition, and (via

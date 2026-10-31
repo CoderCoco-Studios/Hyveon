@@ -785,6 +785,7 @@ describe('defineLambdas', () => {
     }
 
     // @spec IAC-PROGRAM-LAMBDA-001
+    // @spec RT-HEALTH-PROV-001
     it('should declare no log group or function when no game declares healthCheck', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       const result = await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -804,6 +805,7 @@ describe('defineLambdas', () => {
       );
     });
 
+    // @spec RT-HEALTH-PROV-002, RT-HEALTH-NET-003
     it('should declare the health-check function and log group, wired to the externally-supplied security group id and the same public subnets as every other Lambda', async () => {
       const gameServers = gameServersWithHealthCheck();
       const { provider, roles, efs } = await arrangeDependencies(gameServers);
@@ -845,6 +847,7 @@ describe('defineLambdas', () => {
 
     // @spec IAC-PROGRAM-ENV-002, IAC-PROGRAM-LAMBDA-009
     // @spec RT-WATCHDOG-ROUTE-004
+    // @spec RT-HEALTH-DECL-004
     it("should set the watchdog function's HEALTH_CHECKS and HEALTH_CHECK_FUNCTION_NAME when a game declares healthCheck", async () => {
       const gameServers = gameServersWithHealthCheck();
       const { provider, roles, efs } = await arrangeDependencies(gameServers);

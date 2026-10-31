@@ -113,6 +113,7 @@ const CREDENTIAL_LIKE_HEADER_VALUE_PATTERN = /^(bearer\s+\S+|basic\s+[a-z0-9+/=]
 /** Matches a JSONPath restricted to plain field access and numeric array indices — no wildcards, filters, slices, or recursive descent. */
 const HEALTH_CHECK_JSON_PATH_PATTERN = /^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+|\[\d+\])*$/;
 
+// @spec RT-HEALTH-NET-005
 /** Zod schema mirroring `GameServerHealthCheckAuth` — the persisted shape, always carrying a `secretArn` regardless of `type`. */
 export const gameServerHealthCheckAuthSchema = z.object({
   type: z.enum(['raw', 'basic', 'bearer']).optional(),
@@ -191,6 +192,7 @@ export interface GameServerHealthCheckAuthWriteInput {
   token?: string;
 }
 
+// @spec RT-HEALTH-VALID-008
 /**
  * Validates the per-type plaintext requirements of an operator-submitted
  * health-check credential: `basic` requires both `username` and `password`;
@@ -222,6 +224,7 @@ export function validateHealthCheckAuthInput(auth: unknown): GameServerValidatio
   }));
 }
 
+// @spec RT-HEALTH-VALID-006
 /** Zod schema mirroring `GameServerHealthCheckCondition`. */
 export const gameServerHealthCheckConditionSchema = z.object({
   jsonPath: z
@@ -234,6 +237,7 @@ export const gameServerHealthCheckConditionSchema = z.object({
   value: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
 });
 
+// @spec RT-HEALTH-DECL-001, RT-HEALTH-VALID-002, RT-HEALTH-VALID-003, RT-HEALTH-VALID-007
 /**
  * Zod schema mirroring `GameServerHealthCheck`. Structural only — the
  * cross-field rules (declared port must be among the entry's own `ports`;
@@ -982,6 +986,7 @@ function checkPinnedHostname(gameName: string, entry: GameServerEntryInput): Gam
   return issues;
 }
 
+// @spec RT-HEALTH-VALID-001, RT-HEALTH-VALID-004, RT-HEALTH-VALID-005
 /**
  * Validates the cross-field business rules for a declared `healthCheck` that
  * the structural schema ({@link gameServerHealthCheckSchema}) can't express:

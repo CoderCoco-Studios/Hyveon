@@ -108,6 +108,7 @@ describe('mergeGameLists', () => {
     expect(result).toEqual([{ name: 'rust', declared: true, deployed: true, config: rust, drift: undefined }]);
   });
 
+  // @spec RT-HEALTH-REDACT-001
   it('should redact a declared game\'s health-check credential to secretSet, never the ARN, before it reaches the caller', () => {
     const secretArn = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:palworld-token-AbCdEf';
     const palworld: GameServer = {

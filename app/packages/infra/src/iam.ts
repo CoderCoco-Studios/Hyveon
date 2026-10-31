@@ -309,6 +309,7 @@ function vpcNetworkingStatement(): { Effect: string; Action: string[]; Resource:
 }
 
 // @spec IAC-PROGRAM-IAM-001, IAC-PROGRAM-IAM-003, IAC-PROGRAM-IAM-007, IAC-PROGRAM-IAM-008, IAC-PROGRAM-IAM-009
+// @spec RT-HEALTH-PROV-001, RT-HEALTH-PROV-002
 /**
  * Declares every IAM role and the managed-policy attachment — see this
  * file's doc for the full address table and why roles and policies are
@@ -411,6 +412,7 @@ export function defineIamRoles(args: DefineIamRolesArgs): IamRoleResources {
 // @spec IAC-PROGRAM-IAM-003, IAC-PROGRAM-IAM-004, IAC-PROGRAM-IAM-005, IAC-PROGRAM-IAM-006, IAC-PROGRAM-IAM-007
 // @spec IAC-PROGRAM-IAM-008, IAC-PROGRAM-IAM-009, IAC-PROGRAM-IAM-010
 // @spec RT-WATCHDOG-IAM-001, RT-WATCHDOG-IAM-002, RT-WATCHDOG-IAM-003
+// @spec RT-HEALTH-PROV-001, RT-HEALTH-NET-002, RT-HEALTH-NET-003, RT-HEALTH-NET-004
 /**
  * Declares every inline policy — see this file's doc for the full address
  * table and why roles and policies are split across two functions. Must run

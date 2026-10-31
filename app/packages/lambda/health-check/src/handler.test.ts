@@ -63,6 +63,7 @@ afterEach(() => {
 });
 
 describe('handler', () => {
+  // @spec RT-HEALTH-HTTP-001, RT-HEALTH-HTTP-002
   it('should resolve the destination host from the ECS attachment, never from config', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
     fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
@@ -83,6 +84,7 @@ describe('handler', () => {
     expect(secretsManagerMock.commandCalls(GetSecretValueCommand)).toHaveLength(0);
   });
 
+  // @spec RT-HEALTH-AUTH-001
   it('should fetch the secret and inject it as the Authorization header when auth is declared', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
     secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: 'super-secret-token' });
@@ -101,6 +103,7 @@ describe('handler', () => {
     expect((init.headers as Record<string, string>)['Authorization']).toBe('super-secret-token');
   });
 
+  // @spec RT-HEALTH-AUTH-005
   it('should override an operator-supplied Authorization header with the resolved credential', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
     secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: 'real-token' });
@@ -119,6 +122,7 @@ describe('handler', () => {
     expect((init.headers as Record<string, string>)['Authorization']).toBe('real-token');
   });
 
+  // @spec RT-HEALTH-AUTH-003
   it('should base64-encode a well-formed basic credential as Authorization: Basic', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
     secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: JSON.stringify({ username: 'admin', password: 'hunter2' }) });
@@ -137,6 +141,7 @@ describe('handler', () => {
     expect((init.headers as Record<string, string>)['Authorization']).toBe(expected);
   });
 
+  // @spec RT-HEALTH-AUTH-002
   it('should prefix a bearer credential as Authorization: Bearer', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
     secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: 'sk-abc123' });
@@ -154,6 +159,7 @@ describe('handler', () => {
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer sk-abc123');
   });
 
+  // @spec RT-HEALTH-AUTH-001
   it('should inject a raw credential verbatim when auth.type is explicitly "raw"', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
     secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: 'super-secret-token' });
@@ -171,6 +177,7 @@ describe('handler', () => {
     expect((init.headers as Record<string, string>)['Authorization']).toBe('super-secret-token');
   });
 
+  // @spec RT-HEALTH-AUTH-004
   it('should be fail-active when a basic credential secret is not valid JSON', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
     secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: 'not-json' });
@@ -188,6 +195,7 @@ describe('handler', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // @spec RT-HEALTH-AUTH-004
   it('should be fail-active when a basic credential secret is JSON but missing username/password', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
     secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: JSON.stringify({ username: 'admin' }) });
@@ -204,6 +212,7 @@ describe('handler', () => {
     expect(verdict.failureDerived).toBe(true);
   });
 
+  // @spec RT-HEALTH-LOG-004
   it('should never let a basic credential\'s username or password reach the logger', async () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -224,6 +233,7 @@ describe('handler', () => {
     expect(allLoggedText).not.toContain('admin');
   });
 
+  // @spec RT-HEALTH-LOG-004
   it('should never let a secret value reach the logger', async () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -243,6 +253,7 @@ describe('handler', () => {
     expect(allLoggedText).not.toContain('super-secret-token');
   });
 
+  // @spec RT-HEALTH-LOG-004
   it('should never let the response body reach the logger', async () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -255,6 +266,7 @@ describe('handler', () => {
     expect(allLoggedText).not.toContain('secret-player-name');
   });
 
+  // @spec RT-HEALTH-FAIL-004, RT-HEALTH-LOG-001
   it('should be fail-active and log at warn when the ECS task has no matching attachment', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [{ lastStatus: 'RUNNING', attachments: [] }] });
@@ -267,6 +279,7 @@ describe('handler', () => {
     expect(warnSpy).toHaveBeenCalled();
   });
 
+  // @spec RT-HEALTH-FAIL-004
   it('should be fail-active when the ECS task is not found', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [] });
 
@@ -276,6 +289,7 @@ describe('handler', () => {
     expect(verdict.failureDerived).toBe(true);
   });
 
+  // @spec RT-HEALTH-FAIL-004
   it('should be fail-active when the secret is unavailable', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
     secretsManagerMock.on(GetSecretValueCommand).rejects(new Error('ResourceNotFoundException'));
@@ -293,6 +307,7 @@ describe('handler', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // @spec RT-HEALTH-FAIL-004
   it('should be fail-active when the request times out or is refused', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
     fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
@@ -304,6 +319,7 @@ describe('handler', () => {
     expect(verdict.reason).toContain('ECONNREFUSED');
   });
 
+  // @spec RT-HEALTH-DECL-006
   it('should delegate a successful response to the engine and return a genuine verdict', async () => {
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
     fetchMock.mockResolvedValue(new Response('{"players":{"online":0}}', { status: 200 }));

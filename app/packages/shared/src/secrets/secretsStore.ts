@@ -90,6 +90,7 @@ export function invalidateSecretsCache(): void {
   inProcessCache.clear();
 }
 
+// @spec RT-HEALTH-CRED-001
 /** Builds the deterministic, per-game Secrets Manager secret name for an app-owned health-check credential (`basic`/`bearer`). One secret per game — `GameServerHealthCheck` allows at most one `auth`. */
 export function healthCheckAuthSecretName(gameId: string): string {
   return `hyveon-${gameId}-healthcheck-auth`;
@@ -113,6 +114,7 @@ async function isPendingDeletionError(err: unknown, name: string): Promise<boole
   return desc.DeletedDate !== undefined;
 }
 
+// @spec RT-HEALTH-CRED-002, RT-HEALTH-CRED-003, RT-HEALTH-CRED-004
 /**
  * Creates or updates the app-owned health-check credential secret for
  * `gameId`, and returns its ARN. Idempotent by construction: the secret name
@@ -171,6 +173,7 @@ export async function upsertHealthCheckAuthSecret(gameId: string, value: string)
   }
 }
 
+// @spec RT-HEALTH-CRED-005
 /**
  * Deletes the app-owned health-check credential secret for `gameId`, using
  * Secrets Manager's default recovery window (no `ForceDeleteWithoutRecovery`

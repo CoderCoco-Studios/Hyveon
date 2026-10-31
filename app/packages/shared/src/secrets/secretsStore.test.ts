@@ -116,6 +116,7 @@ describe('putBotToken / putPublicKey', () => {
   });
 });
 
+// @spec RT-HEALTH-CRED-001
 describe('healthCheckAuthSecretName', () => {
   it('should build a deterministic per-game secret name', () => {
     expect(healthCheckAuthSecretName('palworld')).toBe('hyveon-palworld-healthcheck-auth');
@@ -132,6 +133,7 @@ describe('upsertHealthCheckAuthSecret', () => {
     secrets.reset();
   });
 
+  // @spec RT-HEALTH-CRED-002
   it('should PutSecretValue and return the ARN when the secret already exists', async () => {
     secrets
       .on(PutSecretValueCommand, { SecretId: 'hyveon-palworld-healthcheck-auth' })
@@ -143,6 +145,7 @@ describe('upsertHealthCheckAuthSecret', () => {
     expect(secrets.commandCalls(CreateSecretCommand)).toHaveLength(0);
   });
 
+  // @spec RT-HEALTH-CRED-004
   it('should CreateSecret and return the ARN when PutSecretValue reports the secret does not exist', async () => {
     secrets
       .on(PutSecretValueCommand)
@@ -163,6 +166,7 @@ describe('upsertHealthCheckAuthSecret', () => {
     expect(secrets.commandCalls(CreateSecretCommand)).toHaveLength(0);
   });
 
+  // @spec RT-HEALTH-CRED-003
   it('should restore a pending-deletion secret and retry PutSecretValue instead of falling through to CreateSecret', async () => {
     secrets
       .on(PutSecretValueCommand)
@@ -207,6 +211,7 @@ describe('deleteHealthCheckAuthSecret', () => {
     secrets.reset();
   });
 
+  // @spec RT-HEALTH-CRED-005
   it('should DeleteSecret without ForceDeleteWithoutRecovery (default recovery window)', async () => {
     secrets.on(DeleteSecretCommand).resolves({});
 

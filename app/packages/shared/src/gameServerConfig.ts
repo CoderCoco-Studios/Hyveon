@@ -161,6 +161,7 @@ export interface GameServerHealthCheckCondition {
   value?: string | number | boolean | null;
 }
 
+// @spec RT-HEALTH-DECL-001
 /**
  * Declarative HTTP health check: a request to issue against the running game
  * task, and a single condition on its response that determines the verdict.
@@ -355,6 +356,7 @@ export type RedactedGameServer = Omit<GameServer, 'healthCheck'> & {
   healthCheck?: RedactedGameServerHealthCheck;
 };
 
+// @spec RT-HEALTH-REDACT-001
 /**
  * Redacts a {@link GameServer} for the renderer: replaces
  * `healthCheck.auth` with a `secretSet` boolean, never the credential

@@ -207,6 +207,7 @@ describe('watchdog handler: shutdown threshold', () => {
 
 describe('watchdog handler: health-check routing', () => {
   // @spec RT-WATCHDOG-ROUTE-002, RT-WATCHDOG-ROUTE-003
+  // @spec RT-HEALTH-DECL-002
   it('should query CloudWatch and never invoke the health-check function for a game without a declared health check', async () => {
     const taskArn = 'arn:task/direct';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -221,6 +222,7 @@ describe('watchdog handler: health-check routing', () => {
   });
 
   // @spec RT-WATCHDOG-ROUTE-001, RT-WATCHDOG-ROUTE-003, RT-WATCHDOG-HC-001
+  // @spec RT-HEALTH-DECL-003
   it('should invoke the health-check function and never query CloudWatch for a game with a declared health check', async () => {
     const taskArn = 'arn:task/checked';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -237,6 +239,7 @@ describe('watchdog handler: health-check routing', () => {
   });
 
   // @spec RT-WATCHDOG-HC-002
+  // @spec RT-HEALTH-DECL-003
   it('should increment the idle counter when the health check reports idle', async () => {
     const taskArn = 'arn:task/checked-idle';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -255,6 +258,7 @@ describe('watchdog handler: health-check routing', () => {
   });
 
   // @spec RT-WATCHDOG-HC-004, RT-WATCHDOG-STATE-007
+  // @spec RT-HEALTH-FAIL-005
   it('should not increment the idle counter when the health-check invoke fails', async () => {
     const taskArn = 'arn:task/checked-fail';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -269,6 +273,7 @@ describe('watchdog handler: health-check routing', () => {
   });
 
   // @spec RT-WATCHDOG-HC-004, RT-WATCHDOG-STATE-007
+  // @spec RT-HEALTH-FAIL-005
   it('should not increment the idle counter when the health-check function returns a FunctionError', async () => {
     const taskArn = 'arn:task/checked-error';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });

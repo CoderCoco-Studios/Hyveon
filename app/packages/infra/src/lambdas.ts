@@ -328,6 +328,7 @@ function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<
 
 // @spec IAC-PROGRAM-ENV-002
 // @spec RT-WATCHDOG-ROUTE-004
+// @spec RT-HEALTH-DECL-004
 /**
  * Builds the `HEALTH_CHECKS` JSON object the watchdog reads to route a
  * game's idle decision to the health-check Lambda instead of the
@@ -355,6 +356,7 @@ function healthChecksByGame(gameServers: Record<string, GameServerConfig>): Reco
 // @spec IAC-PROGRAM-LAMBDA-014, IAC-PROGRAM-LAMBDA-015
 // @spec RT-WATCHDOG-SCHED-001, RT-WATCHDOG-SCHED-002, RT-WATCHDOG-SCHED-003, RT-WATCHDOG-SCHED-004
 // @spec RT-WATCHDOG-SCHED-006, RT-WATCHDOG-CFG-004
+// @spec RT-HEALTH-PROV-001, RT-HEALTH-PROV-002, RT-HEALTH-NET-003, RT-HEALTH-NET-004
 /**
  * Declares every Lambda function, its log group, its permissions, the
  * interactions Function URL, and the watchdog/dns-updater EventBridge

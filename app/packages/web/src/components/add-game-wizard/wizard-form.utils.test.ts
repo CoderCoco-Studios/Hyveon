@@ -719,6 +719,7 @@ describe('health-check auth draft conversion', () => {
     expect(payload.config.healthCheck?.auth).toEqual({ type: 'bearer', token: 'sk-abc123' });
   });
 
+  // @spec RT-HEALTH-REDACT-002
   it('should submit auth: undefined when authType is "basic" but both fields are blank (edit, unchanged)', () => {
     const payload = draftToPayload(draftWithHealthCheck({ authType: 'basic', username: '', password: '', secretSet: true }));
     expect(payload.config.healthCheck?.auth).toBeUndefined();

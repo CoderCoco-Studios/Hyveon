@@ -555,6 +555,7 @@ describe('defineSecurityGroups', () => {
     ]);
   });
 
+  // @spec RT-HEALTH-PROV-001
   it('should declare no health-check security group or egress rules when no game declares healthCheck', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineSecurityGroups({
@@ -570,6 +571,7 @@ describe('defineSecurityGroups', () => {
   });
 
   // @spec IAC-PROGRAM-SG-012, IAC-PROGRAM-SG-013
+  // @spec RT-HEALTH-PROV-002, RT-HEALTH-NET-001
   it('should declare the health-check security group with no inline egress, and a matching ingress entry on the game-servers group, when a game declares healthCheck', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineSecurityGroups({
@@ -613,6 +615,7 @@ describe('defineSecurityGroups', () => {
     expect(ingress.filter((rule) => rule.fromPort === 80)).toHaveLength(1);
   });
 
+  // @spec RT-HEALTH-NET-001
   it('should add only the health-check Lambda source rule when an https game health-checks its webPort', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -645,6 +648,7 @@ describe('defineSecurityGroups', () => {
   });
 
   // @spec IAC-PROGRAM-SG-012
+  // @spec RT-HEALTH-NET-001
   it('should scope the health-check security group egress to declared ports only, via a standalone rule per port', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineSecurityGroups({
@@ -665,6 +669,7 @@ describe('defineSecurityGroups', () => {
     expect(rule.inputs.sourceSecurityGroupId).toBe(await promiseOf(result.gameServers.id));
   });
 
+  // @spec RT-HEALTH-NET-001
   it('should declare only one egress rule per distinct health-check port across multiple games', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
