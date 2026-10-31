@@ -9,6 +9,7 @@ export interface CachedAwsClientConfig {
   credentialsSignature?: string;
 }
 
+// @spec APP-WIZARD-CUSTODY-004
 /**
  * Builds a memoized "get or rebuild" function for a single AWS SDK client,
  * replacing the `client`/`clientCacheKey` field pair and rebuild-if-changed

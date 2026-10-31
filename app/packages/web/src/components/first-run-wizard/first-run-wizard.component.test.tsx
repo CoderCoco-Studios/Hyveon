@@ -202,12 +202,14 @@ describe('FirstRunWizard', () => {
     expect(screen.getByRole('radio', { name: /Amazon Web Services/i })).toBeInTheDocument();
   });
 
+  // @spec APP-WIZARD-SHELL-004
   it('should render the step-progress sidebar in first-run mode', async () => {
     await advanceToPickCloud();
 
     expect(screen.getByRole('navigation', { name: 'Wizard progress' })).toBeInTheDocument();
   });
 
+  // @spec APP-WIZARD-CLOUD-002
   it('should persist the selected cloud via wizard.state.save when advancing past pick-cloud', async () => {
     hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, activeCloud: 'aws' });
     await advanceToPickCloud();
@@ -217,6 +219,7 @@ describe('FirstRunWizard', () => {
     await waitFor(() => expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({ activeCloud: 'aws' }));
   });
 
+  // @spec APP-WIZARD-CLOUD-002
   it('should show an error and stay on pick-cloud when saving the cloud choice fails', async () => {
     hyveonMock.wizard.saveState.mockRejectedValue(new Error('disk full'));
     await advanceToPickCloud();
@@ -246,6 +249,7 @@ describe('FirstRunWizard', () => {
   });
 
   describe('credentials step', () => {
+    // @spec APP-WIZARD-CREDS-006
     it('should list AWS profiles on mount and populate the dropdown once on the credentials step', async () => {
       await advanceToCredentials();
 
@@ -254,6 +258,7 @@ describe('FirstRunWizard', () => {
       expect(screen.getByRole('option', { name: 'personal' })).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-SHELL-007
     it('should disable Next until a profile is selected', async () => {
       await advanceToCredentials();
       await screen.findByLabelText('Profile');
@@ -261,6 +266,7 @@ describe('FirstRunWizard', () => {
       expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
     });
 
+    // @spec APP-WIZARD-CREDS-007
     it('should enable Next and default the region once a profile is picked', async () => {
       await advanceToCredentials();
       const select = await screen.findByLabelText('Profile');
@@ -291,6 +297,7 @@ describe('FirstRunWizard', () => {
       expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
     });
 
+    // @spec APP-WIZARD-CREDS-008
     it('should persist the selected profile and region via wizard.state.save when advancing', async () => {
       hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'default', region: 'us-east-1' } });
       await advanceToCredentials();
@@ -304,6 +311,7 @@ describe('FirstRunWizard', () => {
       );
     });
 
+    // @spec APP-WIZARD-CREDS-007, APP-WIZARD-CREDS-008
     it('should persist an operator-overridden region instead of the profile default', async () => {
       hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'default', region: 'eu-west-1' } });
       await advanceToCredentials();
@@ -320,6 +328,7 @@ describe('FirstRunWizard', () => {
       );
     });
 
+    // @spec APP-WIZARD-CREDS-006
     it('should switch to the paste form and save pasted credentials via wizard.aws.saveCredentials', async () => {
       hyveonMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'hyveon-pasted' });
       await advanceToCredentials();
@@ -370,6 +379,7 @@ describe('FirstRunWizard', () => {
       expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
     });
 
+    // @spec APP-WIZARD-KEYCH-003
     it('should show a paste error and keep Next disabled when saveCredentials fails', async () => {
       hyveonMock.wizard.saveCredentials.mockRejectedValue(new Error('OS keychain unavailable'));
       await advanceToCredentials();
@@ -383,6 +393,7 @@ describe('FirstRunWizard', () => {
       expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
     });
 
+    // @spec APP-WIZARD-CREDS-008
     it('should persist the pasted profile via wizard.state.save when advancing after a successful paste', async () => {
       hyveonMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'hyveon-pasted' });
       hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'hyveon-pasted', region: 'us-west-2' } });
@@ -404,12 +415,14 @@ describe('FirstRunWizard', () => {
   });
 
   describe('bootstrap step', () => {
+    // @spec APP-WIZARD-SHELL-007
     it('should disable Next until both resources are created or already exist', async () => {
       await advanceToBootstrap();
 
       expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
     });
 
+    // @spec APP-WIZARD-BOOT-014
     it('should call both bootstrap IPC methods with the current resource names when the bootstrap button is clicked, and never call the removed lock-table channel', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
       hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
@@ -426,6 +439,7 @@ describe('FirstRunWizard', () => {
       // was "not called" here beyond the two real calls above.
     });
 
+    // @spec APP-WIZARD-BOOT-014
     it('should call wizard.bootstrap.runsTable alongside the two bucket calls when the bootstrap button is clicked (bootstrap-deadlock fix)', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
       hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
@@ -438,6 +452,7 @@ describe('FirstRunWizard', () => {
       expect(await screen.findByText('Run-history table')).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-SHELL-007
     it('should block Next when the run-history table bootstrap fails', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
       hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
@@ -451,6 +466,7 @@ describe('FirstRunWizard', () => {
     });
 
     describe('initial configuration seed (fresh-install-bricking fix)', () => {
+      // @spec APP-WIZARD-BOOT-010
       it('should call wizard.bootstrap.deploymentConfig with the configuration bucket name once the configuration bucket succeeds', async () => {
         hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
         hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
@@ -481,6 +497,7 @@ describe('FirstRunWizard', () => {
         ).toBeInTheDocument();
       });
 
+      // @spec APP-WIZARD-SHELL-007
       it('should block Next when the initial configuration seed fails', async () => {
         hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
         hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
@@ -504,6 +521,7 @@ describe('FirstRunWizard', () => {
       await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
     });
 
+    // @spec APP-WIZARD-BOOT-014
     it('should independently report each resource\'s outcome when only one bootstrap call fails, never masking the other\'s success', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'failed', message: 'bucket taken' });
       hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
@@ -522,6 +540,7 @@ describe('FirstRunWizard', () => {
       expect(screen.getAllByText('Public access blocked')).toHaveLength(1);
     });
 
+    // @spec APP-WIZARD-IAMCHK-002
     it('should run the IAM check via wizard.iam.simulate and render a passed result', async () => {
       hyveonMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'passed' });
       await advanceToBootstrap();
@@ -531,6 +550,7 @@ describe('FirstRunWizard', () => {
       expect(await screen.findByText(/all required permissions are present/i)).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-IAMCHK-006
     it('should not block Next on a failed or missing IAM check — only the two bootstrap resources gate progression', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
       hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
@@ -545,6 +565,7 @@ describe('FirstRunWizard', () => {
       expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
     });
 
+    // @spec APP-WIZARD-BOOT-016
     it('should persist the current resource names via wizard.state.save when advancing past bootstrap', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
       hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
@@ -564,12 +585,14 @@ describe('FirstRunWizard', () => {
   });
 
   describe('stack-init step', () => {
+    // @spec APP-WIZARD-SHELL-008
     it('should hide the shared Next button once on the stack-init step', async () => {
       await advanceToStackInit();
 
       expect(screen.queryByRole('button', { name: /^next$/i })).not.toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-GATE-005
     it('should call wizard.complete and invoke onComplete when Finish setup succeeds', async () => {
       hyveonMock.iac.stack.initialize.mockImplementation(
         toStreamHandleMock(async function* () {
@@ -605,6 +628,7 @@ describe('FirstRunWizard', () => {
       expect(onComplete).toHaveBeenCalledTimes(1);
     });
 
+    // @spec APP-WIZARD-PROG-001
     it('should persist each step via wizard.progress.save as the wizard advances', async () => {
       await advanceToBootstrap();
 
@@ -621,6 +645,7 @@ describe('FirstRunWizard', () => {
       expect(await screen.findByText(/choose the cloud provider/i)).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-PROG-004
     it('should jump straight to the recorded step when wizard.progress.get resolves to a later step', async () => {
       hyveonMock.wizard.listAwsProfiles.mockResolvedValue(SAMPLE_PROFILES);
       hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'credentials' });
@@ -638,6 +663,7 @@ describe('FirstRunWizard', () => {
       expect(await screen.findByText(/choose the cloud provider/i)).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-PROG-004
     it('should clamp a recorded stack-init step down to bootstrap, rather than auto-initializing the stack on mount', async () => {
       hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'stack-init' });
 
@@ -666,6 +692,7 @@ describe('FirstRunWizard', () => {
       await waitFor(() => expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({ step: 'credentials' }));
     });
 
+    // @spec APP-WIZARD-GSTEP-005
     it('should preserve a resumed guided-iam sub-state in its own save-on-change call, rather than wiping it back to undefined', async () => {
       // Regression test (final-review Finding 1): the shell's save-on-change
       // effect used to fire `saveProgress({ step })` with NO `guidedIam`
@@ -693,6 +720,7 @@ describe('FirstRunWizard', () => {
   });
 
   describe('guided-iam step wiring', () => {
+    // @spec APP-WIZARD-SHELL-001, APP-WIZARD-SHELL-008
     it('should render GuidedIamStep after pick-cloud, hiding the shared Next button', async () => {
       await advanceToPickCloud();
 
@@ -702,6 +730,7 @@ describe('FirstRunWizard', () => {
       expect(screen.queryByRole('button', { name: /^next$/i })).not.toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-GSTEP-002
     it('should advance to the normal credentials form when GuidedIamStep calls onSkipToManual', async () => {
       await advanceToPickCloud();
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
@@ -744,6 +773,7 @@ describe('FirstRunWizard', () => {
       );
     });
 
+    // @spec APP-WIZARD-GSTEP-003, APP-WIZARD-CREDS-009
     it("should render the credentials step's satisfied summary when GuidedIamStep calls onComplete with a guided profile on record", async () => {
       await advanceToSatisfiedGuidedCredentialsSummary();
 
@@ -753,6 +783,7 @@ describe('FirstRunWizard', () => {
       expect(screen.queryByLabelText('Profile')).not.toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-CREDS-009
     it('should enable Next on the credentials step\'s satisfied summary, without requiring the normal picker/paste fields', async () => {
       // Regression test: `credentialsChosen` used to read only the normal
       // form's local state (`selectedProfileName`/`region`/`pastedProfileName`),
@@ -779,6 +810,7 @@ describe('FirstRunWizard', () => {
       expect(hyveonMock.wizard.saveState).not.toHaveBeenCalled();
     });
 
+    // @spec APP-WIZARD-CREDS-009
     it('should fall through to the normal form — never a dead end — when "Switch to a different source" is clicked', async () => {
       await advanceToSatisfiedGuidedCredentialsSummary();
 
@@ -790,6 +822,7 @@ describe('FirstRunWizard', () => {
   });
 
   describe('reconfigure mode — guided-iam pre-completion', () => {
+    // @spec APP-WIZARD-RECONF-004
     it('should NOT pre-complete guided-iam without evidence of guided provisioning', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: true,
@@ -805,6 +838,7 @@ describe('FirstRunWizard', () => {
       expect(await screen.findByText('guided-iam-step-stub')).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-RECONF-003
     it("should pre-complete guided-iam when wizard.state.get's aws.profile is the guided profile", async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: true,
@@ -822,6 +856,7 @@ describe('FirstRunWizard', () => {
   });
 
   describe('reconfigure mode — commit payload', () => {
+    // @spec APP-WIZARD-RECONF-002, APP-WIZARD-RECONF-006
     it('should omit collapsed steps from the reconfigure commit payload, sending only the step that was edited', async () => {
       // Regression test (finding D8): `commitReconfigureAnswers` is this
       // file's central Reconfigure invariant — a collapsed (never-Edited)
@@ -881,6 +916,7 @@ describe('FirstRunWizard', () => {
   });
 
   describe('reconfigure mode — layout', () => {
+    // @spec APP-WIZARD-SHELL-006
     it('should not render the step-progress sidebar in reconfigure mode', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: true,
@@ -895,6 +931,7 @@ describe('FirstRunWizard', () => {
   });
 
   describe('start over', () => {
+    // @spec APP-WIZARD-RESET-001
     it('should render a "Start over" action in first-run mode', async () => {
       await advanceToPickCloud();
 
@@ -913,6 +950,7 @@ describe('FirstRunWizard', () => {
       expect(screen.queryByRole('button', { name: 'Start over' })).not.toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-RESET-001
     it('should call wizard.reset and reload the window once the operator confirms', async () => {
       // jsdom's `window.location.reload` isn't a configurable own property,
       // so `vi.spyOn` can't redefine it directly — replace `window.location`

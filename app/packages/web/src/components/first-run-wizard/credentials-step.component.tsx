@@ -64,6 +64,7 @@ export interface CredentialsStepProps {
   onSwitchSource: () => void;
 }
 
+// @spec APP-WIZARD-CREDS-006, APP-WIZARD-CREDS-009
 /**
  * Credentials step of the first-run wizard: the operator either picks
  * a discovered `~/.aws` CLI profile or pastes an access key ID/secret

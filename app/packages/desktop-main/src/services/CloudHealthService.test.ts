@@ -57,6 +57,7 @@ beforeEach(() => {
 });
 
 describe('CloudHealthService.getChecks', () => {
+  // @spec APP-WIZARD-HEALTH-004, APP-WIZARD-HEALTH-005
   it('should include exactly one check with id "ecs-service-linked-role"', () => {
     const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
 
@@ -67,6 +68,7 @@ describe('CloudHealthService.getChecks', () => {
   });
 });
 
+// @spec APP-WIZARD-HEALTH-004
 describe('ECS service-linked role check', () => {
   it('should report ok when the role exists', async () => {
     iamMock.on(GetRoleCommand).resolves({ Role: { RoleName: 'AWSServiceRoleForECS' } as never });
@@ -98,6 +100,7 @@ describe('ECS service-linked role check', () => {
 });
 
 describe('ECS service-linked role fix', () => {
+  // @spec APP-WIZARD-HEALTH-006
   it('should report fixed when creation succeeds', async () => {
     iamMock.on(CreateServiceLinkedRoleCommand).resolves({});
     const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
@@ -107,6 +110,7 @@ describe('ECS service-linked role fix', () => {
     expect(result).toEqual({ outcome: 'fixed' });
   });
 
+  // @spec APP-WIZARD-HEALTH-006
   it('should report fixed when the role already exists', async () => {
     const err = Object.assign(new Error('Service linked role already exists'), { name: 'InvalidInputException' });
     iamMock.on(CreateServiceLinkedRoleCommand).rejects(err);
@@ -117,6 +121,7 @@ describe('ECS service-linked role fix', () => {
     expect(result).toEqual({ outcome: 'fixed' });
   });
 
+  // @spec APP-WIZARD-HEALTH-007
   it('should report needsPolicyUpdate with policy JSON and a console URL when access is denied', async () => {
     const err = Object.assign(new Error('not authorized'), { name: 'AccessDeniedException' });
     iamMock.on(CreateServiceLinkedRoleCommand).rejects(err);
@@ -144,6 +149,7 @@ describe('ECS service-linked role fix', () => {
     expect(result.policyConsoleUrl).toBeUndefined();
   });
 
+  // @spec APP-WIZARD-HEALTH-009
   it('should report failed for an unexpected error', async () => {
     iamMock.on(CreateServiceLinkedRoleCommand).rejects(new Error('boom'));
     const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());

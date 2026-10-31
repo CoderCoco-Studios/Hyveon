@@ -16,6 +16,7 @@ export interface AwsRegionInfo {
   continent: string;
 }
 
+// @spec APP-WIZARD-REGION-001, APP-WIZARD-REGION-002
 /** Commercial-partition AWS regions, sorted by continent then region name. */
 export const AWS_REGIONS: AwsRegionInfo[] = [
   { code: 'af-south-1', name: "Africa (Cape Town)", continent: "Africa" },

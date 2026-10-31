@@ -147,6 +147,7 @@ describe('SettingsPage', () => {
   });
 
   describe('Cloud Setup — Pulumi engine version row', () => {
+    // @spec APP-WIZARD-STACK-005
     it('should render the resolved engine version and the pinned version once the read resolves', async () => {
       hyveonMock.iac.settings.engineVersion.mockResolvedValue({ resolvedVersion: '3.255.0' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
@@ -474,6 +475,7 @@ describe('SettingsPage', () => {
       expect(screen.getByRole('button', { name: /^reconfigure$/i })).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-RECONF-001, APP-WIZARD-RECONF-002
     it('should open the wizard on pick-cloud (skipping prerequisites) with completed steps showing an Edit affordance', async () => {
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 
@@ -484,6 +486,7 @@ describe('SettingsPage', () => {
       expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-RECONF-006
     it('should preserve every other stored setting when only the credentials-step region is edited', async () => {
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
@@ -524,6 +527,7 @@ describe('SettingsPage', () => {
       expect(hyveonMock.wizard.saveState).toHaveBeenCalledTimes(1);
     });
 
+    // @spec APP-WIZARD-RECONF-006
     it('should commit only the edited step, and initialize the stack with no renderer-supplied config, when the bootstrap step is left collapsed', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: true,

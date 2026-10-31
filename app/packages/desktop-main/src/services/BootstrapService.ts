@@ -89,6 +89,7 @@ export class BootstrapCredentialsNotConfiguredError extends Error {
   }
 }
 
+// @spec APP-WIZARD-BOOT-001
 /**
  * Performs the first-run wizard's AWS SDK-only bootstrap operations (see
  * `openspec/changes/migrate-iac-to-pulumi`, "cloud-bootstrap" spec) —
@@ -105,6 +106,7 @@ export class BootstrapCredentialsNotConfiguredError extends Error {
 export class BootstrapService {
   constructor(private readonly store: ElectronStoreService) {}
 
+  // @spec APP-WIZARD-BOOT-005, APP-WIZARD-BOOT-006, APP-WIZARD-BOOT-007, APP-WIZARD-BOOT-009
   /**
    * Idempotently ensures the S3 bucket backing the self-managed
    * infrastructure state backend exists with versioning, default (AES256)
@@ -168,6 +170,7 @@ export class BootstrapService {
     return { status: created ? 'created' : 'exists' };
   }
 
+  // @spec APP-WIZARD-BOOT-006, APP-WIZARD-BOOT-008, APP-WIZARD-BOOT-009
   /**
    * Idempotently ensures the versioned configuration S3 bucket exists with a
    * lifecycle rule expiring noncurrent object versions after 90 days,
@@ -255,6 +258,7 @@ export class BootstrapService {
     return { status: created ? 'created' : 'exists' };
   }
 
+  // @spec APP-WIZARD-BOOT-010
   /**
    * Idempotently ensures the {@link CONFIGURATION_OBJECT_KEY} deployment-config
    * JSON object exists in the configuration bucket, seeding a minimal, valid
@@ -365,6 +369,7 @@ export class BootstrapService {
     }
   }
 
+  // @spec APP-WIZARD-BOOT-011
   /**
    * Idempotently ensures the run-history DynamoDB table exists, with the
    * `status-index` GSI and point-in-time recovery enabled — the exact schema
@@ -702,6 +707,7 @@ export class BootstrapService {
     return new S3Client(this.resolveClientConfig());
   }
 
+  // @spec APP-WIZARD-BOOT-003
   private resolveClientConfig(): WizardAwsClientConfig {
     const aws = this.store.get('aws');
     if (!aws?.region) {

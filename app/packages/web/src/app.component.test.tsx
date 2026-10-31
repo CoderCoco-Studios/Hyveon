@@ -84,6 +84,7 @@ describe('App first-run gate', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  // @spec APP-WIZARD-GATE-002
   it('should render the routed shell once the wizard reports it is already complete', async () => {
     stubBridge({ wizard: { getState: vi.fn().mockResolvedValue({ wizardCompleted: true }) } });
 
@@ -92,6 +93,7 @@ describe('App first-run gate', () => {
     expect(await screen.findByTestId('app-shell')).toBeInTheDocument();
   });
 
+  // @spec APP-WIZARD-GATE-001
   it('should render the wizard when the wizard reports it has not been completed', async () => {
     stubBridge({ wizard: { getState: vi.fn().mockResolvedValue({ wizardCompleted: false }) } });
 
@@ -111,6 +113,7 @@ describe('App first-run gate', () => {
     expect(await screen.findByTestId('app-shell')).toBeInTheDocument();
   });
 
+  // @spec APP-WIZARD-GATE-005
   it('should switch straight to the routed shell when the wizard signals completion', async () => {
     stubBridge({ wizard: { getState: vi.fn().mockResolvedValue({ wizardCompleted: false }) } });
 

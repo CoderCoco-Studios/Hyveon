@@ -35,6 +35,7 @@ describe('verifyAccessKeyWithRetry', () => {
     expect(verify).toHaveBeenCalledTimes(3);
   });
 
+  // @spec APP-WIZARD-ROTATE-002
   it('should call sleep with each configured delay in order between failed attempts', async () => {
     const verify = vi
       .fn()

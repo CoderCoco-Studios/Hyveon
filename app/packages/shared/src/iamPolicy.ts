@@ -1,4 +1,5 @@
 // @spec RT-HEALTH-CRED-008
+// @spec APP-WIZARD-POLICY-004
 /**
  * Flattened, deduplicated action set from the `HyveonDeployAll` inline
  * IAM policy. The single source of truth for that policy is the JSON block
@@ -62,6 +63,7 @@ interface HyveonDeployAllStatement {
   readonly Condition?: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
+// @spec APP-WIZARD-POLICY-001, APP-WIZARD-POLICY-002, APP-WIZARD-TMPL-005
 /**
  * The statements of the `HyveonDeployAll` managed policy, structured
  * per-statement (Sid, Effect, Action, Resource) rather than flattened. The
@@ -185,6 +187,7 @@ interface RenderedPolicyStatement {
   readonly Condition?: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
+// @spec APP-WIZARD-TMPL-004, APP-WIZARD-POLICY-003
 /**
  * Builds the full `HyveonDeployAll` managed-policy document — the same
  * policy as the JSON block in `docs/docs/setup.md` — from
@@ -225,6 +228,7 @@ interface FnSub {
   readonly 'Fn::Sub': string;
 }
 
+// @spec APP-WIZARD-TMPL-006
 /**
  * Builds the `HyveonSelfRotate` managed-policy document: a narrow policy,
  * separate from {@link generateHyveonDeployAllPolicy}'s statements

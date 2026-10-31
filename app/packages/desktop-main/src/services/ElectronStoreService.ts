@@ -172,6 +172,7 @@ export interface StoredGameWizardDraft {
   savedAt: string;
 }
 
+// @spec APP-WIZARD-PROG-002
 /**
  * Typed schema for the application's persistent electron-store.
  *
@@ -450,6 +451,7 @@ export class ElectronStoreService {
     };
   }
 
+  // @spec APP-WIZARD-CREDS-004, APP-WIZARD-CREDS-005
   /**
    * Write a pasted-credentials profile to `creds.aws.<profileName>`,
    * encrypting `accessKeyId`/`secretAccessKey` via {@link SafeStorageService}

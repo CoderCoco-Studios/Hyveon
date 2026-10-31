@@ -91,6 +91,7 @@ afterEach(() => {
 });
 
 describe('GuidedIamService.rotate() -> IamCheckService.checkPermissions() integration', () => {
+  // @spec APP-WIZARD-IAMCHK-007
   it('should build checkPermissions() clients from the rotated key (not the bootstrap key) and resolve origin: guided', async () => {
     // rotate() step 1: mint a new key pair using the bootstrap key.
     iamMock.on(CreateAccessKeyCommand).resolves({

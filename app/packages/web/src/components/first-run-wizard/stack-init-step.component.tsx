@@ -57,6 +57,7 @@ function pendingPhases(): Record<StackInitPhase, StackInitPhaseState> {
 }
 
 // @spec IAC-ENGINE-INIT-006, IAC-ENGINE-INIT-007, IAC-ENGINE-PFAIL-005
+// @spec APP-WIZARD-STACK-001, APP-WIZARD-STACK-002, APP-WIZARD-STACK-003, APP-WIZARD-STACK-004
 /**
  * Final step of the first-run wizard: initializes the one Pulumi stack this
  * app manages via `hyveon.iac.stack.initialize()`, rendering a
@@ -165,6 +166,7 @@ export function StackInitializationStep({ onFinished, onBeforeFinish }: StackIni
 
   const retry = useCallback(() => setAttempt((a) => a + 1), []);
 
+  // @spec APP-WIZARD-GATE-005
   async function finish() {
     if (!window.hyveon) {
       setFinishError(BRIDGE_UNAVAILABLE);

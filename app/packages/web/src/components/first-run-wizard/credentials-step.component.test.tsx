@@ -40,6 +40,7 @@ function makeProps(overrides: Partial<CredentialsStepProps> = {}): CredentialsSt
 
 describe('CredentialsStep', () => {
   describe('satisfied by guided provisioning', () => {
+    // @spec APP-WIZARD-CREDS-009
     it('should render the satisfied summary instead of the normal form when satisfiedByGuidedProvisioning is set', () => {
       render(
         <CredentialsStep
@@ -53,6 +54,7 @@ describe('CredentialsStep', () => {
       expect(screen.queryByRole('button', { name: /paste keys instead/i })).not.toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-CREDS-009
     it('should call onSwitchSource when the escape hatch is clicked, so the satisfied summary is never a dead end', async () => {
       const onSwitchSource = vi.fn();
       render(
@@ -77,6 +79,7 @@ describe('CredentialsStep', () => {
     });
   });
   describe('profile mode', () => {
+    // @spec APP-WIZARD-CREDS-006
     it('should populate the dropdown with the discovered profiles', () => {
       render(<CredentialsStep {...makeProps()} />);
 
@@ -109,6 +112,7 @@ describe('CredentialsStep', () => {
       expect(onSelectProfile).toHaveBeenCalledWith('personal');
     });
 
+    // @spec APP-WIZARD-CREDS-007
     it('should default the region field from the selected profile', () => {
       render(<CredentialsStep {...makeProps({ selectedProfileName: 'default', region: 'us-east-1' })} />);
       expect(screen.getByLabelText('Region')).toHaveValue('us-east-1');
@@ -146,6 +150,7 @@ describe('CredentialsStep', () => {
       return makeProps({ mode: 'paste', ...overrides });
     }
 
+    // @spec APP-WIZARD-CREDS-006
     it('should render the paste form fields', () => {
       render(<CredentialsStep {...pasteProps()} />);
       expect(screen.getByLabelText('Access key ID')).toBeInTheDocument();

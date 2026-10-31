@@ -13,6 +13,7 @@ const LABELS: Record<WizardStep, string> = {
 };
 
 describe('WizardStepSidebar', () => {
+  // @spec APP-WIZARD-SHELL-004
   it('should render all five step labels', () => {
     render(<WizardStepSidebar steps={STEPS} currentIndex={2} labels={LABELS} />);
 
@@ -21,6 +22,7 @@ describe('WizardStepSidebar', () => {
     }
   });
 
+  // @spec APP-WIZARD-SHELL-004
   it('should mark steps before currentIndex as completed', () => {
     render(<WizardStepSidebar steps={STEPS} currentIndex={2} labels={LABELS} />);
 
@@ -43,6 +45,7 @@ describe('WizardStepSidebar', () => {
     expect(screen.getByText(LABELS['stack-init']).closest('li')).toHaveAttribute('data-state', 'upcoming');
   });
 
+  // @spec APP-WIZARD-SHELL-005
   it('should render no interactive step entries', () => {
     render(<WizardStepSidebar steps={STEPS} currentIndex={2} labels={LABELS} />);
 

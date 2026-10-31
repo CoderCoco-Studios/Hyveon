@@ -50,6 +50,7 @@ function makeStoreWithUndecryptableCredentials(profile: string, cause: unknown):
 }
 
 describe('resolveAwsCredentialSource', () => {
+  // @spec APP-WIZARD-CUSTODY-001
   it('should resolve kind "none" when no profile is stored', () => {
     const store = makeStore(undefined);
 
@@ -59,6 +60,7 @@ describe('resolveAwsCredentialSource', () => {
     expect(store.getPastedCredentials).not.toHaveBeenCalled();
   });
 
+  // @spec APP-WIZARD-CUSTODY-001
   it('should resolve kind "pasted" with decrypted keys when the profile matches a pasted-credentials entry', () => {
     const store = makeStore('hyveon-pasted', { accessKeyId: 'AKID', secretAccessKey: 'SECRET' });
 
@@ -68,6 +70,7 @@ describe('resolveAwsCredentialSource', () => {
     expect(store.getPastedCredentials).toHaveBeenCalledWith('hyveon-pasted');
   });
 
+  // @spec APP-WIZARD-CUSTODY-001
   it('should resolve kind "profile" when the stored profile has no pasted-credentials entry', () => {
     const store = makeStore('default', undefined);
 
@@ -86,6 +89,7 @@ describe('resolveAwsCredentialSource', () => {
     expect(source.kind).toBe('pasted');
   });
 
+  // @spec APP-WIZARD-CUSTODY-002
   /**
    * Regression tests for Finding 4 (final whole-branch review):
    * `ElectronStoreService.getPastedCredentials` → `SafeStorageService.decrypt`
@@ -118,6 +122,7 @@ describe('resolveAwsCredentialSource', () => {
     expect(() => resolveAwsCredentialSource(store)).toThrow(/hyveon-pasted/);
   });
 
+  // @spec APP-WIZARD-CUSTODY-002
   it('should log a warning (not let the raw decrypt error escape unlogged) when getPastedCredentials throws', () => {
     const cause = new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.');
     const store = makeStoreWithUndecryptableCredentials('hyveon-pasted', cause);
@@ -154,6 +159,7 @@ describe('resolveAwsCredentialSource', () => {
  * credentials rotation.
  */
 describe('resolveAwsClientCredentialsWithSignature', () => {
+  // @spec APP-WIZARD-CUSTODY-003
   it('should resolve credentials undefined and signature "none" when no profile is stored', () => {
     const store = makeStore(undefined);
 
@@ -163,6 +169,7 @@ describe('resolveAwsClientCredentialsWithSignature', () => {
     expect(resolved.signature).toBe('none');
   });
 
+  // @spec APP-WIZARD-CUSTODY-003
   it('should resolve static keys and a signature derived from the profile and access key for a pasted entry', () => {
     const store = makeStore('hyveon-pasted', { accessKeyId: 'AKID', secretAccessKey: 'SECRET' });
 
@@ -172,6 +179,7 @@ describe('resolveAwsClientCredentialsWithSignature', () => {
     expect(resolved.signature).toBe('pasted:hyveon-pasted:AKID');
   });
 
+  // @spec APP-WIZARD-CUSTODY-003
   it('should resolve a fromIni provider function and a signature derived from the profile name for a real CLI profile', () => {
     const store = makeStore('default', undefined);
 

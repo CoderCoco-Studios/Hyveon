@@ -107,6 +107,8 @@ export interface IamCheckResult {
 export class IamCheckService {
   constructor(private readonly store: ElectronStoreService) {}
 
+  // @spec APP-WIZARD-IAMCHK-001, APP-WIZARD-IAMCHK-003, APP-WIZARD-IAMCHK-004, APP-WIZARD-IAMCHK-005,
+  // @spec APP-WIZARD-IAMCHK-007
   /**
    * Runs the dry-run and returns a `passed` / `missing` / `warning` result.
    *

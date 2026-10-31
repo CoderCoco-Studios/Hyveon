@@ -88,6 +88,7 @@ describe('BootstrapStep', () => {
     expect(screen.queryByText('Public access blocked')).not.toBeInTheDocument();
   });
 
+  // @spec APP-WIZARD-BOOT-014
   it('should report a failed resource without masking its sibling — one row shows failed, the other shows created independently', () => {
     renderStep({
       statuses: { ...PENDING, stateBucket: 'created', configurationBucket: 'failed' },
@@ -174,12 +175,14 @@ describe('BootstrapStep', () => {
   });
 
   describe('IAM panel states', () => {
+    // @spec APP-WIZARD-IAMCHK-002
     it('should render a passed message when the check reports passed', () => {
       const passed: IamCheckResult = { status: 'passed', origin: 'profile', blocking: false };
       renderStep({ iamCheck: passed });
       expect(screen.getByText(/all required permissions are present/i)).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-IAMCHK-003
     it('should render the policy JSON when the check reports missing actions', () => {
       const missing: IamCheckResult = {
         status: 'missing',
@@ -192,6 +195,7 @@ describe('BootstrapStep', () => {
       expect(screen.getByText(/"Version": "2012-10-17"/)).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-IAMCHK-003
     it('should copy the policy JSON to the clipboard when the copy button is clicked', async () => {
       const writeText = vi.fn().mockResolvedValue(undefined);
       Object.assign(navigator, { clipboard: { writeText } });
@@ -208,6 +212,7 @@ describe('BootstrapStep', () => {
       expect(writeText).toHaveBeenCalledWith('{"Version":"2012-10-17"}');
     });
 
+    // @spec APP-WIZARD-IAMCHK-004
     it('should render the warning message and full action checklist when simulation itself fails', () => {
       const warning: IamCheckResult = {
         status: 'warning',

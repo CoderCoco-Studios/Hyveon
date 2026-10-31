@@ -86,6 +86,7 @@ export interface UseReconfigureAnswersResult {
   commitReconfigureAnswers: () => Promise<void>;
 }
 
+// @spec APP-WIZARD-RECONF-002, APP-WIZARD-RECONF-003, APP-WIZARD-RECONF-004, APP-WIZARD-RECONF-005
 /**
  * Owns Reconfigure mode's pre-completed-steps bookkeeping: which steps start
  * collapsed, the prefill effect that rehydrates their summaries from
@@ -200,6 +201,7 @@ export function useReconfigureAnswers({
     });
   }
 
+  // @spec APP-WIZARD-RECONF-006
   /**
    * Commits whichever answers were actually opened via Edit in one
    * `wizard.state.save` call, passed to `StackInitializationStep` as

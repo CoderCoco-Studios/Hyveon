@@ -124,6 +124,7 @@ function manualCheckLabel(state: ManualCheckState, appVersion: string | null): s
       : "You're up to date.";
 }
 
+// @spec APP-WIZARD-RECONF-001, APP-WIZARD-STACK-005, APP-WIZARD-HEALTH-001
 /**
  * Settings route (`/settings`) — watchdog config + the deployment-settings
  * form (`DeploymentSettingsForm`) for every top-level `DeploymentConfig`

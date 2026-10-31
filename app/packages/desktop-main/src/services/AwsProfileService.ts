@@ -138,6 +138,7 @@ export class AwsProfileService {
     private readonly store: ElectronStoreService,
   ) {}
 
+  // @spec APP-WIZARD-CREDS-001, APP-WIZARD-CREDS-002
   /**
    * Lists every profile found across `~/.aws/credentials` and
    * `~/.aws/config`, sorted alphabetically by name. Only `profileName` and
@@ -169,6 +170,7 @@ export class AwsProfileService {
       });
   }
 
+  // @spec APP-WIZARD-CREDS-004, APP-WIZARD-KEYCH-003, APP-WIZARD-CUSTODY-008
   /**
    * Saves pasted AWS credentials from the wizard's "paste keys instead" flow.
    * Defaults `profileName` to {@link DEFAULT_PASTED_PROFILE_NAME} when
@@ -193,6 +195,8 @@ export class AwsProfileService {
     return { profileName };
   }
 
+  // @spec APP-WIZARD-ROTKEY-001, APP-WIZARD-ROTKEY-002, APP-WIZARD-ROTKEY-003, APP-WIZARD-ROTKEY-004,
+  // @spec APP-WIZARD-CUSTODY-008
   /**
    * Rotates the access key pair behind whatever credential source is
    * currently active — a general-purpose "rotate whatever is currently

@@ -548,6 +548,7 @@ const api: HyveonApi = {
     get: () => invoke('env.get'),
   },
 
+  // @spec APP-WIZARD-BOOT-015
   wizard: {
     listAwsProfiles: () => invoke<AwsProfileSummary[]>('wizard.aws.listProfiles'),
     saveCredentials: (input: SavePastedCredentialsInput) =>

@@ -43,6 +43,7 @@ export interface WizardProgress {
 /** Progress returned when the state file is missing, unreadable, or holds an unrecognized step name. */
 const DEFAULT_PROGRESS: WizardProgress = { step: 'pick-cloud' };
 
+// @spec APP-WIZARD-PROG-001, APP-WIZARD-PROG-002
 /**
  * Owns the first-run wizard's resumable step-progress file
  * (`userData/wizard-state.json`; corrupt or missing state starts at step 1). Durable
@@ -57,6 +58,7 @@ const DEFAULT_PROGRESS: WizardProgress = { step: 'pick-cloud' };
 export class FirstRunWizardService {
   constructor(private readonly store: ElectronStoreService) {}
 
+  // @spec APP-WIZARD-PROG-005, APP-WIZARD-PROG-006
   /**
    * Reads the last-recorded step, defaulting to `pick-cloud` when the file
    * is missing, unreadable, or corrupt. `guidedIam` is validated the same
@@ -79,6 +81,7 @@ export class FirstRunWizardService {
     }
   }
 
+  // @spec APP-WIZARD-PROG-001, APP-WIZARD-PROG-007
   /**
    * Persists `step` (and, once the guided-IAM step has made progress, its
    * `guidedIam` sub-state) so the wizard resumes here if the app is closed
@@ -154,6 +157,7 @@ export class FirstRunWizardService {
     return { subState: candidate.subState as GuidedIamSubState, hasBootstrapKey: candidate.hasBootstrapKey };
   }
 
+  // @spec APP-WIZARD-GATE-005
   /**
    * Marks the wizard complete. Setting `wizardCompleted: true` in
    * `ElectronStoreService` is what actually gates the app router past the
@@ -178,6 +182,7 @@ export class FirstRunWizardService {
     logger.info('FirstRunWizardService: wizard marked complete');
   }
 
+  // @spec APP-WIZARD-RESET-003
   /**
    * Resets the wizard back to its pre-first-run state: removes the resumable
    * `wizard-state.json` and clears every wizard-collected answer from
@@ -212,6 +217,7 @@ export class FirstRunWizardService {
     return join(this.userDataPath(), 'wizard-state.json');
   }
 
+  // @spec APP-WIZARD-PROG-003
   /**
    * Resolves a writable per-user directory: the Electron `userData` path
    * when running inside Electron, or a namespaced OS temp subdirectory in

@@ -23,6 +23,7 @@ export interface GuidedIamIntakeScreenProps {
   onSubmit: () => void;
 }
 
+// @spec APP-WIZARD-GSTEP-005
 /** `intake`/`rotating` phases: the access-key-pair form, then a spinner while `guidedIamRotate()` runs. */
 export function GuidedIamIntakeScreen({
   isRotating,

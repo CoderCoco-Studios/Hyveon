@@ -22,6 +22,7 @@ const _require = createRequire(import.meta.url);
  */
 @Injectable()
 export class SafeStorageService {
+  // @spec APP-WIZARD-CUSTODY-006
   /**
    * Returns `true` when encryption is available — i.e. the service is running
    * inside an Electron process **and** the OS keychain (Keychain, libsecret,
@@ -32,6 +33,7 @@ export class SafeStorageService {
     return this.readIsAvailable();
   }
 
+  // @spec APP-WIZARD-CREDS-005
   /**
    * Encrypt `plaintext` using Electron's `safeStorage.encryptString()` and
    * return the result as a base64-encoded string suitable for storage.
@@ -62,6 +64,7 @@ export class SafeStorageService {
     }
   }
 
+  // @spec APP-WIZARD-CREDS-005
   /**
    * Decrypt a base64-encoded ciphertext produced by {@link encrypt} back to
    * its original plaintext using Electron's `safeStorage.decryptString()`.

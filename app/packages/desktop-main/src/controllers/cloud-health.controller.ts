@@ -12,6 +12,7 @@ export interface CloudHealthCheckSummary {
   message?: string;
 }
 
+// @spec APP-WIZARD-HEALTH-005
 /**
  * IPC-only Cloud Health controller. Surfaces the account-prerequisite
  * checklist from {@link CloudHealthService} to the Settings page via
@@ -21,6 +22,7 @@ export interface CloudHealthCheckSummary {
 export class CloudHealthController {
   constructor(private readonly cloudHealth: CloudHealthService) {}
 
+  // @spec APP-WIZARD-HEALTH-001
   /** Returns a status summary for every registered Cloud Health check. */
   @MessagePattern('cloudHealth.list')
   async list(): Promise<CloudHealthCheckSummary[]> {

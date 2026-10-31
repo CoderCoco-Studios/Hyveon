@@ -1965,6 +1965,7 @@ export interface RevokeBootstrapKeyResult {
   message?: string;
 }
 
+// @spec APP-WIZARD-BOOT-015, APP-WIZARD-CREDS-003
 /** First-run wizard endpoints (see `openspec/changes/add-first-run-wizard`). */
 export interface HyveonWizardApi {
   /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */

@@ -119,6 +119,7 @@ describe('WizardController', () => {
   });
 
   describe('@MessagePattern channel names', () => {
+    // @spec APP-WIZARD-BOOT-015
     it('should register every channel', () => {
       expectChannels(WizardController.prototype, [
         ['listAwsProfiles', 'wizard.aws.listProfiles'],
@@ -142,6 +143,7 @@ describe('WizardController', () => {
     });
   });
 
+  // @spec APP-WIZARD-CREDS-003
   describe('listAwsProfiles', () => {
     it('should return the profiles produced by AwsProfileService.listProfiles', async () => {
       const awsProfiles = makeAwsProfiles();
@@ -200,6 +202,7 @@ describe('WizardController', () => {
   });
 
   describe('getState', () => {
+    // @spec APP-WIZARD-GATE-001
     it('should return wizardCompleted: false when the store has never set it and test mode is off', () => {
       const controller = makeController({ store: makeStore() });
       vi.spyOn(controller as unknown as { isTestMode(): boolean }, 'isTestMode').mockReturnValue(false);
@@ -221,6 +224,7 @@ describe('WizardController', () => {
       expect(controller.getState()).toEqual({ wizardCompleted: false, activeCloud: undefined });
     });
 
+    // @spec APP-WIZARD-GATE-002
     it('should return wizardCompleted: true once the store has it set', () => {
       const result = makeController({ store: makeStore({ wizardCompleted: true }) }).getState();
       expect(result).toEqual({ wizardCompleted: true, activeCloud: undefined });
@@ -249,6 +253,7 @@ describe('WizardController', () => {
     });
   });
 
+  // @spec APP-WIZARD-GATE-006
   describe('saveState', () => {
     it('should persist activeCloud to the store and return the updated state', () => {
       const store = makeStore({ wizardCompleted: false });
@@ -270,6 +275,7 @@ describe('WizardController', () => {
       expect(result).toEqual({ wizardCompleted: true, activeCloud: 'aws' });
     });
 
+    // @spec APP-WIZARD-CLOUD-003
     it('should throw and write nothing when activeCloud is not the supported "aws" value', () => {
       const store = makeStore({ wizardCompleted: false });
       const controller = makeController({ store });
@@ -294,6 +300,7 @@ describe('WizardController', () => {
       });
     });
 
+    // @spec APP-WIZARD-CREDS-008, APP-WIZARD-RECONF-006
     it('should merge a partial aws update onto the existing stored value', () => {
       const store = makeStore({ wizardCompleted: false, aws: { profile: 'default', region: 'us-east-1' } });
       const controller = makeController({ store });
@@ -453,6 +460,7 @@ describe('WizardController', () => {
   });
 
   describe('saveProgress', () => {
+    // @spec APP-WIZARD-PROG-001
     it('should delegate to FirstRunWizardService.recordStep with the given step', async () => {
       const firstRunWizard = makeFirstRunWizard();
 
@@ -472,6 +480,7 @@ describe('WizardController', () => {
   });
 
   describe('complete', () => {
+    // @spec APP-WIZARD-GATE-005
     it('should call FirstRunWizardService.complete and return the resulting wizard state', async () => {
       const firstRunWizard = makeFirstRunWizard();
       const store = makeStore({ wizardCompleted: true, activeCloud: 'aws' });
@@ -527,6 +536,7 @@ describe('WizardController', () => {
   });
 
   describe('reset', () => {
+    // @spec APP-WIZARD-RESET-003
     it('should call FirstRunWizardService.reset and return the resulting wizard state', async () => {
       const firstRunWizard = makeFirstRunWizard();
       const store = makeStore({ wizardCompleted: false });

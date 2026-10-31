@@ -61,6 +61,7 @@ export interface BootstrapStepProps {
   onRunIamCheck: () => void;
 }
 
+// @spec APP-WIZARD-BOOT-014
 /**
  * Fourth step of the first-run wizard: provisions the two backend resources (state
  * bucket, configuration bucket) via granular per-resource IPC calls, then

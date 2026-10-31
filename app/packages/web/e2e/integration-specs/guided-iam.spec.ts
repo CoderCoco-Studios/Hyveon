@@ -70,6 +70,7 @@ test.beforeEach(() => {
 
 test.describe('Guided IAM bootstrap — wizard.guidedIam.* channels', () => {
   test.describe('wizard.guidedIam.prepareTemplate', () => {
+    // @spec APP-WIZARD-TMPL-003, APP-WIZARD-TMPL-011
     test('should render iam-bootstrap.yaml to a real file on disk with both policy placeholders substituted', async ({ ipc }) => {
       const result = await ipc.dispatch(WizardController, 'prepareGuidedIamTemplate');
 
@@ -81,6 +82,7 @@ test.describe('Guided IAM bootstrap — wizard.guidedIam.* channels', () => {
   });
 
   test.describe('wizard.guidedIam.openConsole', () => {
+    // @spec APP-WIZARD-CONSOLE-004
     test('should return opened: false with the console URL as text when Electron is unavailable in this process', async ({ ipc }) => {
       // Sanity-check the assumption this test relies on rather than just
       // asserting it: this Playwright process has no Electron runtime, so
@@ -100,6 +102,7 @@ test.describe('Guided IAM bootstrap — wizard.guidedIam.* channels', () => {
   });
 
   test.describe('wizard.guidedIam.submitBootstrapKey', () => {
+    // @spec APP-WIZARD-INTAKE-001
     test('should return the resolved account ID for a valid bootstrap key pair', async ({ ipc }) => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
 
@@ -116,6 +119,7 @@ test.describe('Guided IAM bootstrap — wizard.guidedIam.* channels', () => {
       expect(calls).toHaveLength(1);
     });
 
+    // @spec APP-WIZARD-INTAKE-003
     test('should propagate the raw AWS error unchanged through the IPC dispatch for an invalid bootstrap key pair', async ({ ipc }) => {
       // Matches GuidedIamService.intakeBootstrapKey()'s documented contract
       // (GuidedIamService.ts: "the underlying AWS SDK error propagates
@@ -142,6 +146,7 @@ test.describe('Guided IAM bootstrap — wizard.guidedIam.* channels', () => {
   });
 
   test.describe('wizard.guidedIam.rotate', () => {
+    // @spec APP-WIZARD-ROTATE-001, APP-WIZARD-ROTATE-003
     test('should reach status: complete after CreateAccessKey -> GetCallerIdentity -> DeleteAccessKey all succeed', async ({ ipc }) => {
       forceKeychainAvailable(ipc.get(SafeStorageService));
       iamMock.on(CreateAccessKeyCommand).resolves({
@@ -172,6 +177,7 @@ test.describe('Guided IAM bootstrap — wizard.guidedIam.* channels', () => {
   });
 
   test.describe('wizard.guidedIam.revokeBootstrapKey', () => {
+    // @spec APP-WIZARD-ROTATE-006
     test('should refuse without throwing when no active AWS credential source is configured', async ({ ipc }) => {
       const result = await ipc.dispatch(WizardController, 'revokeGuidedIamBootstrapKey', {
         bootstrapAccessKeyId: 'AKIABOOTSTRAPTEST',
@@ -183,6 +189,7 @@ test.describe('Guided IAM bootstrap — wizard.guidedIam.* channels', () => {
       expect(iamMock.commandCalls(DeleteAccessKeyCommand)).toHaveLength(0);
     });
 
+    // @spec APP-WIZARD-ROTATE-005, APP-WIZARD-ROTATE-006
     test('should revoke the still-live bootstrap key on the delete-failed manual-retry path', async ({ ipc }) => {
       // Drives rotate() into its delete-failed branch first (the one real
       // caller of revokeBootstrapKey documented on the service): the new key

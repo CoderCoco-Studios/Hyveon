@@ -178,6 +178,8 @@ export class GuidedIamService {
     private readonly safeStorage: SafeStorageService,
   ) {}
 
+  // @spec APP-WIZARD-TMPL-003, APP-WIZARD-TMPL-010
+  // @spec APP-WIZARD-TMPL-001, APP-WIZARD-TMPL-002, APP-WIZARD-TMPL-007
   /**
    * Renders `iam-bootstrap.yaml` (located via
    * {@link resolveCloudFormationTemplatePath}) by substituting its two
@@ -216,6 +218,7 @@ export class GuidedIamService {
     return { path: outputPath };
   }
 
+  // @spec APP-WIZARD-CONSOLE-002, APP-WIZARD-CONSOLE-003
   /**
    * Build the AWS CloudFormation console URL scoped to the given region,
    * pointing to the "Create stack" page with no pre-filled template URL
@@ -242,6 +245,7 @@ export class GuidedIamService {
     return `https://${region}.console.aws.amazon.com/cloudformation/home?region=${region}#/stacks/create`;
   }
 
+  // @spec APP-WIZARD-CONSOLE-004
   /**
    * Launch the operator's default browser at `url` (the CloudFormation
    * console page from {@link buildCloudFormationConsoleUrl}) via Electron's
@@ -293,6 +297,7 @@ export class GuidedIamService {
     }
   }
 
+  // @spec APP-WIZARD-INTAKE-001, APP-WIZARD-INTAKE-003, APP-WIZARD-INTAKE-006
   /**
    * Validate an operator-submitted bootstrap access key pair by calling
    * `sts:GetCallerIdentity` with it, returning the resolved AWS account ID
@@ -344,6 +349,9 @@ export class GuidedIamService {
     }
   }
 
+  // @spec APP-WIZARD-ROTATE-001, APP-WIZARD-ROTATE-002, APP-WIZARD-ROTATE-003, APP-WIZARD-ROTATE-004,
+  // @spec APP-WIZARD-ROTATE-005, APP-WIZARD-KEYCH-001, APP-WIZARD-CUSTODY-008, APP-WIZARD-INTAKE-006,
+  // @spec APP-WIZARD-IAMCHK-007
   /**
    * Performs the mandatory mint-then-revoke rotation of the validated
    * bootstrap key, in this exact sequence (load-bearing — do not reorder):
@@ -513,6 +521,7 @@ export class GuidedIamService {
     return { status: 'complete' };
   }
 
+  // @spec APP-WIZARD-ROTATE-006, APP-WIZARD-INTAKE-006
   /**
    * Revokes the still-live bootstrap access key via `iam:DeleteAccessKey` —
    * the manual-retry action for {@link rotate}'s `delete-failed` outcome.
@@ -718,6 +727,7 @@ export class GuidedIamService {
     }
   }
 
+  // @spec APP-WIZARD-TMPL-011
   /**
    * Resolve the absolute path {@link renderTemplate} writes the rendered
    * template to (no env-var override here, since this is a scratch render

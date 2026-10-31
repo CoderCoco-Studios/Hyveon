@@ -495,6 +495,7 @@ describe('ElectronStoreService — getPastedCredentials / setPastedCredentials',
     );
   });
 
+  // @spec APP-WIZARD-CREDS-004, APP-WIZARD-CREDS-005
   it('should encrypt accessKeyId/secretAccessKey before storing under creds.aws.<profileName>', () => {
     service.setPastedCredentials('hyveon-pasted', {
       accessKeyId: 'AKID123',
@@ -506,6 +507,7 @@ describe('ElectronStoreService — getPastedCredentials / setPastedCredentials',
     expect(stored).toEqual({ accessKeyId: 'enc-AKID123', secretAccessKey: 'enc-SECRET456', region: 'us-east-1' });
   });
 
+  // @spec APP-WIZARD-CREDS-005
   it('should decrypt accessKeyId/secretAccessKey when reading a pasted profile', () => {
     service.setPastedCredentials('hyveon-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
 

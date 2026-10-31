@@ -61,6 +61,8 @@ export interface FirstRunWizardProps {
   onCancel?: () => void;
 }
 
+// @spec APP-WIZARD-GATE-006, APP-WIZARD-SHELL-001, APP-WIZARD-SHELL-002, APP-WIZARD-SHELL-003, APP-WIZARD-SHELL-006,
+// @spec APP-WIZARD-RESET-002, APP-WIZARD-RECONF-001
 /**
  * Self-contained first-run wizard: owns its own step index, the pick-cloud
  * selection, and the credentials-step state (profile list, mode, selection,
@@ -128,6 +130,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     onComplete?.();
   }
 
+  // @spec APP-WIZARD-RESET-001
   /**
    * First-run-only "Start over" affordance — the operator-facing escape
    * hatch for a wizard stuck in a bad state, with no other route to recover
@@ -158,6 +161,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     }
   }
 
+  // @spec APP-WIZARD-GSTEP-003
   /**
    * `GuidedIamStep`'s `onComplete` — guided provisioning finished and the
    * rotated key is now the active AWS credential. Re-derives
@@ -185,6 +189,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     void goNext();
   }
 
+  // @spec APP-WIZARD-GSTEP-002
   /**
    * `GuidedIamStep`'s `onSkipToManual` — the operator chose "I already have
    * credentials" instead of guided provisioning. Advances past this step the
@@ -199,6 +204,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     void goNext();
   }
 
+  // @spec APP-WIZARD-CREDS-009
   /**
    * Credentials step's "Switch to a different source" escape hatch off the
    * satisfied-by-guided-provisioning summary — clears the shell's own
@@ -230,6 +236,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // local form state, which for an unopened step may not even be prefilled yet.
   const stepCollapsed = mode === 'reconfigure' && completedSteps.has(step);
 
+  // @spec APP-WIZARD-SHELL-007, APP-WIZARD-IAMCHK-006
   const advanceDisabled = stepCollapsed
     ? false
     : step === 'credentials'
@@ -248,6 +255,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // real evidence of prior guided provisioning already on record) is the
   // one case Next stays visible for this step, matching every other
   // pre-completed Reconfigure summary's "just click Next past it" behavior.
+  // @spec APP-WIZARD-SHELL-008
   const hideNextButton = step === 'stack-init' || (step === 'guided-iam' && !stepCollapsed);
 
   /**
@@ -281,6 +289,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     return true;
   }
 
+  // @spec APP-WIZARD-CLOUD-002, APP-WIZARD-CREDS-008, APP-WIZARD-BOOT-016
   /**
    * Advances past the current step. In `'first-run'` mode, leaving
    * `pick-cloud`, `credentials`, or `bootstrap` persists the choice via

@@ -64,6 +64,7 @@ afterEach(() => {
 
 describe('GuidedIamStep', () => {
   describe('region and choice screen', () => {
+    // @spec APP-WIZARD-GSTEP-001
     it('should render the region input and both choice actions on a fresh mount', () => {
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
 
@@ -72,6 +73,7 @@ describe('GuidedIamStep', () => {
       expect(screen.getByRole('button', { name: /i already have credentials/i })).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-GSTEP-002
     it('should call onSkipToManual immediately when "I already have credentials" is clicked', async () => {
       const onSkipToManual = vi.fn();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={onSkipToManual} />);
@@ -82,6 +84,7 @@ describe('GuidedIamStep', () => {
       expect(hyveonMock.wizard.saveProgress).not.toHaveBeenCalled();
     });
 
+    // @spec APP-WIZARD-REGION-005
     it('should reject an empty region instead of advancing', async () => {
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
 
@@ -91,6 +94,7 @@ describe('GuidedIamStep', () => {
       expect(hyveonMock.wizard.guidedIamPrepareTemplate).not.toHaveBeenCalled();
     });
 
+    // @spec APP-WIZARD-GSTEP-004, APP-WIZARD-REGION-005
     it('should persist not-started before rendering the template on the guided path', async () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
@@ -107,6 +111,7 @@ describe('GuidedIamStep', () => {
       await waitFor(() => expect(hyveonMock.wizard.guidedIamPrepareTemplate).toHaveBeenCalledTimes(1));
     });
 
+    // @spec APP-WIZARD-REGION-003
     it('should render regions grouped by continent with location labels', async () => {
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
 
@@ -118,6 +123,7 @@ describe('GuidedIamStep', () => {
       expect(screen.getByRole('option', { name: 'Other (enter manually)' })).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-REGION-003
     it('should set the region and enable continuing once a dropdown option is selected', async () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
@@ -134,6 +140,7 @@ describe('GuidedIamStep', () => {
       await waitFor(() => expect(hyveonMock.wizard.guidedIamPrepareTemplate).toHaveBeenCalledTimes(1));
     });
 
+    // @spec APP-WIZARD-REGION-004
     it('should fall back to free-text entry for a region not in the static list, and accept it', async () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
@@ -149,6 +156,7 @@ describe('GuidedIamStep', () => {
   });
 
   describe('template screen', () => {
+    // @spec APP-WIZARD-CONSOLE-001
     it('should show the rendered template path and never persist secret material', async () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
@@ -198,6 +206,7 @@ describe('GuidedIamStep', () => {
       expect(screen.queryByText(/copied/i)).not.toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-CONSOLE-002
     it('should open the AWS console and show a success message when opened', async () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
@@ -212,6 +221,7 @@ describe('GuidedIamStep', () => {
       expect(hyveonMock.wizard.guidedIamOpenConsole).toHaveBeenCalledWith({ region: 'us-east-1' });
     });
 
+    // @spec APP-WIZARD-CONSOLE-004
     it('should show the console URL as text when the browser could not be opened', async () => {
       stubHappyPathDefaults();
       hyveonMock.wizard.guidedIamOpenConsole.mockResolvedValue({
@@ -248,6 +258,7 @@ describe('GuidedIamStep', () => {
       expect(screen.getByRole('button', { name: /continue to key entry/i })).toBeEnabled();
     });
 
+    // @spec APP-WIZARD-GSTEP-004
     it('should persist awaiting-key-intake and move to the intake form on "Continue to key entry"', async () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
@@ -267,6 +278,8 @@ describe('GuidedIamStep', () => {
   });
 
   describe('key intake and rotation', () => {
+    // @spec APP-WIZARD-INTAKE-001, APP-WIZARD-INTAKE-005, APP-WIZARD-ROTATE-001, APP-WIZARD-GSTEP-004,
+    // @spec APP-WIZARD-GSTEP-003
     it('should validate the key, persist rotation-pending, rotate, and call onComplete on success', async () => {
       stubHappyPathDefaults();
       const onComplete = vi.fn();
@@ -311,6 +324,7 @@ describe('GuidedIamStep', () => {
       }
     });
 
+    // @spec APP-WIZARD-INTAKE-003
     it('should show an inline error and stay on the intake screen when key validation fails', async () => {
       stubHappyPathDefaults();
       hyveonMock.wizard.guidedIamSubmitBootstrapKey.mockRejectedValue(new Error('invalid bootstrap key'));
@@ -328,6 +342,7 @@ describe('GuidedIamStep', () => {
   });
 
   describe('rotation outcomes', () => {
+    // @spec APP-WIZARD-ROTATE-004
     it('should render a distinct verification-failed screen and retry with the same key on demand', async () => {
       stubHappyPathDefaults();
       hyveonMock.wizard.guidedIamRotate
@@ -386,6 +401,7 @@ describe('GuidedIamStep', () => {
       expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledTimes(callCountAtFailure);
     });
 
+    // @spec APP-WIZARD-ROTATE-005
     it('should render a distinct delete-failed screen with a Revoke action and console URL', async () => {
       stubHappyPathDefaults();
       hyveonMock.wizard.guidedIamRotate.mockResolvedValue({
@@ -408,6 +424,7 @@ describe('GuidedIamStep', () => {
       expect(screen.queryByRole('button', { name: /continue without revoking/i })).not.toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-ROTATE-006
     it('should call onComplete and persist complete when Revoke now succeeds', async () => {
       stubHappyPathDefaults();
       hyveonMock.wizard.guidedIamRotate.mockResolvedValue({
@@ -466,6 +483,7 @@ describe('GuidedIamStep', () => {
   });
 
   describe('resume semantics', () => {
+    // @spec APP-WIZARD-GSTEP-005
     it('should resume directly into the intake screen with a banner and pre-filled region when a region is recoverable', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({ wizardCompleted: false, aws: { region: 'eu-west-1' } });
 

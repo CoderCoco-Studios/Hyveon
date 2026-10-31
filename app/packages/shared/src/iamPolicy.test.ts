@@ -106,6 +106,7 @@ function extractDocStatements(
 }
 
 describe('HYVEON_DEPLOY_ALL_ACTIONS', () => {
+  // @spec APP-WIZARD-POLICY-003
   it('should stay in sync with the HyveonDeployAll policy JSON in docs/docs/setup.md', () => {
     const docActions = extractDocActions();
 
@@ -114,6 +115,7 @@ describe('HYVEON_DEPLOY_ALL_ACTIONS', () => {
 });
 
 describe('generateHyveonDeployAllPolicy', () => {
+  // @spec APP-WIZARD-TMPL-004, APP-WIZARD-POLICY-003
   it('should match the HyveonDeployAll policy JSON in docs/docs/setup.md Sid-for-Sid and action-for-action', () => {
     const docStatements = extractDocStatements(DEFAULT_PROJECT_NAME);
     const generatedStatements = generateHyveonDeployAllPolicy().Statement.map((statement) => ({
@@ -129,6 +131,7 @@ describe('generateHyveonDeployAllPolicy', () => {
     });
   });
 
+  // @spec APP-WIZARD-TMPL-004, APP-WIZARD-TMPL-005, APP-WIZARD-POLICY-001, APP-WIZARD-POLICY-002
   it('should match the HyveonDeployAll policy JSON in docs/docs/setup.md statement-for-statement, including Effect and Resource', () => {
     const docStatements = extractDocStatements(DEFAULT_PROJECT_NAME);
     const generatedStatements = generateHyveonDeployAllPolicy(DEFAULT_PROJECT_NAME).Statement.map((statement) => ({
@@ -152,6 +155,7 @@ describe('generateHyveonDeployAllPolicy', () => {
 });
 
 describe('generateHyveonSelfRotatePolicy', () => {
+  // @spec APP-WIZARD-TMPL-006
   it('should grant exactly the three self-rotate actions scoped to the UserName parameter via Fn::Sub', () => {
     const policy = generateHyveonSelfRotatePolicy();
 
@@ -174,6 +178,7 @@ describe('generateHyveonSelfRotatePolicy', () => {
 });
 
 describe('HYVEON_DEPLOY_ALL_STATEMENTS', () => {
+  // @spec APP-WIZARD-POLICY-004
   it('should have a flattened, deduplicated action set matching HYVEON_DEPLOY_ALL_ACTIONS', () => {
     const statementActions = [...new Set(HYVEON_DEPLOY_ALL_STATEMENTS.flatMap((s) => normalizeActions(s.Action)))];
 

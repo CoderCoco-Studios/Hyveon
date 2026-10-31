@@ -12,6 +12,7 @@ export interface WizardStepSidebarProps {
   labels: Record<WizardStep, string>;
 }
 
+// @spec APP-WIZARD-SHELL-003, APP-WIZARD-SHELL-004, APP-WIZARD-SHELL-005
 /**
  * Non-interactive progress list for the first-run wizard shell.
  *

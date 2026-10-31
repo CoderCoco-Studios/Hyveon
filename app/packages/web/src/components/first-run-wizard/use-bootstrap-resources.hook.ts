@@ -60,6 +60,7 @@ export interface UseBootstrapResourcesResult {
   runIamCheck: () => Promise<void>;
 }
 
+// @spec APP-WIZARD-BOOT-013
 /**
  * Owns every piece of state the first-run wizard's bootstrap step needs:
  * editable resource names, per-resource creation status, the run-history
@@ -105,6 +106,7 @@ export function useBootstrapResources(): UseBootstrapResourcesResult {
     setNames((current) => ({ ...current, [resource]: name }));
   }
 
+  // @spec APP-WIZARD-BOOT-010, APP-WIZARD-BOOT-014
   /**
    * Runs the bootstrap IPC calls concurrently (state bucket, configuration
    * bucket, run-history table), updating each resource's status as its call
@@ -240,6 +242,7 @@ export function useBootstrapResources(): UseBootstrapResourcesResult {
 
   const isResourceDone = (status: BootstrapResourceState) => status === 'created' || status === 'exists';
 
+  // @spec APP-WIZARD-SHELL-007, APP-WIZARD-BOOT-007
   const complete =
     (['stateBucket', 'configurationBucket'] as BootstrapResourceKey[]).every((resource) => isResourceDone(statuses[resource])) &&
     isResourceDone(runsTableStatus) &&

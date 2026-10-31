@@ -61,6 +61,7 @@ function useWizardCompleted(): boolean | null {
 }
 
 // @spec IAC-RUN-PLAN-001
+// @spec APP-WIZARD-GATE-001, APP-WIZARD-GATE-002, APP-WIZARD-GATE-005
 /**
  * Root component.
  *

@@ -16,6 +16,7 @@ export interface IamCheckPanelProps {
   onRun: () => void;
 }
 
+// @spec APP-WIZARD-IAMCHK-002, APP-WIZARD-IAMCHK-003, APP-WIZARD-IAMCHK-004
 /**
  * IAM permission dry-run panel: a run/re-run button plus one of four mutually exclusive result states — an
  * outright IPC-level `error`, `passed`, `missing` (with the required policy JSON and a clipboard-copy affordance),
