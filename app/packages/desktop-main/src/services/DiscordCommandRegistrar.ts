@@ -45,6 +45,7 @@ export interface RegisterResult {
 export class DiscordCommandRegistrar {
   constructor(private readonly discord: DiscordConfigService) {}
 
+  // @spec DISCORD-SVC-001, DISCORD-REG-001, DISCORD-REG-002, DISCORD-REG-003, DISCORD-REG-004, DISCORD-CFG-006
   /**
    * Install (or overwrite) the four game-server slash commands in a single
    * Discord guild. The underlying endpoint is

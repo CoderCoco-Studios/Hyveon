@@ -1,6 +1,7 @@
 import { DeleteCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import type { PendingInteraction } from '../types.js';
 import { getDocClient } from './client.js';
+// @spec DISCORD-SVC-004
 
 /** TTL for pending interactions. Discord interaction tokens expire after 15 minutes. */
 const PENDING_TTL_SECONDS = 15 * 60;
@@ -9,6 +10,7 @@ function pendingPk(taskArn: string): string {
   return `PENDING#${taskArn}`;
 }
 
+// @spec DISCORD-PEND-001, DISCORD-PEND-002
 /** Write a pending-interaction row. `expiresAt` is set to now + 15m (epoch seconds for DDB TTL). */
 export async function putPending(
   tableName: string,
@@ -29,6 +31,7 @@ export async function putPending(
   );
 }
 
+// @spec DISCORD-PEND-003, DISCORD-PEND-004
 /**
  * Point-lookup by task ARN; returns `null` if the row is absent or expired.
  *

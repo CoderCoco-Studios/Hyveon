@@ -24,6 +24,7 @@ import { test, expect, DEFAULT_STACK_OUTPUTS } from './index.js';
  * concern owned by the Discord interaction Lambdas and covered by their own unit tests.
  */
 test.describe('canRun() permission enforcement', () => {
+  // @spec DISCORD-PERM-001, DISCORD-PERM-002, DISCORD-PERM-003, DISCORD-PERM-004
   test('should enforce guild allowlisting, admin bypass, and per-game action grants', async ({
     ipc,
     serverMocks: _reset,

@@ -13,6 +13,7 @@ function makeConfig(overrides: Partial<DiscordConfig> = {}): DiscordConfig {
   };
 }
 
+// @spec DISCORD-PERM-001, DISCORD-PERM-002, DISCORD-PERM-003, DISCORD-PERM-004
 describe('canRun', () => {
   it('should deny commands from a guild that is not in the allowlist', () => {
     const cfg = makeConfig({ allowedGuilds: ['other'] });

@@ -9,6 +9,7 @@ import { ConfigService } from '../services/ConfigService.js';
 import { requireStringArray } from './validation.js';
 import { logger } from '../logger.js';
 
+// @spec DISCORD-IPC-001
 /**
  * IPC-only controller for the serverless Discord bot: credentials
  * (Secrets Manager), per-guild allowlist, admins, per-game permissions, and
@@ -25,6 +26,7 @@ export class DiscordController {
     private readonly config: ConfigService,
   ) {}
 
+  // @spec DISCORD-IPC-002
   /**
    * Returns the `DiscordConfig` with secrets redacted to booleans
    * (`botTokenSet` / `publicKeySet`) plus the interactions Lambda Function URL
@@ -39,6 +41,7 @@ export class DiscordController {
     return { ...redacted, interactionsEndpointUrl: outputs?.interactionsInvokeUrl ?? null };
   }
 
+  // @spec DISCORD-IPC-002, DISCORD-IPC-003
   /**
    * Writes the bot token and/or public key to Secrets Manager and the
    * `clientId` to the DynamoDB config row. Requires
@@ -90,6 +93,7 @@ export class DiscordController {
     return { guilds: cfg.allowedGuilds, baseGuilds: base.allowedGuilds };
   }
 
+  // @spec DISCORD-IPC-004
   /** Adds a guild ID to the dynamic allowlist persisted in DynamoDB. Takes effect on the next interaction (Lambda re-reads per invocation). */
   @MessagePattern('discord.addGuild')
   async addGuild(@Payload() body: { guildId?: unknown } = {}) {
@@ -104,6 +108,7 @@ export class DiscordController {
     return { success: true, guilds: cfg.allowedGuilds, baseGuilds: base.allowedGuilds };
   }
 
+  // @spec DISCORD-IPC-004, DISCORD-REG-005
   /**
    * Removes a guild ID from the dynamic allowlist. Returns 400 if the guild is
    * in the Pulumi-managed base config — those entries require a
@@ -149,6 +154,7 @@ export class DiscordController {
     return { ...cfg.admins, baseAdmins: base.admins };
   }
 
+  // @spec DISCORD-IPC-005
   /**
    * Replaces the dynamic admin user/role lists atomically. Omitted fields are treated as empty arrays
    * (not "leave alone"). Base admins set via the deployment config are unaffected by this endpoint.
@@ -170,6 +176,7 @@ export class DiscordController {
     return (await this.discord.getConfig()).gamePermissions;
   }
 
+  // @spec DISCORD-IPC-005
   /**
    * Sets the allowed users/roles/actions for a single game. `game` must match
    * a key in `DeploymentConfig.gameServers`; unknown keys return 400. The

@@ -521,6 +521,7 @@ describe('defineLambdas', () => {
     });
 
     // @spec IAC-PROGRAM-ENV-003
+    // @spec DISCORD-MSG-005
     it('should advertise the https marker for an https game, never its webPort or a udp extra', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         foundry: {
@@ -592,6 +593,7 @@ describe('defineLambdas', () => {
     });
 
     // @spec IAC-PROGRAM-ENV-003
+    // @spec DISCORD-MSG-004
     it('should exclude an icmp port from GAME_PORTS, advertising the first connectable port instead', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         echo: {

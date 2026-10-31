@@ -19,6 +19,7 @@ export function actionForCommand(name: AppCommandName): DiscordAction {
   }
 }
 
+// @spec DISCORD-CMD-013
 /**
  * Discord application-command descriptors, flattened to JSON so the shared
  * package doesn't depend on `discord.js`.

@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge.component';
 import { Button } from '@/components/ui/button.component';
 import { TableCell, TableRow } from '@/components/ui/table.component';
 
+// @spec DISCORD-UI-005
 /**
  * Single row in the guild allowlist table: guild ID, registered/locked
  * status badges, and Register/Remove actions. Base-config guilds are locked

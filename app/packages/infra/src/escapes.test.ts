@@ -41,6 +41,7 @@ async function arrangeDiscordTable(provider: aws.Provider): Promise<aws.dynamodb
   return table;
 }
 
+// @spec DISCORD-CFG-002
 describe('defineDiscordTableItems', () => {
   let mocks: ReturnType<typeof installPulumiMocks>;
 

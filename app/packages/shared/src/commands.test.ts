@@ -14,6 +14,7 @@ describe('actionForCommand', () => {
   });
 });
 
+// @spec DISCORD-CMD-013
 describe('COMMAND_DESCRIPTORS', () => {
   it('should declare exactly the four commands the bot implements', () => {
     const names = COMMAND_DESCRIPTORS.map((d) => d.name).sort();

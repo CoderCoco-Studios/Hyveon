@@ -1,6 +1,7 @@
 import { Badge } from '@/components/ui/badge.component';
 import type { DiscordConfigRedacted } from '../../api.service.js';
 
+// @spec DISCORD-UI-001
 /**
  * Compact header indicator showing whether the serverless bot is fully wired
  * up (both secrets configured + an interactions endpoint URL exists).

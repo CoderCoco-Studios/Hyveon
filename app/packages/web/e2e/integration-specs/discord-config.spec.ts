@@ -21,6 +21,7 @@ import { test, expect, DEFAULT_STACK_OUTPUTS } from './index.js';
  * contract.
  */
 test.describe('Discord config — secret redaction', () => {
+  // @spec DISCORD-DESK-002
   test('should never echo the bot token or public key in the config response', async ({
     ipc,
     serverMocks: _reset,

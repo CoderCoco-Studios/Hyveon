@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { formatGameStatus, renderConnectMessage } from './formatStatus.js';
 import { HTTPS_CONNECT_PORT } from './gameServerPorts.js';
 
+// @spec DISCORD-MSG-005
 describe('formatGameStatus https connect target', () => {
   const running = { game: 'foundry', state: 'running', hostname: 'foundry.example.com' } as const;
 
@@ -41,6 +42,7 @@ describe('formatGameStatus https connect target', () => {
   });
 });
 
+// @spec DISCORD-MSG-001, DISCORD-MSG-002
 describe('formatGameStatus', () => {
   it('should render running state with a green emoji and the hostname', () => {
     const line = formatGameStatus({ game: 'palworld', state: 'running', hostname: 'palworld.example.com' });

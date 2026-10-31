@@ -12,6 +12,7 @@ const ddb = mockClient(DynamoDBDocumentClient);
 
 const TABLE = 'test-discord';
 
+// @spec DISCORD-CFG-001, DISCORD-CFG-004
 describe('getDiscordConfig', () => {
   beforeEach(() => {
     ddb.reset();
@@ -105,6 +106,7 @@ describe('getDiscordConfig', () => {
   });
 });
 
+// @spec DISCORD-CFG-002, DISCORD-CFG-004
 describe('getBaseDiscordConfig', () => {
   beforeEach(() => {
     ddb.reset();
@@ -155,6 +157,7 @@ describe('getBaseDiscordConfig', () => {
   });
 });
 
+// @spec DISCORD-CFG-003
 describe('getEffectiveDiscordConfig', () => {
   beforeEach(() => {
     ddb.reset();
@@ -213,6 +216,7 @@ describe('getEffectiveDiscordConfig', () => {
   });
 });
 
+// @spec DISCORD-CFG-001
 describe('putDiscordConfig', () => {
   beforeEach(() => {
     ddb.reset();

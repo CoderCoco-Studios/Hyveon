@@ -1,5 +1,6 @@
 const DISCORD_API = 'https://discord.com/api/v10';
 
+// @spec DISCORD-SVC-001, DISCORD-RUN-009, DISCORD-RUN-015
 /**
  * PATCH a deferred Discord interaction's original message with `content`.
  *

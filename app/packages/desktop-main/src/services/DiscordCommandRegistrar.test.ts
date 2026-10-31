@@ -50,6 +50,7 @@ describe('DiscordCommandRegistrar.registerForGuild', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // @spec DISCORD-REG-003
   it('should return an actionable error when clientId is not configured', async () => {
     const registrar = new DiscordCommandRegistrar(
       makeDiscord({
@@ -67,6 +68,7 @@ describe('DiscordCommandRegistrar.registerForGuild', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // @spec DISCORD-REG-003
   it('should return an actionable error when the bot token is not configured', async () => {
     const registrar = new DiscordCommandRegistrar(
       makeDiscord({ getEffectiveToken: vi.fn().mockResolvedValue(null) }),
@@ -77,6 +79,7 @@ describe('DiscordCommandRegistrar.registerForGuild', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // @spec DISCORD-REG-001
   it('should PUT the command descriptors to Discord with a Bot authorization header', async () => {
     fetchMock.mockResolvedValue({ ok: true, status: 200, text: async () => '' });
     const registrar = new DiscordCommandRegistrar(makeDiscord());
@@ -94,6 +97,7 @@ describe('DiscordCommandRegistrar.registerForGuild', () => {
     expect(names).toEqual(['server-list', 'server-start', 'server-status', 'server-stop']);
   });
 
+  // @spec DISCORD-REG-004
   it('should surface Discord non-2xx responses verbatim', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 404, text: async () => '{"code":10004}' });
     const registrar = new DiscordCommandRegistrar(makeDiscord());
@@ -103,6 +107,7 @@ describe('DiscordCommandRegistrar.registerForGuild', () => {
     expect(result.message).toMatch(/10004/);
   });
 
+  // @spec DISCORD-REG-004
   it('should surface thrown errors without crashing the request handler', async () => {
     fetchMock.mockRejectedValue(new Error('network down'));
     const registrar = new DiscordCommandRegistrar(makeDiscord());
@@ -132,6 +137,7 @@ describe('DiscordCommandRegistrar.registerForGuild', () => {
     });
   });
 
+  // @spec DISCORD-REG-002
   it('should reject non-Snowflake guildId values before they can reach the URL', async () => {
     const registrar = new DiscordCommandRegistrar(makeDiscord());
     const attacks = [
@@ -150,6 +156,7 @@ describe('DiscordCommandRegistrar.registerForGuild', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // @spec DISCORD-REG-002
   it('should reject a malformed stored clientId without making the request', async () => {
     const registrar = new DiscordCommandRegistrar(
       makeDiscord({

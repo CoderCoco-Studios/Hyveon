@@ -7,6 +7,7 @@ import type { DiscordConfigRedacted, DiscordMutationResult } from '../../api.ser
 import { AddGuildForm } from './add-guild-form.component.js';
 import { GuildRow } from './guild-row.component.js';
 
+// @spec DISCORD-UI-006, DISCORD-UI-007
 /**
  * Guild allowlist editor. Merges the base-config and dynamic allowlists
  * (deduped by guild ID, base-config entry wins so the row shows as locked),

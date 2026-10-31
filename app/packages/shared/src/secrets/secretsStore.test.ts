@@ -42,6 +42,7 @@ describe('getBotToken / getPublicKey', () => {
     expect(token).toBe('real-token');
   });
 
+  // @spec DISCORD-AUTH-003
   it('should return null when the secret still holds the provisioning placeholder', async () => {
     secrets.on(GetSecretValueCommand).resolves({ SecretString: SECRET_PLACEHOLDER });
     const token = await getBotToken(BOT_ARN);
@@ -54,6 +55,7 @@ describe('getBotToken / getPublicKey', () => {
     expect(token).toBeNull();
   });
 
+  // @spec DISCORD-AUTH-008
   it('should cache the result so repeated reads hit Secrets Manager once', async () => {
     secrets.on(GetSecretValueCommand).resolves({ SecretString: 'real-token' });
     await getBotToken(BOT_ARN);

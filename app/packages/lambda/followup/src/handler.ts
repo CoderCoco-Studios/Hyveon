@@ -21,6 +21,7 @@ import {
   type Task,
 } from '@aws-sdk/client-ecs';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
+// @spec DISCORD-SVC-002
 // `canRun` is the single shared copy; never inline or fork it.
 import {
   canRun,
@@ -50,6 +51,7 @@ interface FollowupEvent {
 let ecsClient: ECSClient | null = null;
 let ec2Client: EC2Client | null = null;
 
+// @spec DISCORD-SVC-003
 function region(): string {
   return (
     // AWS_REGION_ (trailing underscore) — AWS_REGION is reserved by the Lambda runtime and cannot be set as a function env var.
@@ -85,6 +87,7 @@ async function findRunningTask(cluster: string, game: string): Promise<Task | nu
   return desc.tasks?.find((t) => t.lastStatus !== 'STOPPED' && t.lastStatus !== 'DEPROVISIONING') ?? null;
 }
 
+// @spec DISCORD-RUN-008
 async function getStatus(game: string): Promise<GameStatus> {
   const cluster = requireEnv('ECS_CLUSTER');
   const domain = process.env['DOMAIN_NAME'] ?? '';
@@ -116,6 +119,7 @@ async function getStatus(game: string): Promise<GameStatus> {
 }
 
 // @spec RT-TASK-LAUNCH-004
+// @spec DISCORD-RUN-002, DISCORD-RUN-003, DISCORD-RUN-004, DISCORD-RUN-005
 async function runStart(game: string): Promise<{ message: string; taskArn?: string }> {
   const cluster = requireEnv('ECS_CLUSTER');
   const subnets = requireEnv('SUBNET_IDS').split(',').map((s) => s.trim()).filter(Boolean);
@@ -148,6 +152,7 @@ async function runStart(game: string): Promise<{ message: string; taskArn?: stri
   }
 }
 
+// @spec DISCORD-RUN-006
 async function runStop(game: string): Promise<string> {
   const cluster = requireEnv('ECS_CLUSTER');
   const task = await findRunningTask(cluster, game);
@@ -162,6 +167,7 @@ async function runStop(game: string): Promise<string> {
   }
 }
 
+// @spec DISCORD-RUN-007
 async function handleList(event: FollowupEvent, cfg: DiscordConfig): Promise<string> {
   const games = gameNamesFromEnv();
   if (!games.length) return 'No games configured.';
@@ -185,6 +191,7 @@ async function handleStatus(event: FollowupEvent): Promise<string> {
   return formatGameStatus(status, CONNECT_MESSAGES[event.game], GAME_PORTS[event.game]);
 }
 
+// @spec DISCORD-PEND-001, DISCORD-MSG-003
 async function handleStart(event: FollowupEvent): Promise<string> {
   if (!event.game) return 'Game is required.';
   const { message, taskArn } = await runStart(event.game);
@@ -228,6 +235,7 @@ function recheck(event: FollowupEvent, cfg: DiscordConfig, action: DiscordAction
   });
 }
 
+// @spec DISCORD-RUN-001, DISCORD-RUN-009, DISCORD-RUN-013, DISCORD-MSG-006
 /**
  * Async-invoked by the interactions Lambda after it has already deferred the reply
  * (Discord's 3-second budget doesn't leave room for ECS calls). Does the slow work —

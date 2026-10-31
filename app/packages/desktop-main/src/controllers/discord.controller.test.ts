@@ -81,6 +81,7 @@ function ctrl(
 
 describe('DiscordController', () => {
   describe('@MessagePattern channel names', () => {
+    // @spec DISCORD-IPC-001
     it('should register every channel', () => {
       expectChannels(DiscordController.prototype, [
         ['getConfig', 'discord.getConfig'],
@@ -99,12 +100,14 @@ describe('DiscordController', () => {
   });
 
   describe('getConfig', () => {
+    // @spec DISCORD-IPC-002
     it('should return the redacted config merged with the interactions endpoint URL', async () => {
       const result = await ctrl().getConfig();
       expect(result.clientId).toBe('app-123');
       expect(result.interactionsEndpointUrl).toBe('https://xyz.lambda-url.us-east-1.on.aws/');
     });
 
+    // @spec DISCORD-DESK-002
     it('should never expose the raw bot token or public key', async () => {
       const result = await ctrl().getConfig();
       expect(result).not.toHaveProperty('botToken');
@@ -113,6 +116,7 @@ describe('DiscordController', () => {
       expect(result.publicKeySet).toBe(true);
     });
 
+    // @spec DISCORD-IPC-002
     it('should return null interactionsEndpointUrl when stack outputs are absent', async () => {
       const result = await ctrl(makeDiscord(), makeRegistrar(), makeConfig(null)).getConfig();
       expect(result.interactionsEndpointUrl).toBeNull();
@@ -120,14 +124,17 @@ describe('DiscordController', () => {
   });
 
   describe('putConfig', () => {
+    // @spec DISCORD-IPC-003
     it('should throw BadRequestException when botToken is not a string', async () => {
       await expect(ctrl().putConfig({ botToken: 42 as unknown as string })).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    // @spec DISCORD-IPC-003
     it('should throw BadRequestException when clientId is not a string', async () => {
       await expect(ctrl().putConfig({ clientId: [] as unknown as string })).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    // @spec DISCORD-IPC-003
     it('should throw BadRequestException when publicKey is not a string', async () => {
       await expect(ctrl().putConfig({ publicKey: true as unknown as string })).rejects.toBeInstanceOf(BadRequestException);
     });
@@ -172,14 +179,17 @@ describe('DiscordController', () => {
   });
 
   describe('addGuild', () => {
+    // @spec DISCORD-IPC-004
     it('should throw BadRequestException when guildId is missing from the body', async () => {
       await expect(ctrl().addGuild({})).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    // @spec DISCORD-IPC-004
     it('should throw BadRequestException when guildId is not a string', async () => {
       await expect(ctrl().addGuild({ guildId: 99 as unknown as string })).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    // @spec DISCORD-IPC-004
     it('should throw BadRequestException when guildId trims to an empty string', async () => {
       await expect(ctrl().addGuild({ guildId: '   ' })).rejects.toBeInstanceOf(BadRequestException);
     });
@@ -197,6 +207,7 @@ describe('DiscordController', () => {
   });
 
   describe('removeGuild', () => {
+    // @spec DISCORD-IPC-004
     it('should throw BadRequestException when the guildId path param is empty after trim', async () => {
       await expect(ctrl().removeGuild('')).rejects.toBeInstanceOf(BadRequestException);
     });
@@ -242,10 +253,12 @@ describe('DiscordController', () => {
   });
 
   describe('putAdmins', () => {
+    // @spec DISCORD-IPC-005
     it('should throw BadRequestException when userIds is not an array of strings', async () => {
       await expect(ctrl().putAdmins({ userIds: 'not-array' as unknown as string[] })).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    // @spec DISCORD-IPC-005
     it('should throw BadRequestException when roleIds contains a non-string element', async () => {
       await expect(ctrl().putAdmins({ roleIds: [42] as unknown as string[] })).rejects.toBeInstanceOf(BadRequestException);
     });
@@ -276,6 +289,7 @@ describe('DiscordController', () => {
       await expect(ctrl().putPermission({ game: '', body: {} })).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    // @spec DISCORD-IPC-005
     it('should throw BadRequestException when actions is not an array', async () => {
       await expect(
         ctrl().putPermission({ game: 'minecraft', body: { actions: 'start' as unknown as string[] } }),

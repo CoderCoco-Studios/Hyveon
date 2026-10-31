@@ -40,6 +40,7 @@ function emptyConfig(): DiscordConfig {
   };
 }
 
+// @spec DISCORD-DESK-001
 /**
  * Management-side interface to the Discord DynamoDB row and the two Secrets
  * Manager secrets. The interactions/followup Lambdas have their own read
@@ -254,6 +255,7 @@ export class DiscordConfigService {
   }
 
   // @spec APP-IPC-SEC-001
+  // @spec DISCORD-DESK-002, DISCORD-DESK-003
   /** Redacted view safe to return to the web client. Includes `*Set` flags for both secrets and the Pulumi-managed base lists. */
   async getRedacted(): Promise<RedactedDiscordConfig> {
     const [cfg, base, botToken, publicKey] = await Promise.all([
@@ -274,6 +276,7 @@ export class DiscordConfigService {
     };
   }
 
+  // @spec DISCORD-DESK-005, DISCORD-CFG-005
   /**
    * Update bot credentials. Any field can be omitted to leave it unchanged.
    * `botToken` and `publicKey` go to Secrets Manager; `clientId` to DynamoDB.
@@ -326,6 +329,7 @@ export class DiscordConfigService {
     await this.save(cfg);
   }
 
+  // @spec DISCORD-DESK-007
   /** Add a guild to the allowlist if not already present; otherwise no-op. */
   async addAllowedGuild(guildId: string): Promise<void> {
     const cfg = await this.load();
@@ -335,6 +339,7 @@ export class DiscordConfigService {
     }
   }
 
+  // @spec DISCORD-DESK-006
   /**
    * Remove a guild from the dynamic allowlist. Returns `{ ok: false }` when the
    * guild is in the base config — those entries can only be removed by editing
@@ -354,6 +359,7 @@ export class DiscordConfigService {
     return { ok: true };
   }
 
+  // @spec DISCORD-DESK-008
   /**
    * Replace the server-wide admin user/role lists (deduped, empty strings
    * dropped, non-string entries discarded). Accepts `unknown` shapes defensively
@@ -368,6 +374,7 @@ export class DiscordConfigService {
     await this.save(cfg);
   }
 
+  // @spec DISCORD-DESK-008, DISCORD-DESK-009
   /**
    * Overwrite the permission entry for a single game.
    * Returns `false` if the game key was rejected for prototype-pollution safety.
@@ -396,6 +403,7 @@ export class DiscordConfigService {
     return true;
   }
 
+  // @spec DISCORD-DESK-009
   /**
    * Remove the permission entry for a game so no non-admin can run commands
    * on it. Returns `false` if the game key was rejected for prototype-pollution

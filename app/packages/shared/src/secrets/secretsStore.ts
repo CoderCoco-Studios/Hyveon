@@ -67,6 +67,7 @@ export async function getBotToken(secretArn: string): Promise<string | null> {
   return value;
 }
 
+// @spec DISCORD-AUTH-003, DISCORD-AUTH-008
 /** Return the configured Ed25519 public key (hex), or `null` if not set / still on the placeholder. */
 export async function getPublicKey(secretArn: string): Promise<string | null> {
   const raw = await getSecret(secretArn);

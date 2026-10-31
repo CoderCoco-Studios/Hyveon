@@ -17,6 +17,7 @@
 import { verifyAsync } from '@noble/ed25519';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+// @spec DISCORD-SVC-002
 // `canRun` is the single shared copy; never inline or fork it.
 import { canRun, gameNamesFromEnv, getEffectiveDiscordConfig, getPublicKey, requireEnv } from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig } from '@hyveon/shared';
@@ -51,6 +52,7 @@ interface Interaction {
 }
 
 let lambdaClient: LambdaClient | null = null;
+// @spec DISCORD-SVC-003
 function getLambdaClient(): LambdaClient {
   if (!lambdaClient) {
     // AWS_REGION_ (trailing underscore) — AWS_REGION is reserved by the Lambda runtime and cannot be set as a function env var.
@@ -76,6 +78,7 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
+// @spec DISCORD-AUTH-002
 async function verifySignature(
   publicKeyHex: string,
   signatureHex: string,
@@ -129,12 +132,14 @@ function ephemeralMessage(content: string, deferred = false): APIGatewayProxyRes
   });
 }
 
+// @spec DISCORD-AUTH-002
 /** Read the raw body as Discord sent it; signatures are over the raw bytes, so do NOT re-stringify after parsing. */
 function readRawBody(event: APIGatewayProxyEventV2): string {
   if (!event.body) return '';
   return event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('utf8') : event.body;
 }
 
+// @spec DISCORD-CMD-002
 function actionFor(name: string): DiscordAction | null {
   switch (name) {
     case 'server-start':
@@ -149,6 +154,7 @@ function actionFor(name: string): DiscordAction | null {
   }
 }
 
+// @spec DISCORD-CMD-010, DISCORD-CMD-011
 async function handleAutocomplete(
   interaction: Interaction,
   cfg: DiscordConfig,
@@ -177,6 +183,7 @@ async function handleAutocomplete(
   });
 }
 
+// @spec DISCORD-CMD-003, DISCORD-CMD-004, DISCORD-CMD-005, DISCORD-CMD-006, DISCORD-CMD-007, DISCORD-CMD-008
 async function handleApplicationCommand(
   interaction: Interaction,
   cfg: DiscordConfig,
@@ -257,6 +264,8 @@ async function invokeFollowup(payload: FollowupPayload): Promise<void> {
   );
 }
 
+// @spec DISCORD-AUTH-001, DISCORD-AUTH-003, DISCORD-AUTH-004, DISCORD-AUTH-005, DISCORD-AUTH-006, DISCORD-CMD-001
+// @spec DISCORD-CMD-012, DISCORD-CFG-006
 /**
  * Entry point for every Discord HTTP interaction, fronted by a Lambda Function URL.
  * Verifies the Ed25519 signature against the public key in Secrets Manager (Discord

@@ -81,6 +81,7 @@ afterEach(() => {
 
 describe('FollowupLambda: start', () => {
   // @spec RT-TASK-LAUNCH-004
+  // @spec DISCORD-RUN-002, DISCORD-RUN-003, DISCORD-RUN-009, DISCORD-PEND-001
   it('should RunTask, write a pending row keyed by task ARN, and PATCH the original message', async () => {
     const taskArn = 'arn:aws:ecs:us-east-1:123:task/abc';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
@@ -106,6 +107,7 @@ describe('FollowupLambda: start', () => {
     expect(JSON.parse(init.body)).toMatchObject({ content: expect.stringContaining('palworld') });
   });
 
+  // @spec DISCORD-RUN-005
   it('should not write a pending row when RunTask reports no task', async () => {
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
     ecsMock.on(RunTaskCommand).resolves({ tasks: [], failures: [{ reason: 'capacity' }] });
@@ -117,6 +119,7 @@ describe('FollowupLambda: start', () => {
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toMatch(/Failed to start|capacity/);
   });
 
+  // @spec DISCORD-RUN-001
   it('should deny the start when canRun() rejects the caller', async () => {
     getEffectiveDiscordConfigMock.mockResolvedValue({
       ...PERMISSIVE_CONFIG,
@@ -134,6 +137,7 @@ describe('FollowupLambda: start', () => {
 });
 
 describe('FollowupLambda: stop', () => {
+  // @spec DISCORD-RUN-006
   it('should StopTask the running task for a game and PATCH a confirmation message', async () => {
     const taskArn = 'arn:task-running';
     ecsMock
@@ -151,6 +155,7 @@ describe('FollowupLambda: stop', () => {
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toMatch(/is stopping/);
   });
 
+  // @spec DISCORD-RUN-006
   it('should surface a friendly message when no running task is found to stop', async () => {
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
     await handler(baseEvent('stop', 'palworld'));
@@ -160,6 +165,7 @@ describe('FollowupLambda: stop', () => {
 });
 
 describe('FollowupLambda: status', () => {
+  // @spec DISCORD-RUN-008
   it('should format the game status line including hostname when the task is running', async () => {
     const taskArn = 'arn:task-running';
     ecsMock
@@ -194,6 +200,7 @@ describe('FollowupLambda: status', () => {
 });
 
 describe('FollowupLambda: list', () => {
+  // @spec DISCORD-RUN-007
   it('should only fetch status for games the caller can view, and join lines with newlines', async () => {
     getEffectiveDiscordConfigMock.mockResolvedValue({
       ...PERMISSIVE_CONFIG,
@@ -212,6 +219,7 @@ describe('FollowupLambda: list', () => {
     expect(body.content).not.toContain('satisfactory');
   });
 
+  // @spec DISCORD-RUN-007
   it('should return a helpful message when the caller can see nothing', async () => {
     getEffectiveDiscordConfigMock.mockResolvedValue({
       ...PERMISSIVE_CONFIG,

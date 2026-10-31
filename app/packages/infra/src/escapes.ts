@@ -105,6 +105,7 @@ export const escapeResourceOptions = {
 };
 
 // @spec IAC-PROGRAM-DATA-004, IAC-PROGRAM-DATA-005
+// @spec DISCORD-CFG-002
 /**
  * Declares the two conditional Discord table rows — see this file's doc for
  * the resource table and rationale. Must be called from inside the Pulumi

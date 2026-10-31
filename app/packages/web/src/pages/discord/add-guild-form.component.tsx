@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input.component';
 import { Label } from '@/components/ui/label.component';
 import { isSnowflake } from './snowflake.utils.js';
 
+// @spec DISCORD-UI-003
 /**
  * "Add a guild" input. Validates the entered ID as a Discord snowflake and
  * rejects one already present in `existingIds` before calling `onAdd`.
