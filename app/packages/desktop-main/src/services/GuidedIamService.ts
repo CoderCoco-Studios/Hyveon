@@ -179,7 +179,6 @@ export class GuidedIamService {
   ) {}
 
   // @spec APP-WIZARD-TMPL-003, APP-WIZARD-TMPL-010
-  // @spec APP-WIZARD-TMPL-001, APP-WIZARD-TMPL-002, APP-WIZARD-TMPL-007
   /**
    * Renders `iam-bootstrap.yaml` (located via
    * {@link resolveCloudFormationTemplatePath}) by substituting its two
