@@ -356,6 +356,7 @@ describe('defineLambdas', () => {
 
   describe('watchdog function and EventBridge schedule', () => {
     // @spec IAC-PROGRAM-LAMBDA-001, IAC-PROGRAM-RUNTIME-001
+    // @spec RT-WATCHDOG-SCHED-001
     it('should set name/role/handler/runtime/timeout exactly per the HCL, with no memorySize', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -368,6 +369,7 @@ describe('defineLambdas', () => {
     });
 
     // @spec IAC-PROGRAM-LAMBDA-009
+    // @spec RT-WATCHDOG-SCHED-003, RT-WATCHDOG-CFG-004
     it('should set every environment variable exactly per the HCL', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -387,6 +389,7 @@ describe('defineLambdas', () => {
     });
 
     // @spec IAC-PROGRAM-LAMBDA-005
+    // @spec RT-WATCHDOG-SCHED-002
     it('should use the plural "minutes" schedule expression for an interval greater than 1', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider, watchdogIntervalMinutes: 15 }));
@@ -398,6 +401,7 @@ describe('defineLambdas', () => {
     });
 
     // @spec IAC-PROGRAM-LAMBDA-005
+    // @spec RT-WATCHDOG-SCHED-002
     it('should use the singular "minute" schedule expression for a 1-minute interval', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider, watchdogIntervalMinutes: 1 }));
@@ -406,6 +410,7 @@ describe('defineLambdas', () => {
       expect(rule.inputs.scheduleExpression).toBe('rate(1 minute)');
     });
 
+    // @spec RT-WATCHDOG-SCHED-001
     it('should target the watchdog function from the schedule rule with the exact target id', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       const result = await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -417,6 +422,7 @@ describe('defineLambdas', () => {
       expect(target.inputs.arn).toBe(await promiseOf(result.watchdogFunction.arn));
     });
 
+    // @spec RT-WATCHDOG-SCHED-004
     it('should grant events.amazonaws.com permission scoped to the schedule rule ARN', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       const result = await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -838,6 +844,7 @@ describe('defineLambdas', () => {
     });
 
     // @spec IAC-PROGRAM-ENV-002, IAC-PROGRAM-LAMBDA-009
+    // @spec RT-WATCHDOG-ROUTE-004
     it("should set the watchdog function's HEALTH_CHECKS and HEALTH_CHECK_FUNCTION_NAME when a game declares healthCheck", async () => {
       const gameServers = gameServersWithHealthCheck();
       const { provider, roles, efs } = await arrangeDependencies(gameServers);

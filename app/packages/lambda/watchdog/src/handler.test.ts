@@ -80,6 +80,7 @@ afterEach(() => {
 });
 
 describe('watchdog handler: no tasks', () => {
+  // @spec RT-WATCHDOG-SCOPE-002
   it('should be a no-op when no tasks are running', async () => {
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
     const result = await handler();
@@ -87,6 +88,7 @@ describe('watchdog handler: no tasks', () => {
     expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(0);
   });
 
+  // @spec RT-WATCHDOG-SCOPE-004
   it('should ignore unknown task families', async () => {
     ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn:1'] });
     ecsMock.on(DescribeTasksCommand).resolves({
@@ -99,6 +101,7 @@ describe('watchdog handler: no tasks', () => {
 });
 
 describe('watchdog handler: idle counter', () => {
+  // @spec RT-WATCHDOG-CW-004, RT-WATCHDOG-STATE-003
   it('should increment the idle counter when the task is below the packets threshold', async () => {
     const taskArn = 'arn:task/idle';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -117,6 +120,7 @@ describe('watchdog handler: idle counter', () => {
     expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(0);
   });
 
+  // @spec RT-WATCHDOG-STATE-004
   it('should reset the counter when packets meet the threshold and counter was non-zero', async () => {
     const taskArn = 'arn:task/active';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -135,6 +139,7 @@ describe('watchdog handler: idle counter', () => {
     expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(0);
   });
 
+  // @spec RT-WATCHDOG-STATE-005
   it('should not write a tag when the counter was already zero and the task is active', async () => {
     const taskArn = 'arn:task/active';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -152,6 +157,7 @@ describe('watchdog handler: idle counter', () => {
 });
 
 describe('watchdog handler: shutdown threshold', () => {
+  // @spec RT-WATCHDOG-STOP-001
   it('should stop the task after IDLE_CHECKS consecutive idle windows (direct game)', async () => {
     const taskArn = 'arn:task/dead';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -167,6 +173,7 @@ describe('watchdog handler: shutdown threshold', () => {
     expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(1);
   });
 
+  // @spec RT-WATCHDOG-SCOPE-006, RT-WATCHDOG-STOP-001
   it('should stop an HTTPS-flagged game at the threshold, same as any other game', async () => {
     const taskArn = 'arn:task/dead';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -182,6 +189,7 @@ describe('watchdog handler: shutdown threshold', () => {
     expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(1);
   });
 
+  // @spec RT-WATCHDOG-CW-005
   it('should treat missing CloudWatch datapoints as active (no shutdown of brand-new tasks)', async () => {
     const taskArn = 'arn:task/new';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -198,6 +206,7 @@ describe('watchdog handler: shutdown threshold', () => {
 });
 
 describe('watchdog handler: health-check routing', () => {
+  // @spec RT-WATCHDOG-ROUTE-002, RT-WATCHDOG-ROUTE-003
   it('should query CloudWatch and never invoke the health-check function for a game without a declared health check', async () => {
     const taskArn = 'arn:task/direct';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -211,6 +220,7 @@ describe('watchdog handler: health-check routing', () => {
     expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(0);
   });
 
+  // @spec RT-WATCHDOG-ROUTE-001, RT-WATCHDOG-ROUTE-003, RT-WATCHDOG-HC-001
   it('should invoke the health-check function and never query CloudWatch for a game with a declared health check', async () => {
     const taskArn = 'arn:task/checked';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -226,6 +236,7 @@ describe('watchdog handler: health-check routing', () => {
     expect(cwMock.commandCalls(GetMetricStatisticsCommand)).toHaveLength(0);
   });
 
+  // @spec RT-WATCHDOG-HC-002
   it('should increment the idle counter when the health check reports idle', async () => {
     const taskArn = 'arn:task/checked-idle';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -243,6 +254,7 @@ describe('watchdog handler: health-check routing', () => {
     expect(tagCalls[0]!.args[0]!.input.tags![0]).toEqual({ key: 'idle_checks', value: '2' });
   });
 
+  // @spec RT-WATCHDOG-HC-004, RT-WATCHDOG-STATE-007
   it('should not increment the idle counter when the health-check invoke fails', async () => {
     const taskArn = 'arn:task/checked-fail';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
@@ -256,6 +268,7 @@ describe('watchdog handler: health-check routing', () => {
     expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(0);
   });
 
+  // @spec RT-WATCHDOG-HC-004, RT-WATCHDOG-STATE-007
   it('should not increment the idle counter when the health-check function returns a FunctionError', async () => {
     const taskArn = 'arn:task/checked-error';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });

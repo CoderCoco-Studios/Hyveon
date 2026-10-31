@@ -39,11 +39,14 @@ import {
 } from '@hyveon/shared';
 
 // @spec RT-TASK-DNS-012
+// @spec RT-WATCHDOG-CFG-001, RT-WATCHDOG-CFG-002, RT-WATCHDOG-CFG-007, RT-WATCHDOG-STATE-001, RT-WATCHDOG-STOP-002
+// @spec RT-WATCHDOG-STOP-003
 const ECS_CLUSTER = requireEnv('ECS_CLUSTER');
 const GAME_NAMES = gameNamesFromEnv();
 const IDLE_CHECKS = parseInt(process.env['IDLE_CHECKS'] ?? '4', 10);
 const MIN_PACKETS = parseInt(process.env['MIN_PACKETS'] ?? '100', 10);
 const CHECK_WINDOW_MINUTES = parseInt(process.env['CHECK_WINDOW_MINUTES'] ?? '15', 10);
+// @spec RT-WATCHDOG-CFG-003
 /** Game name → declared health check, for the games opted into that verdict source instead of the CloudWatch heuristic. Populated by the infra program from `DeploymentConfig.gameServers`; empty when no game opts in. Parsed defensively — see {@link parseGameMapEnv}. */
 const HEALTH_CHECKS: Record<string, GameServerHealthCheck> = parseGameMapEnv('HEALTH_CHECKS');
 /** Name of the health-check Lambda to invoke for a game with a declared health check. Unset when no game opts in — {@link HEALTH_CHECKS} is then always empty, so it's never read. */
@@ -51,6 +54,7 @@ const HEALTH_CHECK_FUNCTION_NAME = process.env['HEALTH_CHECK_FUNCTION_NAME'];
 
 const FAMILY_TO_GAME = familyToGameMap(GAME_NAMES);
 
+// @spec RT-WATCHDOG-CFG-004
 function region(): string {
   return (
     // AWS_REGION_ (trailing underscore) — AWS_REGION is reserved by the Lambda runtime and cannot be set as a function env var.
@@ -72,6 +76,7 @@ interface HealthCheckInvokeResult {
   failureDerived?: boolean;
 }
 
+// @spec RT-WATCHDOG-CW-001, RT-WATCHDOG-CW-005, RT-WATCHDOG-CW-006
 /**
  * Query CloudWatch for inbound packets on this ENI over the last check window.
  * Falls back to "active" when metrics are unavailable to avoid accidental
@@ -102,6 +107,8 @@ async function getNetworkPackets(eniId: string): Promise<number> {
   }
 }
 
+// @spec RT-WATCHDOG-HC-001, RT-WATCHDOG-HC-002, RT-WATCHDOG-HC-003, RT-WATCHDOG-HC-004, RT-WATCHDOG-HC-005
+// @spec RT-WATCHDOG-LOG-005
 /**
  * Invokes the health-check Lambda synchronously for a game with a declared
  * health check, and normalizes its result. A failed invoke — throttled,
@@ -144,6 +151,7 @@ async function invokeHealthCheck(
   }
 }
 
+// @spec RT-WATCHDOG-STATE-002
 async function getIdleCount(taskArn: string): Promise<number> {
   try {
     const resp = await ecs.send(new ListTagsForResourceCommand({ resourceArn: taskArn }));
@@ -155,6 +163,7 @@ async function getIdleCount(taskArn: string): Promise<number> {
   return 0;
 }
 
+// @spec RT-WATCHDOG-STATE-006
 async function setIdleCount(taskArn: string, count: number): Promise<void> {
   try {
     await ecs.send(
@@ -168,6 +177,7 @@ async function setIdleCount(taskArn: string, count: number): Promise<void> {
   }
 }
 
+// @spec RT-WATCHDOG-SCOPE-001
 async function listAllRunningTaskArns(): Promise<string[]> {
   const arns: string[] = [];
   let nextToken: string | undefined;
@@ -181,6 +191,11 @@ async function listAllRunningTaskArns(): Promise<string[]> {
   return arns;
 }
 
+// @spec RT-WATCHDOG-SCHED-005, RT-WATCHDOG-SCOPE-002, RT-WATCHDOG-SCOPE-003, RT-WATCHDOG-SCOPE-004
+// @spec RT-WATCHDOG-SCOPE-006, RT-WATCHDOG-ROUTE-001, RT-WATCHDOG-ROUTE-002, RT-WATCHDOG-ROUTE-003
+// @spec RT-WATCHDOG-CW-002, RT-WATCHDOG-CW-003, RT-WATCHDOG-CW-004, RT-WATCHDOG-STATE-003, RT-WATCHDOG-STATE-004
+// @spec RT-WATCHDOG-STATE-005, RT-WATCHDOG-STATE-007, RT-WATCHDOG-STOP-001, RT-WATCHDOG-LOG-001, RT-WATCHDOG-LOG-002
+// @spec RT-WATCHDOG-LOG-003, RT-WATCHDOG-LOG-004, RT-WATCHDOG-LOG-005
 /**
  * Runs on an EventBridge schedule (`rate(${watchdog_interval_minutes} minutes)`) and
  * stops idle game-server tasks to keep costs down. For each RUNNING task, reads

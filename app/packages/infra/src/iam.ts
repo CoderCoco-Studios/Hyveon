@@ -410,6 +410,7 @@ export function defineIamRoles(args: DefineIamRolesArgs): IamRoleResources {
 
 // @spec IAC-PROGRAM-IAM-003, IAC-PROGRAM-IAM-004, IAC-PROGRAM-IAM-005, IAC-PROGRAM-IAM-006, IAC-PROGRAM-IAM-007
 // @spec IAC-PROGRAM-IAM-008, IAC-PROGRAM-IAM-009, IAC-PROGRAM-IAM-010
+// @spec RT-WATCHDOG-IAM-001, RT-WATCHDOG-IAM-002, RT-WATCHDOG-IAM-003
 /**
  * Declares every inline policy — see this file's doc for the full address
  * table and why roles and policies are split across two functions. Must run

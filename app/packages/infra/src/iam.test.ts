@@ -297,6 +297,7 @@ describe('defineIamPolicies', () => {
   });
 
   // @spec IAC-PROGRAM-IAM-003, IAC-PROGRAM-IAM-005
+  // @spec RT-WATCHDOG-IAM-001, RT-WATCHDOG-IAM-003
   it('should declare the watchdog Lambda policy with no external ARN dependency', async () => {
     const { provider, roles } = await arrangeRoles(FIXTURE_GAME_SERVERS);
     await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS });
@@ -506,6 +507,7 @@ describe('defineIamPolicies', () => {
   });
 
   // @spec IAC-PROGRAM-IAM-006
+  // @spec RT-WATCHDOG-IAM-002
   it('should grant the watchdog policy lambda:InvokeFunction on the health-check function ARN when provided', async () => {
     const { provider, roles } = await arrangeRoles(GAME_SERVERS_WITH_HEALTH_CHECK);
     const healthCheckFunctionArn = 'arn:aws:lambda:us-east-1:123456789012:function:hyveon-health-check';
@@ -523,6 +525,7 @@ describe('defineIamPolicies', () => {
     expect(statements).toContainEqual({ Effect: 'Allow', Action: ['lambda:InvokeFunction'], Resource: healthCheckFunctionArn });
   });
 
+  // @spec RT-WATCHDOG-IAM-002
   it('should omit lambda:InvokeFunction from the watchdog policy when no health-check function exists', async () => {
     const { provider, roles } = await arrangeRoles(FIXTURE_GAME_SERVERS);
     await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS });

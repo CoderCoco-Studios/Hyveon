@@ -76,6 +76,7 @@ describe('familyToGameMap', () => {
   });
 
   // @spec IAC-PROGRAM-ENV-007
+  // @spec RT-WATCHDOG-SCOPE-004
   it('should return undefined, not an inherited Object.prototype member, for a family named after one', () => {
     const map = familyToGameMap(['palworld']);
     expect(map['constructor']).toBeUndefined();
