@@ -226,7 +226,7 @@ The icon pipeline is a build-time script: `npm run icons:generate` (root `packag
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/desktop-shell.md`
-- EARS specs (not yet written): `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md`
+- EARS specs: `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md`
 - OpenSpec (owned): `openspec/specs/custom-title-bar/spec.md`, `openspec/specs/app-icon/spec.md`
 - OpenSpec (cited, UI-integrity requirements only): `openspec/specs/desktop-only-operator-surface/spec.md`
 - Archived design: `openspec/changes/archive/2026-08-14-add-custom-title-bar/design.md`

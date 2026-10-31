@@ -203,9 +203,9 @@ Because `getGameServers` resolves `[]` on any read failure, a transient S3 or pa
 ## References
 
 - Arrow doc: `docs/arrows/deployment-config.md`
-- EARS specs (not yet written): `docs/intent/deployment-config/deployment-config-specs.md` (prefix `CONFIG`)
-- HLD (not yet written): `docs/high-level-design.md`
+- EARS specs: `docs/intent/deployment-config/deployment-config-specs.md` (prefix `CONFIG`)
+- HLD: `docs/high-level-design.md`
 - OpenSpec (cited, no capability of its own): `openspec/specs/pulumi-infra-program/spec.md` ("Typed game-server configuration model", "Configuration persisted as versioned JSON"); `openspec/specs/iac-rollback/spec.md` ("Complete remote file version listing", restore half of "Rollback restores the version and queues a tagged plan")
 - Active OpenSpec changes touching this leaf: `openspec/changes/https-explicit-web-port/` (read-time normaliser), `openspec/changes/add-user-initiated-update-install/` (channels hosted in `iac-settings.controller.ts`), `openspec/changes/add-vpc-flow-logs/` (proposed new top-level toggle)
 - Docs pages: `docs/docs/architecture.md`, `docs/docs/components/management-app.md`, `docs/docs/components/infra.md`, `docs/docs/app/settings.md`, `docs/docs/app/dashboard.md` (pending-changes banner), `docs/docs/app/iac.md` (rollback), `docs/docs/setup.md`
-- Neighbouring leaf designs (not yet written): `docs/intent/game-server/game-server-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/iac/run/run-design.md`, `docs/intent/iac/engine/engine-design.md`, `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md`, `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`, `docs/intent/game-runtime/watchdog/watchdog-design.md`, `docs/intent/discord-bot/discord-bot-design.md`
+- Neighbouring leaf designs: `docs/intent/game-server/game-server-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/iac/run/run-design.md`, `docs/intent/iac/engine/engine-design.md`, `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md`, `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`, `docs/intent/game-runtime/watchdog/watchdog-design.md`, `docs/intent/discord-bot/discord-bot-design.md`

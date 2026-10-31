@@ -9,7 +9,8 @@ Start and stop a game's container on demand, publish its address in DNS while it
 ## References
 
 ### HLD
-- docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/game-runtime/game-runtime-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/game-runtime/task-and-dns/task-and-dns-design.md`

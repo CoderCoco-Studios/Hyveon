@@ -205,8 +205,8 @@ Unit tests cover the services, store and controllers directly (`RunService.test.
 ## References
 
 - Arrow doc: `docs/arrows/iac/run.md`
-- EARS specs (wave 3, not yet written): `docs/intent/iac/run/run-specs.md`
+- EARS specs: `docs/intent/iac/run/run-specs.md`
 - OpenSpec: `openspec/specs/iac-plan-apply-page/spec.md`, `openspec/specs/iac-destroy-flow/spec.md`, `openspec/specs/iac-run-history/spec.md`, `openspec/specs/iac-rollback/spec.md`, `openspec/specs/orchestrator-integration-coverage/spec.md`
 - Archived design rationale: `openspec/changes/archive/2026-07-26-add-terraform-run-ui/design.md`, `openspec/changes/archive/2026-08-10-add-run-lock-recovery/design.md`
 - Operator docs: `docs/docs/app/iac.md`, `docs/docs/components/management-app.md`, `docs/docs/components/integration-tests.md`
-- Neighbouring leaf designs (not yet written): `docs/intent/iac/engine/engine-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/deployment-config/deployment-config-design.md`, `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md`, `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`
+- Neighbouring leaf designs: `docs/intent/iac/engine/engine-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/deployment-config/deployment-config-design.md`, `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md`, `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`

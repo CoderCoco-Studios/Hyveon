@@ -185,9 +185,9 @@ Three resource kinds are written once and then excluded from reconciliation so t
 ## References
 
 - Arrow doc: `docs/arrows/iac/program.md`
-- EARS specs (not yet written): `docs/intent/iac/program/program-specs.md`, prefix `IAC-PROGRAM`
+- EARS specs: `docs/intent/iac/program/program-specs.md`, prefix `IAC-PROGRAM`
 - OpenSpec: `openspec/specs/pulumi-infra-program/spec.md` (program half), `openspec/specs/lambda-runtime-currency/spec.md`, `openspec/specs/in-task-tls-termination/spec.md` (infra half)
 - OpenSpec design history: `openspec/changes/archive/2026-08-10-migrate-iac-to-pulumi/design.md`, `openspec/changes/archive/2026-07-28-replace-alb-with-caddy-sidecar/design.md`, `openspec/changes/archive/2026-08-10-bump-lambda-runtime-to-nodejs24/design.md`
 - Active changes touching this leaf: `add-icmp-ingress`, `https-explicit-web-port`, `add-pinned-hostname`, `add-pluggable-health-checks`, `add-scripted-health-checks`, `add-vpc-flow-logs` (see the arrow doc for state); `embed-file-browser` is archived (`openspec/changes/archive/2026-10-30-embed-file-browser/`)
 - Project docs: `docs/docs/components/infra.md`, `docs/docs/components/lambdas.md`, `docs/docs/architecture.md`
-- Neighbouring leaf designs (not yet written): `docs/intent/iac/engine/engine-design.md`, `docs/intent/iac/run/run-design.md`, `docs/intent/deployment-config/deployment-config-design.md`, `docs/intent/game-server/game-server-design.md`, `docs/intent/helper-task/helper-task-design.md`, `docs/intent/discord-bot/discord-bot-design.md`, `docs/intent/game-runtime/health-check/health-check-design.md`
+- Neighbouring leaf designs: `docs/intent/iac/engine/engine-design.md`, `docs/intent/iac/run/run-design.md`, `docs/intent/deployment-config/deployment-config-design.md`, `docs/intent/game-server/game-server-design.md`, `docs/intent/helper-task/helper-task-design.md`, `docs/intent/discord-bot/discord-bot-design.md`, `docs/intent/game-runtime/health-check/health-check-design.md`

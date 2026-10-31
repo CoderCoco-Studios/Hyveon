@@ -11,7 +11,8 @@ Engine provisioning, the workspace seam, credential exclusivity and provable-own
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/iac/iac-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/iac/engine/engine-design.md`

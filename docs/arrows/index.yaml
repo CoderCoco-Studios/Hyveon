@@ -23,8 +23,8 @@ taxonomy:
   discord-bot: standalone
   helper-task: standalone
 
-# Design tree. Grouping nodes (sub-HLDs) point `detail` at their future design
-# doc under docs/intent/<group>/<group>-design.md (not yet written). Leaves point
+# Design tree. Grouping nodes (sub-HLDs) point `detail` at their design
+# doc under docs/intent/<group>/<group>-design.md. Leaves point
 # at their tree-mirrored arrow doc under docs/arrows/.
 #
 # blockedBy edges come from each arrow doc's "Cited from other leaves" section,
@@ -40,7 +40,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/iac/iac-design.md
-    next: "Write the iac sub-HLD design doc."
+    next: "Resolve the sub-HLD Open Questions: destroy-redaction double ownership, unowned Pulumi backend lock-clear spec, whether plan takes the durable apply lock."
     drift: null
 
   run:
@@ -91,7 +91,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/game-runtime/game-runtime-design.md
-    next: "Write the game-runtime sub-HLD design doc."
+    next: "Resolve the sub-HLD Open Questions: health-check vs watchdog duplicate invoke/routing specs, then verify live whether anything is auto-stopped today."
     drift: null
 
   task-and-dns:
@@ -138,7 +138,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/operator-app/operator-app-design.md
-    next: "Write the operator-app sub-HLD design doc."
+    next: "Resolve the first-run gate contradiction (APP-WIZARD-GATE-004 vs APP-SHELL-GATE-004/005) and the iac-settings.controller.ts owner."
     drift: null
 
   wizard-and-bootstrap:

@@ -11,7 +11,8 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/operator-app/operator-app-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md`
@@ -181,7 +182,7 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 1. **Test-mode default lives in production code** — `WizardController.readState()` returns `wizardCompleted = this.isTestMode()` when the store key is unset (`wizard.controller.ts:166-168`), so `HYVEON_TEST_MODE=1` in a packaged build skips the first-run wizard. `isTestMode()` (`:217-219`) also re-implements `app/packages/desktop-main/src/env.ts:12`.
 2. **First-run gate fails open** — `app.component.tsx:40-54` (desktop-shell) sets `wizardCompleted=true` when `window.hyveon.wizard` is missing or `getState()` rejects, so an IPC failure drops a fresh install straight into the dashboard.
 3. **Key rotation has no caller** — `AwsProfileService.rotateActiveCredentials()` (`AwsProfileService.ts:267`) is referenced only by docs and tests; no controller exposes it, so the `aws-credentials` "In-app access key rotation" requirement is service-only.
-4. **Bootstrap secret is a CloudFormation stack output** — `iam-bootstrap.yaml:87-89` publishes `SecretAccessKey` via `!GetAtt`, readable by anyone with `cloudformation:DescribeStacks` for as long as the stack exists. Guided rotation deletes that key once the new one verifies (`GuidedIamService.rotate`, `:414`), so exposure is the window before rotation plus any run where deletion fails (the "delete failed" screen path). The access key resource uses `DeletionPolicy: RetainExceptOnCreate` (`:73`).
+4. **Bootstrap secret is a CloudFormation stack output** — `iam-bootstrap.yaml:87-89` publishes `SecretAccessKey` via `!GetAtt`, readable by anyone with `cloudformation:DescribeStacks` for as long as the stack exists. Guided rotation deletes that key once the new one verifies (`GuidedIamService.rotate`, `:414`), so exposure is the window before rotation plus any run where deletion fails (the "delete failed" screen path). The access key resource uses `DeletionPolicy: RetainExceptOnCreate` (`:73`). This exposure is the accepted design (APP-WIZARD-TMPL-008): rotation makes the key single-use.
 5. **Keychain degrade path returns ciphertext as plaintext** — `SafeStorageService.decrypt` returns the input unchanged when `isAvailable()` is false (`SafeStorageService.ts:88-93`), and `encrypt` returns plaintext (`:51-54`). Writers guard with `SafeStorageUnavailableError` (`AwsProfileService.ts:183,270`, `GuidedIamService.ts:417`), but a keychain that is locked at read time would hand base64 ciphertext to `awsCredentialSource` as the secret key. `[inferred]` consequence; the doc comment at `:78-79` acknowledges it.
 6. **Bootstrap credential error escapes the result model** — `createS3Client()` throws `BootstrapCredentialsNotConfiguredError` (`BootstrapService.ts:701-708`) and is called outside the `try` in every `ensure*` method (`:125,187,315,410`), so the controller rejects instead of returning `{ status: 'failed' }`, against `.claude/rules/logging.md` rule 2.
 7. **Runs table name ignores the operator's project name** — `wizard.controller.ts:310` always passes `DEPLOYMENT_CONFIG_DEFAULTS.projectName` to `resolveRunsTableName`, while buckets take operator-edited names.
@@ -199,21 +200,20 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-1. Stop publishing `SecretAccessKey` as a CloudFormation stack output (finding 4). (specs: `APP-WIZARD-TMPL-008`)
-2. Make `SafeStorageService.decrypt` fail loudly when the keychain is unavailable for an encrypted value instead of passing ciphertext through (finding 5). (specs: `APP-WIZARD-CUSTODY-007`)
-3. Move the `HYVEON_TEST_MODE` `wizardCompleted` default out of the production read path, and make the renderer gate fail closed (findings 1, 2). (specs: `APP-WIZARD-GATE-003`, `APP-WIZARD-GATE-004`)
+1. Make `SafeStorageService.decrypt` fail loudly when the keychain is unavailable for an encrypted value instead of passing ciphertext through (finding 5). (specs: `APP-WIZARD-CUSTODY-007`)
+2. Move the `HYVEON_TEST_MODE` `wizardCompleted` default out of the production read path, and make the renderer gate fail closed (findings 1, 2). (specs: `APP-WIZARD-GATE-003`, `APP-WIZARD-GATE-004`)
 
 ### Should Fix
-4. Wrap client creation inside each `BootstrapService.ensure*` try so credential errors return `{ status: 'failed' }` (finding 6). (specs: `APP-WIZARD-BOOT-004`)
-5. Resolve the runs table name from the operator's project name (finding 7). (specs: `APP-WIZARD-BOOT-012`)
-6. Either wire `rotateActiveCredentials` to an IPC channel and UI, or drop the requirement from `aws-credentials` (finding 3). (specs: `APP-WIZARD-ROTKEY-005`)
-7. Fix the `wizard-flow` spec's state-file name and Reconfigure step order (finding 9).
-8. Use `Promise.allSettled` in `cloudHealth.list`; guard `writePolicyToDisk` (finding 11). (specs: `APP-WIZARD-HEALTH-011`)
-9. Verify and, if real, fix the Reconfigure guided-credentials overwrite (finding 15). (specs: `APP-WIZARD-RECONF-009`)
+3. Wrap client creation inside each `BootstrapService.ensure*` try so credential errors return `{ status: 'failed' }` (finding 6). (specs: `APP-WIZARD-BOOT-004`)
+4. Resolve the runs table name from the operator's project name (finding 7). (specs: `APP-WIZARD-BOOT-012`)
+5. Either wire `rotateActiveCredentials` to an IPC channel and UI, or drop the requirement from `aws-credentials` (finding 3). (specs: `APP-WIZARD-ROTKEY-005`)
+6. Fix the `wizard-flow` spec's state-file name and Reconfigure step order (finding 9).
+7. Use `Promise.allSettled` in `cloudHealth.list`; guard `writePolicyToDisk` (finding 11). (specs: `APP-WIZARD-HEALTH-011`)
+8. Verify and, if real, fix the Reconfigure guided-credentials overwrite (finding 15). (specs: `APP-WIZARD-RECONF-009`)
 
 ### Nice to Have
-10. Collapse `awsClientCache.ts` into `cloud-aws/src/cachedClient.ts`; share `GUIDED_PROFILE_NAME` and the Cloud Health/Guided IAM helpers (finding 8).
-11. Scope the IAM-check suggested policy using `HYVEON_DEPLOY_ALL_STATEMENTS` (finding 12).
-12. Clear the add-game draft and folder-upload state on wizard reset, or document why not (finding 10).
-13. Use `replaceAll` for template placeholders; add tests for `awsClientCache.ts` (findings 13, 14).
-14. Consider moving `CloudHealthService` to its own module owned by the Settings surface.
+9. Collapse `awsClientCache.ts` into `cloud-aws/src/cachedClient.ts`; share `GUIDED_PROFILE_NAME` and the Cloud Health/Guided IAM helpers (finding 8).
+10. Scope the IAM-check suggested policy using `HYVEON_DEPLOY_ALL_STATEMENTS` (finding 12).
+11. Clear the add-game draft and folder-upload state on wizard reset, or document why not (finding 10).
+12. Use `replaceAll` for template placeholders; add tests for `awsClientCache.ts` (findings 13, 14).
+13. Consider moving `CloudHealthService` to its own module owned by the Settings surface.

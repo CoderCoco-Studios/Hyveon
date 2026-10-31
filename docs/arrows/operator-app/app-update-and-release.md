@@ -10,7 +10,8 @@ Implemented end to end (release workflow → GitHub release feed → electron-up
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/operator-app/operator-app-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/operator-app/app-update-and-release/app-update-and-release-design.md`

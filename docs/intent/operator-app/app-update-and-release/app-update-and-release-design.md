@@ -162,7 +162,7 @@ The renderer's "Download manually" link points at `RELEASES_URL` (`settings.page
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/app-update-and-release.md`
-- EARS specs (not yet written): `docs/intent/operator-app/app-update-and-release/app-update-and-release-specs.md`
+- EARS specs: `docs/intent/operator-app/app-update-and-release/app-update-and-release-specs.md`
 - OpenSpec: `openspec/specs/auto-update-scaffold/spec.md`, `openspec/specs/release-automation/spec.md`, `openspec/specs/install-and-signing-docs/spec.md`
 - OpenSpec changes (shipped, unarchived): `openspec/changes/add-release-automation/`, `openspec/changes/add-update-feed-fallback/`, `openspec/changes/add-user-initiated-update-install/` (unsynced)
 - Docs: `docs/docs/app/settings.md`, `docs/docs/install.md`, `docs/docs/code-signing-roadmap.md`, `docs/docs/guides/maintainer.md`, `docs/docs/components/management-app.md`

@@ -183,36 +183,36 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 ### Resolved
 
 1. ✅ The CloudFormation stack does not create the Pulumi state bucket, and no hosted template is published by the release pipeline (archived `add-one-click-aws-bootstrap/design.md`, Resolved Questions).
+2. ✅ The template keeps publishing `SecretAccessKey` as a stack output; mandatory immediate rotation makes the published key single-use, and the delete-failed path (APP-WIZARD-ROTATE-005, APP-WIZARD-ROTATE-006) covers the window when revocation fails (APP-WIZARD-TMPL-008; archived `add-one-click-aws-bootstrap/design.md` Decision 3).
 
 ### Deferred
 
-1. Should the template stop publishing `SecretAccessKey` as a stack output (`iam-bootstrap.yaml:87-89`), given exposure lasts until rotation and indefinitely when the bootstrap-key delete fails (`GuidedIamService.ts:500-506`)?
-2. Should `SafeStorageService.decrypt` throw instead of returning ciphertext when the keychain is unavailable for a value that was encrypted (`SafeStorageService.ts:88-92`)?
-3. Should the `HYVEON_TEST_MODE` fallback for an unset `wizardCompleted` move out of the production read path (`wizard.controller.ts:166-168,217-219`), reusing `env.ts:12`?
-4. Should the renderer first-run gate fail closed on a missing bridge or rejected `getState()` (`app.component.tsx:40-54`, desktop-shell)?
-5. Should `BootstrapService` build its client inside each `try` so a missing region returns `{ status: 'failed' }` (`BootstrapService.ts:125,187,315,410,701-708`) per `.claude/rules/logging.md` rule 2?
-6. Should the runs table name use the operator's project name rather than `DEPLOYMENT_CONFIG_DEFAULTS.projectName` (`wizard.controller.ts:310`)?
-7. Should `rotateActiveCredentials` get an IPC channel and UI, or should the `aws-credentials` "In-app access key rotation" requirement be dropped (`AwsProfileService.ts:267`, `aws-credentials/spec.md:47-59`)?
-8. Should the IAM check run automatically after guided rotation and its `blocking` flag gate the bootstrap step, as `cloud-bootstrap/spec.md:93,110-113` requires (`use-bootstrap-resources.hook.ts:223-239`, `first-run-wizard.component.tsx:237-238`)?
-9. Which is right for the `wizard-flow` spec: the state-file name at `:25` or `:34`, and the Reconfigure step order at `:100` or `wizardSteps.ts:9`?
-10. Does Reconfigure's `commitReconfigureAnswers` overwrite the guided profile when guided IAM was re-run (`use-reconfigure-answers.hook.ts:222-224` vs `first-run-wizard.component.tsx:307`)?
-11. Should `cloudHealth.list` use `Promise.allSettled` and `writePolicyToDisk` catch its errors (`cloud-health.controller.ts:28-33`, `CloudHealthService.ts:200-204`)?
-12. Should `awsClientCache.ts` be removed in favour of `cloud-aws/src/cachedClient.ts`, `GUIDED_PROFILE_NAME` be declared once (`GuidedIamService.ts:94`, `desktop-preload/src/hyveon-api.ts:2107`), and the Cloud Health helpers that mirror `GuidedIamService` be shared (`CloudHealthService.ts:193-212,240-291`)?
-13. Should the IAM-check suggested policy reuse the scoped `HYVEON_DEPLOY_ALL_STATEMENTS` instead of `Resource: '*'` (`IamCheckService.ts:306-315`)?
-14. Should wizard reset also clear `addGameWizardDraft` and `folderUpload`, or document why not (`FirstRunWizardService.ts:200-208`)?
-15. Should template substitution use `replaceAll` (`GuidedIamService.ts:210-212`), and should `awsClientCache.ts` get tests?
-16. Should the credential signature avoid embedding the access key id (`awsCredentialSource.ts:185`)?
-17. Should `CloudHealthService` move out of `WizardModule` into a Settings-owned module (`wizard.module.ts:38`)?
-18. `wizard.state.get` returns `this.store.get('aws')` typed as `WizardAwsChoice` (`wizard.controller.ts:61-64,172`), but the stored `aws` schema also carries `accessKeyId` and `secretAccessKey` blobs (`ElectronStoreService.ts:204-209`); their setters (`:397,423`) have no production caller today, so this is latent. Should the controller project only `profile` and `region`, and should the unused setters be removed?
-19. On a Reconfigure that re-runs guided IAM, `rotate` overwrites the existing `hyveon-guided` entry before verifying the new key and deletes it on verification failure (`GuidedIamService.ts:434-438,478`) while `aws.profile` may still name `hyveon-guided`; the resolver would then treat it as a `~/.aws` profile `[inferred]`. Should staging use a temporary name?
-20. Should the region list drop `eusc-de-east-1` (`awsRegions.ts:36`), a separate partition, and should the spec exclusion rule name it (`guided-region-selection/spec.md:13-24`)?
-21. `aws-cloud-health/spec.md:4` Purpose is still TBD; what is the capability's stated purpose?
+1. Should `SafeStorageService.decrypt` throw instead of returning ciphertext when the keychain is unavailable for a value that was encrypted (`SafeStorageService.ts:88-92`)?
+2. Should the `HYVEON_TEST_MODE` fallback for an unset `wizardCompleted` move out of the production read path (`wizard.controller.ts:166-168,217-219`), reusing `env.ts:12`?
+3. Should the renderer first-run gate fail closed on a missing bridge or rejected `getState()` (`app.component.tsx:40-54`, desktop-shell)?
+4. Should `BootstrapService` build its client inside each `try` so a missing region returns `{ status: 'failed' }` (`BootstrapService.ts:125,187,315,410,701-708`) per `.claude/rules/logging.md` rule 2?
+5. Should the runs table name use the operator's project name rather than `DEPLOYMENT_CONFIG_DEFAULTS.projectName` (`wizard.controller.ts:310`)?
+6. Should `rotateActiveCredentials` get an IPC channel and UI, or should the `aws-credentials` "In-app access key rotation" requirement be dropped (`AwsProfileService.ts:267`, `aws-credentials/spec.md:47-59`)?
+7. Should the IAM check run automatically after guided rotation and its `blocking` flag gate the bootstrap step, as `cloud-bootstrap/spec.md:93,110-113` requires (`use-bootstrap-resources.hook.ts:223-239`, `first-run-wizard.component.tsx:237-238`)?
+8. Which is right for the `wizard-flow` spec: the state-file name at `:25` or `:34`, and the Reconfigure step order at `:100` or `wizardSteps.ts:9`?
+9. Does Reconfigure's `commitReconfigureAnswers` overwrite the guided profile when guided IAM was re-run (`use-reconfigure-answers.hook.ts:222-224` vs `first-run-wizard.component.tsx:307`)?
+10. Should `cloudHealth.list` use `Promise.allSettled` and `writePolicyToDisk` catch its errors (`cloud-health.controller.ts:28-33`, `CloudHealthService.ts:200-204`)?
+11. Should `awsClientCache.ts` be removed in favour of `cloud-aws/src/cachedClient.ts`, `GUIDED_PROFILE_NAME` be declared once (`GuidedIamService.ts:94`, `desktop-preload/src/hyveon-api.ts:2107`), and the Cloud Health helpers that mirror `GuidedIamService` be shared (`CloudHealthService.ts:193-212,240-291`)?
+12. Should the IAM-check suggested policy reuse the scoped `HYVEON_DEPLOY_ALL_STATEMENTS` instead of `Resource: '*'` (`IamCheckService.ts:306-315`)?
+13. Should wizard reset also clear `addGameWizardDraft` and `folderUpload`, or document why not (`FirstRunWizardService.ts:200-208`)?
+14. Should template substitution use `replaceAll` (`GuidedIamService.ts:210-212`), and should `awsClientCache.ts` get tests?
+15. Should the credential signature avoid embedding the access key id (`awsCredentialSource.ts:185`)?
+16. Should `CloudHealthService` move out of `WizardModule` into a Settings-owned module (`wizard.module.ts:38`)?
+17. `wizard.state.get` returns `this.store.get('aws')` typed as `WizardAwsChoice` (`wizard.controller.ts:61-64,172`), but the stored `aws` schema also carries `accessKeyId` and `secretAccessKey` blobs (`ElectronStoreService.ts:204-209`); their setters (`:397,423`) have no production caller today, so this is latent. Should the controller project only `profile` and `region`, and should the unused setters be removed?
+18. On a Reconfigure that re-runs guided IAM, `rotate` overwrites the existing `hyveon-guided` entry before verifying the new key and deletes it on verification failure (`GuidedIamService.ts:434-438,478`) while `aws.profile` may still name `hyveon-guided`; the resolver would then treat it as a `~/.aws` profile `[inferred]`. Should staging use a temporary name?
+19. Should the region list drop `eusc-de-east-1` (`awsRegions.ts:36`), a separate partition, and should the spec exclusion rule name it (`guided-region-selection/spec.md:13-24`)?
+20. `aws-cloud-health/spec.md:4` Purpose is still TBD; what is the capability's stated purpose?
 
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/wizard-and-bootstrap.md`
-- EARS specs (not yet written): `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md`
+- EARS specs: `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md`
 - OpenSpec: `openspec/specs/wizard-flow/spec.md`, `openspec/specs/guided-iam-provisioning/spec.md`, `openspec/specs/guided-region-selection/spec.md`, `openspec/specs/aws-credentials/spec.md`, `openspec/specs/cloud-bootstrap/spec.md`, `openspec/specs/aws-cloud-health/spec.md`
 - Archived designs: `openspec/changes/archive/2026-07-26-add-first-run-wizard/design.md`, `2026-08-05-first-run-wizard-region-dropdown/design.md`, `2026-08-10-add-one-click-aws-bootstrap/design.md`, `2026-08-11-aws-cloud-health-checks/design.md`
 - Docs: `docs/docs/app/first-run-wizard.md`, `docs/docs/app/settings.md`, `docs/docs/components/management-app.md`, `docs/docs/setup.md` (`HyveonDeployAll` source of truth)
-- Neighbouring leaves (not yet written): `docs/intent/iac/engine/engine-design.md`, `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`, `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md`, `docs/intent/deployment-config/deployment-config-design.md`, `docs/intent/game-server/game-server-design.md`, `docs/intent/helper-task/helper-task-design.md`
+- Neighbouring leaves: `docs/intent/iac/engine/engine-design.md`, `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`, `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md`, `docs/intent/deployment-config/deployment-config-design.md`, `docs/intent/game-server/game-server-design.md`, `docs/intent/helper-task/helper-task-design.md`

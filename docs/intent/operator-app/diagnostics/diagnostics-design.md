@@ -94,7 +94,7 @@ The main process caps a single batch at 200 entries independently of the rendere
 The in-flight batch is reserved against the queue cap (`inFlightCount`, `:33,113`) so a rejected or synchronously throwing `reportLog` call can always requeue it at the front, preserving oldest-first order (`:82-85,115-136`).
 `flushInFlight` blocks a newer flush while an older call is unsettled, for the same ordering reason (`:42,98-100`).
 The flush doc says a call that "otherwise never resolves" is requeued (`:94-95`), but nothing times out an unsettled promise, so a hung `reportLog` stops forwarding for the session.
-Reserving headroom also means newer entries can be dropped before the visible queue reaches 200, which is stricter than the spec's "only once the 200-entry pending-queue cap is already full" wording (`openspec/specs/app-diagnostics-logging/spec.md`, Requirement "Renderer console forwarding").
+Reserving headroom means newer entries can be dropped before the visible queue reaches 200 while a batch is in flight; that is the intended trade: bounded memory and oldest-first delivery outrank admitting the newest entries (APP-DIAG-CONS-007).
 
 There is no redaction of console arguments; callers own not logging secrets (spec, same requirement).
 
@@ -212,26 +212,25 @@ The audit trail has no OpenSpec capability; its required behaviour is currently 
 
 1. Should `scrubSecrets` redact JSON-quoted labeled values (`"botToken":"..."`, `"apiKey": "..."`) that the production `json()` and dev meta formats actually emit? Today `LABELED_SECRET_VALUE_PATTERN` needs `[:=]` right after the label (`diagnosticsLogScrubber.ts:15-16`, `logger.ts:14,42`), and tests cover only unquoted shapes (`diagnosticsLogScrubber.test.ts:14-29`).
 2. How should the console forwarder recover from a `reportLog` promise that never settles? `flushInFlight` is cleared only on settle (`report-renderer-error.utils.ts:98-100,127-137`), contradicting its own doc (`:94-95`).
-3. Is reserving in-flight headroom against the 200-entry cap (`report-renderer-error.utils.ts:68`) the intended contract? If so, the spec's "only once the 200-entry pending-queue cap is already full" wording needs to change; if not, the code does.
-4. Should `ExportBundleButton` (and `StrayHelpersButton`) stay rendered when the tail read fails (`DiagnosticsPanel.tsx:43-47,74-76`)? The bundle already tolerates a failed log section (`DiagnosticsBundleService.ts:123`).
-5. Should `AuditService.list` catch, normalize and log store failures per `.claude/rules/logging.md` rule 2 (`AuditService.ts:140`), and should `record()` normalize its logged error and move the stack-outputs read inside its try (`AuditService.ts:90,114-118`)? No test covers a `listEntries` rejection (`AuditService.test.ts:143-170`).
-6. Should `ErrorBoundary` detect falsy throws (`error-boundary.component.tsx:55`), point to "Settings → Diagnostics" instead of the non-existent "Settings → Logs" (`:61`), and offer a reload action?
-7. Should `installGlobalErrorReporting` gain an install guard and use `isErrorLike` like `formatConsoleArgs` (`report-renderer-error.utils.ts:4-11,165-174`)? Should the flush interval ever be cleared (`:208`)?
-8. Should the audit trail get its own OpenSpec capability (or its own leaf), given it has no spec and now records IaC actions under a game-only schema and copy (`audit.ts:29-33`, `audit.controller.ts:8-11`, `audit.page.tsx:84`, `iac.controller.ts:755,885,1029`)? If IaC rows stay, how should the page render an empty Game cell and a `null`/`null` diff?
-9. Should the `/audit` page drop or rewire `<PollingIndicator />`, which reflects the global status poller on a page that fetches once (`audit.page.tsx:85`, `polling-indicator.component.tsx:18`)?
-10. Should per-game `getStatus` failure messages in `aws-snapshot.json` pass through `scrubSecrets` like section errors do (`DiagnosticsBundleService.ts:192-199` vs `:149`)?
-11. Should the log directory and `readAppVersion` route through `electronRuntime.ts` (`main.ts:26`, `app.module.ts:109`, `electronRuntime.ts:17`, `app-version.ts:5-6,12-21`) so the write and read paths cannot drift?
-12. Should `useDiagnosticsTail` move onto the shared polling registry and stop re-fetching the static log path every 5 s (`use-diagnostics-tail.hook.ts:56,83`)? Should the 500-line panel tail be a shared constant rather than a literal (`diagnostics.controller.ts:50`), and `TAIL_READ_BYTES` be exported instead of duplicated in tests (`DiagnosticsService.test.ts:17-18`)?
-13. Stale pointers to refresh: "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`), `openspec/changes/add-diagnostics-export` now archived (`DiagnosticsBundleService.ts:64`), and `diagnosticsBundle.ts:3` naming `DiagnosticsPanel` as the switcher.
-14. `AwsAuditLogStore` resolves `getConfig()` twice per operation (`AwsAuditLogStore.ts:65,83`); acceptable, or fold into one resolution?
-15. Test hygiene: `logger.test.ts:16,27,99` builds real `DailyRotateFile` transports under `/tmp`; there are no dedicated tests for `export-bundle-button.component.tsx` or `use-diagnostics-tail.hook.ts`; `DiagnosticsPanel.tsx` is the lone PascalCase component filename (sweep disagreement, `final-clustering.md` §6).
-16. The `add-pinned-hostname` change added `hasPinnedHostname` to the bundle allowlist (`diagnosticsBundleAllowlist.ts:23,66`) but is shipped, unsynced and unarchived; does `app-diagnostics-logging` need a delta for it when that change is archived?
-17. The `embed-file-browser` change's `game-volume-folder-upload` delta asks for stray-helper cleanup "from Diagnostics"; the button already renders here (`DiagnosticsPanel.tsx:76`). Should the diagnostics spec acknowledge that hosting, or does it belong solely to `helper-task`?
+3. Should `ExportBundleButton` (and `StrayHelpersButton`) stay rendered when the tail read fails (`DiagnosticsPanel.tsx:43-47,74-76`)? The bundle already tolerates a failed log section (`DiagnosticsBundleService.ts:123`).
+4. Should `AuditService.list` catch, normalize and log store failures per `.claude/rules/logging.md` rule 2 (`AuditService.ts:140`), and should `record()` normalize its logged error and move the stack-outputs read inside its try (`AuditService.ts:90,114-118`)? No test covers a `listEntries` rejection (`AuditService.test.ts:143-170`).
+5. Should `ErrorBoundary` detect falsy throws (`error-boundary.component.tsx:55`), point to "Settings → Diagnostics" instead of the non-existent "Settings → Logs" (`:61`), and offer a reload action?
+6. Should `installGlobalErrorReporting` gain an install guard and use `isErrorLike` like `formatConsoleArgs` (`report-renderer-error.utils.ts:4-11,165-174`)? Should the flush interval ever be cleared (`:208`)?
+7. Should the audit trail get its own OpenSpec capability (or its own leaf), given it has no spec and now records IaC actions under a game-only schema and copy (`audit.ts:29-33`, `audit.controller.ts:8-11`, `audit.page.tsx:84`, `iac.controller.ts:755,885,1029`)? If IaC rows stay, how should the page render an empty Game cell and a `null`/`null` diff?
+8. Should the `/audit` page drop or rewire `<PollingIndicator />`, which reflects the global status poller on a page that fetches once (`audit.page.tsx:85`, `polling-indicator.component.tsx:18`)?
+9. Should per-game `getStatus` failure messages in `aws-snapshot.json` pass through `scrubSecrets` like section errors do (`DiagnosticsBundleService.ts:192-199` vs `:149`)?
+10. Should the log directory and `readAppVersion` route through `electronRuntime.ts` (`main.ts:26`, `app.module.ts:109`, `electronRuntime.ts:17`, `app-version.ts:5-6,12-21`) so the write and read paths cannot drift?
+11. Should `useDiagnosticsTail` move onto the shared polling registry and stop re-fetching the static log path every 5 s (`use-diagnostics-tail.hook.ts:56,83`)? Should the 500-line panel tail be a shared constant rather than a literal (`diagnostics.controller.ts:50`), and `TAIL_READ_BYTES` be exported instead of duplicated in tests (`DiagnosticsService.test.ts:17-18`)?
+12. Stale pointers to refresh: "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`), `openspec/changes/add-diagnostics-export` now archived (`DiagnosticsBundleService.ts:64`), and `diagnosticsBundle.ts:3` naming `DiagnosticsPanel` as the switcher.
+13. `AwsAuditLogStore` resolves `getConfig()` twice per operation (`AwsAuditLogStore.ts:65,83`); acceptable, or fold into one resolution?
+14. Test hygiene: `logger.test.ts:16,27,99` builds real `DailyRotateFile` transports under `/tmp`; there are no dedicated tests for `export-bundle-button.component.tsx` or `use-diagnostics-tail.hook.ts`; `DiagnosticsPanel.tsx` is the lone PascalCase component filename (sweep disagreement, `final-clustering.md` §6).
+15. The `add-pinned-hostname` change added `hasPinnedHostname` to the bundle allowlist (`diagnosticsBundleAllowlist.ts:23,66`) but is shipped, unsynced and unarchived; does `app-diagnostics-logging` need a delta for it when that change is archived?
+16. The `embed-file-browser` change's `game-volume-folder-upload` delta asks for stray-helper cleanup "from Diagnostics"; the button already renders here (`DiagnosticsPanel.tsx:76`). Should the diagnostics spec acknowledge that hosting, or does it belong solely to `helper-task`?
 
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/diagnostics.md`
-- EARS specs (not yet written): `docs/intent/operator-app/diagnostics/diagnostics-specs.md`
+- EARS specs: `docs/intent/operator-app/diagnostics/diagnostics-specs.md`
 - OpenSpec: `openspec/specs/app-diagnostics-logging/spec.md`; archived design docs `openspec/changes/archive/2026-08-10-add-app-logging-debugging/design.md`, `openspec/changes/archive/2026-08-14-add-diagnostics-export/design.md`, plus `2026-08-10-ansi-log-rendering` and `2026-08-21-remove-log-level-filter`
 - Active changes touching this leaf: `openspec/changes/add-pinned-hostname/`, `openspec/changes/embed-file-browser/`
 - Rules: `.claude/rules/logging.md`

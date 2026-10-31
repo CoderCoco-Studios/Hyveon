@@ -215,7 +215,7 @@ The Lambda page defaults to `watchdog` and renders `LAMBDA_FUNCTION_KEYS` as `ar
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/infra-logs.md`
-- EARS specs (not yet written): `docs/intent/operator-app/infra-logs/infra-logs-specs.md`
+- EARS specs: `docs/intent/operator-app/infra-logs/infra-logs-specs.md`
 - OpenSpec: `openspec/specs/infra-log-viewer/spec.md`; archived design `openspec/changes/archive/2026-08-14-add-infra-log-viewer/design.md`; archived `2026-08-21-remove-log-level-filter`; active `openspec/changes/add-vpc-flow-logs/`; related `openspec/specs/in-task-tls-termination/spec.md`
 - Docs pages: `docs/docs/app/logs.md`, `docs/docs/components/management-app.md` (LogsController row), `docs/docs/app/index.md`
 - Neighbouring leaf docs: `docs/intent/operator-app/diagnostics/diagnostics-design.md` (consumes `LogLineList` and ANSI parsing); `docs/arrows/operator-app/ipc-bridge.md`, `docs/arrows/operator-app/desktop-shell.md`, and the `game-runtime/task-and-dns`, `iac/program`, `deployment-config` arrow docs (design docs not yet written)

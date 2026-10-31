@@ -10,7 +10,8 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/operator-app/operator-app-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`

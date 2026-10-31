@@ -10,7 +10,8 @@ A single scheduled Lambda with its state in an ECS task tag; tested at the handl
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/game-runtime/game-runtime-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/game-runtime/watchdog/watchdog-design.md`

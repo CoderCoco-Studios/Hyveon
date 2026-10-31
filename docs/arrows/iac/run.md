@@ -10,7 +10,8 @@ The run lifecycle works end to end through the IaC page and history, but `partia
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/iac/iac-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/iac/run/run-design.md`

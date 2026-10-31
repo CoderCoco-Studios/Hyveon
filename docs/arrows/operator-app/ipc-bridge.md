@@ -10,7 +10,8 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/operator-app/operator-app-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md`

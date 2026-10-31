@@ -10,7 +10,8 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/game-runtime/game-runtime-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/game-runtime/health-check/health-check-design.md`

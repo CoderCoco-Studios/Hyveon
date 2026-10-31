@@ -36,7 +36,13 @@ Needs and acceptable cost per role are not stated: *(not yet specified)*.
 
 ## Goals
 
-*(not yet specified)*
+> **DRAFT: needs owner review.** Drafted from `README.md` and `docs/docs/architecture.md`; not yet confirmed by the project owner. Edit or strike freely.
+
+1. **No idle compute cost.** When no one is playing, no game compute bills: no persistent ECS Service, no load balancer, no always-on bot host. Only storage and per-request services remain.
+2. **Blank AWS account to a running game server from inside the app.** One operator on one machine goes from first launch to a running server through the packaged app alone, with no host-installed CLI and no console work beyond the guided CloudFormation upload.
+3. **Players self-serve.** Allowlisted Discord users start, stop and check servers from slash commands without the operator present and without a 24/7 process.
+4. **Adding a game is one config entry.** Every per-game resource fans out from one `gameServers` map entry.
+5. **Worlds survive restarts.** A game's saves persist across task stops and starts.
 
 ## Non-Goals
 
@@ -56,9 +62,12 @@ Product-level non-goals beyond these invariants (for example which games, clouds
 
 ## Tenets
 
-*(not yet specified, to be elicited)*
+Tie-breakers for choices no spec anticipates. Every sub-HLD and leaf inherits them.
 
-Candidates the leaf designs surface repeatedly, for the user to confirm or reject as tenets, include "one copy of every rule" (`game-server-design.md`), "pollers degrade, editors fail loudly" (`deployment-config-design.md`), "fail active rather than stop a live server" (`watchdog-design.md`, `health-check-design.md`) and "humans gate both ends of a release" (`app-update-and-release-design.md`).
+- **One copy of every rule.** Shared logic (validators, permission checks, data shapes) lives once in `@hyveon/shared` and every consumer imports it, even when that couples bundles; never fork a rule to keep a package self-contained.
+- **Pollers degrade, editors fail loudly.** Background readers tolerate failure and show stale or empty state quietly; operator-initiated writes surface every failure.
+- **Fail active.** When a server's liveness is uncertain, keep it running; an extra stretch of cost beats stopping a game someone is playing.
+- **Humans gate both ends of a release.** A person cuts every release and a person approves every install; nothing ships or updates silently.
 
 ## System Design
 
@@ -153,15 +162,15 @@ flowchart LR
 
 | Node | Kind | Purpose | Design doc path | Specs prefix |
 |---|---|---|---|---|
-| `iac` | sub-HLD | Turning the operator's declared setup into real AWS resources, safely and with a record of every attempt. | `docs/intent/iac/iac-design.md` (not yet written; flesh-out) | `IAC` (namespace root, owns no EARS) |
+| `iac` | sub-HLD | Turning the operator's declared setup into real AWS resources, safely and with a record of every attempt. | `docs/intent/iac/iac-design.md` | `IAC` (namespace root, owns no EARS) |
 | `iac/run` | leaf | Each plan / apply / destroy / rollback attempt as a durable record, plus the IaC, history and run-detail pages. | `docs/intent/iac/run/run-design.md` | `IAC-RUN` |
 | `iac/engine` | leaf | Runs Pulumi inside the app: pinned engine download, workspace, credentials, cancellation, lock recovery, cached outputs. | `docs/intent/iac/engine/engine-design.md` | `IAC-ENGINE` |
 | `iac/program` | leaf | The inline Pulumi program describing every AWS resource and the `StackOutputs` it hands back. | `docs/intent/iac/program/program-design.md` | `IAC-PROGRAM` |
-| `game-runtime` | sub-HLD | What happens to a game while it is deployed: starting, stopping, DNS, idle shutdown and liveness verdicts. | `docs/intent/game-runtime/game-runtime-design.md` (not yet written; flesh-out) | `RT` (namespace root, owns no EARS) |
+| `game-runtime` | sub-HLD | What happens to a game while it is deployed: starting, stopping, DNS, idle shutdown and liveness verdicts. | `docs/intent/game-runtime/game-runtime-design.md` | `RT` (namespace root, owns no EARS) |
 | `game-runtime/task-and-dns` | leaf | Start and stop a game's container on demand, publish its address in DNS, show live status and estimated cost. | `docs/intent/game-runtime/task-and-dns/task-and-dns-design.md` | `RT-TASK` |
 | `game-runtime/watchdog` | leaf | Automatically stop a game nobody is playing, keeping its idle counter in an ECS task tag. | `docs/intent/game-runtime/watchdog/watchdog-design.md` | `RT-WATCHDOG` |
 | `game-runtime/health-check` | leaf | Optionally ask a game over HTTP whether it is serving players, so the watchdog judges idleness by the game's own answer. | `docs/intent/game-runtime/health-check/health-check-design.md` | `RT-HEALTH` |
-| `operator-app` | sub-HLD | The desktop application itself and the operator-facing jobs about the app or the AWS account rather than a game. | `docs/intent/operator-app/operator-app-design.md` (not yet written; flesh-out) | `APP` (namespace root, owns no EARS) |
+| `operator-app` | sub-HLD | The desktop application itself and the operator-facing jobs about the app or the AWS account rather than a game. | `docs/intent/operator-app/operator-app-design.md` | `APP` (namespace root, owns no EARS) |
 | `operator-app/wizard-and-bootstrap` | leaf | First launch and Reconfigure: connect an AWS account, pick a region, create buckets and runs table, check permissions, keep credentials safe. | `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md` | `APP-WIZARD` |
 | `operator-app/diagnostics` | leaf | The app's own log, the support bundle export, renderer crash forwarding, and the audit trail. | `docs/intent/operator-app/diagnostics/diagnostics-design.md` | `APP-DIAG` |
 | `operator-app/infra-logs` | leaf | Read a game's or a Lambda's CloudWatch logs inside the app: live tail, pause, page back. | `docs/intent/operator-app/infra-logs/infra-logs-design.md` | `APP-LOGS` |
@@ -227,9 +236,24 @@ Rationale is marked `[stated]` when the cited source gives it and `[inferred]` w
 
 ## Success Metrics
 
-*(not yet specified)*
+> **DRAFT: needs owner review.** Metric shapes follow the Goals above; every target marked `TBD` needs a number from the project owner.
+
+| Metric | Measures goal | Target |
+|---|---|---|
+| Compute cost while no task runs | 1 | $0 (no hourly-billed compute); monthly storage-and-state baseline `TBD` |
+| Time from first launch to first running server, blank account | 2 | `TBD` minutes, in one session, zero CLI steps |
+| `/server-start` to joinable (task `RUNNING` and DNS record updated) | 3 | `TBD` minutes |
+| Idle server stopped after the last player leaves | 1 | within the configured idle window (`idle_checks` x watchdog interval) |
+| Files touched to add a game | 4 | one `gameServers` entry, no infra code change |
+| Secret values reaching the renderer or the app log | invariant | zero |
 
 ## References
+
+### Sub-HLD design docs
+
+- `docs/intent/iac/iac-design.md`
+- `docs/intent/game-runtime/game-runtime-design.md`
+- `docs/intent/operator-app/operator-app-design.md`
 
 ### Leaf design docs
 

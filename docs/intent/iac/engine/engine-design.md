@@ -154,8 +154,8 @@ Stack outputs are read through two layers. `PulumiService.getStackOutputs()` (`P
 ## References
 
 - Arrow doc: `docs/arrows/iac/engine.md`
-- EARS specs (not yet written): `docs/intent/iac/engine/engine-specs.md`
+- EARS specs: `docs/intent/iac/engine/engine-specs.md`
 - OpenSpec: `openspec/specs/pulumi-engine-runtime/spec.md` (carried); `openspec/specs/pulumi-infra-program/spec.md` (cited for `spec.md:70`); `openspec/specs/wizard-flow/spec.md` (stack-init step and engine-version row, owned by `wizard-and-bootstrap`)
 - OpenSpec design history: `openspec/changes/archive/2026-08-10-migrate-iac-to-pulumi/design.md`, `openspec/changes/archive/2026-08-13-pulumi-portable-passphrase/design.md`
 - Docs pages: `docs/docs/architecture.md`, `docs/docs/components/infra.md`, `docs/docs/components/management-app.md`, `docs/docs/app/settings.md`
-- Neighbouring leaf designs (not yet written): `docs/intent/iac/run/run-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md`, `docs/intent/deployment-config/deployment-config-design.md`
+- Neighbouring leaf designs: `docs/intent/iac/run/run-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md`, `docs/intent/deployment-config/deployment-config-design.md`

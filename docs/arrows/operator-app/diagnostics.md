@@ -10,7 +10,8 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/operator-app/operator-app-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/operator-app/diagnostics/diagnostics-design.md`
@@ -132,7 +133,7 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 
 1. **Log scrubber misses JSON-quoted keys**: `LABELED_SECRET_VALUE_PATTERN` (`diagnosticsLogScrubber.ts:15-16`) requires `[:=]` right after the label, so `"botToken":"…"` (production `winston.format.json()`, `logger.ts:37,42`) and `"apiKey": "…"` (dev `devPrintf` meta, `logger.ts:14`) pass through unredacted. Verified by running the regex; the tests (`diagnosticsLogScrubber.test.ts:14-29`) only cover unquoted `label: value` / `label=value`. Short or unlabeled secrets are also not caught (scrubber is defense-in-depth by its own doc, `:18-23`).
 2. **Console forwarder can wedge permanently**: `flush()` returns early while `flushInFlight` is true (`report-renderer-error.utils.ts:98-100`) and only clears it when the IPC promise settles (`:127-137`). A `reportLog` promise that never settles stops all forwarding for the session, contradicting the doc's "or otherwise never resolves ... the batch is requeued" (`:94-95`).
-3. **Effective queue cap is below 200 while a batch is in flight**: `enqueue` drops when `queue.length + inFlightCount >= 200` (`report-renderer-error.utils.ts:68`), so up to 50 entries of headroom are reserved for requeue. The spec says entries may be dropped only "once the 200-entry pending-queue cap is already full" (`spec.md` Requirement 1); this is a deliberate but undocumented-in-spec deviation.
+3. **Effective queue cap is below 200 while a batch is in flight**: `enqueue` drops when `queue.length + inFlightCount >= 200` (`report-renderer-error.utils.ts:68`), so up to 50 entries of headroom are reserved for requeue. This is the intended contract (APP-DIAG-CONS-007); the OpenSpec wording "only once the 200-entry pending-queue cap is already full" is superseded.
 4. **Global error reporting is not idempotent and disagrees with itself on Error detection**: `installGlobalErrorReporting` has no install guard (`report-renderer-error.utils.ts:165-174`, unlike `installConsoleForwarding` at `:191`), uses `instanceof Error` (`:171-172`) where `formatConsoleArgs` deliberately uses cross-realm `isErrorLike` (`:4-11`), and the flush `setInterval` is never cleared (`:208`).
 5. **ErrorBoundary fallback misses falsy throws and points to a non-existent "Logs" settings section**: `if (this.state.error)` (`error-boundary.component.tsx:55`) re-renders the children when a descendant throws `0`/`''`/`null`; the copy says "Check Settings → Logs" (`:61`) but the section is titled "Diagnostics" (`settings.page.tsx:381`), and the fallback offers no reset or reload action.
 6. **Panel error state hides the export button**: when `diagnostics.tail` fails, `DiagnosticsPanel` returns only an `ErrorBanner` (`DiagnosticsPanel.tsx:43-47`), so `ExportBundleButton` and `StrayHelpersButton` (`:74-76`) disappear exactly when an operator most needs a bundle. The bundle itself treats a log failure as one recoverable section (`DiagnosticsBundleService.ts:123`).
@@ -159,11 +160,10 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/diagnostic
 4. Catch, normalize and log `AuditService.list` store failures; normalize the error in `record()` and move the stack-outputs read inside the try (findings 7, 8). (specs: `APP-DIAG-AUDR-004`, `APP-DIAG-SVC-003`, `APP-DIAG-AUDIT-004`)
 5. Fix `ErrorBoundary`'s falsy-throw check, correct the "Settings → Logs" copy, and consider a reload action (finding 5). (specs: `APP-DIAG-RERR-006`, `APP-DIAG-RERR-007`)
 6. Add an install guard and `isErrorLike` to `installGlobalErrorReporting` (finding 4). (specs: `APP-DIAG-RERR-008`, `APP-DIAG-RERR-009`)
-7. Reconcile the queue-cap wording between spec and code (finding 3). (specs: `APP-DIAG-CONS-007`)
-8. Decide whether audit gets its own OpenSpec capability, and update audit docs and page copy for IaC actions (finding 9). (specs: `APP-DIAG-AUDUI-008`)
+7. Decide whether audit gets its own OpenSpec capability, and update audit docs and page copy for IaC actions (finding 9). (specs: `APP-DIAG-AUDUI-008`)
 
 ### Nice to Have
-9. Drop or rewire the `/audit` polling indicator (finding 10).
-10. Route log-dir and app-version lookups through `electronRuntime.ts` (finding 11). (specs: `APP-DIAG-LOG-008`)
-11. Refresh stale doc pointers (finding 12); scrub per-game snapshot messages (finding 13). (specs: `APP-DIAG-BNDL-013`)
-12. Move the diagnostics tail onto the polling registry, export shared constants, and tidy tests (findings 14, 15).
+8. Drop or rewire the `/audit` polling indicator (finding 10).
+9. Route log-dir and app-version lookups through `electronRuntime.ts` (finding 11). (specs: `APP-DIAG-LOG-008`)
+10. Refresh stale doc pointers (finding 12); scrub per-game snapshot messages (finding 13). (specs: `APP-DIAG-BNDL-013`)
+11. Move the diagnostics tail onto the polling registry, export shared constants, and tidy tests (findings 14, 15).

@@ -203,8 +203,8 @@ The only unmocked electron roundtrip is `env.get` (`electron-ipc-roundtrip.spec.
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/ipc-bridge.md`
-- EARS specs (not yet written): `docs/intent/operator-app/ipc-bridge/ipc-bridge-specs.md`, prefix `APP-IPC`
+- EARS specs: `docs/intent/operator-app/ipc-bridge/ipc-bridge-specs.md`, prefix `APP-IPC`
 - OpenSpec: `openspec/specs/preload-bridge-naming/spec.md`; `openspec/specs/desktop-only-operator-surface/spec.md` (requirements "Desktop-main exposes no HTTP transport", "Test harnesses do not depend on the removed HTTP surface", "Streamed IPC channels work across the context bridge")
 - Docs: `docs/docs/components/management-app.md` (desktop-main bootstrap, controllers and IPC channels, `@hyveon/desktop-preload`), `docs/docs/components/integration-tests.md` (mock seams and test tiers), `docs/docs/architecture.md`
 - Rules: `.claude/rules/logging.md`
-- Neighbouring leaves: `docs/intent/operator-app/desktop-shell/desktop-shell-design.md` (not yet written), `docs/intent/operator-app/infra-logs/infra-logs-design.md` (not yet written), `docs/intent/iac/run/run-design.md` (not yet written), `docs/intent/operator-app/app-update-and-release/app-update-and-release-design.md`, `docs/intent/operator-app/diagnostics/diagnostics-design.md`
+- Neighbouring leaves: `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`, `docs/intent/operator-app/infra-logs/infra-logs-design.md`, `docs/intent/iac/run/run-design.md`, `docs/intent/operator-app/app-update-and-release/app-update-and-release-design.md`, `docs/intent/operator-app/diagnostics/diagnostics-design.md`

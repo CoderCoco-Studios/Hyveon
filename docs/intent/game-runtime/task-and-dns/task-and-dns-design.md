@@ -167,7 +167,7 @@ A second implementation exists on the provider: `getCostEstimate` describes each
 ## References
 
 - Arrow doc: `docs/arrows/game-runtime/task-and-dns.md`
-- EARS specs (wave 3, not yet written): `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md`
+- EARS specs: `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md`
 - OpenSpec: `openspec/specs/cost-visibility/spec.md` (carried); `openspec/specs/in-task-tls-termination/spec.md` (requirement "HTTPS games use the Lambda-managed DNS lifecycle")
 - Docs pages: `docs/docs/architecture.md`, `docs/docs/components/lambdas.md`, `docs/docs/components/management-app.md`, `docs/docs/app/dashboard.md`, `docs/docs/app/costs.md`
 - Neighbouring leaves: `docs/intent/game-runtime/watchdog/watchdog-design.md`, `docs/intent/game-runtime/health-check/health-check-design.md`, `docs/intent/iac/program/program-design.md`; `game-server`, `discord-bot`, `helper-task`, `iac/engine` design docs (paths per the tree-mirrored layout, not all written yet)

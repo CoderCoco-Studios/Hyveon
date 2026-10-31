@@ -10,7 +10,8 @@ Both log pages (`/logs` for game servers, `/logs/infrastructure` for Lambdas) sh
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/operator-app/operator-app-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/operator-app/infra-logs/infra-logs-design.md`
