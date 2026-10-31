@@ -194,6 +194,7 @@ describe('VolumeFilesPage', () => {
     renderFiles();
 
     expect(await screen.findByText('The server is running. Stop it to change files.')).toBeInTheDocument();
+    expect(await screen.findByText('a.txt')).toBeInTheDocument();
 
     for (const name of ['New folder', 'Upload files', 'Upload folder', 'Rename a.txt', 'Delete a.txt']) {
       const button = screen.getByRole('button', { name });
