@@ -16,6 +16,7 @@ export interface CostEstimates {
   totalPerHourIfAllOn: number;
 }
 
+// @spec RT-TASK-COST-001
 /**
  * Produces the numbers that back the Costs page: static Fargate estimates
  * derived from each game's task-definition CPU/memory. The app makes no AWS
@@ -23,6 +24,7 @@ export interface CostEstimates {
  */
 @Injectable()
 export class CostService {
+  // @spec RT-TASK-COST-007
   /**
    * Translate a Fargate task's raw `cpu` (1024 = 1 vCPU) and `memory` (MiB)
    * into projected dollar costs. Pure arithmetic — no AWS calls — so it's

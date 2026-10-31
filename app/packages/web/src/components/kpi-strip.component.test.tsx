@@ -25,6 +25,7 @@ describe('KpiStrip', () => {
     expect(screen.queryByText('Forecast MTD')).not.toBeInTheDocument();
   });
 
+  // @spec RT-TASK-UI-012
   it('should show $0.00 for Current run rate when no games are running', () => {
     const statuses: GameStatus[] = [{ game: 'minecraft', state: 'stopped' }];
     render(<KpiStrip statuses={statuses} estimates={ESTIMATES} />);
@@ -32,6 +33,7 @@ describe('KpiStrip', () => {
     expect(screen.getByText('$0.00')).toBeInTheDocument();
   });
 
+  // @spec RT-TASK-UI-011
   it('should sum costPerHour across running games for Current run rate', () => {
     const statuses: GameStatus[] = [
       { game: 'minecraft', state: 'running' },
@@ -43,6 +45,7 @@ describe('KpiStrip', () => {
     expect(screen.getByText('$0.08')).toBeInTheDocument();
   });
 
+  // @spec RT-TASK-UI-013
   it('should compute Est. month cap as totalPerHourIfAllOn times 24 times days in the current month', () => {
     const statuses: GameStatus[] = [{ game: 'minecraft', state: 'stopped' }];
     render(<KpiStrip statuses={statuses} estimates={ESTIMATES} />);

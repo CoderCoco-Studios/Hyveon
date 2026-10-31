@@ -286,6 +286,7 @@ export class EcsService {
     }
   }
 
+  // @spec RT-TASK-STATUS-007
   /**
    * Assemble the full status (state + IP + hostname) for a single game.
    * Delegates to {@link AwsCloudProvider.getWorkloadStatus} and maps its
@@ -305,6 +306,7 @@ export class EcsService {
     };
   }
 
+  // @spec RT-TASK-LAUNCH-012, RT-TASK-LAUNCH-013
   /**
    * Launch a one-off Fargate task from the game's `{game}-server` task
    * definition. Delegates to {@link AwsCloudProvider.startWorkload}, which
@@ -333,6 +335,7 @@ export class EcsService {
     }
   }
 
+  // @spec RT-TASK-LAUNCH-012, RT-TASK-LAUNCH-013
   /**
    * Stop the active task for `game`. Delegates to
    * {@link AwsCloudProvider.stopWorkload}, which throws the same message

@@ -38,6 +38,7 @@ import {
   type GameServerHealthCheck,
 } from '@hyveon/shared';
 
+// @spec RT-TASK-DNS-012
 const ECS_CLUSTER = requireEnv('ECS_CLUSTER');
 const GAME_NAMES = gameNamesFromEnv();
 const IDLE_CHECKS = parseInt(process.env['IDLE_CHECKS'] ?? '4', 10);

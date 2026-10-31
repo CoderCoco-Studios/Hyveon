@@ -115,6 +115,7 @@ async function getStatus(game: string): Promise<GameStatus> {
   }
 }
 
+// @spec RT-TASK-LAUNCH-004
 async function runStart(game: string): Promise<{ message: string; taskArn?: string }> {
   const cluster = requireEnv('ECS_CLUSTER');
   const subnets = requireEnv('SUBNET_IDS').split(',').map((s) => s.trim()).filter(Boolean);

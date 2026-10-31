@@ -74,6 +74,7 @@ describe('GameStatusProvider', () => {
     expect(screen.getByTestId('loading')).toHaveTextContent('false');
   });
 
+  // @spec RT-TASK-UI-003
   it('should fetch cost estimates exactly once on mount, not on every poll tick', async () => {
     render(
       <PollingProvider>
@@ -123,6 +124,7 @@ describe('GameStatusProvider', () => {
     expect(screen.getByTestId('loading')).toHaveTextContent('false');
   });
 
+  // @spec RT-TASK-UI-002
   it('should surface the rejection on the error field and clear it on the next successful poll', async () => {
     apiMock.status.mockRejectedValueOnce(new Error('network down'));
 

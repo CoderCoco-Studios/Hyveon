@@ -50,6 +50,7 @@ describe('CostsController', () => {
       expectChannels(CostsController.prototype, [['estimate', 'costs.estimate']] as const);
     });
 
+    // @spec RT-TASK-COST-001, RT-TASK-COST-002
     it('should not register an actual handler', () => {
       const controller = new CostsController(makeConfig(), makeCosts(), makeEcs());
       expect('actual' in controller).toBe(false);
@@ -57,11 +58,13 @@ describe('CostsController', () => {
   });
 
   describe('estimate', () => {
+    // @spec RT-TASK-COST-008
     it('should return zeroed estimates when stack outputs are missing', async () => {
       const result = await new CostsController(makeConfig(null), makeCosts(), makeEcs()).estimate();
       expect(result).toEqual({ games: {}, totalPerHourIfAllOn: 0 });
     });
 
+    // @spec RT-TASK-COST-006
     it('should call getTaskDefinition and estimateForSpec for each game', async () => {
       const ecs = makeEcs();
       const costs = makeCosts();
@@ -77,6 +80,7 @@ describe('CostsController', () => {
       expect(costs.estimateForSpec).toHaveBeenCalledWith(2048, 8192);
     });
 
+    // @spec RT-TASK-COST-007
     it('should sum costPerHour across all games for totalPerHourIfAllOn', async () => {
       const config = makeConfig({ gameNames: ['minecraft', 'palworld'] });
       const costs = makeCosts();

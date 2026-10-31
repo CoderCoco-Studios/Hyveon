@@ -8,6 +8,7 @@ describe('CostService', () => {
     service = new CostService();
   });
 
+  // @spec RT-TASK-COST-007
   describe('estimateForSpec', () => {
     it('should compute Fargate hourly, daily, and monthly costs for 1 vCPU + 2 GiB', () => {
       const est = service.estimateForSpec(1024, 2048);
@@ -35,6 +36,7 @@ describe('CostService', () => {
     });
   });
 
+  // @spec RT-TASK-COST-001, RT-TASK-COST-002
   it('should not expose a getActualCosts method', () => {
     expect('getActualCosts' in service).toBe(false);
   });

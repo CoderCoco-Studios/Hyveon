@@ -165,6 +165,7 @@ export interface AwsCloudProviderLogger {
   error(message: string, err: unknown): void;
 }
 
+// @spec RT-TASK-COST-002
 /**
  * AWS implementation of the cloud-agnostic {@link CloudProvider} contract.
  *
@@ -316,6 +317,7 @@ export class AwsCloudProvider implements CloudProvider {
     return Math.round(hourly * 10000) / 10000;
   }
 
+  // @spec RT-TASK-LAUNCH-009
   /**
    * Serializes calls for the same `game` so overlapping `startWorkload`/
    * `stopWorkload` requests can't both pass their guard check before either
@@ -397,6 +399,8 @@ export class AwsCloudProvider implements CloudProvider {
     }
   }
 
+  // @spec RT-TASK-LAUNCH-001, RT-TASK-LAUNCH-002, RT-TASK-LAUNCH-003, RT-TASK-LAUNCH-005, RT-TASK-LAUNCH-008
+  // @spec RT-TASK-LAUNCH-011
   /**
    * Launches a game workload on AWS.
    *
@@ -450,6 +454,7 @@ export class AwsCloudProvider implements CloudProvider {
     });
   }
 
+  // @spec RT-TASK-LAUNCH-006, RT-TASK-LAUNCH-007, RT-TASK-LAUNCH-008
   /**
    * Stops a running game workload on AWS.
    *
@@ -483,6 +488,8 @@ export class AwsCloudProvider implements CloudProvider {
     });
   }
 
+  // @spec RT-TASK-STATUS-001, RT-TASK-STATUS-002, RT-TASK-STATUS-003, RT-TASK-STATUS-004, RT-TASK-STATUS-005
+  // @spec RT-TASK-STATUS-006
   /**
    * Retrieves the current status of a game workload on AWS.
    *

@@ -58,6 +58,7 @@ describe('AwsCloudProvider', () => {
   });
 
   describe('startWorkload', () => {
+    // @spec RT-TASK-LAUNCH-008
     it('should throw an "Infrastructure is not deployed" error when no config is available', async () => {
       const provider = makeProvider(null);
       await expect(provider.startWorkload('minecraft', {})).rejects.toThrow(
@@ -65,6 +66,7 @@ describe('AwsCloudProvider', () => {
       );
     });
 
+    // @spec RT-TASK-LAUNCH-005
     it('should throw an "already running" error when a task is already running', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
       ecsMock.on(DescribeTasksCommand).resolves({
@@ -76,6 +78,7 @@ describe('AwsCloudProvider', () => {
       );
     });
 
+    // @spec RT-TASK-LAUNCH-001, RT-TASK-LAUNCH-002, RT-TASK-LAUNCH-003
     it('should launch a task with the correct cluster, family, trimmed subnets, and SG', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
       ecsMock.on(RunTaskCommand).resolves({ tasks: [{ taskArn: 'arn-new' }] });
@@ -98,6 +101,7 @@ describe('AwsCloudProvider', () => {
       expect(input.propagateTags).toBe('TASK_DEFINITION');
     });
 
+    // @spec RT-TASK-LAUNCH-011
     it('should throw with the failure reason when RunTask reports failures', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
       ecsMock.on(RunTaskCommand).resolves({
@@ -115,6 +119,7 @@ describe('AwsCloudProvider', () => {
       );
     });
 
+    // @spec RT-TASK-LAUNCH-011
     it('should throw with an "unknown" reason when RunTask returns no tasks and no failure reason', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
       ecsMock.on(RunTaskCommand).resolves({ tasks: [], failures: [] });
@@ -151,11 +156,13 @@ describe('AwsCloudProvider', () => {
   });
 
   describe('stopWorkload', () => {
+    // @spec RT-TASK-LAUNCH-008
     it('should throw an "Infrastructure is not deployed" error when no config is available', async () => {
       const provider = makeProvider(null);
       await expect(provider.stopWorkload('minecraft')).rejects.toThrow('Infrastructure is not deployed.');
     });
 
+    // @spec RT-TASK-LAUNCH-006
     it('should throw a "not currently running" error when no task is found', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
       const provider = makeProvider();
@@ -164,6 +171,7 @@ describe('AwsCloudProvider', () => {
       );
     });
 
+    // @spec RT-TASK-LAUNCH-007
     it('should stop the running task with the correct cluster, task, and reason', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
       ecsMock.on(DescribeTasksCommand).resolves({
@@ -207,6 +215,7 @@ describe('AwsCloudProvider', () => {
   });
 
   describe('getWorkloadStatus', () => {
+    // @spec RT-TASK-STATUS-001
     it('should return not_deployed when no config is available', async () => {
       const provider = makeProvider(null);
       await expect(provider.getWorkloadStatus('minecraft')).resolves.toEqual({
@@ -215,6 +224,7 @@ describe('AwsCloudProvider', () => {
       });
     });
 
+    // @spec RT-TASK-STATUS-002
     it('should return running with resolved public IP and hostname for a RUNNING task', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
       ecsMock.on(DescribeTasksCommand).resolves({
@@ -273,6 +283,7 @@ describe('AwsCloudProvider', () => {
       expect(status.hostname).toBeUndefined();
     });
 
+    // @spec RT-TASK-STATUS-003
     it('should return starting with the task ARN when the task is not yet RUNNING', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
       ecsMock.on(DescribeTasksCommand).resolves({
@@ -285,6 +296,7 @@ describe('AwsCloudProvider', () => {
       expect(status).toEqual({ state: 'starting', workloadId: 'arn1' });
     });
 
+    // @spec RT-TASK-STATUS-004
     it('should return stopped when no running task is found', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
       const provider = makeProvider();
@@ -292,6 +304,7 @@ describe('AwsCloudProvider', () => {
       expect(status).toEqual({ state: 'stopped' });
     });
 
+    // @spec RT-TASK-STATUS-005
     it('should return error with the stringified failure when an unexpected exception occurs', async () => {
       const provider = makeProvider();
       // `findRunningTask` swallows ECS/EC2 SDK errors internally (returning
@@ -306,6 +319,7 @@ describe('AwsCloudProvider', () => {
       expect(status).toEqual({ state: 'error', message: 'Error: unexpected failure' });
     });
 
+    // @spec RT-TASK-STATUS-005
     /**
      * Regression test for the uncaught-config-resolution defect flagged in
      * review of #452: `getConfig()` can throw synchronously (e.g.
@@ -327,6 +341,7 @@ describe('AwsCloudProvider', () => {
       expect(status).toEqual({ state: 'error', message: 'Error: cannot decrypt stored credentials' });
     });
 
+    // @spec RT-TASK-STATUS-005
     it('should return error (not reject) when getConfig returns a rejected promise', async () => {
       const provider = new AwsCloudProvider(() => Promise.reject(new Error('async decrypt failure')));
 
@@ -621,6 +636,7 @@ describe('AwsCloudProvider', () => {
     });
   });
 
+  // @spec RT-TASK-COST-002
   it('should not expose a getActualCosts method', () => {
     const provider = makeProvider();
     expect('getActualCosts' in provider).toBe(false);

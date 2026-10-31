@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button.component';
 import { EmptyStateCard } from '@/components/empty-state-card.component';
 import { AsyncContent } from '@/components/async-content.component';
 
+// @spec RT-TASK-COST-003, RT-TASK-COST-005, RT-TASK-UI-016
 /**
  * Dashboard route (`/`) — top KPI strip, then a search-filterable grid of
  * GameCards. Cost analysis lives at `/costs`, Discord settings at `/discord`,

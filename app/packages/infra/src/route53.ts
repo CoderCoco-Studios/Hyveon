@@ -47,6 +47,7 @@ export interface DefineRoute53Args {
 }
 
 // @spec IAC-PROGRAM-DNS-001
+// @spec RT-TASK-DNS-001
 /**
  * Looks up the pre-existing Route 53 hosted zone by name — see this file's
  * doc for the no-DNS-records invariant. Must be called from inside the

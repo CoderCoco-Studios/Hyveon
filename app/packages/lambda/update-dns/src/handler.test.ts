@@ -96,6 +96,7 @@ afterEach(() => {
 });
 
 describe('update-dns handler: unknown families', () => {
+  // @spec RT-TASK-DNS-003
   it('should skip tasks whose family is not a known game', async () => {
     const result = await handler({
       detail: { lastStatus: 'RUNNING', group: 'family:stranger-server' },
@@ -106,6 +107,7 @@ describe('update-dns handler: unknown families', () => {
 });
 
 describe('update-dns handler: direct (non-HTTPS) game', () => {
+  // @spec RT-TASK-DNS-005
   it('should upsert a Route 53 A record pointing at the resolved public IP on RUNNING', async () => {
     stubTaskWithEni();
     ec2Mock.on(DescribeNetworkInterfacesCommand).resolves({
@@ -124,6 +126,7 @@ describe('update-dns handler: direct (non-HTTPS) game', () => {
     expect(change.ResourceRecordSet!.ResourceRecords![0]!.Value).toBe('1.2.3.4');
   });
 
+  // @spec RT-TASK-DNS-007
   it('should delete the existing A record on STOPPED', async () => {
     route53Mock.on(ListResourceRecordSetsCommand).resolves({
       ResourceRecordSets: [
@@ -142,6 +145,7 @@ describe('update-dns handler: direct (non-HTTPS) game', () => {
 });
 
 describe('update-dns handler: HTTPS-flagged game', () => {
+  // @spec RT-TASK-DNS-011
   it('should follow the plain A-record path like any other game on RUNNING', async () => {
     stubTaskWithEni();
     ec2Mock.on(DescribeNetworkInterfacesCommand).resolves({
@@ -159,6 +163,7 @@ describe('update-dns handler: HTTPS-flagged game', () => {
     );
   });
 
+  // @spec RT-TASK-DNS-011
   it('should delete the A record on STOPPED', async () => {
     route53Mock.on(ListResourceRecordSetsCommand).resolves({
       ResourceRecordSets: [
@@ -174,6 +179,7 @@ describe('update-dns handler: HTTPS-flagged game', () => {
 });
 
 describe('update-dns handler: Discord follow-up', () => {
+  // @spec RT-TASK-NOTIFY-001
   it('should PATCH the original interaction and delete the pending row when a pending record exists', async () => {
     stubTaskWithEni();
     ec2Mock.on(DescribeNetworkInterfacesCommand).resolves({

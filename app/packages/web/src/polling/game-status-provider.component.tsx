@@ -13,6 +13,7 @@ import { usePoller } from './polling-provider.component.js';
 /** Name under which the dashboard status poller is registered. */
 export const GAME_STATUS_POLLER = 'status';
 
+// @spec RT-TASK-UI-001
 /**
  * Status poll cadence in milliseconds. Defaults to 20s and can be overridden
  * at build time via `VITE_STATUS_POLL_MS` so deployments that want to reduce
@@ -42,6 +43,7 @@ interface GameStatusContextValue {
 
 const GameStatusCtx = createContext<GameStatusContextValue | null>(null);
 
+// @spec RT-TASK-UI-001, RT-TASK-UI-002, RT-TASK-UI-003
 /**
  * Top-level provider for the dashboard's status + cost-estimate state. Lives
  * above the router so polling continues even when the user navigates to /logs

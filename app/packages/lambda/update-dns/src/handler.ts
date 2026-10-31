@@ -34,6 +34,7 @@ import {
 } from '@hyveon/shared';
 import type { ConnectPort } from '@hyveon/shared';
 
+// @spec RT-TASK-DNS-012
 const HOSTED_ZONE_ID = requireEnv('HOSTED_ZONE_ID');
 const DOMAIN_NAME = requireEnv('DOMAIN_NAME');
 const GAME_NAMES = gameNamesFromEnv();
@@ -48,6 +49,7 @@ const GAME_PORTS: Record<string, ConnectPort> = parseGameMapEnv('GAME_PORTS');
 
 const FAMILY_TO_GAME = familyToGameMap(GAME_NAMES);
 
+// @spec RT-TASK-DNS-013
 function region(): string {
   return (
     // AWS_REGION_ (trailing underscore) — AWS_REGION is reserved by the Lambda runtime and cannot be set as a function env var.
@@ -64,6 +66,7 @@ const route53 = new Route53Client({});
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// @spec RT-TASK-DNS-004
 /**
  * Retry a few times since ENI association can lag behind the RUNNING event.
  * Mirrors the 5-attempt loop with 3s sleeps from update_dns.py.
@@ -169,6 +172,7 @@ async function deleteDns(dnsName: string): Promise<void> {
   }
 }
 
+// @spec RT-TASK-NOTIFY-001, RT-TASK-NOTIFY-002, RT-TASK-NOTIFY-003, RT-TASK-NOTIFY-004
 /**
  * If a Discord interaction is pending for this task, PATCH it with the resolved
  * hostname/IP (or an error message when `publicIp` is `null`) and delete the pending row.
@@ -239,6 +243,8 @@ async function handleDirect(
   return { status: 'no_action', lastStatus };
 }
 
+// @spec RT-TASK-DNS-001, RT-TASK-DNS-003, RT-TASK-DNS-005, RT-TASK-DNS-006, RT-TASK-DNS-007, RT-TASK-DNS-008
+// @spec RT-TASK-DNS-011
 /**
  * Fired by an EventBridge rule on `ECS Task State Change`. UPSERTs a Route 53 record
  * for `{game}.{hosted_zone_name}` on RUNNING and DELETEs on STOPPED — DNS is owned by

@@ -633,6 +633,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
   );
 
   // ── DNS-updater Lambda + EventBridge ECS-state-change rule ────────────────
+  // @spec RT-TASK-DNS-012
   const dnsUpdaterFunction = new aws.lambda.Function(
     `${projectName}-dns-updater`,
     {
@@ -666,6 +667,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
 
   const dnsUpdaterLogGroup = lambdaLogGroup(projectName, 'dns-updater', opts);
 
+  // @spec RT-TASK-DNS-002
   const ecsTaskChangeRule = new aws.cloudwatch.EventRule(
     `${projectName}-task-state-change`,
     {

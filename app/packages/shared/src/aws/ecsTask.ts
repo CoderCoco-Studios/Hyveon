@@ -1,3 +1,4 @@
+// @spec RT-TASK-DNS-015
 /**
  * Structural subset of `@aws-sdk/client-ecs`'s `Task` shape this module needs.
  *

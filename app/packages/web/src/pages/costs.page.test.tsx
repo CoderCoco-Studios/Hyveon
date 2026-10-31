@@ -31,6 +31,7 @@ describe('CostsPage', () => {
     expect(await screen.findByText(/^Updated\b/)).toBeInTheDocument();
   });
 
+  // @spec RT-TASK-COST-009
   it('should render every configured game in the estimates table once the data resolves', async () => {
     renderPage(<CostsPage />, { initialEntries: ['/costs'] });
 
@@ -38,6 +39,7 @@ describe('CostsPage', () => {
     expect(screen.getByRole('cell', { name: 'valheim' })).toBeInTheDocument();
   });
 
+  // @spec RT-TASK-UI-015
   it('should render no actual-spend total, delta pill, or stacked chart', async () => {
     renderPage(<CostsPage />, { initialEntries: ['/costs'] });
 
@@ -48,6 +50,7 @@ describe('CostsPage', () => {
     expect(screen.queryByText(/Daily spend, stacked by game/)).not.toBeInTheDocument();
   });
 
+  // @spec RT-TASK-UI-014, RT-TASK-UI-015
   it('should show a link to AWS Cost Explorer and no in-app chart or total claiming to be actual billed spend', async () => {
     renderPage(<CostsPage />, { initialEntries: ['/costs'] });
 

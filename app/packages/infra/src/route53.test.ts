@@ -34,6 +34,7 @@ describe('defineRoute53', () => {
   });
 
   // @spec IAC-PROGRAM-DNS-001
+  // @spec RT-TASK-DNS-001
   it('should declare no aws.route53.Record resource — DNS records are Lambda-managed, never Pulumi-managed', async () => {
     const mocks = installPulumiMocks();
     const provider = new aws.Provider('aws', { region: 'us-east-1' });

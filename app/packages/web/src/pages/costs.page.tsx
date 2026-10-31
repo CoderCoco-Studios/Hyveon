@@ -182,6 +182,7 @@ function useCostEstimates(): { estimates: CostEstimates | null } {
   return { estimates };
 }
 
+// @spec RT-TASK-COST-004, RT-TASK-COST-005, RT-TASK-UI-015
 /**
  * Cost analysis route (`/costs`). Renders a sortable per-game Fargate cost
  * estimate table plus a callout linking out to the AWS Cost Explorer console
@@ -219,6 +220,7 @@ export function CostsPage() {
   );
 }
 
+// @spec RT-TASK-UI-014
 /** Callout card linking out to the real AWS Cost Explorer console — the app itself renders no actual-billed-spend figures. */
 function CostExplorerCallout() {
   return (
@@ -245,6 +247,7 @@ function CostExplorerCallout() {
   );
 }
 
+// @spec RT-TASK-COST-009
 /** Sortable, filterable per-game estimates table. Default sort is `$/hr` descending. */
 function EstimatesTable({
   estimates,

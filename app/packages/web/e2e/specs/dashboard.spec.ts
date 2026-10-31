@@ -119,6 +119,7 @@ test.describe('dashboard', () => {
       .toBe(true);
   });
 
+  // @spec RT-TASK-UI-006
   test('should show only Stop as the primary action for a running game', async () => {
     await applyHyveonMocks(win, { statuses: [RUNNING_GAME] });
     await dashboard.gotoElectron();
@@ -207,6 +208,7 @@ test.describe('dashboard', () => {
     await expect(layout.toastMessage('minecraft is starting')).toBeVisible();
   });
 
+  // @spec RT-TASK-UI-009
   test('should show a stop toast with an Undo button after stopping a game', async () => {
     await applyHyveonMocks(win, { statuses: [RUNNING_GAME] });
 

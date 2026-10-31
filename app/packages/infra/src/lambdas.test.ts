@@ -472,6 +472,7 @@ describe('defineLambdas', () => {
     });
 
     // @spec IAC-PROGRAM-LAMBDA-006
+    // @spec RT-TASK-DNS-002
     it('should declare an event pattern matching RUNNING/STOPPED ECS Task State Change events on the live cluster ARN', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));

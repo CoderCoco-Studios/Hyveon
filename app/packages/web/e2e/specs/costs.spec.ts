@@ -37,6 +37,7 @@ test.describe('costs page', () => {
     }
   });
 
+  // @spec RT-TASK-UI-014
   test('should link out to the AWS Cost Explorer console', async () => {
     const { app, win } = await launchElectron();
 

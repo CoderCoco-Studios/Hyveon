@@ -12,6 +12,7 @@ export interface UseGameActionsResult {
   stop: () => void;
 }
 
+// @spec RT-TASK-UI-008, RT-TASK-UI-009
 /**
  * Start/Stop orchestration for a single game's card: calls the API, shows a toast (with an
  * Undo action on a successful stop), and schedules a delayed `onRefresh` so the backend has
