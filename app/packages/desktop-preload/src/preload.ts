@@ -296,6 +296,7 @@ interface UpdateDownloadWireChunk extends UpdateDownloadProgress {
   streamId: string;
 }
 
+// @spec APP-UPDATE-IPC-008
 /**
  * Preload-internal — never exposed to the renderer directly (see {@link openUpdateDownloadStream}).
  * Bridges `IacSettingsController.downloadAutoUpdate`'s fixed `iac.settings.autoUpdate.download.chunk` /

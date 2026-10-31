@@ -58,6 +58,7 @@ function makeDeploymentConfig(): DeploymentConfigService {
 
 describe('IacSettingsController', () => {
   describe('@MessagePattern channel names', () => {
+    // @spec APP-UPDATE-IPC-001
     it('should register every channel', () => {
       expectChannels(IacSettingsController.prototype, [
         ['get', 'iac.settings.get'],
@@ -268,23 +269,27 @@ describe('IacSettingsController', () => {
       } as Partial<ElectronStoreService> as ElectronStoreService;
     }
 
+    // @spec APP-UPDATE-FLAG-002, APP-UPDATE-FLAG-003
     it('should return false when enableAutoUpdate was never set', () => {
       const store = makeStore();
       const result = new IacSettingsController(makeDeploymentConfig(), undefined, store).getAutoUpdate();
       expect(result).toEqual({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
     });
 
+    // @spec APP-UPDATE-FLAG-003
     it('should return true when enableAutoUpdate is stored as true', () => {
       const store = makeStore({ enableAutoUpdate: true });
       const result = new IacSettingsController(makeDeploymentConfig(), undefined, store).getAutoUpdate();
       expect(result).toEqual({ ok: true, enableAutoUpdate: true, appVersion: '0.8.0' });
     });
 
+    // @spec APP-UPDATE-FLAG-002
     it('should return false without throwing when no store was injected', () => {
       const result = new IacSettingsController(makeDeploymentConfig()).getAutoUpdate();
       expect(result).toEqual({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
     });
 
+    // @spec APP-UPDATE-FLAG-004
     it('should return an error result without throwing when store.get throws', () => {
       const failingStore = {
         get: vi.fn(() => {
@@ -307,6 +312,7 @@ describe('IacSettingsController', () => {
       } as Partial<ElectronStoreService> as ElectronStoreService;
     }
 
+    // @spec APP-UPDATE-FLAG-005
     it('should persist true and round-trip through a subsequent get', () => {
       const store = makeStore();
       const controller = new IacSettingsController(makeDeploymentConfig(), undefined, store);
@@ -315,6 +321,7 @@ describe('IacSettingsController', () => {
       expect(controller.getAutoUpdate()).toEqual({ ok: true, enableAutoUpdate: true, appVersion: '0.8.0' });
     });
 
+    // @spec APP-UPDATE-FLAG-005
     it('should persist false', () => {
       const store = makeStore({ enableAutoUpdate: true });
       const controller = new IacSettingsController(makeDeploymentConfig(), undefined, store);
@@ -322,12 +329,14 @@ describe('IacSettingsController', () => {
       expect(writeResult).toEqual({ ok: true, enableAutoUpdate: false });
     });
 
+    // @spec APP-UPDATE-FLAG-006
     it('should return an error result without throwing when no store was injected', () => {
       const controller = new IacSettingsController(makeDeploymentConfig());
       const result = controller.updateAutoUpdate({ enableAutoUpdate: true });
       expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
     });
 
+    // @spec APP-UPDATE-FLAG-006
     it('should reject a non-boolean payload without writing to the store', () => {
       const store = makeStore();
       const controller = new IacSettingsController(makeDeploymentConfig(), undefined, store);
@@ -339,6 +348,7 @@ describe('IacSettingsController', () => {
   });
 
   describe('checkAutoUpdate', () => {
+    // @spec APP-UPDATE-IPC-003
     it('should return the result of checkForUpdatesNow verbatim', async () => {
       checkForUpdatesNowMock.mockResolvedValueOnce({ ok: true, updateAvailable: true, version: '1.2.3' });
 
@@ -348,6 +358,7 @@ describe('IacSettingsController', () => {
       expect(checkForUpdatesNowMock).toHaveBeenCalledOnce();
     });
 
+    // @spec APP-UPDATE-IPC-003
     it('should propagate an error result from checkForUpdatesNow verbatim', async () => {
       checkForUpdatesNowMock.mockResolvedValueOnce({ ok: false, message: 'feed unreachable' });
 
@@ -364,6 +375,7 @@ describe('IacSettingsController', () => {
       return { send, evt: { sender: { send, isDestroyed: () => destroyed } } as never };
     }
 
+    // @spec APP-UPDATE-IPC-004
     it('should ack with a streamId, forward progress on the chunk channel, and end without error on success', async () => {
       let onProgress!: (p: { percent: number; transferred: number; total: number; bytesPerSecond: number }) => void;
       let finish!: (r: { ok: true; version: string }) => void;
@@ -393,6 +405,7 @@ describe('IacSettingsController', () => {
       });
     });
 
+    // @spec APP-UPDATE-IPC-004
     it('should send the failure message as the end message error', async () => {
       downloadUpdateNowMock.mockResolvedValueOnce({ ok: false, message: 'boom' });
       const { send, evt } = makeEvt();
@@ -404,6 +417,7 @@ describe('IacSettingsController', () => {
       expect(send).toHaveBeenCalledWith('iac.settings.autoUpdate.download.end', { streamId: ack.streamId, error: 'boom' });
     });
 
+    // @spec APP-UPDATE-IPC-006
     it('should not send anything once the renderer is destroyed', async () => {
       downloadUpdateNowMock.mockResolvedValueOnce({ ok: true, version: '1.2.3' });
       const { send, evt } = makeEvt(true);
@@ -417,6 +431,7 @@ describe('IacSettingsController', () => {
   });
 
   describe('installAutoUpdate', () => {
+    // @spec APP-UPDATE-IPC-007
     it('should return the result of installDownloadedUpdate verbatim', async () => {
       installDownloadedUpdateMock.mockResolvedValueOnce({ ok: false, message: 'nope' });
 
@@ -428,6 +443,7 @@ describe('IacSettingsController', () => {
   });
 
   describe('onModuleInit', () => {
+    // @spec APP-UPDATE-IPC-005
     it('should not touch electron outside an Electron main process', async () => {
       const real = process.versions.electron;
       delete (process.versions as { electron?: string }).electron;

@@ -12,12 +12,14 @@ function release(tag: string, assets: string[], overrides: Partial<GithubRelease
 }
 
 describe('pickFallbackRelease', () => {
+  // @spec APP-UPDATE-FALL-001
   it('should skip the newest release when it has zero assets (the v0.7.0 incident)', () => {
     const picked = pickFallbackRelease([release('v0.7.0', []), release('v0.6.0', ['latest.yml'])], 'win32');
 
     expect(picked?.tag_name).toBe('v0.6.0');
   });
 
+  // @spec APP-UPDATE-FALL-001
   it('should skip drafts and prereleases even when they carry the feed asset', () => {
     const picked = pickFallbackRelease(
       [
@@ -31,6 +33,7 @@ describe('pickFallbackRelease', () => {
     expect(picked?.tag_name).toBe('v0.6.0');
   });
 
+  // @spec APP-UPDATE-FALL-002
   it('should pick the greatest published_at, not the first array position', () => {
     const picked = pickFallbackRelease(
       [
@@ -44,6 +47,7 @@ describe('pickFallbackRelease', () => {
     expect(picked?.tag_name).toBe('v0.6.0');
   });
 
+  // @spec APP-UPDATE-FALL-002
   it('should treat a missing or invalid published_at as oldest', () => {
     const picked = pickFallbackRelease(
       [
@@ -67,6 +71,7 @@ describe('pickFallbackRelease', () => {
     expect(pickFallbackRelease(releases, platform)?.tag_name).toBe('v1');
   });
 
+  // @spec APP-UPDATE-FALL-001
   it('should not match a different platform feed file', () => {
     expect(pickFallbackRelease([release('v1', ['latest-mac.yml'])], 'linux')).toBeNull();
   });
@@ -83,6 +88,7 @@ describe('resolveFallbackFeedUrl', () => {
   /** Replaces global `fetch` with a mock that returns `impl`'s result. */
   const stubFetch = (impl: () => unknown) => vi.stubGlobal('fetch', vi.fn(impl));
 
+  // @spec APP-UPDATE-FALL-001
   it('should return the generic-provider download URL for the picked release tag', async () => {
     stubFetch(() =>
       Promise.resolve({ ok: true, json: () => Promise.resolve([release('v0.7.0', []), release('v0.6.0', ['latest.yml'])]) }),
@@ -103,24 +109,28 @@ describe('resolveFallbackFeedUrl', () => {
     );
   });
 
+  // @spec APP-UPDATE-FALL-003
   it('should return null when no release qualifies', async () => {
     stubFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve([release('v0.7.0', [])]) }));
 
     await expect(resolveFallbackFeedUrl('win32')).resolves.toBeNull();
   });
 
+  // @spec APP-UPDATE-FALL-003
   it('should return null on a non-200 response', async () => {
     stubFetch(() => Promise.resolve({ ok: false, status: 403, json: () => Promise.resolve([]) }));
 
     await expect(resolveFallbackFeedUrl('win32')).resolves.toBeNull();
   });
 
+  // @spec APP-UPDATE-FALL-003
   it('should return null when fetch rejects', async () => {
     stubFetch(() => Promise.reject(new Error('offline')));
 
     await expect(resolveFallbackFeedUrl('win32')).resolves.toBeNull();
   });
 
+  // @spec APP-UPDATE-FALL-003
   it('should return null when the body is not an array', async () => {
     stubFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ message: 'rate limited' }) }));
 

@@ -22,6 +22,7 @@ runs:
       run: npm run app:build
       shell: bash
 
+    # @spec APP-UPDATE-PKG-002
     - name: Package desktop app
       run: npm run desktop:package
       shell: bash

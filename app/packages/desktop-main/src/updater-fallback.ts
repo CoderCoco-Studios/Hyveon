@@ -33,6 +33,7 @@ function publishedAtMs(r: GithubRelease): number {
   return Number.isNaN(ms) ? -Infinity : ms;
 }
 
+// @spec APP-UPDATE-FALL-001, APP-UPDATE-FALL-002
 /**
  * Picks the newest release an updater can actually use on `platform`.
  *
@@ -56,6 +57,7 @@ export function pickFallbackRelease(releases: readonly GithubRelease[], platform
   return best;
 }
 
+// @spec APP-UPDATE-FALL-001, APP-UPDATE-FALL-003
 /**
  * Resolves a generic-provider feed URL pointing at the newest release that carries a feed file for `platform`.
  *

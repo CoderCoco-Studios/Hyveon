@@ -193,6 +193,7 @@ export interface AppStoreSchema {
   wizardCompleted: boolean;
   /** Locked to `'aws'` for v1. */
   activeCloud: 'aws';
+  // @spec APP-UPDATE-FLAG-001
   /**
    * Gates `electron-updater` update checks (see `updater.ts`). Absent or
    * `false` means disabled — the default for v1, since unsigned builds would

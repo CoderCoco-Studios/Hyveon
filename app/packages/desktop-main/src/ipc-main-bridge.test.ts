@@ -182,6 +182,7 @@ describe('registerIpcMainBridges', () => {
     expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
   });
 
+  // @spec APP-UPDATE-IPC-005
   it('should skip "iac.settings.autoUpdate.download" entirely, leaving it to bridge itself', async () => {
     // downloadAutoUpdate streams over its own side channels, like `iac.stack.initialize`, so it self-bridges.
     expect(SELF_BRIDGED_PATTERNS.has('iac.settings.autoUpdate.download')).toBe(true);

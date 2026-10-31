@@ -125,6 +125,8 @@ function manualCheckLabel(state: ManualCheckState, appVersion: string | null): s
 }
 
 // @spec APP-WIZARD-RECONF-001, APP-WIZARD-STACK-005, APP-WIZARD-HEALTH-001
+// @spec APP-UPDATE-UI-001, APP-UPDATE-UI-002, APP-UPDATE-UI-003, APP-UPDATE-UI-004, APP-UPDATE-UI-005
+// @spec APP-UPDATE-UI-006, APP-UPDATE-UI-007, APP-UPDATE-UI-008, APP-UPDATE-UI-009
 /**
  * Settings route (`/settings`) — watchdog config + the deployment-settings
  * form (`DeploymentSettingsForm`) for every top-level `DeploymentConfig`

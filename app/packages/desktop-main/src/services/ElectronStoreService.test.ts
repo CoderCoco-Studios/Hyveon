@@ -429,6 +429,7 @@ describe('ElectronStoreService — activeCloud persists across a simulated relau
 
 // enableAutoUpdate — absent-key default and round-trip
 
+// @spec APP-UPDATE-FLAG-001, APP-UPDATE-FLAG-002
 describe('ElectronStoreService — enableAutoUpdate', () => {
   it('should read undefined (disabled) for enableAutoUpdate in the Map fallback when never set', () => {
     const service = new ElectronStoreService(makeSafeStorage());

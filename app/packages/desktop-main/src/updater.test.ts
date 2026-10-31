@@ -81,6 +81,7 @@ describe('initUpdater', () => {
   });
   afterEach(() => setElectron(realElectronVersion));
 
+  // @spec APP-UPDATE-BOOT-001
   it('should be a no-op outside a real Electron main process, regardless of the flag', async () => {
     setElectron(undefined);
 
@@ -90,24 +91,28 @@ describe('initUpdater', () => {
     expect(onMock).not.toHaveBeenCalled();
   });
 
+  // @spec APP-UPDATE-BOOT-002, APP-UPDATE-BOOT-004
   it('should never call checkForUpdates when enableAutoUpdate is false', async () => {
     await initUpdater(makeStore(false));
 
     expect(checkForUpdatesMock).not.toHaveBeenCalled();
   });
 
+  // @spec APP-UPDATE-BOOT-002, APP-UPDATE-FLAG-002
   it('should never call checkForUpdates when enableAutoUpdate is unset (absent defaults to disabled)', async () => {
     await initUpdater(makeStore(undefined));
 
     expect(checkForUpdatesMock).not.toHaveBeenCalled();
   });
 
+  // @spec APP-UPDATE-BOOT-003
   it('should call checkForUpdates exactly once when enableAutoUpdate is true inside Electron', async () => {
     await initUpdater(makeStore(true));
 
     expect(checkForUpdatesMock).toHaveBeenCalledOnce();
   });
 
+  // @spec APP-UPDATE-BOOT-003
   it('should wire update-event listeners onto autoUpdater when enableAutoUpdate is true', async () => {
     await initUpdater(makeStore(true));
 
@@ -117,6 +122,7 @@ describe('initUpdater', () => {
     );
   });
 
+  // @spec APP-UPDATE-BOOT-006, APP-UPDATE-DL-001
   it('should disable autoDownload and autoInstallOnAppQuit so a detected update never installs itself', async () => {
     await initUpdater(makeStore(true));
 
@@ -124,12 +130,14 @@ describe('initUpdater', () => {
     expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false);
   });
 
+  // @spec APP-UPDATE-BOOT-005
   it('should not reject when checkForUpdates rejects (electron-updater rethrows after emitting "error")', async () => {
     checkForUpdatesMock.mockRejectedValueOnce(new Error('network unreachable'));
 
     await expect(initUpdater(makeStore(true))).resolves.toBeUndefined();
   });
 
+  // @spec APP-UPDATE-FALL-001
   it('should retry against the fallback feed when the primary check rejects, and not throw', async () => {
     checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml')).mockResolvedValueOnce(null);
     resolveFallbackMock.mockResolvedValue('https://example.test/download/v0.6.0');
@@ -141,6 +149,7 @@ describe('initUpdater', () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('fallback'), expect.any(Object));
   });
 
+  // @spec APP-UPDATE-FALL-004
   it('should restore the primary feed after the fallback retry succeeds', async () => {
     checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml')).mockResolvedValueOnce(null);
     resolveFallbackMock.mockResolvedValue('https://example.test/download/v0.6.0');
@@ -151,6 +160,7 @@ describe('initUpdater', () => {
     expect(setFeedURLMock).toHaveBeenLastCalledWith({ provider: 'github', owner: 'CoderCoco-Studios', repo: 'Hyveon' });
   });
 
+  // @spec APP-UPDATE-FALL-004
   it('should restore the primary feed after the fallback retry fails', async () => {
     checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml')).mockRejectedValueOnce(new Error('boom'));
     resolveFallbackMock.mockResolvedValue('https://example.test/download/v0.6.0');
@@ -161,6 +171,7 @@ describe('initUpdater', () => {
     expect(setFeedURLMock).toHaveBeenLastCalledWith({ provider: 'github', owner: 'CoderCoco-Studios', repo: 'Hyveon' });
   });
 
+  // @spec APP-UPDATE-FALL-003
   it('should not set a feed or retry when no fallback release exists', async () => {
     checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml'));
 
@@ -191,6 +202,7 @@ describe('checkForUpdatesNow', () => {
   });
   afterEach(() => setElectron(realElectronVersion));
 
+  // @spec APP-UPDATE-CHECK-005
   it('should report unavailable outside a real Electron main process without calling checkForUpdates', async () => {
     setElectron(undefined);
 
@@ -200,6 +212,7 @@ describe('checkForUpdatesNow', () => {
     expect(checkForUpdatesMock).not.toHaveBeenCalled();
   });
 
+  // @spec APP-UPDATE-CHECK-003
   it('should resolve updateAvailable: true when the update-available event fires', async () => {
     checkForUpdatesMock.mockImplementationOnce(() => {
       mockAutoUpdater.emit('update-available', { version: '1.2.3' });
@@ -211,6 +224,7 @@ describe('checkForUpdatesNow', () => {
     expect(result).toEqual({ ok: true, updateAvailable: true, version: '1.2.3' });
   });
 
+  // @spec APP-UPDATE-CHECK-002
   it('should resolve updateAvailable: false when the update-not-available event fires', async () => {
     checkForUpdatesMock.mockImplementationOnce(() => {
       mockAutoUpdater.emit('update-not-available');
@@ -222,6 +236,7 @@ describe('checkForUpdatesNow', () => {
     expect(result).toEqual({ ok: true, updateAvailable: false });
   });
 
+  // @spec APP-UPDATE-CHECK-004
   it('should resolve ok: false when the error event fires', async () => {
     checkForUpdatesMock.mockImplementationOnce(() => {
       mockAutoUpdater.emit('error', new Error('feed unreachable'));
@@ -233,6 +248,7 @@ describe('checkForUpdatesNow', () => {
     expect(result).toEqual({ ok: false, message: 'feed unreachable' });
   });
 
+  // @spec APP-UPDATE-BOOT-006, APP-UPDATE-DL-001
   it('should disable autoDownload and autoInstallOnAppQuit, same restriction as initUpdater', async () => {
     checkForUpdatesMock.mockImplementationOnce(() => {
       mockAutoUpdater.emit('update-not-available');
@@ -245,6 +261,7 @@ describe('checkForUpdatesNow', () => {
     expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false);
   });
 
+  // @spec APP-UPDATE-CHECK-006
   it('should resolve ok: false when checkForUpdates resolves null without firing an event (updater disabled)', async () => {
     checkForUpdatesMock.mockResolvedValueOnce(null);
 
@@ -253,6 +270,7 @@ describe('checkForUpdatesNow', () => {
     expect(result).toEqual({ ok: false, message: 'Update checks are disabled for this build.' });
   });
 
+  // @spec APP-UPDATE-CHECK-007
   it('should remove all three listeners after resolving', async () => {
     checkForUpdatesMock.mockImplementationOnce(() => {
       mockAutoUpdater.emit('update-not-available');
@@ -269,6 +287,7 @@ describe('checkForUpdatesNow', () => {
   describe('fallback feed', () => {
     const FALLBACK_URL = 'https://example.test/download/v0.6.0';
 
+    // @spec APP-UPDATE-FALL-006
     it('should not resolve on the primary error event and should report the fallback result (available)', async () => {
       resolveFallbackMock.mockResolvedValue(FALLBACK_URL);
       checkForUpdatesMock
@@ -287,6 +306,7 @@ describe('checkForUpdatesNow', () => {
       expect(result).toEqual({ ok: true, updateAvailable: true, version: '0.6.0' });
     });
 
+    // @spec APP-UPDATE-FALL-001, APP-UPDATE-FALL-006
     it('should report up to date when the fallback feed has no newer version', async () => {
       resolveFallbackMock.mockResolvedValue(FALLBACK_URL);
       checkForUpdatesMock
@@ -302,6 +322,7 @@ describe('checkForUpdatesNow', () => {
       expect(checkForUpdatesMock).toHaveBeenCalledTimes(2);
     });
 
+    // @spec APP-UPDATE-FALL-003, APP-UPDATE-CHECK-004
     it('should surface the original error when no fallback release exists', async () => {
       checkForUpdatesMock.mockRejectedValueOnce(new Error('404 latest.yml'));
 
@@ -311,6 +332,7 @@ describe('checkForUpdatesNow', () => {
       expect(setFeedURLMock).not.toHaveBeenCalled();
     });
 
+    // @spec APP-UPDATE-FALL-003
     it('should surface the original error, not the retry error, when the fallback check also fails', async () => {
       resolveFallbackMock.mockResolvedValue(FALLBACK_URL);
       checkForUpdatesMock
@@ -352,6 +374,7 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     return call[1] as (...args: unknown[]) => void;
   }
 
+  // @spec APP-UPDATE-DL-007
   it('should report unavailable outside Electron without touching electron-updater', async () => {
     setElectron(undefined);
 
@@ -362,6 +385,7 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     expect(downloadUpdateMock).not.toHaveBeenCalled();
   });
 
+  // @spec APP-UPDATE-DL-002, APP-UPDATE-DL-003
   it('should forward download-progress events and resolve with the downloaded version', async () => {
     const onProgress = vi.fn();
     downloadUpdateMock.mockImplementationOnce(async () => {
@@ -376,6 +400,7 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     expect(onProgress).toHaveBeenCalledWith({ percent: 50, transferred: 5, total: 10, bytesPerSecond: 3 });
   });
 
+  // @spec APP-UPDATE-BOOT-006, APP-UPDATE-DL-001
   it('should keep autoDownload and autoInstallOnAppQuit off', async () => {
     await downloadUpdateNow(vi.fn());
 
@@ -383,6 +408,7 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false);
   });
 
+  // @spec APP-UPDATE-DL-006
   it('should remove every listener it added after settling', async () => {
     await downloadUpdateNow(vi.fn());
 
@@ -391,6 +417,7 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     }
   });
 
+  // @spec APP-UPDATE-DL-004
   it('should re-run the check once and retry when no check has populated electron-updater yet', async () => {
     downloadUpdateMock
       .mockRejectedValueOnce(new Error('Please check update first'))
@@ -403,6 +430,7 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     expect(result.ok).toBe(true);
   });
 
+  // @spec APP-UPDATE-DL-006
   it('should resolve ok: false with the message when the download rejects, and remove listeners', async () => {
     downloadUpdateMock.mockRejectedValueOnce(new Error('code signature invalid'));
 
@@ -413,6 +441,7 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     expect(removeListenerMock).toHaveBeenCalledWith('error', expect.any(Function));
   });
 
+  // @spec APP-UPDATE-DL-008
   it('should quit and install with relaunch on installDownloadedUpdate', async () => {
     expect(await installDownloadedUpdate()).toEqual({ ok: true });
     expect(quitAndInstallMock).toHaveBeenCalledWith(false, true);
@@ -426,6 +455,7 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     expect(await installDownloadedUpdate()).toEqual({ ok: false, message: 'no update downloaded' });
   });
 
+  // @spec APP-UPDATE-DL-007
   it('should report unavailable outside Electron on installDownloadedUpdate', async () => {
     setElectron(undefined);
 

@@ -10,6 +10,7 @@ header = ""
 # `group_by` insertion order, which would otherwise follow whichever commit
 # type happened to appear first chronologically in the range - matching the
 # canonical commit-type order in CLAUDE.md's Git & PR workflow section.
+# @spec APP-UPDATE-NOTES-001
 body = """
 {%- set group_order = ["Features", "Bug Fixes", "Refactoring", "Documentation", "Tests", "Chores", "Performance", "Build System", "Continuous Integration", "Style", "Other"] -%}
 {%- for group in group_order -%}
@@ -56,6 +57,7 @@ commit_parsers = [
   { message = "^build", group = "Build System" },
   { message = "^ci", group = "Continuous Integration" },
   { message = "^style", group = "Style" },
+  # @spec APP-UPDATE-BUMP-009
   { message = "^chore\\(release\\):", skip = true },
   { message = "^chore", group = "Chores" },
   { message = ".*", group = "Other" },
@@ -66,6 +68,7 @@ commit_parsers = [
 # Commits breaking-change markers, parsed by git-cliff's `conventional_commits`
 # mode without any extra config here.
 
+# @spec APP-UPDATE-BUMP-001, APP-UPDATE-BUMP-002, APP-UPDATE-BUMP-003
 [bump]
 features_always_bump_minor = true
 breaking_always_bump_major = true
@@ -73,4 +76,5 @@ breaking_always_bump_major = true
 # unprefixed "0.1.0" internally and then fails because it doesn't match
 # `tag_pattern` above (a real git-cliff 2.13.1 behavior, verified locally) -
 # this makes the same first-release case produce a valid starting tag instead.
+# @spec APP-UPDATE-BUMP-005
 initial_tag = "v0.1.0"

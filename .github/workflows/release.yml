@@ -1,5 +1,6 @@
 name: Release
 
+# @spec APP-UPDATE-REL-001
 on:
   workflow_dispatch:
     inputs:
@@ -46,6 +47,7 @@ jobs:
     outputs:
       tag: ${{ steps.release-tag.outputs.tag }}
     steps:
+      # @spec APP-UPDATE-REL-006
       - name: Validate inputs
         env:
           SKIP_BUMP: ${{ inputs.skip_bump }}
@@ -63,6 +65,7 @@ jobs:
           client-id: ${{ vars.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
+      # @spec APP-UPDATE-BUMP-008
       - uses: actions/checkout@v5
         with:
           ref: main
@@ -75,6 +78,7 @@ jobs:
         with:
           node-version: '24'
 
+      # @spec APP-UPDATE-REL-002, APP-UPDATE-REL-003, APP-UPDATE-REL-004, APP-UPDATE-REL-005
       - name: Resolve changelog range
         id: range
         env:
@@ -140,6 +144,8 @@ jobs:
           echo "raw_changelog_path=$(pwd)/raw-changelog.md" >> "$GITHUB_OUTPUT"
           echo "context_path=$(pwd)/cliff-context.json" >> "$GITHUB_OUTPUT"
 
+      # @spec APP-UPDATE-BUMP-001, APP-UPDATE-BUMP-002, APP-UPDATE-BUMP-003, APP-UPDATE-BUMP-004
+      # @spec APP-UPDATE-BUMP-005
       - name: Compute version bump
         id: version
         if: ${{ inputs.skip_bump != true }}
@@ -172,6 +178,7 @@ jobs:
             echo "tag=${{ steps.version.outputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
 
+      # @spec APP-UPDATE-NOTES-002
       - name: Generate AI release summary
         id: ai-summary
         continue-on-error: true
@@ -196,6 +203,7 @@ jobs:
             changelog contains no commits, say so plainly in one sentence
             instead of fabricating content.
 
+      # @spec APP-UPDATE-NOTES-003, APP-UPDATE-NOTES-004
       - name: Assemble release body
         id: summary
         run: |
@@ -239,6 +247,7 @@ jobs:
           echo "name=${SLUG}[bot]" >> "$GITHUB_OUTPUT"
           echo "email=${BOT_ID}+${SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
 
+      # @spec APP-UPDATE-BUMP-006, APP-UPDATE-BUMP-007, APP-UPDATE-BUMP-008
       - name: Bump version, commit, and tag
         if: ${{ inputs.skip_bump != true }}
         env:
@@ -296,6 +305,7 @@ jobs:
 
       # Replay mode: the release already exists with its assets, so only its
       # body is rewritten. Nothing is deleted or recreated.
+      # @spec APP-UPDATE-DRAFT-005, APP-UPDATE-DRAFT-006
       - name: Update existing release notes
         if: ${{ inputs.skip_bump == true }}
         env:
@@ -319,6 +329,7 @@ jobs:
   # Builds live here rather than in a reusable workflow so a release run has
   # no skipped doc-only filter job; the steps are shared with package.yml via
   # .github/actions/. Keep this matrix in sync with package.yml's.
+  # @spec APP-UPDATE-BUMP-010, APP-UPDATE-PKG-003
   package:
     needs: release
     if: ${{ inputs.skip_bump != true }}
@@ -369,6 +380,7 @@ jobs:
           artifact_name: ${{ matrix.artifact_name }}
           artifact_glob: ${{ matrix.artifact_glob }}
 
+  # @spec APP-UPDATE-DRAFT-001, APP-UPDATE-DRAFT-002
   publish:
     needs: [release, package]
     runs-on: ubuntu-24.04
