@@ -27,6 +27,7 @@ describe('ErrorBoundary', () => {
     expect(screen.getByText('safe content')).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-RERR-003
   it('should render the fallback UI when a child throws during render', () => {
     // React logs the caught error to the console during this render; suppress
     // the noise without hiding a genuine assertion failure.
@@ -44,6 +45,7 @@ describe('ErrorBoundary', () => {
     consoleSpy.mockRestore();
   });
 
+  // @spec APP-DIAG-RERR-003
   it('should call reportRendererError with the boundary source when a child throws', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 

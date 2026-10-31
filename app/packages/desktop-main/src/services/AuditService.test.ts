@@ -79,6 +79,7 @@ beforeEach(() => {
 
 describe('AuditService', () => {
   describe('record', () => {
+    // @spec APP-DIAG-AUDIT-001
     it('should build an AuditEntry from the actor, timestamp, and sk, and persist it via store.putEntry on the happy path', async () => {
       putEntryMock.mockResolvedValue(undefined);
       const service = makeService();
@@ -105,6 +106,7 @@ describe('AuditService', () => {
       expect(() => new Date(entry?.timestamp ?? '').toISOString()).not.toThrow();
     });
 
+    // @spec APP-DIAG-AUDIT-003
     it('should swallow a store.putEntry failure and log a warning instead of throwing', async () => {
       putEntryMock.mockRejectedValue(new Error('DynamoDB is down'));
       const service = makeService();
@@ -116,6 +118,7 @@ describe('AuditService', () => {
       expect(putEntryMock).toHaveBeenCalledTimes(1);
     });
 
+    // @spec APP-DIAG-AUDIT-002
     it('should no-op without calling store.putEntry when audit_table_name is not configured', async () => {
       const service = makeService(null);
 
@@ -126,6 +129,7 @@ describe('AuditService', () => {
       expect(putEntryMock).not.toHaveBeenCalled();
     });
 
+    // @spec APP-DIAG-SVC-001
     it('should log a debug line on entry naming the action and game, never payload contents', async () => {
       putEntryMock.mockResolvedValue(undefined);
       const service = makeService();
@@ -140,6 +144,7 @@ describe('AuditService', () => {
   });
 
   describe('list', () => {
+    // @spec APP-DIAG-AUDR-001
     it('should delegate to store.listEntries with the default limit of 25 when limit is omitted', async () => {
       const page: AuditPageResult = { entries: [] };
       listEntriesMock.mockResolvedValue(page);
@@ -151,6 +156,7 @@ describe('AuditService', () => {
       expect(result).toBe(page);
     });
 
+    // @spec APP-DIAG-AUDR-001
     it('should clamp a limit above 100 down to the maximum of 100', async () => {
       listEntriesMock.mockResolvedValue({ entries: [] });
       const service = makeService();
@@ -160,6 +166,7 @@ describe('AuditService', () => {
       expect(listEntriesMock).toHaveBeenCalledWith(100, 'cursor');
     });
 
+    // @spec APP-DIAG-AUDR-001
     it('should fall back to the default limit when given a non-positive limit', async () => {
       listEntriesMock.mockResolvedValue({ entries: [] });
       const service = makeService();
@@ -169,6 +176,7 @@ describe('AuditService', () => {
       expect(listEntriesMock).toHaveBeenCalledWith(25, undefined);
     });
 
+    // @spec APP-DIAG-AUDR-002
     it('should return an empty page without calling store.listEntries when audit_table_name is not configured', async () => {
       const service = makeService(null);
 
@@ -178,6 +186,7 @@ describe('AuditService', () => {
       expect(listEntriesMock).not.toHaveBeenCalled();
     });
 
+    // @spec APP-DIAG-SVC-001
     it('should log a debug line on entry naming the requested limit and cursor', async () => {
       listEntriesMock.mockResolvedValue({ entries: [] });
       const service = makeService();

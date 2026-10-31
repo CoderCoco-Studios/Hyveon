@@ -12,6 +12,7 @@ import { createCachedAwsClient } from './cachedClient.js';
  */
 const PARTITION_KEY = 'AUDIT';
 
+// @spec APP-DIAG-AUDIT-008
 /**
  * AWS implementation of the cloud-agnostic {@link AuditLogStore} contract,
  * backed by the DynamoDB audit table declared in
@@ -85,6 +86,7 @@ export class AwsAuditLogStore implements AuditLogStore {
     return this.getCachedClient({ region, credentials: config?.credentials, credentialsSignature: config?.credentialsSignature });
   }
 
+  // @spec APP-DIAG-AUDIT-007
   /**
    * Appends a single audit entry to the log.
    *
@@ -115,6 +117,7 @@ export class AwsAuditLogStore implements AuditLogStore {
     );
   }
 
+  // @spec APP-DIAG-AUDR-003
   /**
    * Lists audit entries newest-first, optionally paginated.
    *

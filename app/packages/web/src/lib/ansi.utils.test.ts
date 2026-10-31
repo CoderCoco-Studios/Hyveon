@@ -6,11 +6,13 @@ describe('parseAnsiLine', () => {
     expect(parseAnsiLine('hello world')).toEqual([{ text: 'hello world', bold: false, colorClass: null }]);
   });
 
+  // @spec APP-DIAG-ANSI-001
   it('should apply a foreground color for a basic SGR color code', () => {
     const segments = parseAnsiLine('\x1b[32mgreen text\x1b[0m');
     expect(segments).toEqual([{ text: 'green text', bold: false, colorClass: 'text-[var(--color-green)]' }]);
   });
 
+  // @spec APP-DIAG-ANSI-001
   it('should mark a segment bold for SGR code 1 and clear it on reset', () => {
     const segments = parseAnsiLine('\x1b[1mbold\x1b[0m normal');
     expect(segments[0]).toEqual({ text: 'bold', bold: true, colorClass: null });
@@ -27,11 +29,13 @@ describe('parseAnsiLine', () => {
     expect(parseAnsiLine('\x1b[999mplain\x1b[0m')[0]!.text).toBe('plain');
   });
 
+  // @spec APP-DIAG-ANSI-002
   it('should silently drop a non-SGR CSI sequence (cursor move)', () => {
     const segments = parseAnsiLine('\x1b[2Ahello');
     expect(segments).toEqual([{ text: 'hello', bold: false, colorClass: null }]);
   });
 
+  // @spec APP-DIAG-ANSI-002
   it('should silently drop a clear-line sequence between two colored runs', () => {
     const segments = parseAnsiLine('\x1b[1;36m****EXECUTING USERMOD****\x1b[0m\x1b[2Kusermod: no changes');
     expect(segments).toEqual([
@@ -40,6 +44,7 @@ describe('parseAnsiLine', () => {
     ]);
   });
 
+  // @spec APP-DIAG-ANSI-004
   it('should leave a truncated escape sequence as plain text instead of throwing', () => {
     expect(() => parseAnsiLine('abc\x1b[1;3')).not.toThrow();
     expect(parseAnsiLine('abc\x1b[1;3')).toEqual([{ text: 'abc\x1b[1;3', bold: false, colorClass: null }]);
@@ -49,6 +54,7 @@ describe('parseAnsiLine', () => {
     expect(parseAnsiLine('\x1b[?25lhello')).toEqual([{ text: 'hello', bold: false, colorClass: null }]);
   });
 
+  // @spec APP-DIAG-ANSI-002
   it('should silently drop an OSC window-title sequence', () => {
     expect(parseAnsiLine('\x1b]0;my title\x07hello')).toEqual([{ text: 'hello', bold: false, colorClass: null }]);
   });

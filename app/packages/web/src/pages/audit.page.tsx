@@ -18,6 +18,7 @@ import { AsyncContent } from '../components/async-content.component.js';
 /** Number of audit entries fetched per page (initial load and each "Load more"). */
 const PAGE_SIZE = 25;
 
+// @spec APP-DIAG-AUDUI-001, APP-DIAG-AUDUI-002, APP-DIAG-AUDUI-003, APP-DIAG-AUDUI-004
 /**
  * Audit log route (`/audit`). Fetches the newest {@link PAGE_SIZE} entries on
  * mount, renders them as expandable rows (see {@link AuditEntryRow}) showing

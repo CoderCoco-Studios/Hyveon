@@ -23,6 +23,7 @@ if (!process.versions['electron']) {
 }
 
 const { app } = await import('electron') as unknown as { app: { getPath(name: string): string } };
+// @spec APP-DIAG-LOG-007
 createLogger(path.join(app.getPath('userData'), 'logs'));
 
 /**

@@ -7,6 +7,7 @@ import './index.css';
 
 installGlobalErrorReporting();
 installConsoleForwarding();
+// @spec APP-DIAG-RERR-004
 createRoot(document.getElementById('root')!, {
   // ErrorBoundary.componentDidCatch already forwards render crashes (with
   // message, stack, and component stack) via reportRendererError. React's

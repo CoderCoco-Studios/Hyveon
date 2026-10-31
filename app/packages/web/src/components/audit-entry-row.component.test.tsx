@@ -64,6 +64,7 @@ describe('AuditEntryRow', () => {
     expect(screen.getByText('v-123')).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-AUDUI-007
   it('should render an em dash for a missing versionId', () => {
     renderRow(ADD_ENTRY);
 
@@ -77,6 +78,7 @@ describe('AuditEntryRow', () => {
     expect(screen.queryByText(/itzg\/minecraft-server:2/)).not.toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-AUDUI-005
   it('should expand to show the before/after JSON diff in two pre blocks when the row is clicked', async () => {
     renderRow(EDIT_ENTRY);
 
@@ -88,6 +90,7 @@ describe('AuditEntryRow', () => {
     expect(pres[1]).toHaveTextContent('itzg/minecraft-server:2');
   });
 
+  // @spec APP-DIAG-AUDUI-005
   it('should render "null" for a before value that is null (e.g. an add entry)', async () => {
     renderRow(ADD_ENTRY);
 
@@ -128,6 +131,7 @@ describe('AuditEntryRow', () => {
     rollback: 'bg-[var(--color-surface-2)]', // secondary
   };
 
+  // @spec APP-DIAG-AUDUI-006
   it.each(ALL_ACTIONS)(
     'should render the "%s" action badge with its mapped color variant',
     (action) => {

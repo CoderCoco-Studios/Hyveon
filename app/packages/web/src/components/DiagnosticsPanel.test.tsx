@@ -47,6 +47,7 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByText('Loading diagnostics…')).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-PANEL-002
   it('should render log lines returned by api.diagnosticsTail', async () => {
     render(<DiagnosticsPanel />);
 
@@ -58,6 +59,7 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByText('2026-05-23T10:00:02Z WARN Memory usage high')).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-PANEL-002
   it('should display the log file path', async () => {
     render(<DiagnosticsPanel />);
 
@@ -68,6 +70,7 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByText(/Log file:/)).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-PANEL-002
   it('should offer the stray-helper cleanup action alongside the bundle export', async () => {
     render(<DiagnosticsPanel />);
 
@@ -75,6 +78,7 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByRole('button', { name: 'Export diagnostics bundle' })).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-PANEL-009
   it('should show an error message when api.diagnosticsTail rejects', async () => {
     apiMock.diagnosticsTail.mockRejectedValue(new Error('Network error'));
 
@@ -87,6 +91,7 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Network error');
   });
 
+  // @spec APP-DIAG-PANEL-001
   it('should poll for new lines every 5 seconds', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
 
@@ -108,6 +113,7 @@ describe('DiagnosticsPanel', () => {
     vi.useRealTimers();
   });
 
+  // @spec APP-DIAG-PANEL-002
   it('should toggle the Pause / Resume button label', async () => {
     const user = userEvent.setup();
     render(<DiagnosticsPanel />);
@@ -120,6 +126,7 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-PANEL-005
   it('should highlight matches inside <mark> when typing in the search input, without filtering non-matching lines', async () => {
     const user = userEvent.setup();
     const { container } = render(<DiagnosticsPanel />);
@@ -135,6 +142,7 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByText(/Server started/)).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-PANEL-003
   it('should freeze the displayed lines while paused even as polling continues', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -159,6 +167,7 @@ describe('DiagnosticsPanel', () => {
     vi.useRealTimers();
   });
 
+  // @spec APP-DIAG-PANEL-004
   it('should swap to the latest fetched snapshot in one step on resume, with no duplicated lines', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -187,6 +196,7 @@ describe('DiagnosticsPanel', () => {
     vi.useRealTimers();
   });
 
+  // @spec APP-DIAG-PANEL-006
   it('should autoscroll to the bottom on update while not paused', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<DiagnosticsPanel />);
@@ -206,6 +216,7 @@ describe('DiagnosticsPanel', () => {
     vi.useRealTimers();
   });
 
+  // @spec APP-DIAG-PANEL-007
   it('should not autoscroll while paused', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -233,6 +244,7 @@ describe('DiagnosticsPanel', () => {
   });
 
   describe('Export diagnostics bundle button', () => {
+    // @spec APP-DIAG-BNDL-018
     it('should show a loading label while the export IPC call is in flight', async () => {
       const user = userEvent.setup();
       apiMock.diagnosticsExportBundle.mockReturnValue(new Promise(() => {}));
@@ -244,6 +256,7 @@ describe('DiagnosticsPanel', () => {
       expect(screen.getByRole('button', { name: /Exporting…/ })).toBeInTheDocument();
     });
 
+    // @spec APP-DIAG-BNDL-016
     it('should show the written path and a "Show in folder" action on success', async () => {
       const user = userEvent.setup();
       apiMock.diagnosticsExportBundle.mockResolvedValue({ status: 'written', path: '/tmp/hyveon-diagnostics.zip' });
@@ -258,6 +271,7 @@ describe('DiagnosticsPanel', () => {
       expect(screen.getByRole('button', { name: 'Show in folder' })).toBeInTheDocument();
     });
 
+    // @spec APP-DIAG-BNDL-016
     it('should call diagnosticsShowInFolder with the written path when "Show in folder" is clicked', async () => {
       const user = userEvent.setup();
       apiMock.diagnosticsExportBundle.mockResolvedValue({ status: 'written', path: '/tmp/hyveon-diagnostics.zip' });
@@ -271,6 +285,7 @@ describe('DiagnosticsPanel', () => {
       expect(apiMock.diagnosticsShowInFolder).toHaveBeenCalledWith('/tmp/hyveon-diagnostics.zip');
     });
 
+    // @spec APP-DIAG-BNDL-002
     it('should show no toast and no error when the operator cancels the save dialog', async () => {
       const user = userEvent.setup();
       apiMock.diagnosticsExportBundle.mockResolvedValue({ status: 'cancelled' });
@@ -286,6 +301,7 @@ describe('DiagnosticsPanel', () => {
       expect(screen.queryByText(/Failed to export/)).toBeNull();
     });
 
+    // @spec APP-DIAG-BNDL-015
     it('should show an error indication when the write fails', async () => {
       const user = userEvent.setup();
       apiMock.diagnosticsExportBundle.mockResolvedValue({ status: 'error', message: 'disk full' });

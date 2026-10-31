@@ -699,6 +699,7 @@ export class IacController implements OnModuleInit {
   }
 
   // @spec IAC-RUN-PLAN-003, IAC-RUN-LCLR-002, IAC-RUN-IPC-003, IAC-RUN-IPC-004, IAC-RUN-IPC-007
+  // @spec APP-DIAG-AUDIT-006
   /**
    * Kicks off a Pulumi preview and streams its output back to the renderer — pre-mints a
    * `runId` since `PulumiService.preview` needs one to name its saved plan artifact directory.
@@ -800,6 +801,7 @@ export class IacController implements OnModuleInit {
   // @spec IAC-RUN-GATE-012, IAC-RUN-GATE-014, IAC-RUN-LCLR-001, IAC-RUN-LCLR-002, IAC-RUN-IPC-003, IAC-RUN-IPC-004
   // @spec IAC-RUN-IPC-007
   // @spec IAC-RUN-LCLR-009
+  // @spec APP-DIAG-AUDIT-006
   /**
    * Applies the approved plan run `payload.planRunId` and streams its output back to the
    * renderer — mirrors {@link plan}'s streaming shape, but the gate underneath is different:
@@ -966,6 +968,7 @@ export class IacController implements OnModuleInit {
   // @spec IAC-RUN-DSTR-008, IAC-RUN-DSTR-009, IAC-RUN-DSTR-010, IAC-RUN-LCLR-001, IAC-RUN-LCLR-002, IAC-RUN-IPC-003
   // @spec IAC-RUN-IPC-004, IAC-RUN-IPC-007
   // @spec IAC-RUN-LCLR-009
+  // @spec APP-DIAG-AUDIT-006
   /**
    * Destroys the deployed stack and streams its output back to the renderer — mirrors
    * {@link apply}'s streaming/gate-awaiting shape, gated behind `payload.confirmationToken`
@@ -1101,6 +1104,7 @@ export class IacController implements OnModuleInit {
   }
 
   // @spec IAC-RUN-APPR-002, IAC-RUN-APPR-007
+  // @spec APP-DIAG-AUDIT-006
   /**
    * Approves a successful `plan` run for a later apply, delegating the write to
    * `RunRecordService.approveRun` (see issue #109).
@@ -1208,6 +1212,7 @@ export class IacController implements OnModuleInit {
   }
 
   // @spec IAC-RUN-RBK-007, IAC-RUN-RBK-009, IAC-RUN-IPC-007
+  // @spec APP-DIAG-AUDIT-006
   /**
    * Confirms the rollback flow (#112) for `payload.applyRunId`. `PulumiService.confirmRollback`
    * fuses a historic-configuration restore write and its follow-up plan into one guarded

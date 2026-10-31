@@ -67,6 +67,7 @@ function summarizeGameServer(game: GameServer): DiagnosticsGameServerSummary {
   };
 }
 
+// @spec APP-DIAG-BNDL-008, APP-DIAG-BNDL-009
 /**
  * Builds the diagnostics bundle's config-summary section from the live
  * `DeploymentConfig`, keeping only the fields on {@link DiagnosticsConfigSummary}'s

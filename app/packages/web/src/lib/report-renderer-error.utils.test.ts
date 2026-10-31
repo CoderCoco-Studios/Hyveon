@@ -19,6 +19,7 @@ describe('reportRendererError', () => {
     vi.unstubAllGlobals();
   });
 
+  // @spec APP-DIAG-RERR-001
   it('should call window.hyveon.diagnostics.reportError with the given arguments', () => {
     const reportError = vi.fn().mockResolvedValue(undefined);
     stubBridge(reportError);
@@ -28,18 +29,21 @@ describe('reportRendererError', () => {
     expect(reportError).toHaveBeenCalledWith('boom', 'Error: boom\n  at x', 'boundary');
   });
 
+  // @spec APP-DIAG-RERR-005
   it('should not throw when window.hyveon is undefined', () => {
     vi.stubGlobal('hyveon', undefined);
 
     expect(() => reportRendererError('boom', undefined, 'window-error')).not.toThrow();
   });
 
+  // @spec APP-DIAG-RERR-005
   it('should not throw when window.hyveon.diagnostics is undefined', () => {
     vi.stubGlobal('hyveon', {});
 
     expect(() => reportRendererError('boom', undefined, 'window-error')).not.toThrow();
   });
 
+  // @spec APP-DIAG-RERR-005
   it('should swallow a rejection from window.hyveon.diagnostics.reportError', async () => {
     const reportError = vi.fn().mockRejectedValue(new Error('ipc unavailable'));
     stubBridge(reportError);
@@ -59,6 +63,7 @@ describe('installGlobalErrorReporting', () => {
     vi.unstubAllGlobals();
   });
 
+  // @spec APP-DIAG-RERR-002
   it('should forward a window error event to reportRendererError', () => {
     const reportError = vi.fn().mockResolvedValue(undefined);
     stubBridge(reportError);
@@ -70,6 +75,7 @@ describe('installGlobalErrorReporting', () => {
     expect(reportError).toHaveBeenCalledWith('render crashed', error.stack, 'window-error');
   });
 
+  // @spec APP-DIAG-RERR-002
   it('should forward an unhandledrejection event with an Error reason', () => {
     const reportError = vi.fn().mockResolvedValue(undefined);
     stubBridge(reportError);
@@ -118,6 +124,7 @@ describe('installConsoleForwarding', () => {
     });
   });
 
+  // @spec APP-DIAG-CONS-013
   it('should leave console methods untouched when no bridge is present', async () => {
     vi.stubGlobal('hyveon', undefined);
     const { installConsoleForwarding } = await import(MODULE_PATH);
@@ -128,6 +135,7 @@ describe('installConsoleForwarding', () => {
     expect(console.log).toBe(before);
   });
 
+  // @spec APP-DIAG-CONS-002
   it('should still invoke the original console method after installing', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.stubGlobal('hyveon', { diagnostics: { reportLog: vi.fn().mockResolvedValue(undefined) } });
@@ -141,6 +149,7 @@ describe('installConsoleForwarding', () => {
     expect(spy).toHaveBeenCalledWith('hello world');
   });
 
+  // @spec APP-DIAG-CONS-001, APP-DIAG-CONS-005
   it('should forward a console.log call to diagnostics.reportLog on the next flush', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const reportLog = vi.fn().mockResolvedValue(undefined);
@@ -169,6 +178,7 @@ describe('installConsoleForwarding', () => {
     expect(reportLog).toHaveBeenCalledWith([{ level: 'warn', message: 'count is 42 {"ok":true}' }], undefined);
   });
 
+  // @spec APP-DIAG-CONS-006
   it('should cap entries sent in one flush and retain the rest for the next flush', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const reportLog = vi.fn().mockResolvedValue(undefined);
@@ -263,6 +273,7 @@ describe('installConsoleForwarding', () => {
     expect(reportLog).toHaveBeenCalledWith([{ level: 'log', message: 'value: undefined' }], undefined);
   });
 
+  // @spec APP-DIAG-CONS-007, APP-DIAG-CONS-008
   it('should drop entries once the queue is full and count them as dropped on the next flush', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const reportLog = vi.fn().mockResolvedValue(undefined);
@@ -312,6 +323,7 @@ describe('installConsoleForwarding', () => {
     await expect(vi.advanceTimersByTimeAsync(2_000)).resolves.not.toThrow();
   });
 
+  // @spec APP-DIAG-CONS-010
   it('should requeue a failed flush and resend it on the next flush', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const reportLog = vi.fn().mockRejectedValueOnce(new Error('ipc unavailable')).mockResolvedValue(undefined);
@@ -330,6 +342,7 @@ describe('installConsoleForwarding', () => {
     expect(reportLog).toHaveBeenLastCalledWith([{ level: 'log', message: 'first attempt fails' }], undefined);
   });
 
+  // @spec APP-DIAG-CONS-010
   it('should restore the dropped count from a failed flush and combine it with later drops', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const reportLog = vi.fn().mockRejectedValueOnce(new Error('ipc unavailable')).mockResolvedValue(undefined);
@@ -352,6 +365,7 @@ describe('installConsoleForwarding', () => {
     expect(secondDropped).toBe(5);
   });
 
+  // @spec APP-DIAG-CONS-007, APP-DIAG-CONS-010
   it('should reserve queue capacity for in-flight entries so a failed batch is never lost to newer entries', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     let rejectFirstAttempt: (err: unknown) => void = () => undefined;
@@ -386,6 +400,7 @@ describe('installConsoleForwarding', () => {
     expect(secondDropped).toBe(1);
   });
 
+  // @spec APP-DIAG-CONS-011
   it('should not submit a newer batch while an older flush is still pending', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     let resolveFirstAttempt: () => void = () => undefined;
@@ -437,6 +452,7 @@ describe('installConsoleForwarding', () => {
     expect(reportLog).toHaveBeenCalledWith([{ level: 'log', message: 'queued while bridge is briefly gone' }], undefined);
   });
 
+  // @spec APP-DIAG-CONS-010
   it('should requeue and recover when diagnostics.reportLog throws synchronously instead of returning a promise', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const reportLog = vi
@@ -475,6 +491,7 @@ describe('installConsoleForwarding', () => {
     expect(entries[0].message).toContain('boom from another realm');
   });
 
+  // @spec APP-DIAG-CONS-002
   it('should not let a throwing argument getter make the wrapped console method throw', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.stubGlobal('hyveon', { diagnostics: { reportLog: vi.fn().mockResolvedValue(undefined) } });

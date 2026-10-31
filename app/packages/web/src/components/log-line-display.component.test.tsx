@@ -8,6 +8,7 @@ describe('HighlightedLine', () => {
     expect(screen.getByText('Connection refused from 10.0.0.5')).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-ANSI-001
   it('should render an SGR-colored run as styled text with no raw escape bytes visible', () => {
     render(<HighlightedLine text={'\x1b[1;36m****EXECUTING USERMOD****\x1b[0m'} query="" />);
     const el = screen.getByText('****EXECUTING USERMOD****');
@@ -16,6 +17,7 @@ describe('HighlightedLine', () => {
     expect(document.body.textContent).not.toContain('\x1b');
   });
 
+  // @spec APP-DIAG-ANSI-002
   it('should discard a non-SGR CSI sequence and show none of its bytes', () => {
     render(<HighlightedLine text={'\x1b[2Kusermod: no changes'} query="" />);
     expect(screen.getByText('usermod: no changes')).toBeInTheDocument();
@@ -29,6 +31,7 @@ describe('HighlightedLine', () => {
     expect(marks[0]).toHaveTextContent('refused');
   });
 
+  // @spec APP-DIAG-ANSI-003
   it('should highlight a search match inside an SGR-colored run, keeping the color on the rest', () => {
     const { container } = render(<HighlightedLine text={'\x1b[31merror: disk full\x1b[0m'} query="disk" />);
     const marks = container.querySelectorAll('mark');
@@ -39,6 +42,7 @@ describe('HighlightedLine', () => {
     expect(coloredSpan).toHaveTextContent('error: disk full');
   });
 
+  // @spec APP-DIAG-ANSI-003
   it('should highlight a search match spanning a non-SGR sequence that split two identically-styled segments', () => {
     const { container } = render(<HighlightedLine text={'abc\x1b[2Kdef'} query="abcdef" />);
     const marks = container.querySelectorAll('mark');

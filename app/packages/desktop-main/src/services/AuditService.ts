@@ -75,6 +75,7 @@ export class AuditService {
     @Inject(AUDIT_LOG_STORE) private readonly store: AuditLogStore,
   ) {}
 
+  // @spec APP-DIAG-AUDIT-001, APP-DIAG-AUDIT-002, APP-DIAG-AUDIT-003, APP-DIAG-SVC-001
   /**
    * Builds an {@link AuditEntry} from `params` (actor from `os.userInfo()`,
    * timestamp/`sk` from the current time) and persists it via
@@ -119,6 +120,7 @@ export class AuditService {
     }
   }
 
+  // @spec APP-DIAG-AUDR-001, APP-DIAG-AUDR-002, APP-DIAG-SVC-001
   /**
    * Lists audit entries newest-first, delegating to `store.listEntries`
    * after clamping `opts.limit` via {@link clampLimit}.

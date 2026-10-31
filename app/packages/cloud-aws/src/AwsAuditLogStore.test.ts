@@ -46,6 +46,7 @@ describe('AwsAuditLogStore', () => {
   });
 
   describe('putEntry', () => {
+    // @spec APP-DIAG-AUDIT-007
     it('should send a PutCommand with pk AUDIT, the entry sk, and before/after serialized as JSON strings', async () => {
       ddbMock.on(PutCommand).resolves({});
 
@@ -72,6 +73,7 @@ describe('AwsAuditLogStore', () => {
       });
     });
 
+    // @spec APP-DIAG-AUDIT-007
     it('should write null (not the string "null") for before/after when the entry field is null', async () => {
       ddbMock.on(PutCommand).resolves({});
 
@@ -97,6 +99,7 @@ describe('AwsAuditLogStore', () => {
   });
 
   describe('listEntries', () => {
+    // @spec APP-DIAG-AUDR-003
     it('should query pk = AUDIT newest-first with the given Limit and no sk condition on the first page', async () => {
       ddbMock.on(QueryCommand).resolves({ Items: [] });
 
@@ -146,6 +149,7 @@ describe('AwsAuditLogStore', () => {
       expect(result.entries).toEqual([entry]);
     });
 
+    // @spec APP-DIAG-AUDR-003
     it('should add sk < before to the KeyConditionExpression when a cursor is given', async () => {
       ddbMock.on(QueryCommand).resolves({ Items: [] });
 
@@ -157,6 +161,7 @@ describe('AwsAuditLogStore', () => {
       expect(input.ExpressionAttributeValues).toEqual({ ':pk': 'AUDIT', ':before': 'cursor-sk' });
     });
 
+    // @spec APP-DIAG-AUDR-003
     it('should return nextBefore set to the oldest entry in the page when DynamoDB reports a LastEvaluatedKey', async () => {
       const first = makeEntry({ sk: 'sk-1' });
       const second = makeEntry({ sk: 'sk-2' });
@@ -177,6 +182,7 @@ describe('AwsAuditLogStore', () => {
   });
 
   describe('credentials resolution', () => {
+    // @spec APP-DIAG-AUDIT-008
     it('should build the DynamoDB client with the credentials returned by getConfig', async () => {
       let observedCredentials: unknown;
       ddbMock.on(PutCommand).callsFake(async (_input, getClient) => {

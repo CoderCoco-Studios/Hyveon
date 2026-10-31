@@ -75,6 +75,7 @@ describe('AuditPage', () => {
     apiMock.audit.mockReset();
   });
 
+  // @spec APP-DIAG-AUDUI-001
   it('should fetch api.audit({ limit: 25 }) on mount', async () => {
     apiMock.audit.mockResolvedValue({ entries: [] });
 
@@ -91,6 +92,7 @@ describe('AuditPage', () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-AUDUI-004
   it('should render an empty state when there are no audit entries', async () => {
     apiMock.audit.mockResolvedValue({ entries: [] });
 
@@ -99,6 +101,7 @@ describe('AuditPage', () => {
     expect(await screen.findByText('No audit entries yet.')).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-AUDUI-003
   it('should render an error state when the audit fetch fails', async () => {
     apiMock.audit.mockRejectedValue(new Error('boom'));
 
@@ -107,6 +110,7 @@ describe('AuditPage', () => {
     expect(await screen.findByText('Could not load the audit log.')).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-AUDUI-001
   it('should render rows showing the timestamp, actor, action, game, and versionId for each entry', async () => {
     apiMock.audit.mockResolvedValue(PAGE_ONE);
 
@@ -122,6 +126,7 @@ describe('AuditPage', () => {
     expect(screen.getByText('v-1')).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-AUDUI-005
   it('should expand a row to show the before/after JSON diff and collapse it again on a second click', async () => {
     apiMock.audit.mockResolvedValue({ entries: [entryFixture()] });
 
@@ -137,6 +142,7 @@ describe('AuditPage', () => {
     expect(screen.queryByText(/lloesche\/valheim-server/, { selector: 'pre' })).not.toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-AUDUI-002
   it('should show a "Load more" button when nextBefore is present, and hide it once the last page loads', async () => {
     apiMock.audit.mockResolvedValue(PAGE_ONE);
 
@@ -155,6 +161,7 @@ describe('AuditPage', () => {
     expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-AUDUI-002
   it('should pass nextBefore as before and append the next page of entries when "Load more" is clicked', async () => {
     apiMock.audit.mockResolvedValueOnce(PAGE_ONE).mockResolvedValueOnce(PAGE_TWO);
 

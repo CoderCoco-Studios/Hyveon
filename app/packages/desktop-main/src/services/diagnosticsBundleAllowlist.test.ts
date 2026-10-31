@@ -36,6 +36,7 @@ function makeGameServer(overrides: Partial<GameServer> = {}): GameServer {
 }
 
 describe('buildDiagnosticsConfigSummary', () => {
+  // @spec APP-DIAG-BNDL-008
   it('should include every allowlisted top-level field', () => {
     const summary = buildDiagnosticsConfigSummary(makeSettings(), []);
 
@@ -53,6 +54,7 @@ describe('buildDiagnosticsConfigSummary', () => {
     });
   });
 
+  // @spec APP-DIAG-BNDL-008
   it('should exclude non-allowlisted fields, including Discord identifiers', () => {
     const summary = buildDiagnosticsConfigSummary(makeSettings(), []) as Record<string, unknown>;
 
@@ -62,6 +64,7 @@ describe('buildDiagnosticsConfigSummary', () => {
     expect(summary['discordApplicationId']).toBeUndefined();
   });
 
+  // @spec APP-DIAG-BNDL-009
   it('should exclude a hypothetical field not on the allowlist, even if present on the input object', () => {
     const settingsWithExtraField = {
       ...makeSettings(),
@@ -74,6 +77,7 @@ describe('buildDiagnosticsConfigSummary', () => {
     expect(JSON.stringify(summary)).not.toContain('sk-super-secret-value');
   });
 
+  // @spec APP-DIAG-BNDL-008
   it('should reduce each game server to resource-sizing and feature-flag fields only', () => {
     const game = makeGameServer({
       https: true,

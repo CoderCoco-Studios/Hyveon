@@ -36,6 +36,7 @@ const consoleFormat = isDev
     )
   : winston.format.combine(winston.format.timestamp(), winston.format.json());
 
+// @spec APP-DIAG-LOG-005, APP-DIAG-LOG-006
 /** Format for file transports — no ANSI escape codes, safe for log parsers. */
 const fileFormat = isDev
   ? winston.format.combine(winston.format.timestamp({ format: 'HH:mm:ss' }), devPrintf)
@@ -53,6 +54,7 @@ function createConsoleOnlyLogger(): winston.Logger {
   });
 }
 
+// @spec APP-DIAG-LOG-001
 /**
  * Module-level logger singleton.  Initially console-only; reassigned (as a
  * live ESM binding) when {@link createLogger} is called from main.ts so that
@@ -60,6 +62,7 @@ function createConsoleOnlyLogger(): winston.Logger {
  */
 export let logger: winston.Logger = createConsoleOnlyLogger();
 
+// @spec APP-DIAG-LOG-002, APP-DIAG-LOG-003, APP-DIAG-LOG-004
 /**
  * Creates a full winston logger with both a Console transport and a
  * DailyRotateFile transport that writes to `logDir`.  Also reassigns the

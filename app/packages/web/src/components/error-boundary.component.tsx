@@ -10,6 +10,7 @@ interface State {
   error: unknown;
 }
 
+// @spec APP-DIAG-RERR-003
 /**
  * Top-level render-error boundary. Renders a visible fallback instead of
  * silently unmounting the tree (React 18's default with no boundary), and

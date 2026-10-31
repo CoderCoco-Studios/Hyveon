@@ -8,6 +8,7 @@ import { Input } from './ui/input.component.js';
 import { LogLineList } from './log-line-display.component.js';
 import { useDiagnosticsTail } from '../hooks/use-diagnostics-tail.hook.js';
 
+// @spec APP-DIAG-PANEL-002, APP-DIAG-PANEL-005, APP-DIAG-PANEL-006, APP-DIAG-PANEL-007
 /**
  * DiagnosticsPanel — shows the last 500 lines of the app's own local log
  * file (`main-*.log`), polling every 5 seconds via {@link useDiagnosticsTail}.

@@ -6,6 +6,7 @@ const ULID_CHARS = '0-9A-HJKMNP-TV-Z';
 const AUDIT_SK_PATTERN = new RegExp(`^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z#[${ULID_CHARS}]{26}$`);
 
 describe('buildAuditSk', () => {
+  // @spec APP-DIAG-AUDIT-001
   it('should produce a sort key shaped like <ISO timestamp>#<ULID>', () => {
     const sk = buildAuditSk(new Date('2026-07-17T12:34:56.789Z'));
     expect(sk).toMatch(AUDIT_SK_PATTERN);

@@ -27,6 +27,7 @@ describe('readAppVersion', () => {
     else (process.versions as Record<string, string>)['electron'] = original;
   });
 
+  // @spec APP-DIAG-BNDL-010
   it("should return 'unknown' outside Electron", () => {
     delete (process.versions as Record<string, string>)['electron'];
     expect(readAppVersion()).toBe('unknown');
@@ -38,6 +39,7 @@ describe('readAppVersion', () => {
     expect(readAppVersion()).toBe('unknown');
   });
 
+  // @spec APP-DIAG-BNDL-010
   it("should return app.getVersion()'s value under Electron", () => {
     (process.versions as Record<string, string>)['electron'] = '0.0.0';
     fakeElectron = { app: { getVersion: () => '0.8.0' } };

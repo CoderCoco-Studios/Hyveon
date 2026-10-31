@@ -212,6 +212,7 @@ describe('main bootstrap', () => {
     expect(applyFixPathMock).toHaveBeenCalledTimes(1);
   });
 
+  // @spec APP-DIAG-LOG-007
   it('should resolve userData path and initialise the file logger on module initialisation', async () => {
     vi.resetModules();
     const { bootstrap } = await import('./main.js');

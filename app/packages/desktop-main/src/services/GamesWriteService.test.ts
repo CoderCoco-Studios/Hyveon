@@ -189,6 +189,7 @@ describe('GamesWriteService', () => {
       expect(JSON.stringify(result)).not.toContain(secretArn);
     });
 
+    // @spec APP-DIAG-AUDIT-005
     it('should record an audit entry exactly once with a null before, the validated after, and the write versionId', async () => {
       const deploymentConfig = makeDeploymentConfig();
       const audit = makeAudit();
@@ -373,6 +374,7 @@ describe('GamesWriteService', () => {
       }
     });
 
+    // @spec APP-DIAG-AUDIT-005
     it('should record an audit entry exactly once with the pre-mutation sibling entry as before, the validated after, and the write versionId', async () => {
       const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const audit = makeAudit();
@@ -486,6 +488,7 @@ describe('GamesWriteService', () => {
       }
     });
 
+    // @spec APP-DIAG-AUDIT-005
     it('should record an audit entry exactly once with the pre-mutation sibling entry as before, a null after, and the write versionId', async () => {
       const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const audit = makeAudit();

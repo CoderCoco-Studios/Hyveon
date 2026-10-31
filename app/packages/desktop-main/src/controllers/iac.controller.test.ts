@@ -723,6 +723,7 @@ describe('IacController', () => {
       expect(sender.send).not.toHaveBeenCalled();
     });
 
+    // @spec APP-DIAG-AUDIT-006
     it('should record an audit entry with action "plan" for an accepted submission', async () => {
       async function* succeeds(): AsyncGenerator<PulumiRunChunk> {
         yield { stream: 'stdout', line: 'Previewing update...' };
@@ -950,6 +951,7 @@ describe('IacController', () => {
       expect(result).toEqual({ started: true, runId: 'plan-run-1' });
     });
 
+    // @spec APP-DIAG-AUDIT-006
     it('should record an audit entry with action "apply" for an accepted apply submission', async () => {
       const pulumi = makePulumi();
       const { audit, record } = makeAudit();
@@ -1189,6 +1191,7 @@ describe('IacController', () => {
     });
 
     // @spec IAC-RUN-DSTR-009
+    // @spec APP-DIAG-AUDIT-006
     it('should record an audit entry with action "destroy" for an accepted destroy submission', async () => {
       const pulumi = makePulumi();
       const { audit, record } = makeAudit();
@@ -1405,6 +1408,7 @@ describe('IacController', () => {
 
   describe('approve', () => {
     // @spec IAC-RUN-APPR-002, IAC-RUN-APPR-007
+    // @spec APP-DIAG-AUDIT-006
     it('should write approvedBy/approvedAt to the run record, using the OS-resolved username, and return them on a successful plan run', async () => {
       const pulumi = makePulumi();
       const { runRecord, approveRun } = makeRunRecord();
@@ -1699,6 +1703,7 @@ describe('IacController', () => {
     });
 
     // @spec IAC-RUN-RBK-009
+    // @spec APP-DIAG-AUDIT-006
     it('should record an audit entry with action "rollback" and the new head versionId on success', async () => {
       // eslint-disable-next-line require-yield -- generator settles immediately with no intermediate chunks
       async function* settles(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult> {

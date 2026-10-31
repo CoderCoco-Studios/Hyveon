@@ -87,6 +87,7 @@ afterEach(() => {
 });
 
 describe('DiagnosticsBundleService.writeBundle', () => {
+  // @spec APP-DIAG-BNDL-004
   it('should write all four sections plus an empty errors.json on full success', async () => {
     const destinationPath = join(tempDir, 'bundle.zip');
     const service = new DiagnosticsBundleService(
@@ -111,6 +112,7 @@ describe('DiagnosticsBundleService.writeBundle', () => {
     expect(JSON.parse(entries['aws-snapshot.json']!)).toEqual({ stackOutputs: null, games: [] });
   });
 
+  // @spec APP-DIAG-BNDL-005
   it('should still write a bundle with the other three sections when the AWS snapshot section fails', async () => {
     const destinationPath = join(tempDir, 'bundle.zip');
     const failingConfig = { getStackOutputs: vi.fn().mockRejectedValue(new Error('no AWS credentials configured')) } as Partial<ConfigService> as ConfigService;
@@ -129,6 +131,7 @@ describe('DiagnosticsBundleService.writeBundle', () => {
     expect(errors).toEqual([{ section: 'aws', message: 'no AWS credentials configured' }]);
   });
 
+  // @spec APP-DIAG-BNDL-006
   it('should write a bundle containing only errors.json when every section fails', async () => {
     const destinationPath = join(tempDir, 'bundle.zip');
     const failingDiagnostics = { readTail: vi.fn().mockRejectedValue(new Error('log read failed')) } as Partial<DiagnosticsService> as DiagnosticsService;
@@ -156,6 +159,7 @@ describe('DiagnosticsBundleService.writeBundle', () => {
     expect(errors.every((e) => typeof e.message === 'string' && e.message.length > 0)).toBe(true);
   });
 
+  // @spec APP-DIAG-BNDL-007
   it('should scrub secret-shaped log content before writing it into logs.txt', async () => {
     const destinationPath = join(tempDir, 'bundle.zip');
     const service = new DiagnosticsBundleService(
@@ -172,6 +176,7 @@ describe('DiagnosticsBundleService.writeBundle', () => {
     expect(entries['logs.txt']).not.toContain('AKIAABCDEFGHIJKLMNOP');
   });
 
+  // @spec APP-DIAG-BNDL-011
   it('should gather a per-game AWS snapshot when stack outputs are present', async () => {
     const destinationPath = join(tempDir, 'bundle.zip');
     const outputs = stackOutputs({
@@ -195,6 +200,7 @@ describe('DiagnosticsBundleService.writeBundle', () => {
     expect(aws.games).toEqual([{ game: 'minecraft', state: 'running' }]);
   });
 
+  // @spec APP-DIAG-BNDL-014, APP-DIAG-BNDL-015
   it('should not leave a partial file at the destination path when the write fails', async () => {
     // A destination inside a nonexistent directory makes the underlying write fail.
     const destinationPath = join(tempDir, 'nonexistent-subdir', 'bundle.zip');
@@ -206,6 +212,7 @@ describe('DiagnosticsBundleService.writeBundle', () => {
     expect(readdirSync(tempDir)).toEqual([]);
   });
 
+  // @spec APP-DIAG-BNDL-012
   it('should keep the other game statuses and stackOutputs when one game status lookup rejects', async () => {
     const destinationPath = join(tempDir, 'bundle.zip');
     const outputs = stackOutputs({

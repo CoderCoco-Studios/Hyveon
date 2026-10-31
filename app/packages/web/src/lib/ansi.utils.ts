@@ -57,6 +57,7 @@ export const FG_COLOR_CLASS: Record<number, string> = {
   97: 'text-[var(--color-foreground)]',
 };
 
+// @spec APP-DIAG-ANSI-001, APP-DIAG-ANSI-002, APP-DIAG-ANSI-004
 /**
  * Parses a single line of terminal-style output into an ordered list of
  * styled segments.

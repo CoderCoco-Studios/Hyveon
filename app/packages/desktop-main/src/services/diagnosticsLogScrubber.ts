@@ -15,6 +15,7 @@ const AWS_ACCESS_KEY_ID_PATTERN = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g;
 const LABELED_SECRET_VALUE_PATTERN =
   /\b([\w-]*(?:token|key|secret)[\w-]*\s*[:=]\s*['"]?)([A-Za-z0-9+/_-]{16,})(['"]?)/gi;
 
+// @spec APP-DIAG-SCRUB-001, APP-DIAG-SCRUB-002, APP-DIAG-SCRUB-004
 /**
  * Regex-based secret scrubber applied to already-collected log text before
  * it's included in a diagnostics bundle. Defense-in-depth only — the

@@ -19,6 +19,7 @@ export interface UseDiagnosticsTailResult {
   togglePause: () => void;
 }
 
+// @spec APP-DIAG-PANEL-001, APP-DIAG-PANEL-003, APP-DIAG-PANEL-004, APP-DIAG-PANEL-008, APP-DIAG-PANEL-009
 /**
  * Polls `diagnostics.tail`/`diagnostics.path` every 5 seconds for the last
  * 500 lines of the app's own local log file (`main-*.log`), with the same

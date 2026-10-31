@@ -99,6 +99,7 @@ import { WindowService } from './services/WindowService.js';
     WindowController,
   ],
   providers: [
+    // @spec APP-DIAG-LOG-007
     {
       provide: DIAGNOSTICS_LOG_DIR,
       useFactory: () => {
