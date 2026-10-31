@@ -104,6 +104,63 @@ describe('HelperSessionRegistry', () => {
     expect(await registry.status('mc')).toMatchObject({ state: 'running', browseHeld: true, uploadHolders: 1 });
   });
 
+  it('should report upload holders of a game but not a browse hold or another game', async () => {
+    const { registry } = harness();
+    expect(registry.hasUploadHolders('mc')).toBe(false);
+
+    await registry.acquire('mc', 'browse');
+    expect(registry.hasUploadHolders('mc')).toBe(false);
+
+    await registry.acquire('mc', 'upload:xfer-1');
+    expect(registry.hasUploadHolders('mc')).toBe(true);
+    expect(registry.hasUploadHolders('other')).toBe(false);
+
+    registry.release('mc', 'upload:xfer-1');
+    expect(registry.hasUploadHolders('mc')).toBe(false);
+  });
+
+  it('should not count a download hold as an upload holder, in hasUploadHolders or the snapshot', async () => {
+    const { registry } = harness();
+    await Promise.all([registry.acquire('mc', 'download:xfer-1'), registry.acquire('mc', 'upload:xfer-2')]);
+    expect(await registry.status('mc')).toMatchObject({ browseHeld: false, uploadHolders: 1 });
+
+    registry.release('mc', 'upload:xfer-2');
+    expect(registry.hasUploadHolders('mc')).toBe(false);
+    expect(await registry.status('mc')).toMatchObject({ state: 'running', uploadHolders: 0 });
+  });
+
+  it('should keep the helper past the browse grace while only a download holds it', async () => {
+    const { registry, fm } = harness();
+    await Promise.all([registry.acquire('mc', 'browse'), registry.acquire('mc', 'download:xfer-1')]);
+
+    registry.release('mc', 'browse');
+    await vi.advanceTimersByTimeAsync(GRACE_MS * 2);
+    expect(fm.stop).not.toHaveBeenCalled();
+
+    registry.release('mc', 'download:xfer-1');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fm.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('should keep reporting an upload holder while its session is stopping, until teardown drops the entry', async () => {
+    const { registry, fm } = harness();
+    await registry.acquire('mc', 'upload:xfer-1');
+    let finishStop: (value: { success: boolean; message: string }) => void = () => undefined;
+    fm.stop.mockReturnValueOnce(new Promise((resolve) => (finishStop = resolve)));
+
+    const stopping = registry.stop('mc');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await registry.status('mc')).toMatchObject({ state: 'stopping' });
+    expect(registry.hasUploadHolders('mc')).toBe(true);
+
+    registry.release('mc', 'upload:xfer-1');
+    expect(registry.hasUploadHolders('mc')).toBe(true);
+
+    finishStop({ success: true, message: 'stopped' });
+    await stopping;
+    expect(registry.hasUploadHolders('mc')).toBe(false);
+  });
+
   it('should launch over TLS with the browse run id and pass tags only to the launching acquire', async () => {
     const { registry, fm } = harness();
     const tags = [{ key: 'Purpose', value: 'upload' }];

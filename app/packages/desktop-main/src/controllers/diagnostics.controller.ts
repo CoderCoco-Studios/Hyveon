@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import type { ExportDiagnosticsBundleResult, RendererLogEntry } from '@hyveon/shared';
 import { DiagnosticsService } from '../services/DiagnosticsService.js';
 import { DiagnosticsBundleService } from '../services/DiagnosticsBundleService.js';
+import { NativeDialogService } from '../services/NativeDialogService.js';
 import { logger } from '../logger.js';
 import { errMessage } from '@hyveon/shared';
 
@@ -39,6 +40,7 @@ export class DiagnosticsController {
   constructor(
     private readonly diagnostics: DiagnosticsService,
     private readonly bundle: DiagnosticsBundleService,
+    private readonly dialogs: NativeDialogService,
   ) {}
 
   /** Returns the last 500 lines from today's local log file. */
@@ -80,7 +82,10 @@ export class DiagnosticsController {
   @MessagePattern('diagnostics.exportBundle')
   async exportBundle(): Promise<ExportDiagnosticsBundleResult> {
     logger.debug('DiagnosticsController: diagnostics.exportBundle invoked');
-    const destinationPath = await this.showSaveDialog();
+    const destinationPath = await this.dialogs.pickSavePath(
+      `hyveon-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`,
+      { title: 'Export diagnostics bundle', filters: [{ name: 'Zip archive', extensions: ['zip'] }] },
+    );
     if (!destinationPath) {
       return { status: 'cancelled' };
     }
@@ -92,25 +97,6 @@ export class DiagnosticsController {
       logger.error('DiagnosticsController: diagnostics.exportBundle failed to write bundle', { message });
       return { status: 'error', message };
     }
-  }
-
-  /**
-   * Opens Electron's native save dialog, lazily requiring `electron` at
-   * call-time (mirrors `CloudHealthService.openExternalUrl`'s pattern).
-   * Returns `undefined` when the operator cancels. Extracted as a protected
-   * method so tests can stub it without a real Electron process.
-   */
-  protected async showSaveDialog(): Promise<string | undefined> {
-    const _require = createRequire(import.meta.url);
-    const { dialog } = _require('electron') as {
-      dialog: { showSaveDialog(options: unknown): Promise<{ canceled: boolean; filePath?: string }> };
-    };
-    const result = await dialog.showSaveDialog({
-      title: 'Export diagnostics bundle',
-      defaultPath: `hyveon-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`,
-      filters: [{ name: 'Zip archive', extensions: ['zip'] }],
-    });
-    return result.canceled ? undefined : result.filePath;
   }
 
   /**

@@ -1,6 +1,5 @@
 import { BadRequestException, Controller, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import type { BrowserWindow } from 'electron';
 import type {
   FolderOverwriteDecision,
   FolderOverwriteDecisionResult,
@@ -13,6 +12,7 @@ import type {
 } from '@hyveon/shared/folderUpload';
 import { FolderScanService } from '../services/FolderScanService.js';
 import { FolderUploadService } from '../services/FolderUploadService.js';
+import { forwardToWindows } from '../ipc-broadcast.js';
 import { logger } from '../logger.js';
 import { isNonEmptyString, requireStringArray } from './validation.js';
 
@@ -33,20 +33,11 @@ export class FolderUploadController implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   /**
-   * Forwards progress snapshots to every open window over {@link FOLDER_UPLOAD_PROGRESS_CHANNEL}. A push, not a
-   * `@MessagePattern`, so it goes straight over `webContents.send`. Gated on `process.versions.electron`: outside
-   * Electron (integration server, CI) importing `electron` would throw, so no forwarding is set up.
+   * Forwards progress snapshots to every open window over {@link FOLDER_UPLOAD_PROGRESS_CHANNEL}; a no-op outside
+   * Electron.
    */
   async onModuleInit(): Promise<void> {
-    if (!process.versions.electron) return;
-    const { BrowserWindow: Windows } = (await import('electron')) as unknown as {
-      BrowserWindow: { getAllWindows(): BrowserWindow[] };
-    };
-    this.unsubscribe = this.uploads.onProgress((progress) => {
-      for (const win of Windows.getAllWindows()) {
-        if (!win.isDestroyed()) win.webContents.send(FOLDER_UPLOAD_PROGRESS_CHANNEL, progress);
-      }
-    });
+    this.unsubscribe = await forwardToWindows((listener) => this.uploads.onProgress(listener), FOLDER_UPLOAD_PROGRESS_CHANNEL);
   }
 
   /** Stops forwarding progress. */

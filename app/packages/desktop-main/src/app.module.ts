@@ -12,12 +12,15 @@ import { PulumiServiceModule } from './modules/pulumi-service.module.js';
 import { WizardModule } from './modules/wizard.module.js';
 import { ElectronStoreModule } from './modules/electron-store.module.js';
 import { FolderUploadModule } from './modules/folder-upload.module.js';
+import { NativeDialogModule } from './modules/native-dialog.module.js';
 import { VolumeFilesModule } from './modules/volume-files.module.js';
+import { VolumeFilesApiModule } from './modules/volume-files-api.module.js';
 import { GamesController } from './controllers/games.controller.js';
 import { CostsController } from './controllers/costs.controller.js';
 import { LogsController } from './controllers/logs.controller.js';
 import { FilesController } from './controllers/files.controller.js';
 import { FolderUploadController } from './controllers/folder-upload.controller.js';
+import { VolumeFilesController } from './controllers/volume-files.controller.js';
 import { DiscordController } from './controllers/discord.controller.js';
 import { EnvController } from './controllers/env.controller.js';
 import { DiagnosticsController } from './controllers/diagnostics.controller.js';
@@ -74,7 +77,9 @@ import { WindowService } from './services/WindowService.js';
     WizardModule,
     ElectronStoreModule,
     FolderUploadModule,
+    NativeDialogModule,
     VolumeFilesModule,
+    VolumeFilesApiModule,
   ],
   controllers: [
     GamesController,
@@ -82,6 +87,7 @@ import { WindowService } from './services/WindowService.js';
     LogsController,
     FilesController,
     FolderUploadController,
+    VolumeFilesController,
     DiscordController,
     EnvController,
     DiagnosticsController,

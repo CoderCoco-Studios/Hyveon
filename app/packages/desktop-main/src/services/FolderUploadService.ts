@@ -78,6 +78,18 @@ interface PreparedRun {
   volume: string;
   /** The previous run for this same selection was cut short, so a few existing files are our own partial uploads. */
   resumesOwnRun: boolean;
+  /** Whether this run owns the persisted selection and its last-run status (`false` for runs started from a page). */
+  persistSelection: boolean;
+}
+
+/** Options for {@link FolderUploadService.startUpload}. */
+export interface StartUploadOptions {
+  /**
+   * Remember this run as the game's folder-upload selection and record its outcome as the selection's last run.
+   * Pass `false` for runs the selection card did not start, so they neither replace the card's selection nor change
+   * how its next run treats existing files. Defaults to `true`.
+   */
+  persistSelection?: boolean;
 }
 
 /**
@@ -197,11 +209,14 @@ export class FolderUploadService implements OnApplicationBootstrap {
   /**
    * Validates the request and, if every guard passes, starts the run in the background.
    *
+   * @param request - What to upload and where.
+   * @param options - Whether the run is remembered as the game's saved selection.
    * @returns `{ started: true, runId }`, or `{ started: false, error }` for a failed guard (not deployed, server
    * running, an unmanaged helper already open, bad destination or path, scan expired).
    */
-  async startUpload(request: FolderUploadRequest): Promise<FolderUploadStartResult> {
+  async startUpload(request: FolderUploadRequest, options: StartUploadOptions = {}): Promise<FolderUploadStartResult> {
     const { game } = request;
+    const persistSelection = options.persistSelection ?? true;
     if (this.preparing.has(game)) {
       return { started: false, error: `An upload is already starting for '${game}'.` };
     }
@@ -212,13 +227,13 @@ export class FolderUploadService implements OnApplicationBootstrap {
     let controller: AbortController;
     try {
       try {
-        prepared = await this.prepare(request);
+        prepared = await this.prepare(request, persistSelection);
       } catch (err) {
         const error = errMessage(err);
         logger.info('FolderUploadService: upload refused', { game, reason: error });
         return { started: false, error };
       }
-      this.setSelection(request);
+      if (persistSelection) this.setSelection(request);
 
       runId = randomUUID();
       controller = new AbortController();
@@ -239,7 +254,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
   }
 
   /** Runs every preflight guard and resolves the upload plan. Throws a plain `Error` describing the first failure. */
-  private async prepare(request: FolderUploadRequest): Promise<PreparedRun> {
+  private async prepare(request: FolderUploadRequest, persistSelection: boolean): Promise<PreparedRun> {
     const { game } = request;
     if (!game || typeof request.destination !== 'string' || !Array.isArray(request.include)) {
       throw new Error('Invalid upload request.');
@@ -291,7 +306,8 @@ export class FolderUploadService implements OnApplicationBootstrap {
       files,
       bytesTotal: files.reduce((sum, f) => sum + f.size, 0),
       volume: dest.volume.name,
-      resumesOwnRun: this.isOwnPartialRun(this.store.getFolderUploadState(game), scan.rootPath, request),
+      resumesOwnRun: persistSelection && this.isOwnPartialRun(this.store.getFolderUploadState(game), scan.rootPath, request),
+      persistSelection,
     };
   }
 
@@ -365,7 +381,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
       if (terminal.phase === 'failed') logger.warn('FolderUploadService: upload failed', { game, runId, error: terminal.error });
     } finally {
       this.registry.release(game, holder);
-      this.finish(game, runId, progress, terminal);
+      this.finish(prepared, runId, progress, terminal);
     }
   }
 
@@ -499,16 +515,19 @@ export class FolderUploadService implements OnApplicationBootstrap {
     });
   }
 
-  /** Records the run's outcome, emits the terminal snapshot, and frees the game for a new run. */
-  private finish(game: string, runId: string, progress: ProgressAggregator, terminal: { phase: FolderUploadPhase; error?: string }): void {
+  /** Records the run's outcome (when it persists its selection), emits the terminal snapshot, and frees the game for a new run. */
+  private finish(prepared: PreparedRun, runId: string, progress: ProgressAggregator, terminal: { phase: FolderUploadPhase; error?: string }): void {
+    const { game } = prepared;
     const snap = progress.snapshot();
     const status = terminal.phase === 'done' ? 'done' : terminal.phase === 'cancelled' ? 'cancelled' : 'failed';
-    this.store.setFolderUploadLastRun(game, {
-      status,
-      completedAt: new Date().toISOString(),
-      files: snap.filesDone,
-      bytes: snap.bytesDone,
-    });
+    if (prepared.persistSelection) {
+      this.store.setFolderUploadLastRun(game, {
+        status,
+        completedAt: new Date().toISOString(),
+        files: snap.filesDone,
+        bytes: snap.bytesDone,
+      });
+    }
     progress.setPhase(terminal.phase, terminal.error);
     progress.stop();
     this.active.delete(game);

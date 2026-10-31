@@ -9,6 +9,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { FolderScanService } from './FolderScanService.js';
+import { NativeDialogService } from './NativeDialogService.js';
 
 let root: string;
 beforeEach(async () => {
@@ -25,7 +26,7 @@ afterEach(() => rm(root, { recursive: true, force: true }));
 
 describe('FolderScanService', () => {
   it('should build a tree with POSIX relPaths, rolled-up sizes and counts', async () => {
-    const result = await new FolderScanService().scan(root);
+    const result = await new FolderScanService(new NativeDialogService()).scan(root);
     expect(result.fileCount).toBe(3);
     expect(result.totalBytes).toBe(107);
     expect(result.tree.children?.map((c) => c.name)).toEqual(['Config', 'Data', 'readme.txt']);
@@ -35,13 +36,13 @@ describe('FolderScanService', () => {
   });
 
   it('should skip symlinks to files and directories and count them', async () => {
-    const result = await new FolderScanService().scan(root);
+    const result = await new FolderScanService(new NativeDialogService()).scan(root);
     expect(result.skippedLinks).toBe(2);
     expect(JSON.stringify(result.tree)).not.toContain('link');
   });
 
   it('should hold the scan by id with per-file mtimes and never expose the absolute path in the result', async () => {
-    const svc = new FolderScanService();
+    const svc = new FolderScanService(new NativeDialogService());
     const result = await svc.scan(root);
     const held = svc.get(result.scanId);
     expect(held?.rootPath).toBe(root);
@@ -50,17 +51,17 @@ describe('FolderScanService', () => {
   });
 
   it('should evict the oldest scans beyond the retention limit', async () => {
-    const svc = new FolderScanService();
+    const svc = new FolderScanService(new NativeDialogService());
     const first = await svc.scan(root);
     for (let i = 0; i < 8; i += 1) await svc.scan(root);
     expect(svc.get(first.scanId)).toBeUndefined();
   });
 
   it('should reject with a normalized message when the root cannot be read', async () => {
-    await expect(new FolderScanService().scan(join(root, 'nope'))).rejects.toThrow(/Could not scan folder/);
+    await expect(new FolderScanService(new NativeDialogService()).scan(join(root, 'nope'))).rejects.toThrow(/Could not scan folder/);
   });
 
   it('should return null from the picker outside Electron', async () => {
-    expect(await new FolderScanService().pickAndScan()).toBeNull();
+    expect(await new FolderScanService(new NativeDialogService()).pickAndScan()).toBeNull();
   });
 });

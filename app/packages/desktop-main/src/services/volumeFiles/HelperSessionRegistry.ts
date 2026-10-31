@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { errMessage } from '@hyveon/shared';
+import type { VolumeInfo, VolumeSessionState } from '@hyveon/shared/volumeFiles';
 import { logger } from '../../logger.js';
 import { BROWSE_RUN_ID, FileManagerService, type FileMgrCredentials } from '../FileManagerService.js';
 import type { EphemeralCert } from '../folderUpload/ephemeralCert.js';
@@ -9,11 +10,17 @@ import { PublicIpService } from '../PublicIpService.js';
 import type { HelperVolumeLayout } from './helperVolumeLayout.js';
 import { VolumeFileError, type VolumeFileBackend } from './VolumeFileBackend.js';
 
-/** Who is keeping a helper session alive: the file-browser page, or one folder-upload run. */
-export type HelperHolder = 'browse' | `upload:${string}`;
+/**
+ * Who is keeping a helper session alive: the file-browser page, a write (a folder-upload run or an upload transfer), or
+ * a read-only download transfer. Every holder keeps the session alive; only `upload:` holders also refuse a game start.
+ */
+export type HelperHolder = 'browse' | `upload:${string}` | `download:${string}`;
+
+/** Whether `holder` writes to the volume, so a game must not start while it is held. */
+const isUploadHolder = (holder: HelperHolder): boolean => holder.startsWith('upload:');
 
 /** Lifecycle of one game's helper session as reported to callers. */
-export type HelperSessionState = 'not_deployed' | 'stopped' | 'starting' | 'running' | 'stopping' | 'orphaned' | 'failed';
+export type HelperSessionState = VolumeSessionState;
 
 /** What callers may see of a session. Never carries credentials, the certificate, or the helper's address. */
 export interface HelperSessionSnapshot {
@@ -26,7 +33,7 @@ export interface HelperSessionSnapshot {
   error?: string;
   supportsArchive: boolean;
   /** Every declared volume; `mounted` is false for volumes the session's layout could not mount (apply needed). */
-  volumes: { name: string; containerPath: string; mounted: boolean }[];
+  volumes: VolumeInfo[];
 }
 
 /** Outcome of {@link HelperSessionRegistry.acquire}. */
@@ -359,6 +366,22 @@ export class HelperSessionRegistry {
     return true;
   }
 
+  /**
+   * Whether an upload (a volume-files upload transfer or a folder-upload run) currently holds `game`'s session.
+   *
+   * @remarks
+   * Browse and download holds do not count: they only read, so a game may start while they remain.
+   * A stopping session still counts: aborting a transfer does not wait for its in-flight write, and `release` ignores a
+   * stopping session, so the holders stay until teardown has closed the backend, stopped the helper and dropped the entry.
+   * Only then can a game start.
+   *
+   * @param game - Game to check.
+   */
+  hasUploadHolders(game: string): boolean {
+    const entry = this.entries.get(game);
+    return !!entry && [...entry.holders].some(isUploadHolder);
+  }
+
   /** The games this registry currently owns a session for. */
   ownedGames(): ReadonlySet<string> {
     return new Set(this.entries.keys());
@@ -666,7 +689,7 @@ export class HelperSessionRegistry {
       ...(entry.startedAt !== undefined && { startedAt: entry.startedAt }),
       ...(entry.autoStopAt !== undefined && { autoStopAt: entry.autoStopAt }),
       browseHeld: holders.includes('browse'),
-      uploadHolders: holders.filter((h) => h !== 'browse').length,
+      uploadHolders: holders.filter(isUploadHolder).length,
       ...(error !== undefined && { error }),
       supportsArchive: typeof entry.backend?.archiveStream === 'function',
       volumes: entry.layout ? volumesOf(entry.layout) : (this.lastVolumes.get(game) ?? []),

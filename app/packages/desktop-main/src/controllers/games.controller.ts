@@ -2,13 +2,14 @@ import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { CreateGamePayload, DeleteGamePayload, GameListEntry, GameWriteResult, UpdateGamePayload } from '@hyveon/shared';
 import { ConfigService } from '../services/ConfigService.js';
-import { EcsService } from '../services/EcsService.js';
+import { EcsService, type StartResult } from '../services/EcsService.js';
 import { GamesWriteService } from '../services/GamesWriteService.js';
 import { DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import { computeDriftFromOutputs } from '../services/DriftService.js';
 import { GameWizardDraftService } from '../services/GameWizardDraftService.js';
 import type { GameWizardDraft, StoredGameWizardDraft } from '../services/ElectronStoreService.js';
 import { mergeGameLists } from '../services/mergeGameLists.js';
+import { HelperSessionRegistry } from '../services/volumeFiles/HelperSessionRegistry.js';
 import { logger } from '../logger.js';
 
 /**
@@ -16,7 +17,7 @@ import { logger } from '../logger.js';
  * `@MessagePattern` / `@Payload`. It
  * delegates to the {@link ConfigService}, {@link EcsService},
  * {@link DeploymentConfigService}, {@link GamesWriteService}, and
- * {@link GameWizardDraftService} providers.
+ * {@link GameWizardDraftService}, and {@link HelperSessionRegistry} providers.
  */
 @Controller()
 export class GamesController {
@@ -26,6 +27,7 @@ export class GamesController {
     private readonly deploymentConfig: DeploymentConfigService,
     private readonly gamesWrite: GamesWriteService,
     private readonly gameWizardDraft: GameWizardDraftService,
+    private readonly helperSessions: HelperSessionRegistry,
   ) {}
 
   /**
@@ -92,10 +94,18 @@ export class GamesController {
    * Launches the `{game}-server` task via `ecs.run_task()`. There is no
    * long-running ECS Service by design — this is the only way a game starts.
    *
+   * Refuses, without calling ECS, while an upload into the game's volumes is in progress: a server that starts
+   * mid-upload would mount the volume while files are still being written to it. The Discord `/server-start` path
+   * runs in a Lambda and can't see this refusal.
+   *
    */
   @MessagePattern('games.start')
-  start(@Payload() game: string) {
+  async start(@Payload() game: string): Promise<StartResult> {
     logger.debug('GamesController: games.start invoked', { game });
+    if (this.helperSessions.hasUploadHolders(game)) {
+      logger.info('GamesController: games.start refused, an upload is in progress', { game });
+      return { success: false, message: `An upload into '${game}' is in progress. Wait for it to finish or cancel it, then start the server.` };
+    }
     return this.ecs.start(game);
   }
 

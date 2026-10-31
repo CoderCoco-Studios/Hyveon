@@ -5,6 +5,7 @@ import { Injectable } from '@nestjs/common';
 import { errMessage } from '@hyveon/shared';
 import type { FolderScanNode, FolderScanResult } from '@hyveon/shared/folderUpload';
 import { logger } from '../logger.js';
+import { NativeDialogService } from './NativeDialogService.js';
 
 /** A scan retained in main so the renderer only ever references it by id. */
 export interface HeldScan {
@@ -26,23 +27,11 @@ const MAX_HELD_SCANS = 8;
 export class FolderScanService {
   private readonly scans = new Map<string, HeldScan>();
 
-  /**
-   * Opens the native directory picker.
-   *
-   * @returns The chosen path, or `null` when cancelled or when not running inside Electron.
-   */
-  async pickDirectory(): Promise<string | null> {
-    if (!process.versions.electron) return null;
-    const { dialog } = (await import('electron')) as unknown as {
-      dialog: { showOpenDialog(opts: { properties: string[] }): Promise<{ canceled: boolean; filePaths: string[] }> };
-    };
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
-    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]!;
-  }
+  constructor(private readonly dialogs: NativeDialogService) {}
 
   /** Picks a folder and scans it; `null` when the operator cancels. */
   async pickAndScan(): Promise<FolderScanResult | null> {
-    const picked = await this.pickDirectory();
+    const picked = await this.dialogs.pickDirectory();
     return picked ? this.scan(picked) : null;
   }
 

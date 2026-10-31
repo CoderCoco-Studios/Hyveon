@@ -51,7 +51,7 @@
  * with no streaming involved.
  */
 
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron';
 
 import { createBufferedStream } from './stream-bridge.js';
 
@@ -131,6 +131,21 @@ import type {
   FolderUploadStoredState,
   StrayHelperReport,
 } from '@hyveon/shared/folderUpload';
+import type {
+  VolumeEntryInfo,
+  VolumeListing,
+  VolumeResult,
+  VolumeSessionStatus,
+  VolumeTextFile,
+  VolumeTransferProgress,
+} from '@hyveon/shared/volumeFiles';
+
+/**
+ * Push channels `VolumeFilesController` forwards to windows. Literals rather than the `@hyveon/shared/volumeFiles`
+ * constants because the sandboxed preload cannot load that module at runtime; a unit test pins them equal.
+ */
+const VOLUME_SESSION_PUSH_CHANNEL = 'volumeFiles.session';
+const VOLUME_TRANSFER_PUSH_CHANNEL = 'volumeFiles.transfer';
 
 /** Fixed side-channel `IacController.initializeStack` pushes streamed phase events on. */
 const STACK_INIT_CHUNK_CHANNEL = 'iac.stack.initialize.chunk';
@@ -188,6 +203,20 @@ function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
     }
   }
   return ipcRenderer.invoke(channel, ...args) as Promise<T>;
+}
+
+/**
+ * Subscribes `cb` to a main-to-renderer push channel, dropping the Electron event argument.
+ *
+ * @typeParam T - Payload type main pushes on `channel`.
+ * @param channel - Push channel name.
+ * @param cb - Called with each payload.
+ * @returns Function that removes the listener.
+ */
+function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
+  const listener = (_event: IpcRendererEvent, payload: T) => cb(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
 }
 
 /**
@@ -459,11 +488,47 @@ const api: HyveonApi = {
       invoke<FolderOverwriteDecisionResult>('folderUpload.confirmOverwrite', { game, proceed }),
     getProgress: (game: string) => invoke<FolderUploadProgress | null>('folderUpload.getProgress', game),
     cleanupStrayHelpers: () => invoke<StrayHelperReport>('folderUpload.cleanupStrayHelpers'),
-    onProgress: (cb: (progress: FolderUploadProgress) => void) => {
-      const listener = (_event: IpcRendererEvent, progress: FolderUploadProgress) => cb(progress);
-      ipcRenderer.on('folderUpload.progress', listener);
-      return () => ipcRenderer.removeListener('folderUpload.progress', listener);
-    },
+    onProgress: (cb: (progress: FolderUploadProgress) => void) => subscribe<FolderUploadProgress>('folderUpload.progress', cb),
+  },
+
+  volumeFiles: {
+    sessionStatus: (game: string) => invoke<VolumeSessionStatus>('volumeFiles.session.status', game),
+    sessionStart: (game: string) => invoke<VolumeSessionStatus>('volumeFiles.session.start', game),
+    sessionAttach: (game: string) => invoke<VolumeSessionStatus>('volumeFiles.session.attach', game),
+    sessionDetach: (game: string) => invoke<VolumeSessionStatus>('volumeFiles.session.detach', game),
+    sessionStop: (game: string) => invoke<VolumeResult<VolumeSessionStatus>>('volumeFiles.session.stop', game),
+    sessionRestart: (game: string) => invoke<VolumeResult<VolumeSessionStatus>>('volumeFiles.session.restart', game),
+    list: (game: string, volume: string, path: string) =>
+      invoke<VolumeResult<VolumeListing>>('volumeFiles.list', { game, volume, path }),
+    mkdir: (game: string, volume: string, parent: string, name: string) =>
+      invoke<VolumeResult<VolumeEntryInfo>>('volumeFiles.mkdir', { game, volume, parent, name }),
+    rename: (game: string, volume: string, path: string, newName: string) =>
+      invoke<VolumeResult<VolumeEntryInfo>>('volumeFiles.rename', { game, volume, path, newName }),
+    remove: (game: string, volume: string, path: string) =>
+      invoke<VolumeResult<true>>('volumeFiles.delete', { game, volume, path }),
+    readText: (game: string, volume: string, path: string) =>
+      invoke<VolumeResult<VolumeTextFile>>('volumeFiles.readText', { game, volume, path }),
+    writeText: (game: string, volume: string, path: string, content: string, expectedModifiedMs: number) =>
+      invoke<VolumeResult<{ modifiedMs: number }>>('volumeFiles.writeText', { game, volume, path, content, expectedModifiedMs }),
+    download: (game: string, volume: string, path: string, isDir: boolean) =>
+      invoke<VolumeResult<{ transferId: string } | null>>('volumeFiles.download', { game, volume, path, isDir }),
+    cancelTransfer: (game: string, transferId: string) =>
+      invoke<{ cancelled: boolean }>('volumeFiles.cancelTransfer', { game, transferId }),
+    // `localPaths` is left out so main opens its file dialog.
+    uploadFiles: (game: string, volume: string, dir: string) =>
+      invoke<VolumeResult<{ transferId: string } | null>>('volumeFiles.uploadFiles', { game, volume, dir }),
+    // Paths are resolved here so the renderer never handles path strings; main rejects an empty one.
+    uploadDropped: (game: string, volume: string, dir: string, files: File[]) =>
+      invoke<VolumeResult<{ transferId: string } | null>>('volumeFiles.uploadFiles', {
+        game,
+        volume,
+        dir,
+        localPaths: files.map((file) => webUtils.getPathForFile(file)),
+      }),
+    uploadFolder: (game: string, volume: string, dir: string) =>
+      invoke<VolumeResult<FolderUploadStartResult | null>>('volumeFiles.uploadFolder', { game, volume, dir }),
+    onSession: (cb: (status: VolumeSessionStatus) => void) => subscribe<VolumeSessionStatus>(VOLUME_SESSION_PUSH_CHANNEL, cb),
+    onTransfer: (cb: (progress: VolumeTransferProgress) => void) => subscribe<VolumeTransferProgress>(VOLUME_TRANSFER_PUSH_CHANNEL, cb),
   },
 
   discord: {
@@ -588,11 +653,7 @@ const api: HyveonApi = {
     toggleMaximize: () => invoke<void>('window.toggleMaximize'),
     close: () => invoke<void>('window.close'),
     isMaximized: () => invoke<boolean>('window.isMaximized'),
-    onMaximizedChange: (cb: (isMaximized: boolean) => void) => {
-      const listener = (_event: IpcRendererEvent, isMaximized: boolean) => cb(isMaximized);
-      ipcRenderer.on('window.maximizedChange', listener);
-      return () => ipcRenderer.removeListener('window.maximizedChange', listener);
-    },
+    onMaximizedChange: (cb: (isMaximized: boolean) => void) => subscribe<boolean>('window.maximizedChange', cb),
   },
 };
 

@@ -550,9 +550,9 @@ export const VOLUME_FILES_SESSION_CHANNEL = 'volumeFiles.session';
 export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
 ```
 
-- [ ] **Step 1: Add the types** (no runtime test beyond typecheck; constants are covered by Task 17/16 tests).
-- [ ] **Step 2: Run** `npm run app:typecheck` → clean.
-- [ ] **Step 3: Commit** — `feat(shared): add volumeFiles IPC types`.
+- [x] **Step 1: Add the types** (no runtime test beyond typecheck; constants are covered by Task 17/16 tests).
+- [x] **Step 2: Run** `npm run app:typecheck` → clean.
+- [x] **Step 3: Commit** — `feat(shared): add volumeFiles IPC types`.
 
 ### Task 16: `NativeDialogService` extraction (tasks.md 4.2)
 
@@ -563,11 +563,11 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
 **Interfaces:**
 - Produces: `NativeDialogService.pickDirectory(): Promise<string | null>`, `pickFiles(): Promise<string[]>`, `pickSavePath(defaultName: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null>`. Each returns the cancelled value outside Electron (`!process.versions.electron`), using the same dynamic `import('electron')` pattern.
 
-- [ ] **Step 1: Write the failing tests** — `should return null outside Electron` for each method; `should pass the default name to showSaveDialog` (mock the dynamic import via `vi.mock('electron', ...)` with `process.versions.electron` stubbed).
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/NativeDialogService.test.ts` → FAIL.
-- [ ] **Step 3: Implement**; migrate both call sites (third dialog consumer is Task 18 → extraction now per the duplication rule). Existing `FolderScanService`/`diagnostics.controller` tests stay green.
-- [ ] **Step 4: Run** `cd app && npx vitest run packages/desktop-main/src` → PASS.
-- [ ] **Step 5: Commit** — `refactor(desktop-main): extract NativeDialogService`. PR body names this extraction.
+- [x] **Step 1: Write the failing tests** — `should return null outside Electron` for each method; `should pass the default name to showSaveDialog` (mock the dynamic import via `vi.mock('electron', ...)` with `process.versions.electron` stubbed).
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/NativeDialogService.test.ts` → FAIL.
+- [x] **Step 3: Implement**; migrate both call sites (third dialog consumer is Task 18 → extraction now per the duplication rule). Existing `FolderScanService`/`diagnostics.controller` tests stay green.
+- [x] **Step 4: Run** `cd app && npx vitest run packages/desktop-main/src` → PASS.
+- [x] **Step 5: Commit** — `refactor(desktop-main): extract NativeDialogService`. PR body names this extraction.
 
 ### Task 17: `VolumeFilesService` session and file operations (tasks.md 4.3, 4.8)
 
@@ -586,7 +586,7 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
   - `writeText`: `Buffer.byteLength(content) > MAX_TEXT_EDIT_BYTES` → `too-large`; `stat.modifiedMs !== expectedModifiedMs` → `conflict` ("The file changed on the volume since you opened it."); success returns the new `modifiedMs`.
   - Snapshot → `VolumeSessionStatus` maps epoch ms to ISO strings.
 
-- [ ] **Step 1: Write the failing tests** (registry stub whose `withBackend` invokes `op(fakeBackend(...))`):
+- [x] **Step 1: Write the failing tests** (registry stub whose `withBackend` invokes `op(fakeBackend(...))`):
   - `should reject a traversal path without contacting the backend` — `list({ game: 'mc', volume: 'saves' }, '/a/../b')` → `{ ok: false, code: 'invalid-path' }`; backend not called.
   - `should reject a new folder name containing a slash` — `mkdir(ref, '/', 'a/b')` → `invalid-path`.
   - `should reject a volume the session did not mount` — layout mounts only `config`; `list({ game: 'mc', volume: 'saves' }, '/')` → `unknown-volume`; backend not called.
@@ -601,10 +601,10 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
   - `should save and return the new modification time` — `writeStream` called with `overwrite: true`; result `{ ok: true, value: { modifiedMs: <post-write stat> } }`.
   - `should return no-session when nothing is running` — `withBackend` rejects `new NoSessionError('mc')` → `no-session`.
   - `should carry no secret fields in any result` — run every method once; `expectNoSecretFields` on each result and on `sessionStatus`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles/VolumeFilesService.test.ts` → FAIL.
-- [ ] **Step 3: Implement**; `toVolumeResult` maps Task 12's `NoSessionError` to `no-session` before the generic `VolumeFileError` branch.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `feat(desktop-main): add VolumeFilesService file operations`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles/VolumeFilesService.test.ts` → FAIL.
+- [x] **Step 3: Implement**; `toVolumeResult` maps Task 12's `NoSessionError` to `no-session` before the generic `VolumeFileError` branch.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `feat(desktop-main): add VolumeFilesService file operations`.
 
 ### Task 18: Downloads and uploads (tasks.md 4.4, 4.5, 4.8)
 
@@ -621,14 +621,14 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
   - `uploadFiles(ref, dir, localPaths?: string[]): Promise<VolumeResult<{ transferId: string } | null>>` — `localPaths` absent → `pickFiles()`; empty strings rejected (`invalid-path`); `assertWritable`; each file `writeStream(joinVolumePath(dir, basename), createReadStream, { size, overwrite: false })` so an existing name returns `conflict` and nothing is overwritten.
   - `uploadFolder(ref, dir): Promise<VolumeResult<FolderUploadStartResult | null>>` — `pickDirectory` → `FolderScanService.scan` → `FolderUploadService.startUpload({ game, scanId, include: [''], destination }, { persistSelection: false })` where `destination = selectedVolume.container_path + (dir === '/' ? '' : dir)` and `selectedVolume` is the game's volume named `ref.volume` (unknown → `unknown-volume`). The folder-upload flow then routes the bytes into that volume's mount (Task 8).
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `localNames`: `should replace characters reserved on Windows` (`'a:b?.txt'` → `'a_b_.txt'`); `should prefix reserved device names` (`'con.txt'` → `'_con.txt'`, `'NUL'` → `'_NUL'`); `should leave names alone on Linux and macOS` (`'a:b?.txt'` unchanged for `'linux'` and `'darwin'`).
   - `transfers`: `should rename the part file on success`; `should leave no partial file when the source errors` (source emits an error after 3 bytes → neither `target` nor `target.part` exists); `should leave no partial file when cancelled`.
   - `VolumeFilesService`: `should not start a download when the save dialog is cancelled`; `should emit progress and done with the saved path` (`savedAs` equals the dialog path; final `phase: 'done'`, `bytesDone === size`); `should refuse a folder download when the backend has no archive support`; `should refuse an upload whose name already exists` (`conflict`, original size unchanged); `should reject a dropped path that did not resolve` (`['']` → `invalid-path`); `should start a folder upload into the selected volume's current directory without persisting the selection` (volumes `config` `/data/config` and `saves` `/data/saves`; `uploadFolder({ game: 'mc', volume: 'saves' }, '/worlds')` → `startUpload` called with `destination: '/data/saves/worlds'`, options `{ persistSelection: false }`).
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles packages/desktop-main/src/services/FolderUploadService.test.ts` → FAIL.
-- [ ] **Step 3: Implement**.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `feat(desktop-main): add volume file downloads and uploads`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles packages/desktop-main/src/services/FolderUploadService.test.ts` → FAIL.
+- [x] **Step 3: Implement**.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `feat(desktop-main): add volume file downloads and uploads`.
 
 ### Task 19: `VolumeFilesController` and push channels (tasks.md 4.6, 4.8)
 
@@ -656,32 +656,32 @@ export const VOLUME_FILES_TRANSFER_CHANNEL = 'volumeFiles.transfer';
 - Push channels `VOLUME_FILES_SESSION_CHANNEL` (registry `onState` → snapshot mapped to `VolumeSessionStatus`) and `VOLUME_FILES_TRANSFER_CHANNEL` (service `onTransfer`), forwarded in `onModuleInit` behind `if (!process.versions.electron) return;` exactly like `FolderUploadController.onModuleInit`.
 - Every handler's first line: `logger.debug('VolumeFilesController: <channel> invoked', { game })` (plus `volume` and `path` for path-carrying channels; never `content` or `localPaths`). Payload shape guarded with `isNonEmptyString` from `controllers/validation.ts`; a malformed payload returns `{ ok: false, code: 'invalid-path', message: 'Invalid request.' }`.
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `should register every volumeFiles channel` — `expectChannels(VolumeFilesController.prototype, [...rows])` from `testing/message-pattern.test-utils.ts` for all 16 channels.
   - `should log each invocation with the game and without file content` — `writeText` with `content: 'SECRET-CONTENT'` → `logger.debug` called with `'VolumeFilesController: volumeFiles.writeText invoked'` and an object not containing `'SECRET-CONTENT'`.
   - `should reject a malformed payload` — `list({ game: 'mc', path: '/' })` (no `volume`) → `invalid-path`.
   - `should not forward events outside Electron` — `onModuleInit` with `process.versions.electron` undefined → registry `onState` not subscribed.
   - `should return results free of secret fields` — `expectNoSecretFields` over each delegated result.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/controllers/volume-files.controller.test.ts` → FAIL.
-- [ ] **Step 3: Implement**, **Step 4: run** → PASS.
-- [ ] **Step 5: Commit** — `feat(desktop-main): expose volumeFiles over IPC`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/controllers/volume-files.controller.test.ts` → FAIL.
+- [x] **Step 3: Implement**, **Step 4: run** → PASS.
+- [x] **Step 5: Commit** — `feat(desktop-main): expose volumeFiles over IPC`.
 
 ### Task 20: Preload `window.hyveon.volumeFiles` and docs (tasks.md 4.7, 4.8, 4.9)
 
 **Files:**
 - Modify: `app/packages/desktop-preload/src/preload.ts` (after the `folderUpload` block, `:450-467`), `app/packages/desktop-preload/src/hyveon-api.ts` (new `HyveonVolumeFilesApi`, added to `HyveonApi`), `app/packages/desktop-preload/src/preload.test.ts`
-- Modify: `app/packages/web/e2e/fixtures/hyveon-http-bridge.ts` (bridge entries for the chromium project: `/api/volume-files/<channel>` routes)
+- Modify: `app/packages/web/e2e/fixtures/hyveon-http-bridge.ts` (a minimal in-page fake `volumeFiles` namespace for the chromium project, following the `folderUpload` precedent: status `stopped`, empty listing, `on*` returning an unsubscribe; no `/api` routes)
 - Modify: `docs/docs/components/management-app.md` (IPC channel table, via `write-docs`)
 
 **Interfaces:**
 - Produces `HyveonVolumeFilesApi`: one method per Task 19 channel (`sessionStatus(game)`, `sessionStart(game)`, `sessionAttach(game)`, `sessionDetach(game)`, `sessionStop(game)`, `sessionRestart(game)`, `list(game, volume, path)`, `mkdir(game, volume, parent, name)`, `rename(game, volume, path, newName)`, `remove(game, volume, path)`, `readText(game, volume, path)`, `writeText(game, volume, path, content, expectedModifiedMs)`, `download(game, volume, path, isDir)`, `cancelTransfer(game, transferId)`, `uploadFiles(game, volume, dir)`, `uploadDropped(game, volume, dir, files: File[])`, `uploadFolder(game, volume, dir)`), plus `onSession(cb)` and `onTransfer(cb)` returning unsubscribe functions (same shape as `folderUpload.onProgress`).
 - `uploadDropped` resolves paths inside the preload with `webUtils.getPathForFile(file)` and invokes `volumeFiles.uploadFiles` with `localPaths`; the renderer never handles path strings. All methods go through the mock-aware `invoke`, so `__test.mock('volumeFiles.list', …)` works.
 
-- [ ] **Step 1: Write the failing tests** in `preload.test.ts`: `should invoke volumeFiles.list with game, volume and path`; `should resolve dropped files to paths in the preload` (`webUtils.getPathForFile` mocked → `'/tmp/a.txt'`; `invoke` called with `('volumeFiles.uploadFiles', { game: 'mc', volume: 'saves', dir: '/', localPaths: ['/tmp/a.txt'] })`); `should route a mocked volumeFiles channel through __test.mock`; `should subscribe and unsubscribe session events`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-preload/src/preload.test.ts` → FAIL.
-- [ ] **Step 3: Implement**; add bridge entries.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Docs** — `write-docs`: `volumeFiles.*` rows and the two push channels in `management-app.md`.
+- [x] **Step 1: Write the failing tests** in `preload.test.ts`: `should invoke volumeFiles.list with game, volume and path`; `should resolve dropped files to paths in the preload` (`webUtils.getPathForFile` mocked → `'/tmp/a.txt'`; `invoke` called with `('volumeFiles.uploadFiles', { game: 'mc', volume: 'saves', dir: '/', localPaths: ['/tmp/a.txt'] })`); `should route a mocked volumeFiles channel through __test.mock`; `should subscribe and unsubscribe session events`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-preload/src/preload.test.ts` → FAIL.
+- [x] **Step 3: Implement**; add bridge entries.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Docs** — `write-docs`: `volumeFiles.*` rows and the two push channels in `management-app.md`.
 - [ ] **Step 6: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration && npm run app:test:e2e` → exit 0.
 - [ ] **Step 7: Commit** — `feat(desktop-preload): add the volumeFiles bridge`. Open PR 4 with `/pr` (base: PR 3 branch).
 

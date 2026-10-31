@@ -20,6 +20,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  VOLUME_FILES_SESSION_CHANNEL,
+  VOLUME_FILES_TRANSFER_CHANNEL,
+} from '@hyveon/shared/volumeFiles';
+
 import type { HyveonStreamHandle } from './hyveon-api.js';
 
 // Electron mock — must be declared before any dynamic import of preload.ts
@@ -47,6 +52,9 @@ const ipcOn = vi.fn();
 const ipcOnce = vi.fn();
 const ipcRemoveListener = vi.fn();
 
+/** Fake `webUtils.getPathForFile` — resolves a dropped `File` to its absolute local path. */
+const getPathForFile = vi.fn();
+
 vi.mock('electron', () => ({
   contextBridge: {
     exposeInMainWorld: (name: string, api: unknown) => {
@@ -60,6 +68,7 @@ vi.mock('electron', () => ({
     once: ipcOnce,
     removeListener: ipcRemoveListener,
   },
+  webUtils: { getPathForFile },
   IpcRendererEvent: {},
 }));
 
@@ -253,6 +262,108 @@ describe('preload dispatcher', () => {
       });
     });
 
+    describe('volumeFiles namespace', () => {
+      type VolumeFilesBridge = Record<string, (...args: unknown[]) => Promise<unknown>> & {
+        onSession: (cb: (s: unknown) => void) => () => void;
+        onTransfer: (cb: (p: unknown) => void) => () => void;
+      };
+      /** The `volumeFiles` namespace of the exposed bridge. */
+      const api = (): VolumeFilesBridge => bridge['volumeFiles'] as VolumeFilesBridge;
+
+      it.each([
+        ['sessionStatus', ['mc'], 'volumeFiles.session.status', ['mc']],
+        ['sessionStart', ['mc'], 'volumeFiles.session.start', ['mc']],
+        ['sessionAttach', ['mc'], 'volumeFiles.session.attach', ['mc']],
+        ['sessionDetach', ['mc'], 'volumeFiles.session.detach', ['mc']],
+        ['sessionStop', ['mc'], 'volumeFiles.session.stop', ['mc']],
+        ['sessionRestart', ['mc'], 'volumeFiles.session.restart', ['mc']],
+        ['list', ['mc', 'saves', '/a'], 'volumeFiles.list', [{ game: 'mc', volume: 'saves', path: '/a' }]],
+        ['mkdir', ['mc', 'saves', '/a', 'b'], 'volumeFiles.mkdir', [{ game: 'mc', volume: 'saves', parent: '/a', name: 'b' }]],
+        ['rename', ['mc', 'saves', '/a', 'b'], 'volumeFiles.rename', [{ game: 'mc', volume: 'saves', path: '/a', newName: 'b' }]],
+        ['remove', ['mc', 'saves', '/a'], 'volumeFiles.delete', [{ game: 'mc', volume: 'saves', path: '/a' }]],
+        ['readText', ['mc', 'saves', '/a'], 'volumeFiles.readText', [{ game: 'mc', volume: 'saves', path: '/a' }]],
+        [
+          'writeText',
+          ['mc', 'saves', '/a', 'hi', 5],
+          'volumeFiles.writeText',
+          [{ game: 'mc', volume: 'saves', path: '/a', content: 'hi', expectedModifiedMs: 5 }],
+        ],
+        ['download', ['mc', 'saves', '/a', true], 'volumeFiles.download', [{ game: 'mc', volume: 'saves', path: '/a', isDir: true }]],
+        ['cancelTransfer', ['mc', 't1'], 'volumeFiles.cancelTransfer', [{ game: 'mc', transferId: 't1' }]],
+        ['uploadFolder', ['mc', 'saves', '/'], 'volumeFiles.uploadFolder', [{ game: 'mc', volume: 'saves', dir: '/' }]],
+      ])('should forward volumeFiles %s to ipcRenderer.invoke on its channel', async (method, args, channel, payload) => {
+        ipcInvoke.mockResolvedValue(null);
+        await api()[method]!(...(args as unknown[]));
+        expect(ipcInvoke).toHaveBeenCalledWith(channel, ...payload);
+      });
+
+      it('should invoke volumeFiles.list with game, volume and path', async () => {
+        ipcInvoke.mockResolvedValue({ ok: true, value: { path: '/', entries: [] } });
+        const result = await api()['list']!('mc', 'saves', '/');
+        expect(ipcInvoke).toHaveBeenCalledWith('volumeFiles.list', { game: 'mc', volume: 'saves', path: '/' });
+        expect(result).toEqual({ ok: true, value: { path: '/', entries: [] } });
+      });
+
+      it('should send uploadFiles without a localPaths key so main opens the file dialog', async () => {
+        ipcInvoke.mockResolvedValue(null);
+        await api()['uploadFiles']!('mc', 'saves', '/');
+        const payload = ipcInvoke.mock.calls[0]![1] as Record<string, unknown>;
+        expect(payload).toEqual({ game: 'mc', volume: 'saves', dir: '/' });
+        expect(Object.keys(payload)).not.toContain('localPaths');
+      });
+
+      it('should resolve dropped files to paths in the preload', async () => {
+        getPathForFile.mockReturnValue('/tmp/a.txt');
+        ipcInvoke.mockResolvedValue(null);
+        const file = new File(['x'], 'a.txt');
+        await api()['uploadDropped']!('mc', 'saves', '/', [file]);
+        expect(getPathForFile).toHaveBeenCalledWith(file);
+        expect(ipcInvoke).toHaveBeenCalledWith('volumeFiles.uploadFiles', {
+          game: 'mc',
+          volume: 'saves',
+          dir: '/',
+          localPaths: ['/tmp/a.txt'],
+        });
+      });
+
+      it('should forward an empty resolved path for main to reject', async () => {
+        getPathForFile.mockReturnValue('');
+        ipcInvoke.mockResolvedValue(null);
+        await api()['uploadDropped']!('mc', 'saves', '/', [new File(['x'], 'a.txt')]);
+        expect(ipcInvoke).toHaveBeenCalledWith('volumeFiles.uploadFiles', expect.objectContaining({ localPaths: [''] }));
+      });
+
+      it('should use push channel literals equal to the shared constants', () => {
+        const unsubscribeSession = api().onSession(vi.fn());
+        const unsubscribeTransfer = api().onTransfer(vi.fn());
+        const channels = ipcOn.mock.calls.map(([channel]) => channel);
+        expect(channels).toContain(VOLUME_FILES_SESSION_CHANNEL);
+        expect(channels).toContain(VOLUME_FILES_TRANSFER_CHANNEL);
+        unsubscribeSession();
+        unsubscribeTransfer();
+      });
+
+      it('should subscribe and unsubscribe session events', () => {
+        const cb = vi.fn();
+        const unsubscribe = api().onSession(cb);
+        const listener = ipcOn.mock.calls.find(([channel]) => channel === 'volumeFiles.session')?.[1] as (e: unknown, s: unknown) => void;
+        listener({}, { game: 'mc', state: 'running' });
+        expect(cb).toHaveBeenCalledWith({ game: 'mc', state: 'running' });
+        unsubscribe();
+        expect(ipcRemoveListener).toHaveBeenCalledWith('volumeFiles.session', listener);
+      });
+
+      it('should subscribe and unsubscribe transfer events', () => {
+        const cb = vi.fn();
+        const unsubscribe = api().onTransfer(cb);
+        const listener = ipcOn.mock.calls.find(([channel]) => channel === 'volumeFiles.transfer')?.[1] as (e: unknown, p: unknown) => void;
+        listener({}, { transferId: 't1', phase: 'running' });
+        expect(cb).toHaveBeenCalledWith({ transferId: 't1', phase: 'running' });
+        unsubscribe();
+        expect(ipcRemoveListener).toHaveBeenCalledWith('volumeFiles.transfer', listener);
+      });
+    });
+
     describe('window namespace', () => {
       it('should expose the current process platform without an IPC round-trip', () => {
         const windowApi = bridge['window'] as { platform: NodeJS.Platform };
@@ -335,6 +446,19 @@ describe('preload dispatcher', () => {
       expect(mockHandler).toHaveBeenCalledOnce();
       expect(ipcInvoke).not.toHaveBeenCalled();
       expect(result).toEqual({ games: ['factorio'] });
+    });
+
+    it('should route a mocked volumeFiles channel through __test.mock', async () => {
+      const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+      const mockHandler = vi.fn().mockResolvedValue({ ok: true, value: { path: '/', entries: [] } });
+      testApi.mock('volumeFiles.list', mockHandler);
+
+      const volumeFiles = bridge['volumeFiles'] as { list: (g: string, v: string, p: string) => Promise<unknown> };
+      const result = await volumeFiles.list('mc', 'saves', '/');
+
+      expect(mockHandler).toHaveBeenCalledWith({ game: 'mc', volume: 'saves', path: '/' });
+      expect(ipcInvoke).not.toHaveBeenCalled();
+      expect(result).toEqual({ ok: true, value: { path: '/', entries: [] } });
     });
 
     it('should pass call arguments through to the registered mock handler', async () => {

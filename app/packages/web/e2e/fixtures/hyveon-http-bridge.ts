@@ -142,6 +142,33 @@ export function installHyveonHttpBridge(): void {
         },
       };
     })(),
+    // The volume file browser is IPC-only in production with no HTTP route. This minimal in-page fake reports a
+    // stopped session and an empty listing; mutations and transfers fail as if no session were running.
+    volumeFiles: (() => {
+      const status = (game: string) => ({ game, state: 'stopped', browseHeld: false, uploadHolders: 0, supportsArchive: false, volumes: [] });
+      const noSession = async () => ({ ok: false, code: 'no-session', message: 'No file-browser session is running.' });
+      return {
+        sessionStatus: async (game: string) => status(game),
+        sessionStart: async (game: string) => status(game),
+        sessionAttach: async (game: string) => status(game),
+        sessionDetach: async (game: string) => status(game),
+        sessionStop: noSession,
+        sessionRestart: noSession,
+        list: async (_game: string, _volume: string, path: string) => ({ ok: true, value: { path, entries: [] } }),
+        mkdir: noSession,
+        rename: noSession,
+        remove: noSession,
+        readText: noSession,
+        writeText: noSession,
+        download: noSession,
+        cancelTransfer: async () => ({ cancelled: false }),
+        uploadFiles: noSession,
+        uploadDropped: noSession,
+        uploadFolder: noSession,
+        onSession: () => () => undefined,
+        onTransfer: () => () => undefined,
+      };
+    })(),
     discord: {
       getConfig: () => call('/api/discord/config'),
       putConfig: (body: unknown) => call('/api/discord/config', withBody('PUT', body)),
