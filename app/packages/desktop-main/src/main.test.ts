@@ -116,6 +116,7 @@ describe('main bootstrap', () => {
     vi.unstubAllGlobals();
   });
 
+  // @spec APP-SHELL-BOOT-002
   it('should throw a clear error when not running inside an Electron main process', async () => {
     vi.stubGlobal('process', { ...process, versions: {} });
     vi.resetModules();
@@ -157,6 +158,7 @@ describe('main bootstrap', () => {
     expect(fakeApp.listen).toHaveBeenCalledOnce();
   });
 
+  // @spec APP-SHELL-BOOT-005
   it('should register RpcErrorMessageFilter as a global filter before app.listen()', async () => {
     // NestJS reads global filters while building each handler's exception
     // handler during listen(), so this must run first — see main.ts's comment.
@@ -200,6 +202,7 @@ describe('main bootstrap', () => {
     expect(listenCallOrder).toBeLessThan(bridgeCallOrder);
   });
 
+  // @spec APP-SHELL-BOOT-001
   it('should call applyFixPath on module initialisation', async () => {
     vi.resetModules();
     const { bootstrap } = await import('./main.js');
@@ -213,6 +216,7 @@ describe('main bootstrap', () => {
   });
 
   // @spec APP-DIAG-LOG-007
+  // @spec APP-SHELL-BOOT-003
   it('should resolve userData path and initialise the file logger on module initialisation', async () => {
     vi.resetModules();
     const { bootstrap } = await import('./main.js');

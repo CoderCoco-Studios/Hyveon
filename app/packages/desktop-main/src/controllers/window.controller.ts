@@ -3,6 +3,7 @@ import { MessagePattern } from '@nestjs/microservices';
 import { WindowService } from '../services/WindowService.js';
 import { logger } from '../logger.js';
 
+// @spec APP-SHELL-WINIPC-010
 /**
  * IPC-only controller for the main window's chrome controls. Every handler is
  * bound to an IPC channel via `@MessagePattern` — no HTTP routes are
@@ -12,6 +13,7 @@ import { logger } from '../logger.js';
 export class WindowController {
   constructor(private readonly window: WindowService) {}
 
+  // @spec APP-SHELL-WINIPC-001
   /** Minimizes the main window. */
   @MessagePattern('window.minimize')
   minimize(): void {
@@ -19,6 +21,7 @@ export class WindowController {
     this.window.minimize();
   }
 
+  // @spec APP-SHELL-WINIPC-002, APP-SHELL-WINIPC-003
   /** Toggles the main window between maximized and restored. */
   @MessagePattern('window.toggleMaximize')
   toggleMaximize(): void {
@@ -26,6 +29,7 @@ export class WindowController {
     this.window.toggleMaximize();
   }
 
+  // @spec APP-SHELL-WINIPC-004
   /** Closes the main window. */
   @MessagePattern('window.close')
   close(): void {
@@ -33,6 +37,7 @@ export class WindowController {
     this.window.close();
   }
 
+  // @spec APP-SHELL-WINIPC-005
   /** Queries the main window's current maximized state. */
   @MessagePattern('window.isMaximized')
   isMaximized(): boolean {

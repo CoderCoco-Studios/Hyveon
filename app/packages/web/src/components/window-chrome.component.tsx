@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Minus, Square, Copy, X } from 'lucide-react';
 
+// @spec APP-SHELL-CHROME-007, APP-SHELL-CHROME-013
 /**
  * Reserves leading space for the macOS traffic-light cluster, which
  * `platformWindowChromeOptions()` positions at `x: 252, y: 20` — inside the
@@ -20,6 +21,7 @@ export function TrafficLightSpacer() {
   return <div data-traffic-light-spacer="" aria-hidden="true" className="w-20 shrink-0" />;
 }
 
+// @spec APP-SHELL-CHROME-009, APP-SHELL-CHROME-013
 /**
  * Reserves the region Windows' `titleBarOverlay` draws its overlay buttons
  * into (top-right, per Electron's docs) — DOM elements there cannot receive
@@ -46,6 +48,7 @@ export function TitlebarOverlaySpacer() {
   );
 }
 
+// @spec APP-SHELL-CHROME-005, APP-SHELL-CHROME-008, APP-SHELL-CHROME-010, APP-SHELL-CHROME-011, APP-SHELL-CHROME-013
 /**
  * App-drawn minimize/maximize-or-restore/close buttons for the custom title
  * bar. Renders `null` unless `window.hyveon?.window` is present AND the

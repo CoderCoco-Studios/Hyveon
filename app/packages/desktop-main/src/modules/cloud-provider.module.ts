@@ -134,6 +134,7 @@ export async function resolveDiscordConfigStoreConfig(
   };
 }
 
+// @spec APP-SHELL-BIND-004
 /**
  * Resolves the `{ tableName, bucket, region }` config the AWS `RunRecordStore`'s
  * `getConfig` callback needs. `tableName` comes from
@@ -183,6 +184,7 @@ export async function resolveRunRecordStoreConfig(
   };
 }
 
+// @spec APP-SHELL-BIND-003
 /**
  * Registry of per-cloud bindings, keyed by `ActiveCloud` (or any future cloud
  * string). Today only `'aws'` is populated; adding a new cloud provider
@@ -210,6 +212,7 @@ export const CLOUD_BINDINGS: Record<string, CloudBindings> = {
   },
 };
 
+// @spec APP-SHELL-BIND-002
 /**
  * Pure resolver mapping `config.getActiveCloud()` to its {@link CloudBindings}
  * entry in {@link CLOUD_BINDINGS}, throwing for any cloud with no registered
@@ -302,4 +305,5 @@ export function resolveCloudBindings(config: ConfigService): CloudBindings {
     RUN_RECORD_STORE,
   ],
 })
+// @spec APP-SHELL-BIND-001
 export class CloudProviderModule {}

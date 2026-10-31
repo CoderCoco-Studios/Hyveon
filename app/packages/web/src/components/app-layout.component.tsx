@@ -6,6 +6,7 @@ import { NavSections } from './app-nav.component.js';
 import { AppTopbar } from './app-topbar.component.js';
 import { Server, X } from 'lucide-react';
 
+// @spec APP-SHELL-NAV-007, APP-SHELL-NAV-008, APP-SHELL-TOP-001, APP-SHELL-CHROME-004
 /**
  * Navigation shell — persistent sidebar + top bar that wraps all routed pages.
  * Sidebar shows "Monitoring" and "Configuration" sections with active-route

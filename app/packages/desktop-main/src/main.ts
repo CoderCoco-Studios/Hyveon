@@ -9,6 +9,7 @@ import { BridgedElectronIPCTransport, registerIpcMainBridges } from './ipc-main-
 import { createLogger } from './logger.js';
 import { RpcErrorMessageFilter } from './rpc-error-message.filter.js';
 
+// @spec APP-SHELL-BOOT-001, APP-SHELL-BOOT-002, APP-SHELL-BOOT-003
 applyFixPath();
 
 // ElectronIPCTransport requires ipcMain, which is only available inside an
@@ -26,6 +27,7 @@ const { app } = await import('electron') as unknown as { app: { getPath(name: st
 // @spec APP-DIAG-LOG-007
 createLogger(path.join(app.getPath('userData'), 'logs'));
 
+// @spec APP-SHELL-BOOT-005
 /**
  * Bootstraps the NestJS IPC microservice.
  *

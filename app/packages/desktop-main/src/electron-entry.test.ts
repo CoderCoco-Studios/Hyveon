@@ -225,6 +225,7 @@ describe('electron-entry', () => {
     vi.unstubAllEnvs();
   });
 
+  // @spec APP-SHELL-BOOT-004
   it('should clear the default application menu on import', async () => {
     vi.resetModules();
     vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
@@ -234,6 +235,7 @@ describe('electron-entry', () => {
     expect(mockSetApplicationMenu).toHaveBeenCalledExactlyOnceWith(null);
   });
 
+  // @spec APP-SHELL-BOOT-005
   it('should call bootstrap() inside the app.whenReady() callback', async () => {
     vi.resetModules();
     vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
@@ -315,6 +317,7 @@ describe('electron-entry', () => {
     expect(calledPath).toMatch(/renderer[/\\]index\.html$/);
   });
 
+  // @spec APP-SHELL-BOOT-012
   it('should call app.quit() on window-all-closed for non-macOS platforms', async () => {
     vi.resetModules();
     vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
@@ -335,6 +338,7 @@ describe('electron-entry', () => {
     Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
   });
 
+  // @spec APP-SHELL-BOOT-012
   it('should NOT call app.quit() on window-all-closed on macOS', async () => {
     vi.resetModules();
     vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
@@ -355,6 +359,7 @@ describe('electron-entry', () => {
     Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
   });
 
+  // @spec APP-SHELL-BOOT-007
   it('should call app.quit() when the renderer fails to load', async () => {
     vi.resetModules();
     vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
@@ -371,6 +376,7 @@ describe('electron-entry', () => {
     expect(mockQuit).toHaveBeenCalledOnce();
   });
 
+  // @spec APP-SHELL-BOOT-006
   it('should call app.quit() and not open a window when bootstrap() rejects', async () => {
     vi.resetModules();
     vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
@@ -432,6 +438,7 @@ describe('electron-entry', () => {
     logSpy.mockRestore();
   });
 
+  // @spec APP-SHELL-ICON-004
   describe('window icon', () => {
     /**
      * Imports the entry point, fires the ready callback and returns the options
@@ -508,11 +515,13 @@ describe('electron-entry', () => {
       return MockBrowserWindow.mock.calls[0]?.[0] as Record<string, unknown>;
     }
 
+    // @spec APP-SHELL-CHROME-001
     it('should always set titleBarStyle to hidden', async () => {
       const options = await createWindowOptionsForPlatform('linux');
       expect(options.titleBarStyle).toBe('hidden');
     });
 
+    // @spec APP-SHELL-CHROME-005
     it('should set trafficLightPosition on macOS, offset into the header past the sidebar, and no titleBarOverlay', async () => {
       const options = await createWindowOptionsForPlatform('darwin');
       // The BrowserWindow's top-left corner is the sidebar (w-60 = 240px), not
@@ -522,6 +531,7 @@ describe('electron-entry', () => {
       expect(options.titleBarOverlay).toBeUndefined();
     });
 
+    // @spec APP-SHELL-CHROME-008
     it('should set titleBarOverlay on Windows and no trafficLightPosition', async () => {
       const options = await createWindowOptionsForPlatform('win32');
       expect(options.titleBarOverlay).toEqual({
@@ -539,6 +549,7 @@ describe('electron-entry', () => {
     });
   });
 
+  // @spec APP-SHELL-CHROME-006
   describe('macOS traffic-light resize handling', () => {
     const originalPlatform = process.platform;
 
@@ -631,6 +642,7 @@ describe('electron-entry', () => {
       expect(fakeWindowService.attach).toHaveBeenCalledWith(MockBrowserWindow.mock.results[0]?.value);
     });
 
+    // @spec APP-SHELL-BOOT-011
     it('should re-attach WindowService to the newly created window when activate fires with zero open windows', async () => {
       vi.resetModules();
       vi.stubEnv('ELECTRON_RENDERER_URL', undefined);

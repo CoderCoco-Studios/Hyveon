@@ -35,6 +35,7 @@ interface ConfirmDialogProps {
   confirmDisabledReason?: string;
 }
 
+// @spec APP-SHELL-UI-007
 /**
  * Generic confirmation dialog for destructive actions. Wraps shadcn AlertDialog
  * with optional type-to-confirm input and "don't ask again" session suppression.

@@ -29,6 +29,7 @@ function MountPoller({
   return null;
 }
 
+// @spec APP-SHELL-TOP-003
 describe('AppLayout — RefreshAllButton', () => {
   it('should be disabled when the polling registry is empty', () => {
     render(
@@ -83,6 +84,7 @@ describe('AppLayout — skip link and nav landmarks', () => {
   });
 
   // @spec APP-LOGS-NAV-001, APP-LOGS-NAV-002
+  // @spec APP-SHELL-NAV-005
   it('should render a Logs group with Game Logs and Infra Logs child links', () => {
     render(
       <PollingProvider>
@@ -102,6 +104,7 @@ describe('AppLayout — skip link and nav landmarks', () => {
   });
 
   // @spec APP-LOGS-NAV-003
+  // @spec APP-SHELL-NAV-006
   it('should mark only the Game Logs child link active on /logs', () => {
     render(
       <PollingProvider>
@@ -115,6 +118,7 @@ describe('AppLayout — skip link and nav landmarks', () => {
   });
 
   // @spec APP-LOGS-NAV-003
+  // @spec APP-SHELL-NAV-006
   it('should mark only the Infra Logs child link active on /logs/infrastructure', () => {
     render(
       <PollingProvider>
@@ -140,6 +144,7 @@ describe('AppLayout — skip link and nav landmarks', () => {
     expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current');
   });
 
+  // @spec APP-SHELL-NAV-004
   it('should render a Costs nav entry that links to /costs', () => {
     render(
       <PollingProvider>
@@ -165,6 +170,7 @@ describe('AppLayout — skip link and nav landmarks', () => {
     expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current');
   });
 
+  // @spec APP-SHELL-UI-001
   it('should not render any disabled (aria-disabled) nav entries', () => {
     render(
       <PollingProvider>
@@ -177,6 +183,7 @@ describe('AppLayout — skip link and nav landmarks', () => {
     expect(document.querySelector('[aria-disabled]')).not.toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-UI-001
   it('should not render the Servers, Metrics, or Alerts nav entries', () => {
     render(
       <PollingProvider>
@@ -191,6 +198,7 @@ describe('AppLayout — skip link and nav landmarks', () => {
     expect(screen.queryByRole('link', { name: 'Alerts' })).not.toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-UI-002
   it('should not render the top-bar search input', () => {
     render(
       <PollingProvider>
@@ -205,6 +213,7 @@ describe('AppLayout — skip link and nav landmarks', () => {
   });
 });
 
+// @spec APP-SHELL-TOP-004
 describe('AppLayout — LiveIndicator', () => {
   it('should render the LIVE label element in the DOM regardless of screen size', () => {
     render(
@@ -237,6 +246,7 @@ describe('AppLayout — LiveIndicator', () => {
 });
 
 describe('AppLayout — mobile navigation', () => {
+  // @spec APP-SHELL-NAV-007
   it('should render a hamburger button that opens the mobile nav', async () => {
     const user = userEvent.setup();
     render(
@@ -266,6 +276,7 @@ describe('AppLayout — mobile navigation', () => {
     expect(screen.queryByRole('button', { name: 'Close navigation' })).not.toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-NAV-008
   it('should close the mobile nav when a nav link is clicked', async () => {
     const user = userEvent.setup();
     render(
@@ -325,6 +336,7 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     vi.unstubAllGlobals();
   });
 
+  // @spec APP-SHELL-CHROME-013
   it('should not add drag-region styling or render window controls when window.hyveon is absent', () => {
     vi.unstubAllGlobals();
     render(
@@ -340,6 +352,7 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(screen.queryByRole('button', { name: 'Minimize' })).not.toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-CHROME-002
   it('should mark the header as a drag region when window.hyveon.window is present', () => {
     vi.stubGlobal('hyveon', {
       window: {
@@ -364,6 +377,7 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(header.style.getPropertyValue('-webkit-app-region')).toBe('drag');
   });
 
+  // @spec APP-SHELL-CHROME-003
   it('should mark every interactive header child as no-drag', () => {
     vi.stubGlobal('hyveon', {
       window: {
@@ -388,6 +402,7 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(refreshButton.style.getPropertyValue('-webkit-app-region')).toBe('no-drag');
   });
 
+  // @spec APP-SHELL-CHROME-010
   it('should render Linux minimize/maximize/close buttons when platform is linux', () => {
     vi.stubGlobal('hyveon', {
       window: {
@@ -413,6 +428,7 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-CHROME-005
   it('should not render any window-control buttons when platform is darwin', () => {
     vi.stubGlobal('hyveon', {
       window: {
@@ -437,6 +453,7 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-CHROME-008
   it('should not render any window-control buttons when platform is win32', () => {
     vi.stubGlobal('hyveon', {
       window: {
@@ -461,6 +478,7 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-CHROME-009
   it('should reserve space for the Windows titleBarOverlay in the header trailing group on win32', () => {
     vi.stubGlobal('hyveon', {
       window: {
@@ -524,6 +542,7 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(header.querySelector('[data-titlebar-overlay-spacer]')).toBeNull();
   });
 
+  // @spec APP-SHELL-CHROME-007
   it('should reserve leading space in the header for the macOS traffic lights on darwin', () => {
     vi.stubGlobal('hyveon', {
       window: {
@@ -604,6 +623,7 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(header.querySelector('[data-traffic-light-spacer]')).toBeNull();
   });
 
+  // @spec APP-SHELL-CHROME-004
   it('should mark the sidebar brand block as a drag region on darwin when window.hyveon.window is present', () => {
     vi.stubGlobal('hyveon', {
       window: {
@@ -690,6 +710,7 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(brandBlock.style.getPropertyValue('-webkit-app-region')).not.toBe('drag');
   });
 
+  // @spec APP-SHELL-CHROME-010
   it('should call window.hyveon.window.minimize() when the Minimize button is clicked', async () => {
     const minimize = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('hyveon', {
@@ -742,6 +763,7 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
+  // @spec APP-SHELL-CHROME-011
   it('should swap the maximize button to a restore icon when onMaximizedChange reports true', async () => {
     let fireMaximizedChange: (isMaximized: boolean) => void = () => undefined;
     vi.stubGlobal('hyveon', {

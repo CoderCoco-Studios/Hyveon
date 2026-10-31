@@ -25,6 +25,7 @@ describe('NativeDialogService', () => {
     setElectron(originalElectron);
   });
 
+  // @spec APP-SHELL-BOOT-016
   describe('outside Electron', () => {
     beforeEach(() => setElectron(undefined));
 

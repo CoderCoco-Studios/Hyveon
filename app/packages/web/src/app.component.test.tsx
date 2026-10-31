@@ -57,6 +57,7 @@ describe('App first-run gate', () => {
     vi.unstubAllGlobals();
   });
 
+  // @spec APP-SHELL-GATE-004
   it('should render the routed shell without waiting when there is no IPC bridge', () => {
     stubBridge(undefined);
 
@@ -66,6 +67,7 @@ describe('App first-run gate', () => {
     expect(screen.queryByTestId('wizard')).not.toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-GATE-004
   it('should render the routed shell when the bridge predates the wizard namespace', () => {
     // A stub bridge with no `.wizard` key must not throw, and must not stall
     // the gate at its in-flight state.
@@ -76,6 +78,7 @@ describe('App first-run gate', () => {
     expect(screen.getByTestId('app-shell')).toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-GATE-001
   it('should render nothing while the wizard state check is in flight', () => {
     stubBridge({ wizard: { getState: vi.fn(() => new Promise(() => undefined)) } });
 
@@ -94,6 +97,7 @@ describe('App first-run gate', () => {
   });
 
   // @spec APP-WIZARD-GATE-001
+  // @spec APP-SHELL-GATE-002
   it('should render the wizard when the wizard reports it has not been completed', async () => {
     stubBridge({ wizard: { getState: vi.fn().mockResolvedValue({ wizardCompleted: false }) } });
 
@@ -103,6 +107,7 @@ describe('App first-run gate', () => {
     expect(screen.queryByTestId('app-shell')).not.toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-GATE-005
   it('should fall back to the routed shell when the wizard state check rejects', async () => {
     // Fail-open: a broken IPC call must never lock an otherwise-working
     // install out of its own dashboard.
@@ -114,6 +119,7 @@ describe('App first-run gate', () => {
   });
 
   // @spec APP-WIZARD-GATE-005
+  // @spec APP-SHELL-GATE-003
   it('should switch straight to the routed shell when the wizard signals completion', async () => {
     stubBridge({ wizard: { getState: vi.fn().mockResolvedValue({ wizardCompleted: false }) } });
 

@@ -8,6 +8,7 @@ export interface SavePathOptions {
   filters?: { name: string; extensions: string[] }[];
 }
 
+// @spec APP-SHELL-BOOT-016
 /**
  * Wraps Electron's native file dialogs so every consumer shares one guarded, lazily loaded `electron` import.
  * Outside Electron (unit tests, the plain-Node integration harness) each method resolves to its "cancelled" value.

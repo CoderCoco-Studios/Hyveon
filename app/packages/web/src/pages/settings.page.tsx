@@ -28,6 +28,7 @@ import { SETTINGS_BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
  */
 type EngineVersionState = 'loading' | { status: 'ready'; resolvedVersion: string | null } | 'error';
 
+// @spec APP-SHELL-SET-003
 /**
  * Renders {@link EngineVersionState} as the Cloud Setup row's detail line,
  * always suffixed with the pinned/target version (`PULUMI_ENGINE_VERSION`)
@@ -127,6 +128,7 @@ function manualCheckLabel(state: ManualCheckState, appVersion: string | null): s
 // @spec APP-WIZARD-RECONF-001, APP-WIZARD-STACK-005, APP-WIZARD-HEALTH-001
 // @spec APP-UPDATE-UI-001, APP-UPDATE-UI-002, APP-UPDATE-UI-003, APP-UPDATE-UI-004, APP-UPDATE-UI-005
 // @spec APP-UPDATE-UI-006, APP-UPDATE-UI-007, APP-UPDATE-UI-008, APP-UPDATE-UI-009
+// @spec APP-SHELL-SET-001, APP-SHELL-SET-002
 /**
  * Settings route (`/settings`) — watchdog config + the deployment-settings
  * form (`DeploymentSettingsForm`) for every top-level `DeploymentConfig`

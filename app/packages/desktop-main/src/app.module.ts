@@ -100,6 +100,7 @@ import { WindowService } from './services/WindowService.js';
   ],
   providers: [
     // @spec APP-DIAG-LOG-007
+    // @spec APP-SHELL-BOOT-013
     {
       provide: DIAGNOSTICS_LOG_DIR,
       useFactory: () => {

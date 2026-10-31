@@ -21,6 +21,7 @@ vi.mock('fix-path', () => ({
 // Import the module under test AFTER mocks are registered.
 import { applyFixPath } from './fix-path-bootstrap.js';
 
+// @spec APP-SHELL-BOOT-001
 describe('applyFixPath', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

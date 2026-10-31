@@ -201,6 +201,7 @@ describe('resolveCloudBindings', () => {
     delete CLOUD_BINDINGS[FAKE_CLOUD];
   });
 
+  // @spec APP-SHELL-BIND-001
   describe('aws routing', () => {
     it('should resolve the aws bindings when the active cloud is aws', () => {
       const bindings = resolveCloudBindings(makeConfig('aws'));
@@ -345,6 +346,7 @@ describe('resolveCloudBindings', () => {
       });
     });
 
+    // @spec APP-SHELL-BIND-004
     describe('pre-apply runsTableName fallback (bootstrap-deadlock fix)', () => {
       it("should compute the deterministic runs table name from the persisted DeploymentConfig when getStackOutputs() has no runsTableName yet (no apply has ever run)", async () => {
         // Mirrors the exact deadlock scenario: a fresh install has bootstrapped
@@ -443,6 +445,7 @@ describe('resolveCloudBindings', () => {
     });
   });
 
+  // @spec APP-SHELL-BIND-002
   describe('unsupported cloud', () => {
     it('should throw when the active cloud has no registered bindings', () => {
       const config = makeConfig('does-not-exist' as ActiveCloud);

@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron';
 import { errMessage } from '@hyveon/shared';
 import { logger } from '../logger.js';
 
+// @spec APP-SHELL-WINIPC-007, APP-SHELL-WINIPC-009
 /**
  * Drives the single main `BrowserWindow`'s minimize/maximize/close chrome and
  * forwards its native maximize/unmaximize state to the renderer.
@@ -20,6 +21,7 @@ import { logger } from '../logger.js';
 export class WindowService {
   private win: BrowserWindow | null = null;
 
+  // @spec APP-SHELL-WINIPC-006, APP-SHELL-WINIPC-008
   /**
    * Wires this service to the live main window and starts forwarding its
    * native maximize-state changes to the renderer over `window.maximizedChange`.
@@ -51,6 +53,7 @@ export class WindowService {
     }
   }
 
+  // @spec APP-SHELL-WINIPC-001
   /** Minimizes the attached window. No-op if no window is attached. */
   minimize(): void {
     if (!this.win) return;
@@ -61,6 +64,7 @@ export class WindowService {
     }
   }
 
+  // @spec APP-SHELL-WINIPC-002, APP-SHELL-WINIPC-003
   /**
    * Maximizes the attached window if it is not currently maximized, or
    * restores it if it is — a single toggle so callers never have to track
@@ -79,6 +83,7 @@ export class WindowService {
     }
   }
 
+  // @spec APP-SHELL-WINIPC-004
   /** Closes the attached window. No-op if no window is attached. */
   close(): void {
     if (!this.win) return;
@@ -89,6 +94,7 @@ export class WindowService {
     }
   }
 
+  // @spec APP-SHELL-WINIPC-005
   /**
    * Queries the attached window's current maximized state.
    *

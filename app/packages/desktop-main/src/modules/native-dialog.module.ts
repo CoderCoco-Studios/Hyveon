@@ -9,4 +9,5 @@ import { NativeDialogService } from '../services/NativeDialogService.js';
   providers: [NativeDialogService],
   exports: [NativeDialogService],
 })
+// @spec APP-SHELL-BOOT-016
 export class NativeDialogModule {}

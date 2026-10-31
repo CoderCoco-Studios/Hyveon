@@ -130,6 +130,7 @@ describe('SettingsPage', () => {
     expect(await screen.findByText(/^Updated\b/)).toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-SET-001
   it('should render the General section heading with the deployment-settings form loaded', async () => {
     renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
     expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
@@ -146,6 +147,7 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('diagnostics-panel')).toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-SET-003
   describe('Cloud Setup — Pulumi engine version row', () => {
     // @spec APP-WIZARD-STACK-005
     it('should render the resolved engine version and the pinned version once the read resolves', async () => {
@@ -494,6 +496,7 @@ describe('SettingsPage', () => {
     });
 
     // @spec APP-WIZARD-RECONF-001, APP-WIZARD-RECONF-002
+    // @spec APP-SHELL-SET-002
     it('should open the wizard on pick-cloud (skipping prerequisites) with completed steps showing an Edit affordance', async () => {
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 

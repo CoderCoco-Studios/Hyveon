@@ -644,6 +644,7 @@ const api: HyveonApi = {
     },
   },
 
+  // @spec APP-SHELL-WINIPC-011, APP-SHELL-WINIPC-012, APP-SHELL-WINIPC-013
   window: {
     platform: process.platform,
     minimize: () => invoke<void>('window.minimize'),

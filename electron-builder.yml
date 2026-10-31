@@ -217,6 +217,7 @@ files:
   - node_modules/yargs-parser/**
 
 extraResources:
+  # @spec APP-SHELL-ICON-004
   # The window/taskbar icon is set at runtime by electron-entry.ts, which needs
   # a real file on disk — Windows and macOS read theirs from the executable and
   # the app bundle, but Linux does not.
@@ -242,6 +243,7 @@ extraResources:
   - from: app/packages/desktop-main/resources/cloudformation/iam-bootstrap.yaml
     to: cloudformation/iam-bootstrap.yaml
 
+# @spec APP-SHELL-ICON-003
 # Icon assets are generated from build/icon.svg by `npm run icons:generate` and
 # committed, so packaging never has to rasterise anything. build/ is also
 # electron-builder's default buildResources directory, which means the NSIS
