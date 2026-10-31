@@ -138,9 +138,11 @@ async function fillHappyPathToReview() {
   await screen.findByText('Step 6 of 6: Review');
 }
 
+// @spec GAME-WIZ-002
 describe('AddGameWizard — blocked-advance validation', () => {
   beforeEach(resetApiMocks);
 
+  // @spec GAME-VALID-009
   it('should disable Next on the Identity step while name and image are blank', async () => {
     await openWizard();
 
@@ -155,6 +157,7 @@ describe('AddGameWizard — blocked-advance validation', () => {
     expect(screen.getByRole('button', { name: 'Next' })).not.toBeDisabled();
   });
 
+  // @spec GAME-VALID-007
   it('should keep Next disabled when the name does not match the required identifier pattern', async () => {
     await openWizard();
 
@@ -185,6 +188,7 @@ describe('AddGameWizard — step body scroll reset', () => {
 describe('AddGameWizard — submit success path', () => {
   beforeEach(resetApiMocks);
 
+  // @spec GAME-WIZ-006
   it('should show a success toast telling the operator to plan/apply, redirect to the new game page, and close the dialog', async () => {
     apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
     await openWizard();
@@ -214,6 +218,7 @@ describe('AddGameWizard — https web port', () => {
     await goNext(); // -> networking
   }
 
+  // @spec GAME-HTTPS-013
   it('should block Next until a web port is entered once HTTPS is enabled, then submit it as webPort', async () => {
     apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
     await goToNetworking();
@@ -241,6 +246,7 @@ describe('AddGameWizard — https web port', () => {
     );
   });
 
+  // @spec GAME-HTTPS-012
   it('should omit webPort from the payload when HTTPS is switched back off', async () => {
     apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
     await goToNetworking();
@@ -355,6 +361,7 @@ describe('AddGameWizard — seed from folder', () => {
   });
 });
 
+// @spec GAME-WIZ-004
 describe('AddGameWizard — submit failure paths', () => {
   beforeEach(resetApiMocks);
 
@@ -405,6 +412,7 @@ describe('AddGameWizard — draft autosave', () => {
     vi.useRealTimers();
   });
 
+  // @spec GAME-DRAFT-002
   it('should not autosave while the draft is still empty', async () => {
     await openWizard();
 
@@ -413,6 +421,7 @@ describe('AddGameWizard — draft autosave', () => {
     expect(apiMock.saveGameDraft).not.toHaveBeenCalled();
   });
 
+  // @spec GAME-DRAFT-001
   it('should autosave the draft and step index after edits settle for about 1 second', async () => {
     await openWizard();
     await fillIdentityStep();
@@ -439,6 +448,7 @@ describe('AddGameWizard — draft autosave', () => {
     );
   });
 
+  // @spec GAME-DRAFT-003
   it('should not autosave while the wizard is submitting', async () => {
     apiMock.createGame.mockImplementation(() => new Promise(() => {})); // never resolves
     await openWizard();
@@ -451,6 +461,7 @@ describe('AddGameWizard — draft autosave', () => {
     expect(apiMock.saveGameDraft).not.toHaveBeenCalled();
   });
 
+  // @spec GAME-DRAFT-004
   it('should flush a pending save immediately when the dialog closes', async () => {
     await openWizard();
     await fillIdentityStep();
@@ -463,6 +474,7 @@ describe('AddGameWizard — draft autosave', () => {
     );
   });
 
+  // @spec GAME-DRAFT-009
   it('should clear the saved draft on successful submit', async () => {
     apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
     await openWizard();
@@ -522,6 +534,7 @@ describe('AddGameWizard — health-check patch batching', () => {
 describe('AddGameWizard — resuming from a saved draft', () => {
   beforeEach(resetApiMocks);
 
+  // @spec GAME-DRAFT-007
   it('should open pre-populated with an initialDraft and initialStepIndex', async () => {
     render(
       <AddGameWizard
@@ -542,6 +555,7 @@ describe('AddGameWizard — resuming from a saved draft', () => {
     expect(screen.getByLabelText('Image')).toHaveValue('some/image');
   });
 
+  // @spec GAME-DRAFT-012
   it('should persist the new step index via updateGameDraftStepIndex after navigating steps, without re-saving the (redacted) draft', async () => {
     // Regression test: `AddGameWizard`'s in-memory `initialDraft` here stands
     // in for what `api.getGameDraft()` actually returns on resume —

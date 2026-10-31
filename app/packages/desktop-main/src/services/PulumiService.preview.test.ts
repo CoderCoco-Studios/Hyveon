@@ -332,6 +332,7 @@ describe('PulumiService.preview spawning and artifact persistence', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  // @spec GAME-HTTPS-010
   it('should reject a legacy config whose https webPort is another game\'s extra tcp port, before any Pulumi call', async () => {
     const workspace = makeWorkspace(makeHappyPathPreview());
     const remoteFileStore = makeRemoteFileStore({

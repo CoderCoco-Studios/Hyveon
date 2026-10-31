@@ -80,6 +80,7 @@ describe('createEmptyWizardDraft', () => {
   });
 });
 
+// @spec GAME-HTTPS-013
 describe('stepForIssuePath', () => {
   it.each([
     ['name', 'identity'],
@@ -129,6 +130,7 @@ describe('validateIdentityStep', () => {
     expect(issues).toContainEqual({ path: 'name', message: 'Name is required.' });
   });
 
+  // @spec GAME-VALID-007
   it('should flag a name containing invalid characters', () => {
     const issues = validateIdentityStep(makeValidDraft({ name: 'my game!' }), []);
     expect(issues.some((issue) => issue.path === 'name')).toBe(true);
@@ -139,6 +141,7 @@ describe('validateIdentityStep', () => {
     expect(issues.some((issue) => issue.path === 'name' && issue.message.includes('already exists'))).toBe(true);
   });
 
+  // @spec GAME-VALID-008
   it("should NOT flag a legacy, non-DNS-safe name (e.g. containing an underscore) in 'edit' mode", () => {
     // Regression test for the client/server validation-rule divergence: an
     // already-declared game's name is immutable (edit forms render it
@@ -154,6 +157,7 @@ describe('validateIdentityStep', () => {
     expect(issues.some((issue) => issue.path === 'name')).toBe(true);
   });
 
+  // @spec GAME-VALID-009
   it('should flag a blank image', () => {
     const issues = validateIdentityStep(makeValidDraft({ image: '' }), []);
     expect(issues.some((issue) => issue.path === 'image')).toBe(true);
@@ -250,6 +254,7 @@ describe('validateNetworkingStep', () => {
     expect(validateNetworkingStep(makeValidDraft(), [])).toEqual([]);
   });
 
+  // @spec GAME-PORT-013
   it('should flag an icmp row with container 300 as outside the 0-255 ICMP type range, with no duplicate issue at that path', () => {
     // Regression: validateWizardDraft must drop the shared validator's duplicate range issue at this path.
     const issues = validateNetworkingStep(
@@ -321,6 +326,7 @@ describe('validateNetworkingStep — web port', () => {
   });
 });
 
+// @spec GAME-HTTPS-012
 describe('webPort draft conversion', () => {
   it('should carry webPort into the payload only while https is on', () => {
     expect(draftToPayload(makeValidDraft({ https: true, webPort: 30000 })).config.webPort).toBe(30000);
@@ -522,6 +528,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
     expect(draft.healthCheck.authType).toBe('raw');
   });
 
+  // @spec GAME-ENV-004
   it('should map environment rows from a GameServer onto the draft', () => {
     const draft = draftFromGameServer({
       name: 'mygame',
@@ -547,11 +554,13 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
     expect(draft.environment).toEqual([]);
   });
 
+  // @spec GAME-ENV-003
   it('should include environment rows in the create payload when present', () => {
     const draft = { ...createEmptyWizardDraft(), environment: [{ name: 'EULA', value: 'TRUE' }] };
     expect(draftToPayload(draft).config.environment).toEqual([{ name: 'EULA', value: 'TRUE' }]);
   });
 
+  // @spec GAME-ENV-003
   it('should omit environment from the create payload when empty', () => {
     const draft = createEmptyWizardDraft();
     expect(draftToPayload(draft).config.environment).toBeUndefined();
@@ -568,6 +577,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
     expect(draftToPayload({ ...draft, name: 'g', image: 'img', cpu: 1024, memory: 2048 }).config.command).toBeUndefined();
   });
 
+  // @spec GAME-HOST-012
   it('should omit pinnedHostname from the payload when the switch is off', () => {
     const payload = draftToPayload(makeValidDraft({ pinnedHostname: undefined }));
     expect('pinnedHostname' in payload.config).toBe(false);
@@ -612,6 +622,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
   });
 });
 
+// @spec GAME-PORT-008
 describe('port visibility round-trip', () => {
   it('should read visibility "internal" from a declared game via draftFromGameServer', () => {
     const game = {
@@ -778,6 +789,7 @@ describe('validateEnvironmentStep — token validation', () => {
   });
 });
 
+// @spec GAME-HOST-014
 describe('validateEnvironmentStep — pinned hostname', () => {
   it('should surface the shared validation message at pinnedHostname for an invalid value and block advancing', () => {
     const draft = makeValidDraft({ pinnedHostname: 'foundry host' });
@@ -799,6 +811,7 @@ describe('validateEnvironmentStep — pinned hostname', () => {
   });
 });
 
+// @spec GAME-WIZ-002
 describe('canAdvance', () => {
   it('should return true for a step with no outstanding issues', () => {
     expect(canAdvance('resources', makeValidDraft(), [])).toBe(true);

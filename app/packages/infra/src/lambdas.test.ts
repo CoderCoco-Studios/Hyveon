@@ -507,6 +507,7 @@ describe('defineLambdas', () => {
     });
   });
 
+  // @spec GAME-PORT-014
   describe('CONNECT_MESSAGES / GAME_PORTS derivation', () => {
     // @spec IAC-PROGRAM-ENV-002, IAC-PROGRAM-ENV-003
     it('should omit a game with no connect_message from CONNECT_MESSAGES but include its first port in GAME_PORTS', async () => {
@@ -634,6 +635,7 @@ describe('defineLambdas', () => {
     });
 
     // @spec IAC-PROGRAM-ENV-003
+    // @spec GAME-PORT-015
     it('should fall back to the first port when every declared port is internal-visibility', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         allInternal: {

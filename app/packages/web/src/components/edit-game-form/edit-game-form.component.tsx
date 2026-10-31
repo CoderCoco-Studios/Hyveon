@@ -34,6 +34,8 @@ export interface EditGameFormProps {
 }
 
 // @spec IAC-RUN-PLAN-010
+// @spec GAME-VALID-001, GAME-VALID-008, GAME-RES-001, GAME-RES-005, GAME-ENV-001, GAME-ENV-004, GAME-ENV-005
+// @spec GAME-ENV-008, GAME-HTTPS-001, GAME-HTTPS-002, GAME-HTTPS-003, GAME-HTTPS-013, GAME-HOST-013, GAME-WIZ-002
 /**
  * Self-contained "Edit game" form: prefills a {@link WizardDraft} from
  * `game`, renders every wizard step flattened in one view (name read-only),

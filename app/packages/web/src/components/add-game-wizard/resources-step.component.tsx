@@ -67,6 +67,7 @@ function rangeCommitHandlers(index: number, isUnset: boolean, commit: (rawIndex:
   };
 }
 
+// @spec GAME-RES-001, GAME-RES-002, GAME-RES-003, GAME-RES-004, GAME-RES-006
 /**
  * "Resources" step of the add-game wizard and edit-game form: vCPU and
  * memory are picked via two range sliders, each holding an *index* into

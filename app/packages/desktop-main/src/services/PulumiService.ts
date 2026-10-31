@@ -3422,6 +3422,7 @@ export class PulumiService {
     return prior;
   }
 
+  // @spec GAME-HTTPS-010
   /**
    * Decodes the raw S3 configuration object for a preview/apply. Normalises the deprecated legacy https
    * shape because this read bypasses `DeploymentConfigService`, and the infra program requires `webPort`.

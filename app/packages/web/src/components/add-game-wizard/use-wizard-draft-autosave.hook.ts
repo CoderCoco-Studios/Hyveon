@@ -57,6 +57,7 @@ export interface UseWizardDraftAutosaveResult {
   reset: () => void;
 }
 
+// @spec GAME-DRAFT-001, GAME-DRAFT-002, GAME-DRAFT-003, GAME-DRAFT-004, GAME-DRAFT-012
 /**
  * Debounce-autosaves `draft` (~1s after the operator stops editing, via
  * `api.saveGameDraft`) so a crash/close mid-edit still leaves a near-current

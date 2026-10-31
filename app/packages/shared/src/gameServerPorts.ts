@@ -30,6 +30,7 @@ interface NormalizableGame {
   ports: readonly { container: number | null; protocol: string }[];
 }
 
+// @spec GAME-HTTPS-015, GAME-HTTPS-016, GAME-HTTPS-017
 /**
  * Rewrites the legacy https shape into the explicit one: `ports[0]` becomes
  * `webPort` and the remaining entries stay as `ports`.
@@ -106,6 +107,7 @@ export function ingressPorts(game: GameServerConfig): GameServerPort[] {
   return game.ports.filter((port) => !(port.container === webPort && port.protocol.toLowerCase() === 'tcp'));
 }
 
+// @spec GAME-HTTPS-010
 /**
  * Finds `https` games whose `webPort` is also a `tcp` extra port of a different game. The security
  * group is shared across games and ingress rules union, so that extra port's rule would expose the

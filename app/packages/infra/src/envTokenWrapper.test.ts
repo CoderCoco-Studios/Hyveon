@@ -16,6 +16,7 @@ describe('shellSingleQuote', () => {
   });
 });
 
+// @spec GAME-TOKEN-007
 describe('buildIpv4WrapperScript', () => {
   const tokenVar = { name: 'SERVER_IP', value: 'host=${hyveon.network.public-ipv4}:8211' };
 
@@ -35,6 +36,7 @@ describe('buildIpv4WrapperScript', () => {
     expect(script).toContain(`exec '/start.sh' '--port' '8211'`);
   });
 
+  // @spec GAME-TOKEN-012
   it('should quote adversarial values as inert data', () => {
     const script = buildIpv4WrapperScript({
       environment: [{ name: 'SERVER_IP', value: "'; rm -rf / #${hyveon.network.public-ipv4}" }],
@@ -53,6 +55,7 @@ describe('buildIpv4WrapperScript', () => {
   });
 
   // @spec IAC-PROGRAM-TOKEN-006
+  // @spec GAME-TOKEN-009
   it('should throw on a non-identifier variable name', () => {
     expect(() =>
       buildIpv4WrapperScript({ environment: [{ name: 'BAD NAME;', value: '${hyveon.network.public-ipv4}' }], command: ['/s'] }),
@@ -84,6 +87,7 @@ describe('buildIpv4WrapperScript executed under sh', () => {
     expect(stdout).toBe('host=203.0.113.7:8211');
   });
 
+  // @spec GAME-TOKEN-012
   it('should keep an adversarial value inert', async () => {
     const script = buildIpv4WrapperScript({
       environment: [{ name: 'SERVER_IP', value: "'; echo INJECTED #${hyveon.network.public-ipv4}" }],

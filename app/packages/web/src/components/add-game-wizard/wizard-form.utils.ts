@@ -204,6 +204,7 @@ export function createEmptyWizardDraft(): WizardDraft {
   };
 }
 
+// @spec GAME-RES-005, GAME-ENV-004, GAME-HTTPS-001, GAME-HOST-013
 /**
  * Converts a declared {@link GameServer} entry into a {@link WizardDraft} —
  * the inverse of {@link draftToPayload}. Used to seed the wizard's edit flow
@@ -337,6 +338,7 @@ function healthCheckAuthInputFromDraft(draft: WizardDraftHealthCheck): GameServe
   }
 }
 
+// @spec GAME-ENV-003, GAME-ENV-005, GAME-HTTPS-002, GAME-HTTPS-012, GAME-PORT-008, GAME-HOST-012
 /**
  * Converts a completed {@link WizardDraft} into the `POST /api/games`
  * (`games.create` IPC) payload — the inverse of {@link draftFromGameServer}.
@@ -383,6 +385,7 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
   };
 }
 
+// @spec GAME-HTTPS-013
 /**
  * Maps a validation issue's `path` (e.g. `volumes[0].container_path`,
  * `ports[1]`, `memory`, `name`) to the wizard step whose fields own it, by
@@ -556,6 +559,7 @@ function checkIcmpPortType(ports: WizardDraftPort[]): GameServerValidationIssue[
   return issues;
 }
 
+// @spec GAME-VALID-001, GAME-VALID-007, GAME-VALID-008, GAME-VALID-009, GAME-PORT-013, GAME-HOST-014
 /**
  * Validates the entire draft: `name` (via {@link checkName}), `image` (via
  * {@link checkImage}), the ICMP-type range on `ports` (via
@@ -628,6 +632,7 @@ function dedupeIssues(issues: GameServerValidationIssue[]): GameServerValidation
   return deduped;
 }
 
+// @spec GAME-WIZ-002
 /**
  * Validates the draft and filters the result down to issues belonging to
  * `step` (via {@link stepForIssuePath}), so a step component only sees — and

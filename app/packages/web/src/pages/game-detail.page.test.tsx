@@ -101,6 +101,7 @@ describe('GameDetailPage', () => {
       expect(screen.getByRole('button', { name: 'Upload folder' })).toBeDisabled();
     });
 
+    // @spec GAME-IPC-010
     it('should link to the game files page from the header', async () => {
       renderDetailPage('minecraft');
 

@@ -228,6 +228,7 @@ function ingressRule(
 // @spec IAC-PROGRAM-SG-006, IAC-PROGRAM-SG-007, IAC-PROGRAM-SG-008, IAC-PROGRAM-SG-009, IAC-PROGRAM-SG-010
 // @spec IAC-PROGRAM-SG-011, IAC-PROGRAM-SG-012, IAC-PROGRAM-SG-013
 // @spec RT-HEALTH-PROV-001, RT-HEALTH-PROV-002, RT-HEALTH-NET-001
+// @spec GAME-PORT-001, GAME-PORT-003, GAME-PORT-004, GAME-PORT-011, GAME-PORT-012
 /**
  * Declares the `game_servers`, `file_manager`, `efs`, and conditional
  * `efs_seeder` security groups. Must be called from inside the Pulumi inline-program closure (see

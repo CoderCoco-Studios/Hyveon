@@ -12,6 +12,7 @@ import { mergeGameLists } from '../services/mergeGameLists.js';
 import { HelperSessionRegistry } from '../services/volumeFiles/HelperSessionRegistry.js';
 import { logger } from '../logger.js';
 
+// @spec GAME-IPC-001, GAME-IPC-002, GAME-IPC-003
 /**
  * IPC-only game-server controller. Handles Electron main-process messages via
  * `@MessagePattern` / `@Payload`. It
@@ -30,6 +31,7 @@ export class GamesController {
     private readonly helperSessions: HelperSessionRegistry,
   ) {}
 
+  // @spec GAME-IPC-004, GAME-MODEL-003
   /**
    * Lists games merged from the declared view, the deployed view, and
    * per-game drift — see {@link mergeGameLists}.
@@ -90,6 +92,7 @@ export class GamesController {
     return this.ecs.getStatus(game);
   }
 
+  // @spec GAME-IPC-009
   /**
    * Launches the `{game}-server` task via `ecs.run_task()`. There is no
    * long-running ECS Service by design — this is the only way a game starts.

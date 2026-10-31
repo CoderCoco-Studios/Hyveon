@@ -48,6 +48,7 @@ describe('buildHostnameShimSource', () => {
   });
 });
 
+// @spec GAME-HOST-006
 describe('buildHostnameShimContainer', () => {
   const logConfiguration = { logDriver: 'awslogs', options: { 'awslogs-stream-prefix': 'hostname-shim' } };
 
@@ -77,6 +78,7 @@ describe('hostnameShimVolumeName', () => {
   });
 });
 
+// @spec GAME-HOST-009
 describe('mergeNodeOptions', () => {
   // @spec IAC-PROGRAM-HOST-006
   it('should append a shim-only NODE_OPTIONS when absent', () => {

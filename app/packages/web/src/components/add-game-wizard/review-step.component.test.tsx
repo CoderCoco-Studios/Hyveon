@@ -94,6 +94,7 @@ describe('ReviewStep — empty optional sections', () => {
     expect(screen.queryByText('Environment variables')).not.toBeInTheDocument();
   });
 
+  // @spec GAME-HOST-015
   it('should list the pinned hostname when set', () => {
     render(<ReviewStep draft={makeDraft({ pinnedHostname: 'foundry' })} />);
 

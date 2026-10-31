@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { GameStatusBadges } from './game-status-badges.component.js';
 
+// @spec GAME-IPC-006
 describe('GameStatusBadges', () => {
   it('should render an "In sync" success chip when the game is declared and deployed', () => {
     render(<GameStatusBadges declared deployed />);

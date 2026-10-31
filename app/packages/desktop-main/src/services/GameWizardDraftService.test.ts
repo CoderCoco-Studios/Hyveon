@@ -72,6 +72,7 @@ describe('GameWizardDraftService', () => {
       expect(service.get()).toEqual(stored);
     });
 
+    // @spec GAME-DRAFT-010
     it('should return null and log a warning when the stored entry is missing required fields', () => {
       const store = makeStore();
       vi.mocked(store.get).mockReturnValue({ draft: sampleDraft } as Partial<StoredGameWizardDraft> as StoredGameWizardDraft);
@@ -176,6 +177,7 @@ describe('GameWizardDraftService', () => {
       expect(service.get()).toBeNull();
     });
 
+    // @spec GAME-DRAFT-011
     it('should blank out environment values and file-seed content before returning the draft', () => {
       const draftWithSecrets: GameWizardDraft = {
         ...sampleDraft,
@@ -227,6 +229,7 @@ describe('GameWizardDraftService', () => {
       expect(service.get()).toBeNull();
     });
 
+    // @spec GAME-HTTPS-016
     it('should normalise a legacy https draft so ports[0] becomes webPort', () => {
       const stored: StoredGameWizardDraft = {
         draft: {
@@ -279,6 +282,7 @@ describe('GameWizardDraftService', () => {
   });
 
   describe('save', () => {
+    // @spec GAME-DRAFT-005
     it('should write the draft and step index, stamping savedAt itself', () => {
       const store = makeStore();
       const service = new GameWizardDraftService(store);
@@ -291,6 +295,7 @@ describe('GameWizardDraftService', () => {
       );
     });
 
+    // @spec GAME-DRAFT-013
     it('should not throw when the underlying write fails', () => {
       const store = makeStore();
       vi.mocked(store.set).mockImplementation(() => {

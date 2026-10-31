@@ -71,6 +71,7 @@ export const HOSTNAME_SHIM_MOUNT_PATH = '/hyveon/hostname-shim';
 /** Name of the hostname shim init container and volume suffix; a game or volume of this name would collide with them. */
 export const HOSTNAME_SHIM_RESERVED_NAME = 'hostname-shim';
 
+// @spec GAME-PORT-001, GAME-PORT-002
 /** Zod schema mirroring {@link GameServerPort}. */
 export const gameServerPortSchema = z.object({
   container: z.number(),
@@ -280,6 +281,7 @@ export const gameServerHealthCheckSchema = z.object({
   activeWhen: gameServerHealthCheckConditionSchema,
 });
 
+// @spec GAME-MODEL-001, GAME-VALID-005, GAME-ENV-010, GAME-TOKEN-013, GAME-HOST-002
 /**
  * Zod schema mirroring {@link GameServer} field-for-field, minus `name`
  * (which is the `game_servers` map key, not an attribute of the app's
@@ -1038,6 +1040,11 @@ function checkHealthCheckRules(entry: GameServerEntryInput): GameServerValidatio
   return issues;
 }
 
+// @spec GAME-VALID-001, GAME-VALID-002, GAME-VALID-003, GAME-VALID-004, GAME-VALID-005, GAME-VALID-006, GAME-ENV-006
+// @spec GAME-ENV-007, GAME-ENV-010, GAME-TOKEN-002, GAME-TOKEN-003, GAME-TOKEN-004, GAME-TOKEN-009, GAME-TOKEN-014
+// @spec GAME-HTTPS-005, GAME-HTTPS-006, GAME-HTTPS-007, GAME-HTTPS-008, GAME-HTTPS-009, GAME-PORT-002, GAME-PORT-005
+// @spec GAME-PORT-006, GAME-PORT-007, GAME-PORT-009, GAME-PORT-010, GAME-PORT-012, GAME-HOST-003, GAME-HOST-004
+// @spec GAME-HOST-005
 /**
  * Validates a proposed `game_servers` entry: structural shape (via
  * {@link gameServerSchema}) plus the business rules — Fargate CPU/memory

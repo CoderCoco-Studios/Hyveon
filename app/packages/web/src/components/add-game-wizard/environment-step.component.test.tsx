@@ -23,6 +23,7 @@ describe('EnvironmentStep', () => {
     expect(screen.getByText(/No environment variables configured/i)).toBeInTheDocument();
   });
 
+  // @spec GAME-ENV-002
   it('should call onChange with a new blank row appended when "Add variable" is clicked', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -70,6 +71,7 @@ describe('EnvironmentStep', () => {
     expect(onChange).toHaveBeenCalledWith({ environment: [{ name: 'DIFFICULTY', value: 'hard' }] });
   });
 
+  // @spec GAME-ENV-008
   it('should render a validation issue message next to the offending row', () => {
     render(
       <EnvironmentStep
@@ -95,6 +97,7 @@ describe('EnvironmentStep', () => {
     expect(screen.getByLabelText('Value')).toHaveAttribute('aria-invalid', 'true');
   });
 
+  // @spec GAME-ENV-009
   it('should show the interpolation token hint', () => {
     render(<EnvironmentStep draft={makeDraft()} issues={[]} onChange={vi.fn()} />);
 
@@ -102,6 +105,7 @@ describe('EnvironmentStep', () => {
     expect(screen.getByText(/\$\{hyveon\.network\.public-ipv4\}/)).toBeInTheDocument();
   });
 
+  // @spec GAME-ENV-010
   it('should call onChange with an appended command argument', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -138,6 +142,7 @@ describe('EnvironmentStep', () => {
   });
 
   describe('Pin hostname', () => {
+    // @spec GAME-HOST-011
     it('should state the Node.js requirement in the helper text', () => {
       render(<EnvironmentStep draft={makeDraft()} issues={[]} onChange={vi.fn()} />);
 
@@ -151,6 +156,7 @@ describe('EnvironmentStep', () => {
       expect(screen.queryByLabelText('Hostname')).not.toBeInTheDocument();
     });
 
+    // @spec GAME-HOST-012
     it('should call onChange with the game name when the switch is turned on', async () => {
       const user = userEvent.setup();
       const onChange = vi.fn();
@@ -185,6 +191,7 @@ describe('EnvironmentStep', () => {
       expect(onChange).toHaveBeenCalledWith({ pinnedHostname: 'foundryx' });
     });
 
+    // @spec GAME-HOST-012
     it('should clear the value when the switch is turned off', async () => {
       const user = userEvent.setup();
       const onChange = vi.fn();
@@ -208,6 +215,7 @@ describe('EnvironmentStep', () => {
       expect(screen.getByLabelText('Hostname')).toHaveAttribute('aria-invalid', 'true');
     });
 
+    // @spec GAME-HOST-014
     it('should show the issue message for an invalid value', () => {
       render(
         <EnvironmentStep

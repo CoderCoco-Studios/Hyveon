@@ -78,6 +78,7 @@ function ConfigTableCard<T>({ title, columns, rows, rowKey }: ConfigTableCardPro
   );
 }
 
+// @spec GAME-IPC-010
 /**
  * Game detail route (`/games/:name`) — read-only rendering of the full
  * declared configuration for a single game, sourced from the same merged

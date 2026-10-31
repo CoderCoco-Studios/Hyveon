@@ -22,6 +22,7 @@ function formatPorts(entry: GameListEntry): string {
   return parts.length === 0 ? '—' : parts.join(', ');
 }
 
+// @spec GAME-IPC-006, GAME-DRAFT-006, GAME-DRAFT-007, GAME-DRAFT-010
 /**
  * Games route (`/games`) — read-only table of every game the app knows
  * about, merging the declared deployment config with the deployed

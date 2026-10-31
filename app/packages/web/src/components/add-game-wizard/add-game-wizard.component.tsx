@@ -87,6 +87,8 @@ export interface AddGameWizardProps {
   onClose?: () => void;
 }
 
+// @spec GAME-WIZ-001, GAME-WIZ-002, GAME-WIZ-003, GAME-WIZ-004, GAME-WIZ-006, GAME-VALID-001, GAME-VALID-007
+// @spec GAME-VALID-009, GAME-ENV-001, GAME-ENV-008, GAME-HTTPS-013, GAME-DRAFT-009
 /**
  * Self-contained "Add game" dialog: renders its own trigger button, walks the
  * operator through the six wizard steps, and owns the `games.create` submit

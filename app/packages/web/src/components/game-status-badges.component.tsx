@@ -21,6 +21,7 @@ export interface GameStatusBadgesProps {
   drift?: GameStatusDrift;
 }
 
+// @spec GAME-IPC-006
 /**
  * Renders the drift indicator for a single game row on the Settings →
  * Games panel and the game-detail page: one chip summarizing

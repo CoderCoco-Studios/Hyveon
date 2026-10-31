@@ -284,6 +284,7 @@ export class DeploymentConfigService {
     return Boolean(this.config.getConfigurationBucket());
   }
 
+  // @spec GAME-HTTPS-015
   /**
    * Returns the `gameServers` map from the deployment config JSON, parsed
    * into a `GameServer[]` (the map key is flattened onto each entry as
@@ -460,6 +461,7 @@ export class DeploymentConfigService {
     return this.writeConfig(expectedVersionId, (raw) => this.applyTopLevelSettingsPatch(raw, patch));
   }
 
+  // @spec GAME-VALID-007
   /**
    * Adds a brand-new entry to the `gameServers` map. Reads
    * the current raw config JSON, splices `name` in as a new `gameServers`

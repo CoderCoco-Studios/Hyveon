@@ -80,6 +80,7 @@ function rowError(issues: GameServerValidationIssue[], index: number): GameServe
   return issues.find((issue) => issue.path === prefix || issue.path.startsWith(`${prefix}.`));
 }
 
+// @spec GAME-HTTPS-001, GAME-HTTPS-011, GAME-HTTPS-012, GAME-HTTPS-014, GAME-PORT-008, GAME-PORT-013
 /**
  * Row editor for the wizard's "Networking" step. Renders one row per port
  * with a container-port input, protocol select, and remove button, plus an

@@ -37,6 +37,7 @@ export interface EnvironmentStepProps {
   onChange: (patch: Partial<Pick<WizardDraft, 'environment' | 'command' | 'pinnedHostname'>>) => void;
 }
 
+// @spec GAME-ENV-002, GAME-ENV-008, GAME-ENV-009, GAME-ENV-010, GAME-HOST-011, GAME-HOST-012, GAME-HOST-014
 /**
  * Row editor for the wizard's "Environment" step: an optional `environment`
  * list plus an optional `command` (container start command) list

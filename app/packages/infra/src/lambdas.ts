@@ -279,6 +279,7 @@ function connectMessagesByGame(gameServers: Record<string, GameServerConfig>): R
 }
 
 // @spec IAC-PROGRAM-ENV-003
+// @spec GAME-PORT-014, GAME-PORT-015
 /**
  * Builds the `GAME_PORTS` JSON object shared by the followup and dns-updater
  * functions — consumed to render the player-facing `host:port` connect

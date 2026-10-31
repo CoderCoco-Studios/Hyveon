@@ -3,6 +3,7 @@ import { ADD_GAME_WIZARD_STEPS, errMessage, normalizeGameServer } from '@hyveon/
 import { logger } from '../logger.js';
 import { ElectronStoreService, type GameWizardDraft, type StoredGameWizardDraft } from './ElectronStoreService.js';
 
+// @spec GAME-DRAFT-005, GAME-DRAFT-013
 /**
  * Owns the single in-progress add-game wizard draft slot in
  * `ElectronStoreService`. A corrupt or unexpectedly-shaped stored entry is
@@ -25,6 +26,7 @@ import { ElectronStoreService, type GameWizardDraft, type StoredGameWizardDraft 
 export class GameWizardDraftService {
   constructor(private readonly store: ElectronStoreService) {}
 
+  // @spec GAME-DRAFT-010, GAME-DRAFT-011, GAME-HTTPS-016
   /**
    * Reads the saved draft, if any, with secret-shaped fields redacted (see
    * the class doc's `@remarks`).
@@ -66,6 +68,7 @@ export class GameWizardDraftService {
     }
   }
 
+  // @spec GAME-DRAFT-012
   /**
    * Updates only the `stepIndex` of an already-saved draft, leaving the
    * stored `draft` fields untouched, and re-stamps `savedAt`. A no-op if no

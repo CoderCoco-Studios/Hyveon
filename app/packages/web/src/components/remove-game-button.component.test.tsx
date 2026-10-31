@@ -31,6 +31,7 @@ async function openDialog(game = 'minecraft') {
   await screen.findByRole('alertdialog');
 }
 
+// @spec GAME-IPC-008
 describe('RemoveGameButton', () => {
   beforeEach(() => {
     apiMock.deleteGame.mockReset();
