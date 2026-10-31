@@ -1,6 +1,7 @@
 /**
- * End-to-end run of {@link FolderUploadService} through the real {@link FileBrowserClientFactory} against an in-process
- * HTTPS fake of the FileBrowser helper. Only the AWS-facing collaborators are stubbed.
+ * End-to-end run of {@link FolderUploadService} through a real {@link HelperSessionRegistry} and
+ * {@link FileBrowserClientFactory} against an in-process HTTPS fake of the FileBrowser helper. Only the AWS-facing
+ * collaborators are stubbed.
  */
 import 'reflect-metadata';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -19,7 +20,9 @@ import { FolderScanService } from './FolderScanService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import type { EcsService } from './EcsService.js';
-import type { FileManagerService } from './FileManagerService.js';
+import type { FileManagerService, HelperLaunchOutcome } from './FileManagerService.js';
+import type { PublicIpService } from './PublicIpService.js';
+import { HelperSessionRegistry } from './volumeFiles/HelperSessionRegistry.js';
 import { FileBrowserClientFactory } from './folderUpload/FileBrowserClient.js';
 import { generateEphemeralCert, type EphemeralCert } from './folderUpload/ephemeralCert.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
@@ -45,7 +48,7 @@ afterEach(async () => {
 });
 
 /** Wires the service to the fake helper, presenting `presentedCert` while the session pins `pinnedCert`. */
-async function run(options: {
+async function wire(options: {
   presentedCert?: EphemeralCert;
   seed?: Record<string, number>;
   onUpload?: Parameters<typeof startFakeFileBrowser>[0]['onUpload'];
@@ -57,6 +60,12 @@ async function run(options: {
   accessPoints?: Record<string, string>;
   include?: string[];
   destination?: string;
+  /** Open a browse session before the upload starts. */
+  browse?: boolean;
+  /** Holds the first helper launch until this settles, so a test can act while the session is still starting. */
+  firstLaunchGate?: Promise<void>;
+  /** Holds every ECS stop until this settles, so a test can observe a session mid-teardown. */
+  stopGate?: Promise<void>;
 }) {
   const pinned = await generateEphemeralCert();
   server = await startFakeFileBrowser({ cert: options.presentedCert ?? pinned, onUpload: options.onUpload, seed: options.seed });
@@ -65,16 +74,48 @@ async function run(options: {
     efsAccessPoints: { minecraft: 'fsap' },
     efsVolumeAccessPoints: { minecraft: options.accessPoints ?? { saves: 'fsap' } },
   });
-  const fm = {
-    planHelperLayout: vi.fn(async () => buildHelperVolumeLayout('minecraft', volumes, outputs)),
-    startForUpload: vi.fn().mockResolvedValue({
-      ok: true,
-      session: { taskArn: 't', runId: 'r', credentials: { username: 'admin', password: 'secret' }, cert: pinned },
-    }),
-    stop: vi.fn().mockResolvedValue({ success: true, message: '' }),
-    getStatus: vi.fn().mockResolvedValue({ game: 'minecraft', state: 'stopped' }),
-    getHelperPublicIp: vi.fn().mockResolvedValue('127.0.0.1'),
+  const layout = buildHelperVolumeLayout('minecraft', volumes, outputs);
+  const launched: HelperLaunchOutcome = {
+    ok: true,
+    taskArn: 't',
+    credentials: { username: 'admin', password: 'secret' },
+    cert: pinned,
+    operatorIp: '203.0.113.7',
+    startedAt: 0,
+    autoStopAt: 7_200_000,
+    scheduleWarning: '',
+    layout,
   };
+  /** Whether ECS reports a helper task; true once `launchHelper` runs and false again after `stop`. */
+  let helperTask = false;
+  let launches = 0;
+  const fm = {
+    planHelperLayout: vi.fn(async () => layout),
+    launchHelper: vi.fn(async () => {
+      launches += 1;
+      if (launches === 1) await options.firstLaunchGate;
+      helperTask = true;
+      return launched;
+    }),
+    listHelperTask: vi.fn(async () => (helperTask ? { taskArn: 't' } : null)),
+    stop: vi.fn(async () => {
+      await options.stopGate;
+      helperTask = false;
+      return { success: true, message: '' };
+    }),
+    getHelperPublicIp: vi.fn().mockResolvedValue('127.0.0.1'),
+    getHelperStopReason: vi.fn().mockResolvedValue(null),
+    reauthorizeOperatorIp: vi.fn().mockResolvedValue(undefined),
+    sweepStrayHelpers: vi.fn(),
+  };
+  const registry = new HelperSessionRegistry(
+    fm as Partial<FileManagerService> as FileManagerService,
+    new FileBrowserClientFactory(),
+    { detect: vi.fn().mockResolvedValue('203.0.113.7') } as Partial<PublicIpService> as PublicIpService,
+  );
+  registry.timings.helperPort = server.port;
+  registry.timings.pollMs = 1;
+  if (options.browse) expect(await registry.acquire('minecraft', 'browse')).toEqual({ ok: true });
   const scans = new FolderScanService();
   const svc = new FolderUploadService(
     configServiceStub({ outputs }),
@@ -83,10 +124,8 @@ async function run(options: {
     fm as Partial<FileManagerService> as FileManagerService,
     scans,
     new ElectronStoreService(new SafeStorageService()),
-    new FileBrowserClientFactory(),
+    registry,
   );
-  svc.timings.helperPort = server.port;
-  svc.timings.pollMs = 1;
   svc.engine.sleep = async () => undefined;
   const progress: FolderUploadProgress[] = [];
   svc.onProgress((p) => {
@@ -94,10 +133,20 @@ async function run(options: {
     if (p.phase === 'awaiting-confirmation' && options.answer !== undefined) svc.confirmOverwrite('minecraft', options.answer);
   });
   const scan = await scans.scan(root);
-  const res = await svc.startUpload({ game: 'minecraft', scanId: scan.scanId, include: options.include ?? ['Data'], destination: options.destination ?? '/data' });
-  expect(res.started).toBe(true);
-  await vi.waitFor(() => expect(['done', 'failed', 'cancelled']).toContain(progress.at(-1)?.phase));
-  return { svc, fm, progress, last: progress.at(-1)!, server };
+  /** Starts one upload and checks it was accepted. */
+  const start = async () => {
+    const res = await svc.startUpload({ game: 'minecraft', scanId: scan.scanId, include: options.include ?? ['Data'], destination: options.destination ?? '/data' });
+    expect(res.started).toBe(true);
+  };
+  return { svc, fm, registry, progress, start, server };
+}
+
+/** Wires the service and runs one upload to its terminal phase. */
+async function run(options: Parameters<typeof wire>[0]) {
+  const w = await wire(options);
+  await w.start();
+  await vi.waitFor(() => expect(['done', 'failed', 'cancelled']).toContain(w.progress.at(-1)?.phase));
+  return { ...w, last: w.progress.at(-1)! };
 }
 
 describe('folder upload against a fake FileBrowser helper', () => {
@@ -107,6 +156,65 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(r.server.files.get('/saves/Data/worlds/a.db')).toBe(200_000);
     expect(r.server.files.get('/saves/Data/b.txt')).toBe(5);
     expect(r.fm.stop).toHaveBeenCalledWith('minecraft');
+  });
+
+  it('should never publish or persist the helper credential', async () => {
+    const r = await run({});
+    expect(r.last.phase).toBe('done');
+
+    expect(r.svc.getSelection('minecraft')).not.toBeNull();
+    const published = JSON.stringify(r.progress);
+    const stored = JSON.stringify(r.svc.getSelection('minecraft'));
+    for (const text of [published, stored]) {
+      expect(text).not.toContain('secret');
+      expect(text).not.toContain('admin');
+    }
+  });
+
+  it('should leave an existing browse session running after the upload', async () => {
+    const r = await run({ browse: true });
+    expect(r.last.phase).toBe('done');
+    expect(r.fm.launchHelper).toHaveBeenCalledTimes(1);
+    expect(r.fm.stop).not.toHaveBeenCalled();
+    expect((await r.registry.status('minecraft')).state).toBe('running');
+    await r.registry.stop('minecraft');
+  });
+
+  it('should not cancel a retry that starts while the cancelled run\'s session is still being torn down', async () => {
+    let openGate!: () => void;
+    const firstLaunchGate = new Promise<void>((resolve) => { openGate = resolve; });
+    const w = await wire({ firstLaunchGate });
+    await w.start();
+    await vi.waitFor(() => expect(w.fm.launchHelper).toHaveBeenCalledTimes(1));
+    w.svc.cancel('minecraft');
+    await vi.waitFor(() => expect(w.progress.at(-1)?.phase).toBe('cancelled'));
+
+    await w.start();
+    openGate();
+    await vi.waitFor(() => expect(['done', 'failed']).toContain(w.progress.at(-1)?.phase), { timeout: 5000 });
+
+    expect(w.progress.at(-1)?.phase).toBe('done');
+    expect(w.server.files.get('/saves/Data/b.txt')).toBe(5);
+    expect(w.fm.launchHelper).toHaveBeenCalledTimes(2);
+    await w.registry.stop('minecraft');
+  });
+
+  it('should release a hold acquired after its run was cancelled while waiting out a teardown', async () => {
+    let openGate!: () => void;
+    const stopGate = new Promise<void>((resolve) => { openGate = resolve; });
+    const w = await wire({ browse: true, stopGate });
+    const stopping = w.registry.stop('minecraft');
+    await w.start();
+    await vi.waitFor(() => expect(w.progress.at(-1)?.phase).toBe('starting-helper'));
+    w.svc.cancel('minecraft');
+    await vi.waitFor(() => expect(w.progress.at(-1)?.phase).toBe('cancelled'));
+
+    openGate();
+    await stopping;
+    await vi.waitFor(() => expect(w.fm.launchHelper).toHaveBeenCalledTimes(2));
+
+    await vi.waitFor(() => expect(w.registry.ownedGames().size).toBe(0));
+    expect(w.fm.stop).toHaveBeenCalledTimes(2);
   });
 
   it('should write a second-volume upload into that volume and nothing into the first', async () => {
@@ -155,7 +263,7 @@ describe('folder upload against a fake FileBrowser helper', () => {
     expect(r.last.phase).toBe('cancelled');
     expect(r.server.requests.filter((q) => q.method === 'POST' && q.url.startsWith('/api/resources'))).toEqual([]);
     expect(r.server.files.get('/saves/Data/b.txt')).toBe(2);
-    expect(r.fm.stop).toHaveBeenCalledWith('minecraft');
+    await vi.waitFor(() => expect(r.fm.stop).toHaveBeenCalledWith('minecraft'));
   });
 
   it('should not prompt when the volume has no differing files', async () => {

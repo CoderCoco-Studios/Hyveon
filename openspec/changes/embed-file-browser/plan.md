@@ -371,16 +371,16 @@ Branch from PR 2's branch. Covers tasks.md 3.1–3.9.
 - Produces on `EcsService`: `tagTask(cluster: string, taskArn: string, tags: { key: string; value: string }[]): Promise<void>` (`TagResourceCommand`; logs and rethrows a plain `Error`).
 - `start()` calls `launchHelper(game, { runId: BROWSE_RUN_ID, tls: false })` (legacy modal, deleted in PR 5). `startForUpload` is deleted in Task 12.
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `should launch with TLS container settings when tls is true` — `containerDefinitions[0].entryPoint` equals `['sh', '-c']` and outcome carries `cert.fingerprint256`.
   - `should apply the given tags plus the operator IP tag` — `runTask` tags equal `[{ key: 'Purpose', value: 'seed-upload' }, { key: 'Project', value: 'hyveon' }, { key: 'OperatorIp', value: '203.0.113.7' }]` for `tags: UPLOAD_TAGS`.
   - `should report autoStopAt two hours after launch` — with `vi.setSystemTime`, `autoStopAt - startedAt === 2 * 60 * 60 * 1000`.
   - `should re-authorize a new operator IP and revoke the old rule` — two helpers tagged `198.51.100.1`; after `reauthorizeOperatorIp(game, 'browse', arn, '198.51.100.2')`: `authorizeIngress` called with `'198.51.100.2/32'`, `tagTask` with `OperatorIp=198.51.100.2`, and the `198.51.100.1/32` rule kept only while the other helper still carries that tag.
   - `EcsService`: `should tag a task` / `should throw a plain Error when tagging fails` (aws-sdk-client-mock on `TagResourceCommand`).
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FileManagerService.test.ts packages/desktop-main/src/services/EcsService.test.ts` → FAIL.
-- [ ] **Step 3: Implement**; keep exactly one launch body (no copy for browse vs upload).
-- [ ] **Step 4: Run** → PASS (existing browse/upload launch tests updated to the new entry point).
-- [ ] **Step 5: Commit** — `refactor(desktop-main): expose helper launch and IP re-authorization primitives`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FileManagerService.test.ts packages/desktop-main/src/services/EcsService.test.ts` → FAIL.
+- [x] **Step 3: Implement**; keep exactly one launch body (no copy for browse vs upload).
+- [x] **Step 4: Run** → PASS (existing browse/upload launch tests updated to the new entry point).
+- [x] **Step 5: Commit** — `refactor(desktop-main): expose helper launch and IP re-authorization primitives`.
 
 ### Task 11: `HelperSessionRegistry` core: holders, grace, stop, orphan (tasks.md 3.2, 3.8)
 
@@ -424,7 +424,7 @@ export class HelperSessionRegistry {
 - `status()` with no entry: `not_deployed` when stack outputs are absent, `orphaned` when `listHelperTask(game)` returns a task, else `stopped`. With an entry in `running`: if `listHelperTask` returns null or a different `taskArn`, transition to `failed` with `getHelperStopReason(taskArn)` and drop the backend.
 - Teardown (last holder gone, `stop`, `stopAll`): close backend, `fileManager.stop(game)`, delete entry, emit `stopped`. A `failed` launch removes the entry and emits `failed` with the error; the next `status()` reports `failed` once (kept in a `lastError` map until the next `acquire`).
 
-- [ ] **Step 1: Write the failing tests** with a `Partial<FileManagerService>` stub (`launchHelper` resolves `{ ok: true, taskArn: 'arn:t1', credentials, cert, operatorIp: '203.0.113.7', startedAt: 0, autoStopAt: 7_200_000, scheduleWarning: '' }`), `getHelperPublicIp` → `'127.0.0.1'`, a `fakeBackend()` factory, and fake timers:
+- [x] **Step 1: Write the failing tests** with a `Partial<FileManagerService>` stub (`launchHelper` resolves `{ ok: true, taskArn: 'arn:t1', credentials, cert, operatorIp: '203.0.113.7', startedAt: 0, autoStopAt: 7_200_000, scheduleWarning: '' }`), `getHelperPublicIp` → `'127.0.0.1'`, a `fakeBackend()` factory, and fake timers:
   - `should share one launch between concurrent acquires` — two `acquire('mc','browse')` + `acquire('mc','upload:r1')` in parallel → `launchHelper` called once; snapshot `{ state: 'running', browseHeld: true, uploadHolders: 1 }`.
   - `should keep the helper while another holder remains` — release `upload:r1` → `fileManager.stop` not called.
   - `should stop the helper after the browse grace period` — release `browse` as last holder; advance `5 * 60 * 1000 - 1` → not stopped; advance `1` → `fileManager.stop('mc')` called once, snapshot `stopped`.
@@ -436,10 +436,10 @@ export class HelperSessionRegistry {
   - `should restart an orphan by stopping it and launching a fresh session` — `restart('mc')` → `fileManager.stop` then `launchHelper`.
   - `should report failed when the session task disappears from ECS` — running entry, `listHelperTask` → null, `getHelperStopReason` → `'Essential container exited'` → `{ state: 'failed', error: expect.stringContaining('Essential container exited') }`.
   - `should not expose credentials, cert or address in a snapshot` — `JSON.stringify(await status('mc'))` matches none of `/password|credential|cert|fingerprint|127\.0\.0\.1|https?:/i`.
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles/HelperSessionRegistry.test.ts` → FAIL.
-- [ ] **Step 3: Implement** (readiness can call a private `waitUntilReady` that Task 12 fills in; for this task it resolves after `connect()`).
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `feat(desktop-main): add the helper session registry`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/volumeFiles/HelperSessionRegistry.test.ts` → FAIL.
+- [x] **Step 3: Implement** (readiness can call a private `waitUntilReady` that Task 12 fills in; for this task it resolves after `connect()`).
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `feat(desktop-main): add the helper session registry`.
 
 ### Task 12: Readiness over pinned TLS and operator-IP recovery (tasks.md 3.3, 3.4, 3.8)
 
@@ -454,15 +454,15 @@ export class HelperSessionRegistry {
   - on `VolumeFileError` code `unreachable` from `op`: `detect()` the IP; if it differs from the entry's `operatorIp`, `reauthorizeOperatorIp`, update the entry, retry `op` once; otherwise rethrow.
   - a `pin-mismatch` error fails the session (`failed`, backend dropped) and rethrows.
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `should stay starting until the backend accepts the login` — `connect` rejects `unreachable` twice then resolves; snapshot during the wait is `starting`; final `running`.
   - `should stay starting while the task has no public IP` — `getHelperPublicIp` → `null`, `null`, `'127.0.0.1'`.
   - `should fail with the stop reason when the task exits during start` — `getHelperPublicIp` throws `Error('The file manager helper stopped before it was reachable: CannotPullContainerError')` → `{ ok: false, code: 'failed', message: expect.stringContaining('CannotPullContainerError') }` and snapshot `failed`.
   - `should fail closed on a pin mismatch without retrying login` — `connect` rejects `PinMismatchError` → one `connect` call, `failed`.
   - `should re-authorize and retry once when the operator IP changed` — `op` rejects `unreachable` once; `detect` → new IP; `reauthorizeOperatorIp` called with it; `op` called twice; result returned.
   - `should not retry when the IP is unchanged` — `op` called once; rejects `unreachable`.
-- [ ] **Step 2: Run to verify failure**, **Step 3: implement**, **Step 4: run** — same command as Task 11 → PASS.
-- [ ] **Step 5: Commit** — `feat(desktop-main): define helper readiness as an authenticated pinned round-trip`.
+- [x] **Step 2: Run to verify failure**, **Step 3: implement**, **Step 4: run** — same command as Task 11 → PASS.
+- [x] **Step 5: Commit** — `feat(desktop-main): define helper readiness as an authenticated pinned round-trip`.
 
 ### Task 13: Folder upload on the registry, sweep exclusion, quit hook (tasks.md 3.5, 3.6, 3.7, 3.8)
 
@@ -482,7 +482,7 @@ export class HelperSessionRegistry {
   - `installHelperQuitHook(app: QuitApp, registry: Pick<HelperSessionRegistry, 'ownedGames' | 'stopAll'>, timeoutMs = 5000): void` where `QuitApp = { on(event: 'before-quit', fn: (e: { preventDefault(): void }) => void): void; quit(): void }`. With no owned games it does nothing (so `electron-clean-quit.spec.ts` is unaffected); otherwise `preventDefault()` once, `Promise.race([stopAll(), timeout])`, log the outcome, then `quit()`; a second `before-quit` passes through.
   - `electron-entry.ts` calls `installHelperQuitHook(app, nestApp.get(HelperSessionRegistry))` after bootstrap.
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
   - `FolderUploadService`: `should reuse the browse session instead of refusing` — registry stub `status` → `running`; `startUpload` → `{ started: true }`; `acquire` called with holder `upload:<runId>`.
   - `should refuse with a restart message when an orphaned helper exists` — `{ started: false, error: expect.stringMatching(/already open.*Restart/) }`.
   - `should release its hold on success, failure and cancel` — three runs; `release` called with `upload:<runId>` each time.
@@ -490,10 +490,10 @@ export class HelperSessionRegistry {
   - `should exclude registry-owned games from the stray sweep` — `ownedGames` → `{'mc'}`; `sweepStrayHelpers` called with `activeGames` containing `'mc'`.
   - `helper-quit-hook`: `should not delay quit when no helpers are owned`; `should stop owned helpers before quitting` (`preventDefault` once, `stopAll` awaited, `quit` called once); `should quit after the timeout when stopAll never settles` (fake timers, `stopAll` never resolves, advance `5000` → `quit` called).
   - `FolderUpload.integration.test.ts`: wire a real `HelperSessionRegistry` with the stubbed `FileManagerService` and the real `FileBrowserClientFactory` against `startFakeFileBrowser`; existing scenarios (upload, resume, pin mismatch, overwrite) stay green, plus `should leave an existing browse session running after the upload` (pre-`acquire('mc','browse')`; after the run `fileManager.stop` not called).
-- [ ] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FolderUpload packages/desktop-main/src/helper-quit-hook.test.ts` → FAIL.
-- [ ] **Step 3: Implement**.
-- [ ] **Step 4: Run** → PASS; then `npm run app:test` → exit 0.
-- [ ] **Step 5: Commit** — `feat(desktop-main): share the helper session between browsing and folder upload`.
+- [x] **Step 2: Run to verify failure** — `cd app && npx vitest run packages/desktop-main/src/services/FolderUpload packages/desktop-main/src/helper-quit-hook.test.ts` → FAIL.
+- [x] **Step 3: Implement**.
+- [x] **Step 4: Run** → PASS; then `npm run app:test` → exit 0.
+- [x] **Step 5: Commit** — `feat(desktop-main): share the helper session between browsing and folder upload`.
 
 ### Task 14: Tier-2 wiring test and PR 3 docs (tasks.md 3.8, 3.9)
 
@@ -501,10 +501,10 @@ export class HelperSessionRegistry {
 - Create: `app/packages/web/e2e/integration-specs/helper-session.spec.ts`
 - Modify: `docs/docs/components/management-app.md`, `docs/docs/architecture.md` (through the `write-docs` skill)
 
-- [ ] **Step 1: Write the spec** using `{ test, expect }` from `./index.js`: resolve `HelperSessionRegistry` from the in-process container; script `ServerMocks` for one `RunTask`, `DescribeTasks` (RUNNING with an ENI), `DescribeNetworkInterfaces` (no public IP) and assert `should report starting while the helper has no public IP` via `registry.status('minecraft')`, and `should report orphaned for an unowned helper` by seeding a `filemgr-minecraft` task with no prior acquire.
-- [ ] **Step 2: Run** `npm run app:test:integration` → the new spec passes along with the existing ones (exit 0).
-- [ ] **Step 3: Docs** — `write-docs` skill: registry, TLS for every helper session, upload reuse/Restart, quit hook, sweep exclusion (`management-app.md`); helper transport and the secrets boundary (`architecture.md`).
-- [ ] **Step 4: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration` → exit 0.
+- [x] **Step 1: Write the spec** using `{ test, expect }` from `./index.js`: resolve `HelperSessionRegistry` from the in-process container; script `ServerMocks` for one `RunTask`, `DescribeTasks` (RUNNING with an ENI), `DescribeNetworkInterfaces` (no public IP) and assert `should report starting while the helper has no public IP` via `registry.status('minecraft')`, and `should report orphaned for an unowned helper` by seeding a `filemgr-minecraft` task with no prior acquire.
+- [x] **Step 2: Run** `npm run app:test:integration` → the new spec passes along with the existing ones (exit 0).
+- [x] **Step 3: Docs** — `write-docs` skill: registry, TLS for every helper session, upload reuse/Restart, quit hook, sweep exclusion (`management-app.md`); helper transport and the secrets boundary (`architecture.md`).
+- [x] **Step 4: Gate** — `npm run app:lint && npm run app:typecheck && npm run app:test && npm run app:test:integration` → exit 0.
 - [ ] **Step 5: Commit** — `docs: document the helper session registry`. Open PR 3 with `/pr` (base: PR 2 branch).
 
 ---

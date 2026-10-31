@@ -34,15 +34,15 @@ Execution is subagent-driven (plan.md).
 
 ## 3. PR 3 — `feat(desktop-main)`: helper session registry with TLS browse sessions
 
-- [ ] 3.1 Extract the launch/teardown bodies of `FileManagerService` (`launchHelper`, `listHelperTask`) so both the legacy `start()` and the registry call them, with no duplicated launch code.
-- [ ] 3.2 Add `HelperSessionRegistry` with `acquire(game, holder)` (concurrent acquires share one launch), `attach(game)`/`release(game, holder)` (the browse holder's grace timer is configurable, default 5 min; attach cancels it), `stop(game)`, `restart(game)`, `status(game)`, the `orphaned` detection for an ECS helper with no registry entry, and the `failed` state (launch failure or a session task that disappeared, with the ECS stop reason). Each entry holds the launch's volume layout.
-- [ ] 3.3 Registry-launched sessions always use `buildTlsContainerSettings`. Readiness = task RUNNING, public IP present, and a successful backend login over the pinned connection. Surface the stop reason on early exit.
-- [ ] 3.4 On connect failure, re-detect the operator IP. If it changed, authorize the new `/32`, re-tag the helper task's `OperatorIp` with the new address (new `EcsService.tagTask`), revoke the orphaned rules through the existing reference-counted revoke, and retry once.
-- [ ] 3.5 Make `FolderUploadService` acquire/release a registry session (holder = run id) instead of `startForUpload` + `stop`. Replace the `helper-open` refusal with "reuse if registry-held, Restart if orphaned". Keep upload tags on helpers the upload launched. A forced session stop cancels the upload run.
-- [ ] 3.6 Make `sweepStrayHelpers` skip helpers owned by a registry session as well as active runs.
-- [ ] 3.7 Add a `before-quit` hook that stops registry-owned helpers with a bounded timeout, without blocking quit indefinitely, and without delaying quit when no helper is owned.
-- [ ] 3.8 Add unit tests: refcount, concurrent acquire, grace expiry and cancel-on-attach, stop with an active upload, quit, orphan, failed, IP re-authorization with re-tag, sweep exclusion. Add integration-tier wiring tests in the in-process Nest container.
-- [ ] 3.9 Docs: `docs/docs/components/management-app.md` (registry, TLS for all helper sessions) and `docs/docs/architecture.md` (helper transport, secrets boundary), via the `write-docs` skill.
+- [x] 3.1 Extract the launch/teardown bodies of `FileManagerService` (`launchHelper`, `listHelperTask`) so both the legacy `start()` and the registry call them, with no duplicated launch code.
+- [x] 3.2 Add `HelperSessionRegistry` with `acquire(game, holder)` (concurrent acquires share one launch), `attach(game)`/`release(game, holder)` (the browse holder's grace timer is configurable, default 5 min; attach cancels it), `stop(game)`, `restart(game)`, `status(game)`, the `orphaned` detection for an ECS helper with no registry entry, and the `failed` state (launch failure or a session task that disappeared, with the ECS stop reason). Each entry holds the launch's volume layout.
+- [x] 3.3 Registry-launched sessions always use `buildTlsContainerSettings`. Readiness = task RUNNING, public IP present, and a successful backend login over the pinned connection. Surface the stop reason on early exit.
+- [x] 3.4 On connect failure, re-detect the operator IP. If it changed, authorize the new `/32`, re-tag the helper task's `OperatorIp` with the new address (new `EcsService.tagTask`), revoke the orphaned rules through the existing reference-counted revoke, and retry once.
+- [x] 3.5 Make `FolderUploadService` acquire/release a registry session (holder = run id) instead of `startForUpload` + `stop`. Replace the `helper-open` refusal with "reuse if registry-held, Restart if orphaned". Keep upload tags on helpers the upload launched. A forced session stop cancels the upload run.
+- [x] 3.6 Make `sweepStrayHelpers` skip helpers owned by a registry session as well as active runs.
+- [x] 3.7 Add a `before-quit` hook that stops registry-owned helpers with a bounded timeout, without blocking quit indefinitely, and without delaying quit when no helper is owned.
+- [x] 3.8 Add unit tests: refcount, concurrent acquire, grace expiry and cancel-on-attach, stop with an active upload, quit, orphan, failed, IP re-authorization with re-tag, sweep exclusion. Add integration-tier wiring tests in the in-process Nest container.
+- [x] 3.9 Docs: `docs/docs/components/management-app.md` (registry, TLS for all helper sessions) and `docs/docs/architecture.md` (helper transport, secrets boundary), via the `write-docs` skill.
 
 ## 4. PR 4 — `feat(app)`: volumeFiles IPC surface and preload API
 

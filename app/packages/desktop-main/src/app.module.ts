@@ -12,6 +12,7 @@ import { PulumiServiceModule } from './modules/pulumi-service.module.js';
 import { WizardModule } from './modules/wizard.module.js';
 import { ElectronStoreModule } from './modules/electron-store.module.js';
 import { FolderUploadModule } from './modules/folder-upload.module.js';
+import { VolumeFilesModule } from './modules/volume-files.module.js';
 import { GamesController } from './controllers/games.controller.js';
 import { CostsController } from './controllers/costs.controller.js';
 import { LogsController } from './controllers/logs.controller.js';
@@ -73,6 +74,7 @@ import { WindowService } from './services/WindowService.js';
     WizardModule,
     ElectronStoreModule,
     FolderUploadModule,
+    VolumeFilesModule,
   ],
   controllers: [
     GamesController,

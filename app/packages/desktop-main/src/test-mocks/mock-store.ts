@@ -23,22 +23,26 @@ export interface MockResponse {
  *  - DescribeTasks → \{ tasks: [] \}
  *  - RunTask      → \{ tasks: [\{ taskArn: 'arn:aws:ecs:us-east-1:123:task/test-cluster/test-task-id' \}] \}
  *  - StopTask     → \{\}
+ *  - DescribeNetworkInterfaces → \{ NetworkInterfaces: [] \} (no ENI is returned, so `Ec2Service.getPublicIp` yields `null`)
  */
 class MockStore {
   private listTasksQueue: MockResponse[] = [];
   private describeTasksQueue: MockResponse[] = [];
   private runTaskQueue: MockResponse[] = [];
   private stopTaskQueue: MockResponse[] = [];
+  private describeNetworkInterfacesQueue: MockResponse[] = [];
 
   pushListTasks(r: MockResponse): void     { this.listTasksQueue.push(r); }
   pushDescribeTasks(r: MockResponse): void { this.describeTasksQueue.push(r); }
   pushRunTask(r: MockResponse): void       { this.runTaskQueue.push(r); }
   pushStopTask(r: MockResponse): void      { this.stopTaskQueue.push(r); }
+  pushDescribeNetworkInterfaces(r: MockResponse): void { this.describeNetworkInterfacesQueue.push(r); }
 
   dequeueListTasks(): MockResponse | null     { return this.listTasksQueue.shift() ?? null; }
   dequeueDescribeTasks(): MockResponse | null { return this.describeTasksQueue.shift() ?? null; }
   dequeueRunTask(): MockResponse | null       { return this.runTaskQueue.shift() ?? null; }
   dequeueStopTask(): MockResponse | null      { return this.stopTaskQueue.shift() ?? null; }
+  dequeueDescribeNetworkInterfaces(): MockResponse | null { return this.describeNetworkInterfacesQueue.shift() ?? null; }
 
   /** Clear all queues — called between tests in-process via the `ServerMocks`/`IpcHarness` fixtures. */
   reset(): void {
@@ -46,6 +50,7 @@ class MockStore {
     this.describeTasksQueue = [];
     this.runTaskQueue = [];
     this.stopTaskQueue = [];
+    this.describeNetworkInterfacesQueue = [];
   }
 }
 

@@ -5,16 +5,28 @@ import {
   DescribeTasksCommand,
   RunTaskCommand,
   StopTaskCommand,
+  DescribeTaskDefinitionCommand,
+  RegisterTaskDefinitionCommand,
+  DeregisterTaskDefinitionCommand,
+  TagResourceCommand,
 } from '@aws-sdk/client-ecs';
 import { mockStore } from './mock-store.js';
+
+/** Execution role `DescribeTaskDefinition` reports for every game's task definition. */
+const MOCK_EXECUTION_ROLE_ARN = 'arn:aws:iam::123456789012:role/test-execution';
+/** ARN `RegisterTaskDefinition` reports for the helper's throwaway task definition. */
+const MOCK_HELPER_TASK_DEFINITION_ARN = 'arn:aws:ecs:us-east-1:123456789012:task-definition/filebrowser-test:1';
 
 /**
  * Installs `aws-sdk-client-mock` interceptors on the `ECSClient` prototype,
  * wired to the shared {@link mockStore} FIFO queues (`ListTasks`,
- * `DescribeTasks`, `RunTask`, `StopTask`).
+ * `DescribeTasks`, `RunTask`, `StopTask`). The task-definition and tagging
+ * commands the file-manager helper launch issues (`DescribeTaskDefinition`,
+ * `RegisterTaskDefinition`, `DeregisterTaskDefinition`, `TagResource`) have
+ * fixed success responses and no queue.
  *
  * Extracted so the in-process IPC test harness (`e2e/fixtures/ipc-harness.ts`)
- * can patch `ECSClient` without duplicating the four command handlers.
+ * can patch `ECSClient` without duplicating the command handlers.
  *
  * `EcsService` creates its `ECSClient` lazily (on first request), so patching
  * the *prototype* is sufficient — this only needs to run once, before the
@@ -72,6 +84,13 @@ export function installEcsMock(): AwsClientStub<ECSClient> {
     }
     return (next?.data as object | undefined) ?? {};
   });
+
+  ecsMock.on(DescribeTaskDefinitionCommand).resolves({
+    taskDefinition: { cpu: '1024', memory: '2048', executionRoleArn: MOCK_EXECUTION_ROLE_ARN },
+  });
+  ecsMock.on(RegisterTaskDefinitionCommand).resolves({ taskDefinition: { taskDefinitionArn: MOCK_HELPER_TASK_DEFINITION_ARN } });
+  ecsMock.on(DeregisterTaskDefinitionCommand).resolves({});
+  ecsMock.on(TagResourceCommand).resolves({});
 
   return ecsMock;
 }

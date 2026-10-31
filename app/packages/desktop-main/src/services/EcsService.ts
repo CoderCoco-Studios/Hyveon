@@ -5,6 +5,7 @@ import {
   DescribeTasksCommand,
   RunTaskCommand,
   StopTaskCommand,
+  TagResourceCommand,
   DeregisterTaskDefinitionCommand,
   DescribeTaskDefinitionCommand,
   type Task,
@@ -475,6 +476,25 @@ export class EcsService {
     } catch (err) {
       logger.error('Failed to list tasks by startedBy', { err, startedBy });
       return [];
+    }
+  }
+
+  /**
+   * Applies `tags` to a running task, replacing the value of any key already present.
+   *
+   * @param cluster - Cluster the task runs in; only used for log context, the SDK call is keyed by ARN.
+   * @param taskArn - ARN of the task to tag.
+   * @param tags - Tags to set.
+   * @throws Error carrying only the SDK message when `TagResource` fails.
+   */
+  async tagTask(cluster: string, taskArn: string, tags: { key: string; value: string }[]): Promise<void> {
+    logger.debug('EcsService.tagTask: tagging task', { cluster, taskArn, keys: tags.map((t) => t.key) });
+    try {
+      await this.getClient().send(new TagResourceCommand({ resourceArn: taskArn, tags }));
+    } catch (err) {
+      const message = errMessage(err);
+      logger.error('EcsService.tagTask: failed to tag task', { cluster, taskArn, error: message });
+      throw new Error(message);
     }
   }
 

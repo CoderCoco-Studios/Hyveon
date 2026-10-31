@@ -169,6 +169,8 @@ export default tseslint.config(
       'packages/desktop-main/src/services/AwsProfileService.ts',
       'packages/desktop-main/src/services/AwsProfileService.test.ts',
       'packages/desktop-main/src/test-mocks/ecs-mock.ts',
+      'packages/desktop-main/src/test-mocks/ec2-mock.ts',
+      'packages/desktop-main/src/test-mocks/scheduler-mock.ts',
       'packages/desktop-main/src/test-mocks/run-record-mock.ts',
       'packages/desktop-main/src/test-mocks/remote-file-store-mock.ts',
       // Tier-2 integration spec for the wizard.guidedIam.* IPC channels
