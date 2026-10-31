@@ -57,6 +57,7 @@ describe('PendingChangesBanner', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
+  // @spec CONFIG-BANNER-004
   it('should become visible with accurate counts per drift category', async () => {
     apiMock.drift.mockResolvedValue(mixedReport());
 
@@ -73,6 +74,7 @@ describe('PendingChangesBanner', () => {
     expect(banner).toHaveTextContent('2 to update');
   });
 
+  // @spec CONFIG-BANNER-005
   it('should hide the banner after it is dismissed', async () => {
     apiMock.drift.mockResolvedValue(mixedReport());
 
@@ -87,6 +89,7 @@ describe('PendingChangesBanner', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
+  // @spec CONFIG-BANNER-001, CONFIG-BANNER-005
   it('should reappear once a subsequent poll returns a changed report', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     apiMock.drift.mockResolvedValue(mixedReport());
@@ -119,6 +122,7 @@ describe('PendingChangesBanner', () => {
     expect(screen.getByRole('status')).toHaveTextContent('5 changes pending');
   });
 
+  // @spec CONFIG-BANNER-005
   it('should keep the dismissal after the component unmounts and remounts (e.g. Dashboard <-> Games navigation)', async () => {
     apiMock.drift.mockResolvedValue(mixedReport());
 
@@ -144,6 +148,7 @@ describe('PendingChangesBanner', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
+  // @spec CONFIG-BANNER-005
   it('should clear the stored dismissal once a poll returns a clean (empty) report', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     apiMock.drift.mockResolvedValue(mixedReport());
@@ -182,6 +187,7 @@ describe('PendingChangesBanner', () => {
     });
   });
 
+  // @spec CONFIG-BANNER-003
   it('should stay hidden when the drift poll fails', async () => {
     apiMock.drift.mockRejectedValue(new Error('network error'));
 

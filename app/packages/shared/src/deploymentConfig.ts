@@ -24,6 +24,7 @@
 import type { GameServerConfig } from './gameServerConfig.js';
 import type { RemoteFileStore } from './cloud.js';
 
+// @spec CONFIG-MODEL-005
 /**
  * S3 object key the canonical {@link DeploymentConfig} JSON is stored under
  * inside the operator's configuration bucket. Shared by `DeploymentConfigService`
@@ -34,6 +35,7 @@ import type { RemoteFileStore } from './cloud.js';
  */
 export const CONFIGURATION_OBJECT_KEY = 'deployment-config.json';
 
+// @spec CONFIG-MODEL-001, CONFIG-MODEL-003, CONFIG-MODEL-004
 /**
  * Full deployment configuration: the top-level settings the Pulumi program
  * derives shared infrastructure from, plus the per-game map it iterates to
@@ -246,6 +248,7 @@ export const DEPLOYMENT_CONFIG_DEFAULTS: Readonly<
   runsTableName: '',
 });
 
+// @spec CONFIG-MODEL-007
 /**
  * Resolves {@link DeploymentConfig.runsTableName}'s effective table name. Exported so
  * `BootstrapService.ensureRunsTable`, `@hyveon/infra`, and `RunRecordService` never fork this
@@ -261,6 +264,7 @@ export function resolveRunsTableName(projectName: string, runsTableNameOverride:
   return runsTableNameOverride !== '' ? runsTableNameOverride : `${projectName}-runs`;
 }
 
+// @spec CONFIG-MODEL-008
 /**
  * Pre-apply fallback for the runs table's name: reads the persisted
  * {@link DeploymentConfig} JSON document directly via `remoteFileStore` and
@@ -297,6 +301,7 @@ export async function resolvePreApplyRunsTableName(remoteFileStore: RemoteFileSt
 }
 
 // @spec RT-WATCHDOG-CFG-006
+// @spec CONFIG-MODEL-006
 /**
  * Fills in every {@link DeploymentConfig} field that has a static default
  * (see {@link DEPLOYMENT_CONFIG_DEFAULTS}) when the caller omits it, while
@@ -435,6 +440,7 @@ function valuesDiffer(a: unknown, b: unknown): boolean {
   return canonicalJson(a) !== canonicalJson(b);
 }
 
+// @spec CONFIG-RBDIFF-001
 /**
  * Compares two parsed {@link DeploymentConfig} objects and returns a
  * structural summary of how they differ, for the `iac-rollback` confirmation

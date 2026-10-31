@@ -105,6 +105,7 @@ const FULL_CONFIG = {
 } satisfies DeploymentConfig;
 
 describe('DeploymentConfig', () => {
+  // @spec CONFIG-WRITE-002
   it('should survive a JSON write-then-read deeply equal, including boolean and numeric fields', () => {
     const roundTripped = JSON.parse(JSON.stringify(FULL_CONFIG)) as DeploymentConfig;
 
@@ -210,6 +211,7 @@ describe('DEPLOYMENT_CONFIG_DEFAULTS', () => {
   });
 });
 
+// @spec CONFIG-MODEL-006
 describe('withDeploymentConfigDefaults', () => {
   it('should fill in every defaulted field when only the required fields are supplied', () => {
     const result = withDeploymentConfigDefaults({
@@ -282,6 +284,7 @@ describe('withDeploymentConfigDefaults', () => {
   });
 });
 
+// @spec CONFIG-RBDIFF-001
 describe('diffDeploymentConfig', () => {
   it('should report no changes for two structurally identical configs', () => {
     const previous = FULL_CONFIG;

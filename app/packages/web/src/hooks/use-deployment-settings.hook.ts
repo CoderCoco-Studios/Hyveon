@@ -183,6 +183,7 @@ function hasSettingsBridge(): boolean {
   return !!window.hyveon?.iac?.settings;
 }
 
+// @spec CONFIG-FORM-001, CONFIG-FORM-002, CONFIG-FORM-003, CONFIG-FORM-004, CONFIG-FORM-005
 /** Owns the deployment-settings load/save state machine — see the module doc for the full contract. */
 export function useDeploymentSettings(): UseDeploymentSettingsResult {
   const [etag, setEtag] = useState<string | undefined>(undefined);

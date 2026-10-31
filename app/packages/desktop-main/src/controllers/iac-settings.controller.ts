@@ -122,6 +122,7 @@ export class IacSettingsController implements OnModuleInit {
     );
   }
 
+  // @spec CONFIG-SET-001, CONFIG-SET-002, CONFIG-SET-010
   /**
    * Returns the current top-level deployment settings plus the etag to
    * round-trip as {@link update}'s `expectedVersionId` — see
@@ -144,6 +145,7 @@ export class IacSettingsController implements OnModuleInit {
     }
   }
 
+  // @spec CONFIG-SET-002, CONFIG-SET-004, CONFIG-SET-005, CONFIG-SET-007, CONFIG-SET-008, CONFIG-SET-010
   /**
    * Validates `payload.patch` via {@link validateDeploymentSettingsPatch}
    * and, if it passes, delegates to

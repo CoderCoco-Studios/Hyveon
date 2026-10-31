@@ -219,6 +219,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// @spec CONFIG-STORE-001, CONFIG-STORE-002, CONFIG-WRITE-001
 /**
  * Local-vs-S3 deployment-config reader/parser — see the file-level doc
  * comment above for source resolution, parsing, and caching behaviour.
@@ -259,6 +260,7 @@ export class DeploymentConfigService {
     return Date.now();
   }
 
+  // @spec CONFIG-READ-006
   /**
    * Drop the in-memory cache so the next `getGameServers()` call re-reads
    * from disk/S3 instead of returning a stale parse. Called after a config
@@ -269,6 +271,7 @@ export class DeploymentConfigService {
     this.cacheGeneration += 1;
   }
 
+  // @spec CONFIG-READ-011
   /**
    * Reports whether a configuration bucket is currently configured — i.e.
    * whether setup is complete enough for this service to read/write real
@@ -285,6 +288,7 @@ export class DeploymentConfigService {
   }
 
   // @spec GAME-HTTPS-015
+  // @spec CONFIG-READ-004, CONFIG-READ-005, CONFIG-READ-007, CONFIG-READ-008
   /**
    * Returns the `gameServers` map from the deployment config JSON, parsed
    * into a `GameServer[]` (the map key is flattened onto each entry as
@@ -333,6 +337,7 @@ export class DeploymentConfigService {
     }
   }
 
+  // @spec CONFIG-READ-009
   /**
    * Returns the raw, unparsed deployment config JSON text plus a source
    * integrity marker: the `RemoteFileStore.get()` etag (as `etag`) — the same
@@ -353,6 +358,7 @@ export class DeploymentConfigService {
     return this.fetchRawConfig();
   }
 
+  // @spec CONFIG-RESTORE-001, CONFIG-RESTORE-002, CONFIG-RESTORE-003, CONFIG-WRITE-006
   /**
    * Restores `rawConfig` as the config source's new head version verbatim —
    * used by the rollback flow to write a prior version's exact bytes
@@ -390,6 +396,7 @@ export class DeploymentConfigService {
     return result;
   }
 
+  // @spec CONFIG-READ-010
   /**
    * Returns every top-level {@link DeploymentConfig} field EXCEPT
    * `gameServers` (see {@link TopLevelDeploymentSettings}), plus the
@@ -423,6 +430,7 @@ export class DeploymentConfigService {
     return { settings, etag };
   }
 
+  // @spec CONFIG-WRITE-004, CONFIG-WRITE-011, CONFIG-WRITE-012
   /**
    * Merges `patch` onto every top-level {@link DeploymentConfig} field
    * EXCEPT `gameServers` (see {@link TopLevelDeploymentSettings}) and writes
@@ -462,6 +470,7 @@ export class DeploymentConfigService {
   }
 
   // @spec GAME-VALID-007
+  // @spec CONFIG-WRITE-007, CONFIG-WRITE-008, CONFIG-WRITE-010
   /**
    * Adds a brand-new entry to the `gameServers` map. Reads
    * the current raw config JSON, splices `name` in as a new `gameServers`
@@ -493,6 +502,7 @@ export class DeploymentConfigService {
     return this.writeConfig(expectedVersionId, (raw) => this.insertGameServerEntry(raw, name, config));
   }
 
+  // @spec CONFIG-WRITE-009, CONFIG-WRITE-010
   /**
    * Replaces an existing `gameServers` entry's value in place. Reads
    * the current raw config JSON, replaces `name`'s value, and
@@ -523,6 +533,7 @@ export class DeploymentConfigService {
     return this.writeConfig(expectedVersionId, (raw) => this.replaceGameServerEntry(raw, name, config));
   }
 
+  // @spec CONFIG-WRITE-009, CONFIG-WRITE-010
   /**
    * Removes an entry from the `gameServers` map. Reads the
    * current raw config JSON, deletes `name`'s key, and writes the result
@@ -551,6 +562,7 @@ export class DeploymentConfigService {
     return this.writeConfig(expectedVersionId, (raw) => this.removeGameServerEntry(raw, name));
   }
 
+  // @spec CONFIG-READ-001, CONFIG-READ-002
   /**
    * Reads the raw config JSON text from the configured S3 configuration
    * bucket (`ConfigService.getConfigurationBucket()`). Throws
@@ -575,6 +587,7 @@ export class DeploymentConfigService {
     return { config: new TextDecoder().decode(obj.body), etag: obj.etag };
   }
 
+  // @spec CONFIG-WRITE-004, CONFIG-WRITE-006
   /**
    * Shared write path for {@link addGameServer}, {@link updateGameServer},
    * and {@link removeGameServer}: reads the current raw config JSON via
@@ -600,6 +613,7 @@ export class DeploymentConfigService {
     return result;
   }
 
+  // @spec CONFIG-READ-001, CONFIG-WRITE-005
   /**
    * Writes `raw` back to the configured S3 configuration bucket. Throws
    * {@link ConfigurationNotConfiguredError} when no bucket is configured —
@@ -780,6 +794,7 @@ export class DeploymentConfigService {
     throw new RunsTableRenameError(currentTableName, nextTableName, changedFields);
   }
 
+  // @spec CONFIG-WRITE-002, CONFIG-WRITE-003
   /**
    * Serializes `config` back to the JSON text persisted to disk/S3 — pretty
    * printed (two-space indent, trailing newline) so a hand-opened config
@@ -790,6 +805,7 @@ export class DeploymentConfigService {
     return JSON.stringify(config, null, 2) + '\n';
   }
 
+  // @spec CONFIG-READ-003
   /**
    * Parses raw deployment-config JSON text into a {@link DeploymentConfig}.
    * Wraps parse failures (malformed JSON, or a non-object top level) in a

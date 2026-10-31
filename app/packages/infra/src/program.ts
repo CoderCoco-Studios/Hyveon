@@ -123,6 +123,7 @@ export interface InfraResources {
 // @spec IAC-PROGRAM-FANOUT-001, IAC-PROGRAM-FANOUT-002, IAC-PROGRAM-FANOUT-003, IAC-PROGRAM-FANOUT-004
 // @spec IAC-PROGRAM-TLS-008
 // @spec GAME-TOKEN-006
+// @spec CONFIG-MODEL-002
 /**
  * Declares every resource this program's infrastructure graph covers and
  * wires them together: constructs the shared AWS provider, then calls each
