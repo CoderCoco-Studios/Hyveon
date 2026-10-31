@@ -60,6 +60,7 @@ describe('LogsPage', () => {
     hyveonMock.logs.stream.mockImplementation(toStreamHandleMock(async function* () {}));
   });
 
+  // @spec APP-LOGS-UI-001, APP-LOGS-UI-005
   it('should render the Server Logs heading and the LIVE badge', async () => {
     renderPage(<LogsPage />);
 
@@ -74,6 +75,7 @@ describe('LogsPage', () => {
     expect(screen.getByText(/Connection refused from 10.0.0.5/)).toBeInTheDocument();
   });
 
+  // @spec APP-LOGS-UI-005
   it('should toggle the Pause / Resume button and the LIVE / PAUSED badge', async () => {
     const user = userEvent.setup();
     renderPage(<LogsPage />);
@@ -88,6 +90,7 @@ describe('LogsPage', () => {
     expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
   });
 
+  // @spec APP-LOGS-RENDER-001
   it('should highlight matches inside <mark> when typing in the search input', async () => {
     const user = userEvent.setup();
     const { container } = renderPage(<LogsPage />);
@@ -104,6 +107,7 @@ describe('LogsPage', () => {
     expect(screen.getByText(/refused from 10.0.0.5/)).toBeInTheDocument();
   });
 
+  // @spec APP-LOGS-UI-005
   it('should display "5 lines · oldest …" in the footer for the seeded buffer', async () => {
     renderPage(<LogsPage />);
 
@@ -186,6 +190,7 @@ describe('LogsPage', () => {
       };
     }
 
+    // @spec APP-LOGS-ENGINE-015
     it('should not jump to the bottom on new lines once the user has scrolled away from it', async () => {
       const stream = createControllableStream();
       hyveonMock.logs.stream.mockImplementation(toStreamHandleMock(stream.gen));
@@ -207,6 +212,7 @@ describe('LogsPage', () => {
       expect(scrollTopSpy).not.toHaveBeenCalled();
     });
 
+    // @spec APP-LOGS-ENGINE-015
     it('should resume pinning to the bottom once the user scrolls back near it', async () => {
       const stream = createControllableStream();
       hyveonMock.logs.stream.mockImplementation(toStreamHandleMock(stream.gen));
@@ -245,6 +251,7 @@ describe('LogsPage — initial game preselection', () => {
     hyveonMock.logs.stream.mockImplementation(toStreamHandleMock(async function* () {}));
   });
 
+  // @spec APP-LOGS-UI-001
   it('should preselect the game named in location.state when it is present in the fetched list', async () => {
     renderPage(<LogsPage />, {
       initialEntries: [{ pathname: '/logs', state: { game: 'valheim' } }],
@@ -255,6 +262,7 @@ describe('LogsPage — initial game preselection', () => {
     ).toBeInTheDocument();
   });
 
+  // @spec APP-LOGS-UI-001
   it('should fall back to the first game in the list when location.state is absent', async () => {
     renderPage(<LogsPage />, { initialEntries: ['/logs'] });
 
@@ -263,6 +271,7 @@ describe('LogsPage — initial game preselection', () => {
     ).toBeInTheDocument();
   });
 
+  // @spec APP-LOGS-UI-001
   it('should fall back to the first game in the list when location.state.game names a game not in the list', async () => {
     renderPage(<LogsPage />, {
       initialEntries: [{ pathname: '/logs', state: { game: 'terraria' } }],

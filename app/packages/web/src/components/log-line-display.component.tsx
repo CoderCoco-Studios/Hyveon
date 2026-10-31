@@ -49,6 +49,7 @@ function sliceSegment(text: string, segStart: number, matches: MatchRange[]): Qu
 }
 
 // @spec APP-DIAG-ANSI-001, APP-DIAG-ANSI-002, APP-DIAG-ANSI-003, APP-DIAG-ANSI-004
+// @spec APP-LOGS-RENDER-001
 /** Render a single line, applying ANSI color/bold styling and splitting on case-insensitive search matches. Shared by `/logs` and the Diagnostics panel. */
 export function HighlightedLine({ text, query }: { text: string; query: string }) {
   const segments = useMemo(() => parseAnsiLine(text), [text]);

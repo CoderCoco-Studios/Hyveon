@@ -82,6 +82,7 @@ describe('AppLayout — skip link and nav landmarks', () => {
     expect(skipLink).toHaveAttribute('href', '#main');
   });
 
+  // @spec APP-LOGS-NAV-001, APP-LOGS-NAV-002
   it('should render a Logs group with Game Logs and Infra Logs child links', () => {
     render(
       <PollingProvider>
@@ -100,6 +101,7 @@ describe('AppLayout — skip link and nav landmarks', () => {
     expect(screen.getByRole('link', { name: 'Infra Logs' })).toHaveAttribute('href', '/logs/infrastructure');
   });
 
+  // @spec APP-LOGS-NAV-003
   it('should mark only the Game Logs child link active on /logs', () => {
     render(
       <PollingProvider>
@@ -112,6 +114,7 @@ describe('AppLayout — skip link and nav landmarks', () => {
     expect(screen.getByRole('link', { name: 'Infra Logs' })).not.toHaveAttribute('aria-current');
   });
 
+  // @spec APP-LOGS-NAV-003
   it('should mark only the Infra Logs child link active on /logs/infrastructure', () => {
     render(
       <PollingProvider>

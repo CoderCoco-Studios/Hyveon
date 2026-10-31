@@ -58,6 +58,7 @@ export const FG_COLOR_CLASS: Record<number, string> = {
 };
 
 // @spec APP-DIAG-ANSI-001, APP-DIAG-ANSI-002, APP-DIAG-ANSI-004
+// @spec APP-LOGS-RENDER-002
 /**
  * Parses a single line of terminal-style output into an ordered list of
  * styled segments.

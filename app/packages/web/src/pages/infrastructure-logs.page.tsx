@@ -31,6 +31,7 @@ function toLogTailApi(api: HyveonLambdaLogsApi): LogTailApi {
   };
 }
 
+// @spec APP-LOGS-UI-002, APP-LOGS-UI-003
 /**
  * Infrastructure Logs route (`/logs/infrastructure`) — live-tails CloudWatch
  * logs for a picked Lambda function. The tail engine itself is

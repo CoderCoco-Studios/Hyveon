@@ -8,6 +8,7 @@ import type { RecentLogsPage, OlderLogsPage, NewerLogsPage } from '../services/L
 import { logger } from '../logger.js';
 import { errMessage } from '@hyveon/shared';
 
+// @spec APP-LOGS-IPC-001, APP-LOGS-IPC-002
 /** IPC-only logs controller. Handles Electron main-process messages via
  * `@MessagePattern`.
  *
@@ -17,6 +18,7 @@ import { errMessage } from '@hyveon/shared';
 export class LogsController implements OnModuleInit {
   constructor(private readonly logs: LogsService) {}
 
+  // @spec APP-LOGS-IPC-003
   /**
    * Registers an `ipcMain.handle` bridge for `logs.stream` after Nest module
    * init, since `@MessagePattern` alone never calls `ipcMain.handle` and
@@ -119,6 +121,7 @@ export class LogsController implements OnModuleInit {
     }
   }
 
+  // @spec APP-LOGS-IPC-004, APP-LOGS-IPC-005, APP-LOGS-IPC-006, APP-LOGS-IPC-007, APP-LOGS-IPC-008
   /**
    * Opens a live log stream and returns an opaque `streamId` immediately.
    * Chunks are pushed to the renderer via `sender.send` on the

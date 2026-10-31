@@ -534,6 +534,8 @@ export class AwsCloudProvider implements CloudProvider {
     }
   }
 
+  // @spec APP-LOGS-GROUP-001, APP-LOGS-TAIL-001, APP-LOGS-TAIL-002, APP-LOGS-TAIL-004, APP-LOGS-TAIL-006
+  // @spec APP-LOGS-TAIL-008
   /**
    * Streams log chunks for a running game workload on AWS.
    *

@@ -185,6 +185,7 @@ export class LogsService {
     return this.getCachedClient({ region, credentials, credentialsSignature: signature });
   }
 
+  // @spec APP-LOGS-GROUP-001, APP-LOGS-TAIL-001
   /**
    * Async generator that yields new log lines as they arrive for `game`.
    * Delegates to the injected `CloudProvider`'s `streamWorkloadLogs` (bound
@@ -263,6 +264,7 @@ export class LogsService {
     }
   }
 
+  // @spec APP-LOGS-GROUP-001, APP-LOGS-SNAP-001, APP-LOGS-SNAP-002, APP-LOGS-SNAP-004
   /**
    * Return up to `limit` recent lines (each carrying its own CloudWatch
    * timestamp) from the most recently written log stream in
@@ -327,6 +329,7 @@ export class LogsService {
     return { lines };
   }
 
+  // @spec APP-LOGS-GROUP-001, APP-LOGS-PAGE-006
   /**
    * Returns up to `limit` CloudWatch events strictly older than
    * `beforeTimestamp`, paging backward across every log stream in
@@ -361,6 +364,7 @@ export class LogsService {
     );
   }
 
+  // @spec APP-LOGS-GROUP-001, APP-LOGS-PAGE-006
   /**
    * Returns up to `limit` CloudWatch events strictly newer than
    * `afterTimestamp`, paging forward across every log stream in
@@ -399,6 +403,7 @@ export class LogsService {
     );
   }
 
+  // @spec APP-LOGS-PAGE-001, APP-LOGS-PAGE-002, APP-LOGS-PAGE-003, APP-LOGS-PAGE-004, APP-LOGS-PAGE-005
   /**
    * Shared multi-stream paging loop backing {@link getOlderLogs} /
    * {@link getOlderLambdaLogs} (`direction: 'older'`) and {@link getNewerLogs} /
@@ -581,6 +586,7 @@ export class LogsService {
     return { streams, exhausted };
   }
 
+  // @spec APP-LOGS-GROUP-002, APP-LOGS-GROUP-003, APP-LOGS-GROUP-004, APP-LOGS-GROUP-006
   /**
    * Resolves the CloudWatch log group for one of the app's 5 Lambda
    * functions, using the operator's configured `projectName` (falling back
@@ -603,6 +609,7 @@ export class LogsService {
     return `/aws/lambda/${projectName}-${functionKey}`;
   }
 
+  // @spec APP-LOGS-SNAP-001, APP-LOGS-SNAP-002, APP-LOGS-SNAP-003, APP-LOGS-SNAP-004
   /**
    * Return up to `limit` recent lines (each carrying its own CloudWatch
    * timestamp), from the most recently written log stream in the resolved
@@ -638,6 +645,7 @@ export class LogsService {
     );
   }
 
+  // @spec APP-LOGS-PAGE-006, APP-LOGS-PAGE-007
   /**
    * Returns up to `limit` CloudWatch events strictly older than
    * `beforeTimestamp`, paging backward across every log stream in the
@@ -666,6 +674,7 @@ export class LogsService {
     );
   }
 
+  // @spec APP-LOGS-PAGE-006, APP-LOGS-PAGE-007
   /**
    * Returns up to `limit` CloudWatch events strictly newer than
    * `afterTimestamp`, paging forward across every log stream in the
@@ -702,6 +711,7 @@ export class LogsService {
     );
   }
 
+  // @spec APP-LOGS-TAIL-003, APP-LOGS-TAIL-004, APP-LOGS-TAIL-006, APP-LOGS-TAIL-008, APP-LOGS-TAIL-010
   /**
    * Async generator that yields new log lines as they arrive for the resolved
    * Lambda log group. Polls `FilterLogEvents` every `pollInterval` ms,

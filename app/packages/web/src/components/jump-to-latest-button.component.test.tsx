@@ -9,6 +9,7 @@ describe('JumpToLatestButton', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  // @spec APP-LOGS-UI-006
   it('should render a "Jump to latest" button when hasNewer is true', () => {
     render(<JumpToLatestButton hasNewer onClick={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Jump to latest' })).toBeInTheDocument();

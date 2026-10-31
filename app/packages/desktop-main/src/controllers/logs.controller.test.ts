@@ -93,6 +93,7 @@ describe('LogsController', () => {
   // @MessagePattern channel name registration
 
   describe('@MessagePattern channel names', () => {
+    // @spec APP-LOGS-IPC-001
     it('should register every channel', () => {
       expectChannels(LogsController.prototype, [
         ['getRecentLogs', 'logs.get'],
@@ -135,6 +136,7 @@ describe('LogsController', () => {
       expect(mockIpcMainRemoveHandler).not.toHaveBeenCalled();
     });
 
+    // @spec APP-LOGS-IPC-003
     it('should register ipcMain.handle for "logs.stream" so ipcRenderer.invoke can resolve', async () => {
       // onModuleInit bridges the gap between @MessagePattern (transport-internal
       // dispatch only) and ipcMain.handle (required by ipcRenderer.invoke). Without
@@ -155,6 +157,7 @@ describe('LogsController', () => {
       );
     });
 
+    // @spec APP-LOGS-IPC-003
     it('should register ipcMain.handle for "logs.lambda.stream" so ipcRenderer.invoke can resolve', async () => {
       await new LogsController(makeLogs()).onModuleInit();
       expect(mockIpcMainHandle).toHaveBeenCalledWith('logs.lambda.stream', expect.any(Function));
@@ -190,6 +193,7 @@ describe('LogsController', () => {
   // getOlderLogs
 
   describe('getOlderLogs', () => {
+    // @spec APP-LOGS-IPC-002
     it('should log an entry line naming the game before invoking', async () => {
       const { logger } = await import('../logger.js');
       await new LogsController(makeLogs()).getOlderLogs({ game: 'minecraft', beforeTimestamp: 1000 });
@@ -225,6 +229,7 @@ describe('LogsController', () => {
   // getNewerLogs
 
   describe('getNewerLogs', () => {
+    // @spec APP-LOGS-IPC-002
     it('should log an entry line naming the game before invoking', async () => {
       const { logger } = await import('../logger.js');
       await new LogsController(makeLogs()).getNewerLogs({ game: 'minecraft', afterTimestamp: 1000 });
@@ -260,6 +265,7 @@ describe('LogsController', () => {
   // streamLogs
 
   describe('streamLogs', () => {
+    // @spec APP-LOGS-IPC-004
     it('should return a non-empty streamId string immediately', async () => {
       const logs = makeLogs();
       const { ctx } = makeCtx();
@@ -283,6 +289,7 @@ describe('LogsController', () => {
       );
     });
 
+    // @spec APP-LOGS-IPC-004
     it('should send each log line as a chunk to the renderer via sender.send', async () => {
       async function* twoLines() {
         yield 'hello';
@@ -299,6 +306,7 @@ describe('LogsController', () => {
       expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.chunk`, 'world');
     });
 
+    // @spec APP-LOGS-IPC-006
     it('should send an end message with no error when the generator is exhausted', async () => {
       async function* empty() { /* no lines */ }
       const logs = makeLogs();
@@ -311,6 +319,7 @@ describe('LogsController', () => {
       expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.end`, {});
     });
 
+    // @spec APP-LOGS-IPC-006
     it('should send an end message with no error when the stream is cancelled (AbortError)', async () => {
       async function* throwsAbort(): AsyncGenerator<string> {
         yield 'partial';
@@ -329,6 +338,7 @@ describe('LogsController', () => {
       expect(endCall?.[1]).not.toHaveProperty('error');
     });
 
+    // @spec APP-LOGS-IPC-006
     it('should send an end message with an error string when the generator throws a non-abort error', async () => {
       async function* throwsNonAbort(): AsyncGenerator<string> {
         yield 'partial';
@@ -357,6 +367,7 @@ describe('LogsController', () => {
       expect(logs.streamLogs).toHaveBeenCalledWith('minecraft', expect.any(AbortSignal));
     });
 
+    // @spec APP-LOGS-IPC-005
     it('should abort the stream when the cancel IPC listener is invoked', async () => {
       // Make streamLogs block until signalled so we can inspect the abort state.
       let capturedSignal: AbortSignal | null = null;
@@ -386,6 +397,7 @@ describe('LogsController', () => {
       expect(capturedSignal?.aborted).toBe(true);
     });
 
+    // @spec APP-LOGS-IPC-008
     it('should remove the cancel listener after the stream ends naturally', async () => {
       async function* empty() { /* terminates immediately */ }
       const logs = makeLogs();
@@ -398,6 +410,7 @@ describe('LogsController', () => {
       expect(mockIpcMainRemoveAllListeners).toHaveBeenCalledWith(`logs.stream.${streamId}.cancel`);
     });
 
+    // @spec APP-LOGS-IPC-007
     it('should not send to a destroyed WebContents', async () => {
       async function* oneLine() { yield 'line'; }
       const logs = makeLogs();
@@ -430,6 +443,7 @@ describe('LogsController', () => {
   // getOlderLambdaLogs
 
   describe('getOlderLambdaLogs', () => {
+    // @spec APP-LOGS-IPC-002
     it('should log an entry line naming the functionKey before invoking', async () => {
       const { logger } = await import('../logger.js');
       await new LogsController(makeLogs()).getOlderLambdaLogs({ functionKey: 'watchdog', beforeTimestamp: 1000 });
@@ -459,6 +473,7 @@ describe('LogsController', () => {
   // getNewerLambdaLogs
 
   describe('getNewerLambdaLogs', () => {
+    // @spec APP-LOGS-IPC-002
     it('should log an entry line naming the functionKey before invoking', async () => {
       const { logger } = await import('../logger.js');
       await new LogsController(makeLogs()).getNewerLambdaLogs({ functionKey: 'watchdog', afterTimestamp: 1000 });
@@ -488,6 +503,7 @@ describe('LogsController', () => {
   // streamLambdaLogs
 
   describe('streamLambdaLogs', () => {
+    // @spec APP-LOGS-IPC-004
     it('should return a non-empty streamId string immediately', async () => {
       const logs = makeLogs();
       const { ctx } = makeCtx();
@@ -511,6 +527,7 @@ describe('LogsController', () => {
       );
     });
 
+    // @spec APP-LOGS-IPC-004
     it('should send each log line as a chunk to the renderer via sender.send', async () => {
       async function* twoLines() {
         yield 'hello';
@@ -527,6 +544,7 @@ describe('LogsController', () => {
       expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.chunk`, 'world');
     });
 
+    // @spec APP-LOGS-IPC-006
     it('should send an end message with no error when the generator is exhausted', async () => {
       async function* empty() { /* no lines */ }
       const logs = makeLogs();
@@ -539,6 +557,7 @@ describe('LogsController', () => {
       expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.end`, {});
     });
 
+    // @spec APP-LOGS-IPC-006
     it('should send an end message with no error when the stream is cancelled (AbortError)', async () => {
       async function* throwsAbort(): AsyncGenerator<string> {
         yield 'partial';
@@ -557,6 +576,7 @@ describe('LogsController', () => {
       expect(endCall?.[1]).not.toHaveProperty('error');
     });
 
+    // @spec APP-LOGS-IPC-006
     it('should send an end message with an error string when the generator throws a non-abort error', async () => {
       async function* throwsNonAbort(): AsyncGenerator<string> {
         yield 'partial';
@@ -584,6 +604,7 @@ describe('LogsController', () => {
       expect(logs.streamLambdaLogs).toHaveBeenCalledWith('watchdog', expect.any(AbortSignal));
     });
 
+    // @spec APP-LOGS-IPC-005
     it('should abort the stream when the cancel IPC listener is invoked', async () => {
       let capturedSignal: AbortSignal | null = null;
       async function* waitForAbort(
@@ -610,6 +631,7 @@ describe('LogsController', () => {
       expect(capturedSignal?.aborted).toBe(true);
     });
 
+    // @spec APP-LOGS-IPC-008
     it('should remove the cancel listener after the stream ends naturally', async () => {
       async function* empty() { /* terminates immediately */ }
       const logs = makeLogs();
@@ -622,6 +644,7 @@ describe('LogsController', () => {
       expect(mockIpcMainRemoveAllListeners).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.cancel`);
     });
 
+    // @spec APP-LOGS-IPC-007
     it('should not send to a destroyed WebContents', async () => {
       async function* oneLine() { yield 'line'; }
       const logs = makeLogs();
