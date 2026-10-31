@@ -59,6 +59,10 @@ describe('toRemotePath', () => {
     expect(toRemotePath('/data/foundry', '/data', 'Config/a.json')).toBe('/foundry/Config/a.json');
   });
 
+  it('should return a path relative to the owning volume for a second-volume destination', () => {
+    expect(toRemotePath('/data/saves/worlds', '/data/saves', 'a.db')).toBe('/worlds/a.db');
+  });
+
   it('should map to the volume root when destination equals the container path', () => {
     expect(toRemotePath('/data', '/data', 'a.json')).toBe('/a.json');
   });

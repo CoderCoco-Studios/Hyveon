@@ -114,6 +114,7 @@ describe('createInfraProgram', () => {
         'fileManagerSecurityGroupId',
         'efsFileSystemId',
         'efsAccessPoints',
+        'efsVolumeAccessPoints',
         'domainName',
         'gameNames',
         'discordTableName',
@@ -464,6 +465,30 @@ describe('buildStackOutputs', () => {
     const outputs = buildStackOutputs(resources, config);
 
     expect(outputs.runsTableName).toBe('custom-runs-table');
+  });
+
+  it("should export every volume's access point per game", async () => {
+    const config = buildTestDeploymentConfig({
+      gameServers: {
+        alpha: {
+          image: 'x',
+          cpu: 512,
+          memory: 512,
+          ports: [],
+          volumes: [
+            { name: 'config', container_path: '/config' },
+            { name: 'saves', container_path: '/data' },
+          ],
+        },
+      },
+    });
+    const resources = await runDefineAll(config);
+    const outputs = buildStackOutputs(resources, config);
+
+    const configId = await promiseOf(resources.efs.gameAccessPoints['alpha-config'].id);
+    const savesId = await promiseOf(resources.efs.gameAccessPoints['alpha-saves'].id);
+    expect(await promiseOf(outputs.efsVolumeAccessPoints)).toEqual({ alpha: { config: configId, saves: savesId } });
+    expect((await promiseOf(outputs.efsAccessPoints)).alpha).toBe(configId);
   });
 
   it('should throw when a game name in config.gameServers has no matching efs.gameAccessPoints entry', async () => {

@@ -12,6 +12,8 @@ import { SchedulerService } from './SchedulerService.js';
 import { PublicIpService } from './PublicIpService.js';
 import { generateEphemeralCert, type EphemeralCert } from './folderUpload/ephemeralCert.js';
 import { buildTlsContainerSettings } from './folderUpload/tlsLaunch.js';
+import { DeploymentConfigService } from './DeploymentConfigService.js';
+import { buildHelperVolumeLayout, type HelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
 import { SECRETS_STORE } from '../modules/cloud-provider.tokens.js';
 
 /**
@@ -21,6 +23,8 @@ import { SECRETS_STORE } from '../modules/cloud-provider.tokens.js';
 const FILEBROWSER_IMAGE =
   'filebrowser/filebrowser:v2.63.23@sha256:a469ea076d4a1b4b1d86a41d130f2f536cd9da996a2b1fb39c0d7635f9d89b9a';
 const FILEBROWSER_PORT = 8080;
+/** FileBrowser's `--root`; each mounted volume appears as one directory beneath it. */
+const FILEBROWSER_ROOT = '/srv';
 const STARTED_BY_PREFIX = 'filemgr-';
 /** Fixed admin username the per-launch credential is created under — only the password is randomized/rotated. */
 const FILEBROWSER_USERNAME = 'admin';
@@ -85,6 +89,8 @@ export interface UploadHelperSession {
   runId: string;
   credentials: FileMgrCredentials;
   cert: EphemeralCert;
+  /** The volume layout the helper was launched with; maps `{ volume, path }` to helper paths. */
+  layout: HelperVolumeLayout;
 }
 
 /** Outcome of {@link FileManagerService.startForUpload}. */
@@ -94,7 +100,7 @@ export type UploadHelperLaunch =
 
 /** Internal outcome of a launch, before it is shaped into a public result. */
 type LaunchOutcome =
-  | { ok: true; taskArn: string; password: string; scheduleWarning: string; cert?: EphemeralCert }
+  | { ok: true; taskArn: string; password: string; scheduleWarning: string; layout: HelperVolumeLayout; cert?: EphemeralCert }
   | { ok: false; code: 'helper-open' | 'failed'; message: string };
 
 /** Start/stop result shape — mirrors {@link EcsService}'s `StartResult`. */
@@ -108,8 +114,9 @@ export interface FileMgrResult {
 
 /**
  * Launches an on-demand FileBrowser container per game so operators can
- * browse/edit that game's save data over HTTP without SSH. Uses the game's
- * own EFS access point (for isolation), registers a throwaway task
+ * browse/edit that game's save data over HTTP without SSH. Mounts each of the
+ * game's applied volumes through its own EFS access point (for isolation), one
+ * directory per volume under FileBrowser's root, registers a throwaway task
  * definition each time, and tags tasks with `startedBy: filemgr-{game}` so
  * we can find and stop them later.
  *
@@ -144,7 +151,29 @@ export class FileManagerService {
     private readonly scheduler: SchedulerService,
     @Inject(SECRETS_STORE) private readonly secrets: SecretsStore,
     private readonly publicIp: PublicIpService,
+    private readonly deploymentConfig: DeploymentConfigService,
   ) {}
+
+  /** Plans `game`'s helper mounts from its declared volumes and the deployed stack's access point outputs. */
+  private async planLayout(game: string, outputs: StackOutputs): Promise<HelperVolumeLayout> {
+    const declared = (await this.deploymentConfig.getGameServers()).find((g) => g.name === game);
+    return buildHelperVolumeLayout(game, declared?.volumes ?? [], outputs);
+  }
+
+  /**
+   * Plans which of `game`'s volumes a helper mounts and under which directory.
+   *
+   * @remarks
+   * Upload preparation calls this once and hands the result to {@link FileManagerService.startForUpload}, so the
+   * launch mounts exactly the layout the remote paths were computed from.
+   *
+   * @param game - Game to plan for.
+   * @returns The layout, or `null` when the stack is not deployed.
+   */
+  async planHelperLayout(game: string): Promise<HelperVolumeLayout | null> {
+    const outputs = await this.config.getStackOutputs();
+    return outputs ? this.planLayout(game, outputs) : null;
+  }
 
   /** The auto-stop schedule's name for `game` — deterministic so `stop()` can recompute it without persisting extra state. */
   private scheduleName(game: string): string {
@@ -286,8 +315,8 @@ export class FileManagerService {
   }
 
   /**
-   * Register a fresh FileBrowser task definition for `game`, mounting its
-   * EFS access point, then launch it in the file-manager security group
+   * Register a fresh FileBrowser task definition for `game`, mounting each applied
+   * volume's EFS access point, then launch it in the file-manager security group
    * (which exposes port 8080 only to the operator's IP, via an app-added
    * `/32` rule). Refuses to start a second task if one is already running.
    */
@@ -312,9 +341,10 @@ export class FileManagerService {
    * IP rule and deregisters the task definition.
    *
    * @param runId - Identifies the upload run; embedded in the security-group rule description.
+   * @param layout - A layout from {@link FileManagerService.planHelperLayout} to mount as-is; planned here when omitted.
    */
-  async startForUpload(game: string, runId: string): Promise<UploadHelperLaunch> {
-    const outcome = await this.launch(game, { runId });
+  async startForUpload(game: string, runId: string, layout?: HelperVolumeLayout): Promise<UploadHelperLaunch> {
+    const outcome = await this.launch(game, { runId }, layout);
     if (!outcome.ok) return outcome;
     return {
       ok: true,
@@ -323,20 +353,21 @@ export class FileManagerService {
         runId,
         credentials: { username: FILEBROWSER_USERNAME, password: outcome.password },
         cert: outcome.cert!,
+        layout: outcome.layout,
       },
     };
   }
 
-  /** Shared launch body for browse (`upload === null`) and upload sessions. */
-  private async launch(game: string, upload: { runId: string } | null): Promise<LaunchOutcome> {
+  /** Shared launch body for browse (`upload === null`) and upload sessions; mounts `precomputed` or plans a layout itself. */
+  private async launch(game: string, upload: { runId: string } | null, precomputed?: HelperVolumeLayout): Promise<LaunchOutcome> {
     const fail = (message: string, code: 'helper-open' | 'failed' = 'failed'): LaunchOutcome => ({ ok: false, code, message });
 
     const outputs = await this.config.getStackOutputs();
     if (!outputs) return fail('Infrastructure not deployed. Deploy first.');
 
-    const apId = outputs.efsAccessPoints[game];
-    if (!apId) {
-      logger.error('No EFS access point for game', { game, available: outputs.efsAccessPoints });
+    const layout = precomputed ?? (await this.planLayout(game, outputs));
+    if (layout.mounts.length === 0) {
+      logger.error('No EFS access point for game', { game, available: outputs.efsAccessPoints, volumes: outputs.efsVolumeAccessPoints });
       return fail(`No EFS access point found for '${game}'.`);
     }
 
@@ -410,7 +441,7 @@ export class FileManagerService {
     const filebrowserArgs = [
       '--username', FILEBROWSER_USERNAME,
       '--password', passwordHash,
-      '--root', '/srv',
+      '--root', FILEBROWSER_ROOT,
       '--port', String(FILEBROWSER_PORT),
       '--address', '0.0.0.0',
       '--database', '/tmp/filebrowser.db',
@@ -418,7 +449,13 @@ export class FileManagerService {
     const cert = upload ? await generateEphemeralCert() : undefined;
     const tls = cert ? buildTlsContainerSettings(filebrowserArgs, cert) : undefined;
 
-    logger.info('Registering FileBrowser task definition', { game, family, apId, logGroup, upload: !!upload });
+    logger.info('Registering FileBrowser task definition', {
+      game,
+      family,
+      accessPoints: layout.mounts.map((m) => m.accessPointId),
+      logGroup,
+      upload: !!upload,
+    });
 
     registeredArn = await this.ecs.registerTaskDefinition({
       family,
@@ -427,16 +464,14 @@ export class FileManagerService {
       cpu: '256',
       memory: '512',
       executionRoleArn: taskDef.executionRoleArn,
-      volumes: [
-        {
-          name: 'game-data',
-          efsVolumeConfiguration: {
-            fileSystemId: outputs.efsFileSystemId,
-            transitEncryption: 'ENABLED',
-            authorizationConfig: { accessPointId: apId, iam: 'DISABLED' },
-          },
+      volumes: layout.mounts.map((m) => ({
+        name: m.taskVolumeName,
+        efsVolumeConfiguration: {
+          fileSystemId: outputs.efsFileSystemId,
+          transitEncryption: 'ENABLED' as const,
+          authorizationConfig: { accessPointId: m.accessPointId, iam: 'DISABLED' as const },
         },
-      ],
+      })),
       containerDefinitions: [
         {
           name: 'filebrowser',
@@ -450,7 +485,11 @@ export class FileManagerService {
           portMappings: [
             { containerPort: FILEBROWSER_PORT, hostPort: FILEBROWSER_PORT, protocol: 'tcp' },
           ],
-          mountPoints: [{ sourceVolume: 'game-data', containerPath: '/srv', readOnly: false }],
+          mountPoints: layout.mounts.map((m) => ({
+            sourceVolume: m.taskVolumeName,
+            containerPath: `${FILEBROWSER_ROOT}/${m.dir}`,
+            readOnly: false,
+          })),
           logConfiguration: {
             logDriver: 'awslogs',
             options: {
@@ -492,7 +531,7 @@ export class FileManagerService {
       return fail(`Failed to launch file manager for '${game}'. Check server logs for details.`);
     }
 
-    return { ok: true, taskArn: result.taskArn, password, cert, scheduleWarning: await this.scheduleAutoStop(outputs, game, result.taskArn) };
+    return { ok: true, taskArn: result.taskArn, password, cert, layout, scheduleWarning: await this.scheduleAutoStop(outputs, game, result.taskArn) };
   }
 
   /**

@@ -548,9 +548,13 @@ After you run plan and apply from [Infrastructure](/app/iac), open the game page
 | The game is not deployed yet | **Upload folder** is disabled with "This game has not been deployed yet. Apply the infrastructure first; your selection is kept." |
 | The game server is running or starting | Disabled with "The game server is running. Stop it before uploading." |
 | No folder chosen, nothing included, or an invalid destination | Disabled |
+| The destination is in a volume that isn't mounted yet, or you haven't applied since upgrading (uploads into any volume, including the first, are refused until you do) | The upload is refused with `Apply the infrastructure to upload into '<volume>'. Your selection is kept.` |
+| The app can't confirm the server is stopped | The upload is refused with `Couldn't confirm '<game>' is stopped. Try again in a moment.` The app never assumes a server it can't reach is stopped |
 | A file manager session is already open for the game | A prompt asks you to stop it. **Stop session and upload** stops it and starts the upload; **Keep it open** cancels. The app cannot reuse an existing session because it does not hold that session's credential |
 
 The app launches its own file manager helper task for the upload and stops it when the run finishes, fails or is cancelled.
+The upload lands in the volume that owns the destination: a destination inside the second volume's path is written to the second volume, not the first.
+The helper mounts all of the game's applied volumes, but only the destination's volume is written to.
 The helper accepts connections only from your current public IP, over TLS with a certificate created for that one launch.
 Neither the helper's password nor any file contents reach the page.
 

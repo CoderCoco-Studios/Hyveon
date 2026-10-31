@@ -32,6 +32,18 @@ export function gameServer(name: string, overrides: Partial<GameServer> = {}): G
 }
 
 /**
+ * Builds the two-volume layout (`config` and `saves`) used by the multi-volume file-manager and upload specs.
+ *
+ * @returns A fresh array of two {@link GameServer} volumes.
+ */
+export function configAndSavesVolumes(): GameServer['volumes'] {
+  return [
+    { name: 'config', container_path: '/data/config' },
+    { name: 'saves', container_path: '/data/saves' },
+  ];
+}
+
+/**
  * Builds a {@link DeploymentConfigService} stub. `getGameServers()` and `getTopLevelSettings()`
  * are pre-wired from `declared`/`projectName` since almost every spec needs one or the other;
  * pass `overrides` for any other stubbed method (`addGameServer`, `updateGameServer`,

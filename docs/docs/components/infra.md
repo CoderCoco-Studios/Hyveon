@@ -163,6 +163,21 @@ means the count depends on `config.gameServers`.
 | `index.ts` | Barrel re-export of most `defineX()` functions, helpers, and types — but not all: `defineAll` (only called from `program.ts`), `stripTrailingDots`, `dedupedInternalGamePorts`, and `gamesWithHealthChecks` are internal to their own files and not re-exported here. | none |
 | `testing/fixtures.ts`, `testing/pulumiMocks.ts` | Test-only: shared game-config fixtures and a `pulumi.runtime.setMocks()` harness. | none |
 
+## EFS access point stack outputs
+
+`efs.ts` creates one access point per `(game, volume)` pair, keyed `{game}-{volumeName}` in `efs.gameAccessPoints` and rooted at `/{game}/{volumeName}`. `program.ts`'s `buildStackOutputs` exports them through two outputs, both mirrored on `StackOutputs` in `@hyveon/shared` and projected by `PulumiService.projectStackOutputs` (each with an `{}` fallback for a stack applied before the output existed):
+
+| Output | Shape | Covers | Why it exists |
+|---|---|---|---|
+| `efsAccessPoints` | `Record<game, accessPointId>` | The game's **first** volume only (`volumes[0]`). | The original output. Kept unchanged for existing readers and as the single-volume fallback below. |
+| `efsVolumeAccessPoints` | `Record<game, Record<volumeName, accessPointId>>` | **Every** volume of every game. | The file-manager helper mounts every applied volume, so it needs every access point ID, not just the first. |
+
+`efsVolumeAccessPoints` is built from the access points that already exist: it adds no resources and no IAM change. `buildStackOutputs` throws if a game has no volumes, or if a configured volume has no matching `efs.gameAccessPoints` entry (the two have drifted apart).
+
+With only `efsAccessPoints[game]` the helper can mount just the first volume, and an upload aimed at a second volume lands in the first (#672). The helper's mount layout (`buildHelperVolumeLayout`, `desktop-main/src/services/volumeFiles/helperVolumeLayout.ts`) therefore reads `efsVolumeAccessPoints[game]`.
+
+**Upgrading:** a stack applied by an older build has no `efsVolumeAccessPoints` output, so `PulumiService` projects `{}` and the helper falls back to mounting only the first volume (via `efsAccessPoints`) for browsing, and folder upload is refused for every volume because that access point's volume identity can't be confirmed. Run one plan and apply from the Infrastructure page after upgrading to pick the output up. The new output by itself adds no resource changes, so the plan shows only an output diff unless the configuration has other pending changes.
+
 ## Cost allocation tags
 
 Every Pulumi-managed resource carries `Project=hyveon` (applied once via

@@ -22,6 +22,7 @@ import { EcsService } from './EcsService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { FileManagerService, type UploadHelperSession } from './FileManagerService.js';
 import { FolderScanService, type HeldScan } from './FolderScanService.js';
+import { isVolumeMounted, toHelperPath, type HelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
 import { FileBrowserClientFactory, PinMismatchError } from './folderUpload/FileBrowserClient.js';
 import type { VolumeFileBackend } from './volumeFiles/VolumeFileBackend.js';
 import { ProgressAggregator } from './folderUpload/ProgressAggregator.js';
@@ -72,6 +73,8 @@ interface PreparedRun {
   request: FolderUploadRequest;
   items: UploadItem[];
   bytesTotal: number;
+  /** The layout `items`' remote paths were computed from; the helper is launched with exactly this one. */
+  layout: HelperVolumeLayout;
   /** The previous run for this same selection was cut short, so a few existing files are our own partial uploads. */
   resumesOwnRun: boolean;
 }
@@ -236,8 +239,9 @@ export class FolderUploadService implements OnApplicationBootstrap {
     if (this.active.has(game)) throw new Error(`An upload is already running for '${game}'.`);
     const scan = this.requireScan(request.scanId);
 
+    const layout = await this.fileManager.planHelperLayout(game);
     const outputs = await this.config.getStackOutputs();
-    if (!outputs || !outputs.efsAccessPoints[game]) {
+    if (!layout || !outputs) {
       throw new Error(`'${game}' is not deployed yet. Apply the infrastructure first; your selection is kept.`);
     }
 
@@ -246,20 +250,28 @@ export class FolderUploadService implements OnApplicationBootstrap {
     if (!server) throw new Error(`Unknown game '${game}'.`);
     const dest = validateDestination(request.destination, server.volumes);
     if (!dest.ok) throw new Error(dest.error);
+    if (layout.usedFallback || !isVolumeMounted(layout, dest.volume.name)) {
+      throw new Error(`Apply the infrastructure to upload into '${dest.volume.name}'. Your selection is kept.`);
+    }
 
     const plan = planUpload(scan.tree, request.include);
     if (plan.length === 0) throw new Error('Nothing is selected to upload.');
     const items: UploadItem[] = plan.map((file) => ({
       relPath: file.relPath,
       localPath: join(scan.rootPath, ...file.relPath.split('/')),
-      remotePath: toRemotePath(request.destination, dest.volume.container_path, file.relPath),
+      remotePath: toHelperPath(layout, dest.volume.name, toRemotePath(request.destination, dest.volume.container_path, file.relPath)),
       size: file.size,
       mtimeMs: scan.mtimes.get(file.relPath) ?? 0,
     }));
 
-    if (await this.ecs.findRunningTask(outputs.ecsClusterName, game)) {
-      throw new Error(`'${game}' is running. Stop the server before uploading.`);
+    let serverRunning: boolean;
+    try {
+      serverRunning = (await this.ecs.findRunningTaskOrThrow(outputs.ecsClusterName, game)) !== null;
+    } catch {
+      // EcsService already logged the cause; a server that can't be confirmed stopped is never assumed stopped.
+      throw new Error(`Couldn't confirm '${game}' is stopped. Try again in a moment.`);
     }
+    if (serverRunning) throw new Error(`'${game}' is running. Stop the server before uploading.`);
     const helper = await this.fileManager.getStatus(game);
     if (helper.state === 'running' || helper.state === 'starting') {
       throw new Error(`A file manager session is already open for '${game}'. Stop it first, then retry.`);
@@ -271,6 +283,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
       request,
       items,
       bytesTotal: items.reduce((sum, i) => sum + i.size, 0),
+      layout,
       resumesOwnRun: this.isOwnPartialRun(this.store.getFolderUploadState(game), scan.rootPath, request),
     };
   }
@@ -308,7 +321,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     let terminal: { phase: FolderUploadPhase; error?: string } = { phase: 'done' };
     try {
       progress.setPhase('starting-helper');
-      const launch = await this.fileManager.startForUpload(game, runId);
+      const launch = await this.fileManager.startForUpload(game, runId, prepared.layout);
       if (!launch.ok) throw new Error(launch.message);
       session = launch.session;
 

@@ -16,6 +16,9 @@ import type { PublicIpService } from './PublicIpService.js';
 import type { StackOutputs } from '@hyveon/shared';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
+import { configAndSavesVolumes, deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
+import type { DeploymentConfigService } from './DeploymentConfigService.js';
+import { buildHelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
 
 /**
  * A canonical set of stack outputs used by most tests. Individual tests
@@ -30,6 +33,7 @@ const DEFAULT_OUTPUTS: StackOutputs = stackOutputs({
   fileManagerSecurityGroupId: 'sg-files',
   efsFileSystemId: 'fs-1',
   efsAccessPoints: { minecraft: 'fsap-mc' },
+  efsVolumeAccessPoints: { minecraft: { data: 'fsap-mc' } },
   domainName: 'example.com',
   gameNames: ['minecraft'],
   discordTableName: 'discord-table',
@@ -166,6 +170,7 @@ function buildService(options: {
   scheduler?: SchedulerService;
   secrets?: SecretsStore;
   publicIp?: PublicIpService;
+  deploymentConfig?: DeploymentConfigService;
 } = {}): FileManagerService {
   return new FileManagerService(
     options.config ?? makeConfig(),
@@ -174,6 +179,7 @@ function buildService(options: {
     options.scheduler ?? makeScheduler().service,
     options.secrets ?? makeSecrets().service,
     options.publicIp ?? makePublicIp(),
+    options.deploymentConfig ?? deploymentConfigStub(),
   );
 }
 
@@ -192,6 +198,13 @@ function helperTask(game: string, operatorIp: string | null, extra: Partial<Task
 function sgRule(game: string, ip: string, runId = 'browse') {
   return { ruleId: `sgr-${game}-${ip}`, description: `hyveon-filemgr:${game}:${runId}`, cidr: `${ip}/32` };
 }
+
+/** A game's `config` and `saves` volumes, both applied in {@link TWO_VOLUME_OUTPUTS}. */
+const TWO_VOLUMES = configAndSavesVolumes();
+const TWO_VOLUME_OUTPUTS: StackOutputs = {
+  ...DEFAULT_OUTPUTS,
+  efsVolumeAccessPoints: { minecraft: { config: 'fsap-c', saves: 'fsap-s' } },
+};
 
 describe('FileManagerService', () => {
   describe('getStatus', () => {
@@ -254,7 +267,7 @@ describe('FileManagerService', () => {
     });
 
     it('should fail when the game has no EFS access point', async () => {
-      const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, efsAccessPoints: {} };
+      const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, efsAccessPoints: {}, efsVolumeAccessPoints: {} };
       const { service: ecs } = makeEcs();
       const svc = buildService({ config: makeConfig(outputs), ecs });
       const result = await svc.start('minecraft');
@@ -291,6 +304,25 @@ describe('FileManagerService', () => {
       expect(result.message).toMatch(/execution role/i);
     });
 
+    it('should register one EFS volume and mount point per mounted volume', async () => {
+      const { stub, service: ecs } = makeEcs();
+      const deploymentConfig = deploymentConfigStub({ declared: [gameServer('minecraft', { volumes: TWO_VOLUMES })] });
+      const svc = buildService({ config: makeConfig(TWO_VOLUME_OUTPUTS), ecs, deploymentConfig });
+      expect((await svc.start('minecraft')).success).toBe(true);
+
+      const regArgs = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0];
+      expect(regArgs.volumes!.map((v) => v.efsVolumeConfiguration!.authorizationConfig!.accessPointId)).toEqual(['fsap-c', 'fsap-s']);
+      expect(regArgs.volumes!.map((v) => v.name)).toEqual(['vol-0', 'vol-1']);
+      for (const v of regArgs.volumes!) {
+        expect(v.efsVolumeConfiguration).toMatchObject({ fileSystemId: 'fs-1', transitEncryption: 'ENABLED' });
+        expect(v.efsVolumeConfiguration!.authorizationConfig!.iam).toBe('DISABLED');
+      }
+      const container = regArgs.containerDefinitions![0]!;
+      expect(container.mountPoints!.map((m) => m.containerPath)).toEqual(['/srv/config', '/srv/saves']);
+      expect(container.mountPoints!.map((m) => m.sourceVolume)).toEqual(['vol-0', 'vol-1']);
+      expect(container.command).toContain('/srv');
+    });
+
     it('should register a filebrowser task definition (auth flags, not --noauth) and then run it', async () => {
       const { stub, service: ecs } = makeEcs();
       const svc = buildService({ ecs });
@@ -315,7 +347,8 @@ describe('FileManagerService', () => {
       const container = regArgs.containerDefinitions![0]!;
       expect(container.image).toContain('filebrowser');
       expect(container.portMappings![0]!.containerPort).toBe(8080);
-      expect(container.mountPoints![0]!.containerPath).toBe('/srv');
+      expect(container.mountPoints![0]!.containerPath).toBe('/srv/data');
+      expect(container.mountPoints![0]!.sourceVolume).toBe(volume.name);
       expect(container.command).not.toContain('--noauth');
       expect(container.command).toContain('--username');
       expect(container.command).toContain('--password');
@@ -666,6 +699,20 @@ describe('FileManagerService', () => {
     });
   });
 
+  describe('planHelperLayout', () => {
+    it('should return null when the stack is not deployed', async () => {
+      expect(await buildService({ config: makeConfig(null) }).planHelperLayout('minecraft')).toBeNull();
+    });
+
+    it('should plan from the game\'s declared volumes and the exported access points', async () => {
+      const outputs = { ...DEFAULT_OUTPUTS, efsVolumeAccessPoints: { minecraft: { config: 'fsap-c' } } };
+      const deploymentConfig = deploymentConfigStub({ declared: [gameServer('minecraft', { volumes: TWO_VOLUMES })] });
+      const layout = await buildService({ config: makeConfig(outputs), deploymentConfig }).planHelperLayout('minecraft');
+      expect(layout?.mounts.map((m) => m.volume)).toEqual(['config']);
+      expect(layout?.unmounted).toEqual([{ volume: 'saves', containerPath: '/data/saves' }]);
+    });
+  });
+
   describe('startForUpload', () => {
     it('should return the credential and certificate in-process and tag the task as a seed-upload session', async () => {
       const { stub, service: ecs } = makeEcs();
@@ -694,6 +741,38 @@ describe('FileManagerService', () => {
       expect(Buffer.from(env['FB_TLS_CERT_B64']!, 'base64').toString()).toBe(result.session.cert.certPem);
       expect(Buffer.from(env['FB_TLS_KEY_B64']!, 'base64').toString()).toBe(result.session.cert.keyPem);
       expect(container.command).toContain('--username');
+    });
+
+    it('should mount a precomputed layout instead of planning its own', async () => {
+      const { stub, service: ecs } = makeEcs();
+      const deploymentConfig = deploymentConfigStub({ declared: [gameServer('minecraft', { volumes: TWO_VOLUMES })] });
+      const layout = buildHelperVolumeLayout('minecraft', TWO_VOLUMES, {
+        efsAccessPoints: {},
+        efsVolumeAccessPoints: { minecraft: { saves: 'fsap-s' } },
+      });
+      const svc = buildService({ config: makeConfig(TWO_VOLUME_OUTPUTS), ecs, deploymentConfig });
+      const result = await svc.startForUpload('minecraft', 'run-1', layout);
+      if (!result.ok) throw new Error('expected launch to succeed');
+
+      expect(result.session.layout).toBe(layout);
+      expect(deploymentConfig.getGameServers).not.toHaveBeenCalled();
+      const regArgs = vi.mocked(stub.registerTaskDefinition).mock.calls[0]![0];
+      expect(regArgs.volumes!.map((v) => v.efsVolumeConfiguration!.authorizationConfig!.accessPointId)).toEqual(['fsap-s']);
+      expect(regArgs.containerDefinitions![0]!.mountPoints!.map((m) => m.containerPath)).toEqual(['/srv/saves']);
+    });
+
+    it('should return the layout it planned itself on the session', async () => {
+      const result = await buildService().startForUpload('minecraft', 'run-1');
+      if (!result.ok) throw new Error('expected launch to succeed');
+      expect(result.session.layout.mounts.map((m) => m.accessPointId)).toEqual(['fsap-mc']);
+    });
+
+    it('should fail a precomputed layout with no mounts without registering a task definition', async () => {
+      const { stub, service: ecs } = makeEcs();
+      const empty = buildHelperVolumeLayout('minecraft', TWO_VOLUMES, { efsAccessPoints: {}, efsVolumeAccessPoints: {} });
+      const result = await buildService({ ecs }).startForUpload('minecraft', 'run-1', empty);
+      expect(result).toMatchObject({ ok: false, code: 'failed', message: "No EFS access point found for 'minecraft'." });
+      expect(stub.registerTaskDefinition).not.toHaveBeenCalled();
     });
 
     it('should name the run in the security-group rule description', async () => {

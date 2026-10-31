@@ -152,6 +152,7 @@ const FULL_OUTPUT_MAP: OutputMap = {
   fileManagerSecurityGroupId: out('sg-files'),
   efsFileSystemId: out('fs-1'),
   efsAccessPoints: out({ minecraft: 'fsap-1' }),
+  efsVolumeAccessPoints: out({ minecraft: { data: 'fsap-1' } }),
   domainName: out('example.com'),
   gameNames: out(['minecraft']),
   discordTableName: out('discord-table'),
@@ -241,6 +242,7 @@ describe('PulumiService.getStackOutputs', () => {
       fileManagerSecurityGroupId: 'sg-files',
       efsFileSystemId: 'fs-1',
       efsAccessPoints: { minecraft: 'fsap-1' },
+      efsVolumeAccessPoints: { minecraft: { data: 'fsap-1' } },
       domainName: 'example.com',
       gameNames: ['minecraft'],
       discordTableName: 'discord-table',
@@ -271,6 +273,15 @@ describe('PulumiService.getStackOutputs', () => {
       appliedGameServers: null,
       gameNames: ['minecraft'],
     });
+  });
+
+  it('should project efsVolumeAccessPoints and default it to an empty map when absent', async () => {
+    const nested = { minecraft: { config: 'fsap-c', saves: 'fsap-s' } };
+    const present = makeService(makeWorkspace({ efsVolumeAccessPoints: out(nested) }), makeStore(FULLY_CONFIGURED));
+    const absent = makeService(makeWorkspace({ gameNames: out(['minecraft']) }), makeStore(FULLY_CONFIGURED));
+
+    await expect(present.getStackOutputs()).resolves.toMatchObject({ efsVolumeAccessPoints: nested });
+    await expect(absent.getStackOutputs()).resolves.toMatchObject({ efsVolumeAccessPoints: {} });
   });
 
   it('should return null when the resolved OutputMap is empty (stack exists but nothing applied yet)', async () => {

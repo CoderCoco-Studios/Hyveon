@@ -186,10 +186,49 @@ describe('EcsService', () => {
       expect(task?.taskArn).toBe('arn2');
     });
 
-    it('should return null on API errors', async () => {
+    it('should still return null from findRunningTask when ListTasks fails', async () => {
       ecsMock.on(ListTasksCommand).rejects(new Error('api-fail'));
       const service = makeService(makeConfig(), makeEc2());
       expect(await service.findRunningTask('c', 'g')).toBeNull();
+    });
+  });
+
+  describe('findRunningTaskOrThrow', () => {
+    it('should throw a plain Error when ListTasks fails', async () => {
+      ecsMock.on(ListTasksCommand).rejects(new Error('api-fail'));
+      const service = makeService(makeConfig(), makeEc2());
+      const err = await service.findRunningTaskOrThrow('c', 'g').catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).toEqual(new Error('api-fail'));
+      expect(Object.keys(err as Error)).toEqual([]);
+    });
+
+    it('should return the active task when ListTasks succeeds', async () => {
+      ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
+      ecsMock.on(DescribeTasksCommand).resolves({ tasks: [{ taskArn: 'arn1', lastStatus: 'RUNNING' }] });
+      const service = makeService(makeConfig(), makeEc2());
+      expect((await service.findRunningTaskOrThrow('c', 'g'))?.taskArn).toBe('arn1');
+    });
+
+    it('should return null when the listed task is described as STOPPED', async () => {
+      ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
+      ecsMock.on(DescribeTasksCommand).resolves({ tasks: [{ taskArn: 'arn1', lastStatus: 'STOPPED' }] });
+      const service = makeService(makeConfig(), makeEc2());
+      expect(await service.findRunningTaskOrThrow('c', 'g')).toBeNull();
+    });
+
+    it('should throw when DescribeTasks reports a failure for a listed task', async () => {
+      ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
+      ecsMock.on(DescribeTasksCommand).resolves({ tasks: [], failures: [{ arn: 'arn1', reason: 'MISSING' }] });
+      const service = makeService(makeConfig(), makeEc2());
+      await expect(service.findRunningTaskOrThrow('c', 'g')).rejects.toThrow(/Couldn't describe every running task.*MISSING/);
+    });
+
+    it('should throw when DescribeTasks omits a listed task', async () => {
+      ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1', 'arn2'] });
+      ecsMock.on(DescribeTasksCommand).resolves({ tasks: [{ taskArn: 'arn1', lastStatus: 'STOPPED' }] });
+      const service = makeService(makeConfig(), makeEc2());
+      await expect(service.findRunningTaskOrThrow('c', 'g')).rejects.toThrow(/Couldn't describe every running task/);
     });
   });
 

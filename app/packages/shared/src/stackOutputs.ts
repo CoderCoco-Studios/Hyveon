@@ -76,6 +76,12 @@ export interface StackOutputs {
    */
   efsAccessPoints: Record<string, string>;
 
+  /**
+   * Map of game name → volume name → that volume's EFS access point ID, covering every volume of every game
+   * (unlike {@link StackOutputs.efsAccessPoints}, which carries only the first volume).
+   */
+  efsVolumeAccessPoints: Record<string, Record<string, string>>;
+
   /** Base domain name (the configured hosted zone). Mirrors the `domain_name` output. */
   domainName: string;
 

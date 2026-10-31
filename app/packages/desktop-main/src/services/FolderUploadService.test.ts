@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { GameServer } from '@hyveon/shared';
 import type { FolderUploadProgress } from '@hyveon/shared/folderUpload';
 
 vi.mock('../logger.js', () => ({
@@ -21,9 +22,10 @@ import { PinMismatchError } from './folderUpload/FileBrowserClient.js';
 import type { WriteOptions } from './volumeFiles/VolumeFileBackend.js';
 import { generateEphemeralCert } from './folderUpload/ephemeralCert.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
-import { deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
+import { configAndSavesVolumes, deploymentConfigStub, gameServer } from '../testing/deployment-config.fixture.js';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { fakeBackend, type FakeBackend } from '../testing/fake-volume-backend.js';
+import { buildHelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
 
 let root: string;
 let scans: FolderScanService;
@@ -43,18 +45,29 @@ afterEach(() => rm(root, { recursive: true, force: true }));
 interface Harness {
   svc: FolderUploadService;
   client: FakeBackend;
-  fm: { startForUpload: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; getStatus: ReturnType<typeof vi.fn>; getHelperPublicIp: ReturnType<typeof vi.fn>; getHelperStopReason: ReturnType<typeof vi.fn>; sweepStrayHelpers: ReturnType<typeof vi.fn> };
-  ecs: { findRunningTask: ReturnType<typeof vi.fn> };
+  fm: { planHelperLayout: ReturnType<typeof vi.fn>; startForUpload: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; getStatus: ReturnType<typeof vi.fn>; getHelperPublicIp: ReturnType<typeof vi.fn>; getHelperStopReason: ReturnType<typeof vi.fn>; sweepStrayHelpers: ReturnType<typeof vi.fn> };
+  ecs: { findRunningTaskOrThrow: ReturnType<typeof vi.fn> };
   store: ElectronStoreService;
   progress: FolderUploadProgress[];
   create: ReturnType<typeof vi.fn>;
 }
 
-/** Builds the service under test with happy-path collaborators; `launch` overrides the helper launch result. */
-async function harness(options: { client?: FakeBackend; launch?: UploadHelperLaunch; outputs?: ReturnType<typeof stackOutputs> | null } = {}): Promise<Harness> {
+/**
+ * Builds the service under test with happy-path collaborators; `launch` overrides the helper launch result and `volumes`
+ * the game's declared volumes. The helper layout is planned from `outputs` by the real planner, as `FileManagerService` does.
+ */
+async function harness(
+  options: { client?: FakeBackend; launch?: UploadHelperLaunch; outputs?: ReturnType<typeof stackOutputs> | null; volumes?: GameServer['volumes'] } = {},
+): Promise<Harness> {
   const cert = await generateEphemeralCert();
   const client = options.client ?? fakeBackend();
+  const volumes = options.volumes ?? [{ name: 'saves', container_path: '/data' }];
+  const outputs =
+    options.outputs === undefined
+      ? stackOutputs({ efsAccessPoints: { minecraft: 'fsap' }, efsVolumeAccessPoints: { minecraft: { saves: 'fsap' } } })
+      : options.outputs;
   const fm = {
+    planHelperLayout: vi.fn(async () => (outputs ? buildHelperVolumeLayout('minecraft', volumes, outputs) : null)),
     startForUpload: vi.fn().mockResolvedValue(
       options.launch ?? { ok: true, session: { taskArn: 't', runId: 'r', credentials: { username: 'admin', password: 'pw-secret' }, cert } },
     ),
@@ -64,13 +77,12 @@ async function harness(options: { client?: FakeBackend; launch?: UploadHelperLau
     getHelperStopReason: vi.fn().mockResolvedValue(null),
     sweepStrayHelpers: vi.fn().mockResolvedValue({ stopped: [], skipped: 0, revokedRules: 0, errors: [] }),
   };
-  const ecs = { findRunningTask: vi.fn().mockResolvedValue(null) };
+  const ecs = { findRunningTaskOrThrow: vi.fn().mockResolvedValue(null) };
   const create = vi.fn().mockReturnValue(client);
   const store = new ElectronStoreService(new SafeStorageService());
-  const outputs = options.outputs === undefined ? stackOutputs({ efsAccessPoints: { minecraft: 'fsap' } }) : options.outputs;
   const svc = new FolderUploadService(
     configServiceStub({ outputs }),
-    deploymentConfigStub({ declared: [gameServer('minecraft')] }),
+    deploymentConfigStub({ declared: [gameServer('minecraft', { volumes })] }),
     ecs as unknown as EcsService,
     fm as unknown as FileManagerService,
     scans,
@@ -107,10 +119,62 @@ describe('FolderUploadService guards', () => {
     expect(h.fm.startForUpload).not.toHaveBeenCalled();
   });
 
+  it("should target the second volume's mount for a second-volume destination", async () => {
+    await writeFile(join(root, 'a.db'), 'x');
+    const h = await harness({
+      volumes: configAndSavesVolumes(),
+      outputs: stackOutputs({ efsVolumeAccessPoints: { minecraft: { config: 'fsap-c', saves: 'fsap-s' } } }),
+    });
+    expect((await h.svc.startUpload(await request(['a.db'], '/data/saves/worlds'))).started).toBe(true);
+    await settled(h);
+    expect(h.client.uploads).toEqual(['/saves/worlds/a.db']);
+  });
+
+  it('should launch the helper with the layout the remote paths were planned from', async () => {
+    const h = await harness();
+    expect((await h.svc.startUpload(await request(['Config']))).started).toBe(true);
+    await settled(h);
+    expect(h.fm.planHelperLayout).toHaveBeenCalledTimes(1);
+    const layout = await h.fm.planHelperLayout.mock.results[0]!.value;
+    expect(h.fm.startForUpload).toHaveBeenCalledWith('minecraft', expect.any(String), layout);
+  });
+
+  it('should refuse before launch when the destination volume is not mounted', async () => {
+    const h = await harness({
+      volumes: configAndSavesVolumes(),
+      outputs: stackOutputs({ efsAccessPoints: { minecraft: 'fsap' }, efsVolumeAccessPoints: {} }),
+    });
+    const res = await h.svc.startUpload(await request(['Config'], '/data/saves'));
+    expect(res).toMatchObject({ started: false, error: expect.stringContaining("Apply the infrastructure to upload into 'saves'") });
+    expect(h.ecs.findRunningTaskOrThrow).not.toHaveBeenCalled();
+    expect(h.fm.startForUpload).not.toHaveBeenCalled();
+  });
+
+  it('should refuse an upload into the first volume when the layout is the legacy fallback', async () => {
+    const h = await harness({
+      volumes: configAndSavesVolumes(),
+      outputs: stackOutputs({ efsAccessPoints: { minecraft: 'fsap' }, efsVolumeAccessPoints: {} }),
+    });
+    const res = await h.svc.startUpload(await request(['Config'], '/data/config'));
+    expect(res).toMatchObject({ started: false, error: expect.stringContaining("Apply the infrastructure to upload into 'config'") });
+    expect(h.ecs.findRunningTaskOrThrow).not.toHaveBeenCalled();
+    expect(h.fm.startForUpload).not.toHaveBeenCalled();
+  });
+
   it('should refuse when the game server task is running', async () => {
     const h = await harness();
-    h.ecs.findRunningTask.mockResolvedValue({ taskArn: 'x' });
+    h.ecs.findRunningTaskOrThrow.mockResolvedValue({ taskArn: 'x' });
     expect(await h.svc.startUpload(await request(['Config']))).toMatchObject({ started: false, error: expect.stringMatching(/Stop the server/) });
+    expect(h.fm.startForUpload).not.toHaveBeenCalled();
+  });
+
+  it("should refuse the upload when the server state can't be confirmed", async () => {
+    const h = await harness();
+    h.ecs.findRunningTaskOrThrow.mockRejectedValue(new Error('ListTasks failed'));
+    expect(await h.svc.startUpload(await request(['Config']))).toEqual({
+      started: false,
+      error: "Couldn't confirm 'minecraft' is stopped. Try again in a moment.",
+    });
     expect(h.fm.startForUpload).not.toHaveBeenCalled();
   });
 
@@ -124,7 +188,7 @@ describe('FolderUploadService guards', () => {
   it('should refuse a second overlapping start for the same game while the first is still preparing', async () => {
     const h = await harness();
     let release!: (task: null) => void;
-    h.ecs.findRunningTask.mockReturnValueOnce(new Promise<null>((resolve) => { release = resolve; }));
+    h.ecs.findRunningTaskOrThrow.mockReturnValueOnce(new Promise<null>((resolve) => { release = resolve; }));
     const req = await request(['Config']);
     const first = h.svc.startUpload(req);
     const second = await h.svc.startUpload(req);
@@ -137,7 +201,7 @@ describe('FolderUploadService guards', () => {
 
   it('should allow a new start after a refused one released the reservation', async () => {
     const h = await harness();
-    h.ecs.findRunningTask.mockResolvedValueOnce({ taskArn: 'x' });
+    h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce({ taskArn: 'x' });
     const req = await request(['Config']);
     expect(await h.svc.startUpload(req)).toMatchObject({ started: false, error: expect.stringMatching(/Stop the server/) });
     expect(await h.svc.startUpload(req)).toMatchObject({ started: true });
@@ -186,7 +250,7 @@ describe('FolderUploadService runs', () => {
     expect(res.started).toBe(true);
     const last = await settled(h);
     expect(last).toMatchObject({ phase: 'done', filesDone: 2, filesTotal: 2, bytesDone: 12, bytesTotal: 12 });
-    expect(h.client.uploads.sort()).toEqual(['/Config/a.json', '/Data/b.db']);
+    expect(h.client.uploads.sort()).toEqual(['/saves/Config/a.json', '/saves/Data/b.db']);
     expect(h.fm.stop).toHaveBeenCalledWith('minecraft');
     expect(h.svc.getSelection('minecraft')).toMatchObject({ include: ['Config', 'Data'], destination: '/data', lastRun: { status: 'done', files: 2, bytes: 12 } });
     expect(h.progress.map((p) => p.phase)).toEqual(expect.arrayContaining(['starting-helper', 'uploading', 'verifying', 'done']));
@@ -207,11 +271,11 @@ describe('FolderUploadService runs', () => {
 
   it('should skip files already on the volume with the right size when resuming', async () => {
     const client = fakeBackend();
-    client.sizes.set('/Config/a.json', 4);
+    client.sizes.set('/saves/Config/a.json', 4);
     const h = await harness({ client });
     await h.svc.startUpload(await request(['Config', 'Data']));
     const last = await settled(h);
-    expect(client.uploads).toEqual(['/Data/b.db']);
+    expect(client.uploads).toEqual(['/saves/Data/b.db']);
     expect(last).toMatchObject({ phase: 'done', filesDone: 2, bytesDone: 12 });
   });
 
@@ -369,9 +433,9 @@ describe('FolderUploadService overwrite confirmation', () => {
   /** A volume already holding a different-size `a.json`, an identical `b.db`, and an unrelated file in `Config`. */
   function conflictedClient(): FakeBackend {
     const client = fakeBackend();
-    client.sizes.set('/Config/a.json', 1);
-    client.sizes.set('/Config/old.cfg', 7);
-    client.sizes.set('/Data/b.db', 8);
+    client.sizes.set('/saves/Config/a.json', 1);
+    client.sizes.set('/saves/Config/old.cfg', 7);
+    client.sizes.set('/saves/Data/b.db', 8);
     return client;
   }
 
@@ -396,7 +460,7 @@ describe('FolderUploadService overwrite confirmation', () => {
     expect(h.svc.confirmOverwrite('minecraft', true)).toEqual({ resolved: true });
     const last = await settled(h);
     expect(last).toMatchObject({ phase: 'done' });
-    expect(client.uploads).toEqual(['/Config/a.json']);
+    expect(client.uploads).toEqual(['/saves/Config/a.json']);
     expect(h.progress.find((p) => p.phase === 'uploading')?.overwrite).toBeUndefined();
   });
 
@@ -439,8 +503,8 @@ describe('FolderUploadService overwrite confirmation', () => {
 
   it('should not prompt when nothing on the volume would be overwritten', async () => {
     const client = fakeBackend();
-    client.sizes.set('/Config/a.json', 4);
-    client.sizes.set('/Config/other.cfg', 9);
+    client.sizes.set('/saves/Config/a.json', 4);
+    client.sizes.set('/saves/Config/other.cfg', 9);
     const h = await harness({ client });
     await h.svc.startUpload(await request(['Config']));
     expect((await settled(h)).phase).toBe('done');
@@ -470,7 +534,7 @@ describe('FolderUploadService overwrite confirmation', () => {
 
     it('should prompt when conflicts exceed the files that could have been mid-flight', async () => {
       const client = conflictedClient();
-      client.sizes.set('/Data/b.db', 3);
+      client.sizes.set('/saves/Data/b.db', 3);
       const h = await harness({ client });
       h.svc.engine.concurrency = 1;
       await afterFailedRun(h, ['Config', 'Data']);
@@ -485,7 +549,7 @@ describe('FolderUploadService overwrite confirmation', () => {
       ['a different destination', ['Config', 'Data'], '/data/sub'],
     ])('should still prompt for %s', async (_label, include, destination) => {
       const client = fakeBackend();
-      client.sizes.set(destination === '/data' ? '/Config/a.json' : '/sub/Config/a.json', 1);
+      client.sizes.set(destination === '/data' ? '/saves/Config/a.json' : '/saves/sub/Config/a.json', 1);
       const h = await harness({ client });
       await afterFailedRun(h, ['Config', 'Data']);
       await h.svc.startUpload(await request(include, destination));

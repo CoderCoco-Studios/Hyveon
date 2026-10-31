@@ -45,13 +45,16 @@ export function planUpload(tree: FolderScanNode, include: string[]): PlannedFile
 }
 
 /**
- * Resolves the path a file is uploaded to on the helper, relative to the helper's root (the mounted access point).
+ * Resolves the path a file is uploaded to within its owning volume.
+ *
+ * @remarks
+ * The result is relative to the volume's root, not to the helper's filesystem: a helper mounts every volume under its own
+ * directory, so the caller prefixes the volume's mount directory to get the helper path.
  *
  * @param destination - Absolute container path chosen by the operator.
- * @param containerPath - The volume's `container_path`; stripped from `destination` because the helper's root is the
- * access point, not the container filesystem.
+ * @param containerPath - The `container_path` of the volume that owns `destination`; stripped from `destination`.
  * @param relPath - File path relative to the scanned folder.
- * @returns Absolute remote path such as `/Data/worlds/a.db`.
+ * @returns Absolute path inside the volume such as `/worlds/a.db`.
  * @throws Error when `relPath` is absolute or contains `..`, `.`, backslash, or NUL, when `destination` is not clean
  * and absolute, or when `destination` is outside `containerPath`.
  */
