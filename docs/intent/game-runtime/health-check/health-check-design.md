@@ -7,7 +7,7 @@ prefix: RT-HEALTH
 
 ## Context and Design Philosophy
 
-The watchdog's default idleness signal is CloudWatch `NetworkPacketsIn` on the task's ENI, which cannot tell a server with players apart from a server receiving background traffic. The health check lets a game opt in to a better signal: it declares an HTTP request against its own management API and a single condition on the response, and the watchdog then asks that question instead of counting packets (`openspec/specs/game-health-checks/spec.md:12`). For an opted-in game the verdict fully replaces the CloudWatch measurement for that cycle (`app/packages/lambda/watchdog/src/handler.ts:211-216`).
+The watchdog's default idleness signal is the task's inbound traffic from ECS Container Insights, which cannot tell a server with players apart from a server receiving background traffic. The health check lets a game opt in to a better signal: it declares an HTTP request against its own management API and a single condition on the response, and the watchdog then asks that question instead of measuring traffic (`openspec/specs/game-health-checks/spec.md:12`). For an opted-in game the verdict fully replaces the CloudWatch measurement for that cycle (`app/packages/lambda/watchdog/src/handler.ts:211-216`).
 
 This leaf owns:
 

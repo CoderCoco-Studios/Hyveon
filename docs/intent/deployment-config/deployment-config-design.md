@@ -42,7 +42,7 @@ What this leaf deliberately does not own:
 | `vpcCidr` | `10.0.0.0/16` | Validated as an IPv4 CIDR on write (`shared/src/deploymentSettingsWrite.ts:61-67`, `:97-98`). |
 | `hostedZoneName` | none (required) | `withDeploymentConfigDefaults` requires it explicitly (`deploymentConfig.ts:322-345`). |
 | `dnsTtl` | `30` | Positive integer. |
-| `watchdogIntervalMinutes`, `watchdogIdleChecks`, `watchdogMinPackets` | `15`, `4`, `100` | Positive integers; baked into the stack at apply time by `iac/program`. |
+| `watchdogIntervalMinutes`, `watchdogIdleChecks`, `watchdogMinBytesPerSecond` | `15`, `4`, `1000` | Positive integers; baked into the stack at apply time by `iac/program`. |
 | `baseAllowedGuilds`, `baseAdminUserIds`, `baseAdminRoleIds` | fresh `[]` per call | Arrays of 17-20 digit Discord snowflakes (`deploymentSettingsWrite.ts:82-87`, `:147-163`). |
 | `discordApplicationId` | `''` | |
 | `auditTableName` | `''` | Empty means "computed by the infra program" (`deploymentConfig.ts:142-152`). |

@@ -91,7 +91,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/game-runtime/game-runtime-design.md
-    next: "Choose the watchdog replacement idle signal (RT-WATCHDOG-CW-007); nothing without a health check auto-stops today."
+    next: "Implement the Container Insights idle signal (RT-WATCHDOG-CW-001/002/004/007, IAC-PROGRAM-ECS-001); nothing without a health check auto-stops until it ships."
     drift: null
 
   task-and-dns:
@@ -115,7 +115,7 @@ arrows:
     blocks: []
     blockedBy: [program, health-check]
     detail: game-runtime/watchdog.md
-    next: "Choose a replacement idle signal for games without a health check (options in watchdog-design.md Deferred 1), then implement RT-WATCHDOG-CW-007."
+    next: "Implement the Container Insights traffic measurement and the watchdogMinBytesPerSecond tunable (Must Fix 1), tests first."
     drift: "Verified live 2026-10-31 (us-east-2): AWS/EC2 NetworkPacketsIn returns no datapoints for Fargate ENIs; 368 no-data checks, 0 idle verdicts in 7 days; games without a health check never auto-stop."
 
   health-check:

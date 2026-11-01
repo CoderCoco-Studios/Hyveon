@@ -236,7 +236,7 @@ Rationale is marked `[stated]` when the cited source gives it and `[inferred]` w
 
 ## Success Metrics
 
-> **DRAFT: needs owner review.** Metric shapes follow the Goals above; targets marked "suggested" are proposals awaiting the project owner's confirmation. The idle-stop metric is not met today: games without a health check are never auto-stopped (`RT-WATCHDOG-CW-007`).
+> **DRAFT: needs owner review.** Metric shapes follow the Goals above; targets marked "suggested" are proposals awaiting the project owner's confirmation. The idle-stop metric is not met today: games without a health check are never auto-stopped until the watchdog's Container Insights traffic measurement ships (`RT-WATCHDOG-CW-007`).
 
 | Metric | Measures goal | Target |
 |---|---|---|
