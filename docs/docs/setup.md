@@ -678,4 +678,4 @@ owning game is removed.
 | `/server-*` slash commands don't appear in Discord | Per-guild registration not done | Guilds tab → **Register commands** next to the guild ID. |
 | `/server-start` says "You don't have permission" | Your user/role isn't in admins or per-game permissions, or the `start` action isn't ticked | Admins tab or Per-Game Permissions tab, then retry. |
 | Task reaches RUNNING but DNS never updates | update-dns Lambda errored; EventBridge rule might be disabled | Check the Lambda's CloudWatch logs; verify the EventBridge rule is enabled. |
-| Watchdog stops tasks too aggressively | Low minimum-bytes-per-second threshold, short check interval, or few idle checks configured | Tune the three knobs via Settings → **General** ("Watchdog tuning") and re-apply. |
+| Watchdog stops tasks too aggressively | High minimum-bytes-per-second threshold (traffic below it counts as idle), short check interval, or few idle checks configured | Tune the three knobs via Settings → **General** ("Watchdog tuning") and re-apply. |

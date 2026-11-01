@@ -251,6 +251,27 @@ describe('watchdog handler: Container Insights traffic verdict', () => {
     });
   });
 
+  // @spec RT-WATCHDOG-CW-004
+  it.each([
+    { order: 'idle first', datapoints: [{ Average: 0 }, { Average: 5000 }] },
+    { order: 'active first', datapoints: [{ Average: 5000 }, { Average: 0 }] },
+  ])('should treat the window as active when datapoints are $order and any bucket meets the threshold', async ({ datapoints }) => {
+    await runWithMetric({ Datapoints: datapoints }, '1');
+    expect(ecsMock.commandCalls(TagResourceCommand)[0]!.args[0]!.input.tags![0]).toEqual({
+      key: 'idle_checks',
+      value: '0',
+    });
+  });
+
+  // @spec RT-WATCHDOG-CW-004
+  it('should treat the window as idle when every datapoint is below the threshold regardless of order', async () => {
+    await runWithMetric({ Datapoints: [{ Average: 500 }, { Average: 10 }, { Average: 999 }] }, '1');
+    expect(ecsMock.commandCalls(TagResourceCommand)[0]!.args[0]!.input.tags![0]).toEqual({
+      key: 'idle_checks',
+      value: '2',
+    });
+  });
+
   // @spec RT-WATCHDOG-CW-005
   it('should treat a datapoint without an Average as active', async () => {
     await runWithMetric({ Datapoints: [{}] });

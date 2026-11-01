@@ -85,7 +85,7 @@ interface HealthCheckInvokeResult {
  * not started flowing, from being stopped.
  *
  * @param family - The task definition family, `{game}-server`.
- * @returns The `Average` of `NetworkRxBytes`, or `null` when unavailable.
+ * @returns The highest `Average` of `NetworkRxBytes` across returned datapoints, or `null` when unavailable.
  */
 async function getRxBytesPerSecond(family: string): Promise<number | null> {
   const now = new Date();
@@ -105,8 +105,11 @@ async function getRxBytesPerSecond(family: string): Promise<number | null> {
         Statistics: ['Average'],
       }),
     );
-    const average = resp.Datapoints?.[0]?.Average;
-    if (typeof average === 'number') return average;
+    // CloudWatch does not order datapoints; the highest Average keeps the task active if any bucket saw traffic.
+    const averages = (resp.Datapoints ?? [])
+      .map((d) => d.Average)
+      .filter((a): a is number => typeof a === 'number');
+    if (averages.length > 0) return Math.max(...averages);
     console.log(`No Container Insights datapoints for ${family} — assuming active`);
     return null;
   } catch (err) {
