@@ -6,7 +6,7 @@ Drafted EARS lines are proposals for the owning LLD's specs file; they are not y
 
 Dispositions:
 
-- **(1) Archive** — built; nothing left to carry except rationale.
+- **(1) Archive** — built; nothing left to build under this change beyond rationale to carry. A built change may still have shipped defects; those are tracked by open LID IDs, not by keeping the change in flight.
 - **(2) Partly built** — remaining work named, with the LID IDs that carry it.
 - **(3) Migrate** — not started; target LLD and drafted EARS given.
 - **(4) Drop** — superseded or obsolete.
@@ -15,32 +15,39 @@ Dispositions:
 
 | Change | Disposition | Tasks verified in code | LID home | Owner decision needed |
 |---|---|---|---|---|
-| `add-pluggable-health-checks` | (1) Archive, skip spec apply | 27/29 clean; 2 shipped broken (3.1/5.4, 5.7) | `game-runtime/health-check` (RT-HEALTH-*), `game-runtime/watchdog`, `iac/program` | — (defects already open as RT-HEALTH-PROV-003/004/005, IAC-PROGRAM-LAMBDA-011/012) |
-| `add-healthcheck-auth-type` | (1) Archive | 27/27 | `game-runtime/health-check` (RT-HEALTH-AUTH/CRED/REDACT), `game-server` (GAME-WRITE/DRAFT) | — |
+| `add-pluggable-health-checks` | (1) Archive — shipped with known defects; needs `--skip-specs` | 27/29 clean; 2 shipped broken (3.1/5.4, 5.7) | `game-runtime/health-check` (RT-HEALTH-*), `game-runtime/watchdog`, `iac/program` | — (defects already open as RT-HEALTH-PROV-003/004/005, IAC-PROGRAM-LAMBDA-011/012) |
+| `add-healthcheck-auth-type` | (1) Archive (default archive works) | 27/27 | `game-runtime/health-check` (RT-HEALTH-AUTH/CRED/REDACT), `game-server` (GAME-WRITE/DRAFT) | — |
 | `add-scripted-health-checks` | (3) Migrate | 0/28 | `game-runtime/health-check` + one line each in `game-server`, `iac/program` | `secret` binding shape for `basic`/`bearer`; `[ ]` vs `[D]` |
-| `add-icmp-ingress` | (1) Archive, skip spec apply | 15/16; 5.3 is a manual `pulumi preview` | `game-server` (GAME-PORT-009..015), `iac/program` | — |
-| `https-explicit-web-port` | (1) Archive | 15/15 | `game-server` (GAME-HTTPS-004..017), `iac/program` | Release that removes the `normalizeGameServer` shim |
+| `add-icmp-ingress` | (1) Archive; needs `--skip-specs` | 16/17; 5.3 `[~]` is a manual `pulumi preview` | `game-server` (GAME-PORT-009..015), `iac/program` | — |
+| `https-explicit-web-port` | (1) Archive; needs `--skip-specs` | 15/15 | `game-server` (GAME-HTTPS-004..017), `iac/program` | Release that removes the `normalizeGameServer` shim |
 | `add-pinned-hostname` | (2) Partly built — manual verification only | 20/22; 5.3, 5.4 manual | `game-server` (GAME-HOST-001..016), `iac/program` (IAC-PROGRAM-HOST-001..008) | D9 (no drift field) vs CONFIG-DRIFT-008; run 5.4 live check |
 | `add-vpc-flow-logs` | (3) Migrate (candidate `[D]`) | 0/22 | `iac/program`, `deployment-config`, `operator-app/infra-logs` | `[ ]` vs `[D]`; collapse `LogsService` resolver pairs first (infra-logs Q16) |
-| `add-release-automation` | (1) Archive, do not sync | 18/18 code tasks; 7 of 8 unchecked operational tasks evidenced live; 5.4 unverified | `operator-app/app-update-and-release` (APP-UPDATE-REL/BUMP/NOTES/DRAFT) | Record or drop task 5.4 (forced AI-failure run) |
-| `add-update-feed-fallback` | (1) Archive | 6/6 | `operator-app/app-update-and-release` (APP-UPDATE-FALL-001..006, UI-008/009) | — |
-| `add-user-initiated-update-install` | (1) Archive, skip sync | 11/11 | `operator-app/app-update-and-release` (APP-UPDATE-DL-*, IPC-004..008, UI-005..009) | — |
+| `add-release-automation` | (1) Archive; needs `--skip-specs` | 18/18 code tasks; 7 of 8 unchecked operational tasks evidenced live; 5.4 unverified | `operator-app/app-update-and-release` (APP-UPDATE-REL/BUMP/NOTES/DRAFT) | Record or drop task 5.4 (forced AI-failure run) |
+| `add-update-feed-fallback` | (1) Archive (default archive works) | 6/6 | `operator-app/app-update-and-release` (APP-UPDATE-FALL-001..006, UI-008/009) | — |
+| `add-user-initiated-update-install` | (1) Archive (default archive works; widens main only) | 11/11 | `operator-app/app-update-and-release` (APP-UPDATE-DL-*, IPC-004..008, UI-005..009) | — |
 
 ## Cross-cutting findings
 
-1. **Nothing to drop; little to build.** 7 of 10 changes are built and archive cleanly. Only `add-scripted-health-checks` and `add-vpc-flow-logs` need new EARS, and both are candidates for `[D]`. `add-pinned-hostname`'s remaining work is two manual checks plus a runbook.
-2. **Never sync these deltas.** `add-pluggable-health-checks`, `add-icmp-ingress`, `add-release-automation` and `add-user-initiated-update-install` have deltas that are either hand-merged already or behind (or superseded by) the main spec or LID. Archiving with spec application skipped, or simply deleting the directories, is safe; `/opsx:sync` on any of them would regress `openspec/specs/`.
-3. **LID cites `openspec/` paths, which break on deletion.** Outside `_map-codebase/` and this file, `docs/intent/` and `docs/arrows/` carry about 240 `openspec/...` path citations across 37 files — 33 into `openspec/changes/archive/`, 45 into the 10 in-flight change dirs — plus about 785 `(OpenSpec: <capability> / <Requirement>)` provenance tags on EARS lines in the `*-specs.md` files. Before deleting `openspec/`, each "see `<change>/design.md` Dn" citation must be inlined as self-contained rationale in the owning LLD's Decisions & Alternatives table (the per-change "Content at risk" lists below name each one). The provenance tags and "Dropped from OpenSpec" sections can stay as plain historical labels or be stripped in one mechanical pass — owner decision.
+1. **Nothing to drop; little to build.** 7 of 10 changes are built and can be archived (four need `--skip-specs`, see item 2). Only `add-scripted-health-checks` and `add-vpc-flow-logs` need new EARS, and both are candidates for `[D]`. `add-pinned-hostname`'s remaining work is two manual checks plus a runbook.
+2. **Default archive works for some changes and needs `--skip-specs` for the rest; none can lose data.** Behaviour of `openspec archive <change> --yes` (CLI 1.7.0), run against a scratch copy of `openspec/` for every in-flight change:
+   - **Archives cleanly with the default flags:** `add-healthcheck-auth-type` and `add-update-feed-fallback` ("Specs already in sync; no files changed"); `add-user-initiated-update-install` (+1 added, ~1 modified; its MODIFIED delta only widens `auto-update-scaffold/spec.md:160-172`).
+   - **Default archive aborts, so pass `--skip-specs`:** `add-pluggable-health-checks`, `add-icmp-ingress` and `add-release-automation` (each ADDED requirement already exists in main); `https-explicit-web-port` (its RENAMED FROM header is gone from main, which already carries the renamed requirement at `game-port-visibility/spec.md:50` and the ADDs at `game-https-configuration/spec.md:137,161`, and its MODIFIED "Internal ports" block omits a scenario main has at `game-port-visibility/spec.md:33`).
+   - **Default archive would create or extend main specs for work that is not built or is already in LID:** `add-pinned-hostname` (new `game-hostname-pinning`, +5), `add-scripted-health-checks` (new `scripted-health-checks`, +6; ~2 modified in `game-health-checks`), `add-vpc-flow-logs` (new `vpc-flow-logs`, +7). Pass `--skip-specs` for these too, since `openspec/` is being retired.
+   - Every aborting path ends "Aborted. No files were changed."; a successful archive only moves the change directory. Deleting the directories is equally safe. The one regression route is the agent-driven `/opsx:sync`, whose procedure treats an ADDED requirement that already exists as an update to match (`.claude/skills/openspec-sync-specs/SKILL.md:99`) and would overwrite hand-merged or newer main text for `add-pluggable-health-checks`, `add-icmp-ingress`, `add-release-automation` and `https-explicit-web-port`.
+3. **LID cites `openspec/` paths, which break on deletion.** Outside `_map-codebase/` and this file, `docs/intent/` and `docs/arrows/` carry about 240 `openspec/...` path citations across 37 files — 33 into `openspec/changes/archive/`, 45 into the 10 in-flight change dirs — plus 756 `(OpenSpec: <capability> / <Requirement>)` provenance tags on EARS lines in the `*-specs.md` files (785 lines in those files mention OpenSpec at all). Before deleting `openspec/`, each "see `<change>/design.md` Dn" citation must be inlined as self-contained rationale in the owning LLD's Decisions & Alternatives table (the per-change "Content at risk" lists below name each one). The provenance tags and "Dropped from OpenSpec" sections can stay as plain historical labels or be stripped in one mechanical pass — owner decision.
+   - **Second citation form, invisible to a grep for `openspec/`.** Many citations name the change directory with no `openspec/changes/` prefix. Find them with `grep -rnE "(^|[^/a-zA-Z0-9-])[a-z0-9]+(-[a-z0-9]+)+/(design|proposal|tasks|plan|brainstorm|verify|retro|retrospective)\.md" docs/intent docs/arrows --exclude-dir=_map-codebase --exclude-dir=_triage | grep -v "openspec/"`: 82 matches on 77 lines across 15 files, 34 of them into the 10 in-flight changes. All are inside `*-design.md` files except 3 `*-specs.md` hits.
+   - **In-flight bare cites by file** (the per-change "Content at risk" lists name only some of these): `game-runtime/game-runtime-design.md:165,171,173` (`add-pluggable-health-checks/design.md`); `game-runtime/health-check/health-check-design.md:149-153,157-161,168-169` (12 bare cites; with the prefixed ones the file cites `add-pluggable-health-checks/design.md` 9 times and `add-healthcheck-auth-type/design.md` 8 times); `game-runtime/watchdog/watchdog-design.md:142`; `game-server/game-server-design.md:137,152-154,166` (`https-explicit-web-port`, `add-icmp-ingress`, `add-pinned-hostname`); `operator-app/app-update-and-release/app-update-and-release-design.md:118-142` (13 cites into `add-release-automation`, `add-user-initiated-update-install` and `add-update-feed-fallback`).
+   - The other 48 matches cite archived or unrelated change names (`iac/run/run-design.md`, `wizard-and-bootstrap-design.md`, `program-design.md`, `diagnostics-design.md` and others) and need the same inlining.
 4. **Stale change paths already dangle in LID.** `openspec/changes/remove-cost-explorer-calls`, `embed-file-browser` and `add-diagnostics-export` are cited as active but live under `archive/` (`task-and-dns-design.md:164`, `diagnostics-design.md:224,235`, `operator-app-design.md:285`). `diagnostics-design.md:235` also lists `add-pinned-hostname` as an active change touching that leaf.
 5. **Line citations in the LLDs have drifted** since the `@spec` annotation PRs (#706/#707): e.g. `health-check-design.md` cites `lambdas.ts:552` (now `:568`) and `handler.ts:39` (now `:40`); `app-update-and-release-design.md` cites `downloadUpdateNow` at `updater.ts:189` (now `:197`) and install at `:242-256` (now `:251`). Refresh them in the same pass as item 3.
 6. **Owner decisions collected** (also in the Summary table): `secret` binding shape for scripted checks; `[ ]` vs `[D]` for scripted checks and flow logs; `LogsService` resolver collapse before flow logs; D9 vs CONFIG-DRIFT-008 for `pinnedHostname` drift; release that removes `normalizeGameServer`; run or drop release task 5.4; keep or strip OpenSpec provenance tags.
 
 ## Per-change detail
 
-### `add-pluggable-health-checks` — (1) Archive
+### `add-pluggable-health-checks` — (1) Archive — shipped with known defects
 
-**Spec state.** All 8 delta requirements are already in `openspec/specs/game-health-checks/spec.md:12-319` (commit `cdd0cb8c`), and that main spec has since been rewritten by `add-healthcheck-auth-type`; re-applying this delta would regress it.
-Archive with spec application skipped, and archive it before `add-healthcheck-auth-type`.
+**Spec state.** All 8 delta requirements are already in `openspec/specs/game-health-checks/spec.md:12-319` (commit `cdd0cb8c`), and that main spec has since been rewritten by `add-healthcheck-auth-type`; re-applying this delta by hand would regress it.
+A default `openspec archive` aborts on the first ADDED requirement that already exists and changes no file, so archive with `--skip-specs`; the order relative to `add-healthcheck-auth-type` then does not matter.
 The `lambda-runtime-currency` delta is synced (`openspec/specs/lambda-runtime-currency/spec.md:22`) and carried in LID as IAC-PROGRAM-RUNTIME-001/002/005 `[x]`, -003 `[ ]`.
 No archived change covers the same intent (`2026-08-11-aws-cloud-health-checks` is the unrelated AWS-account Cloud Health checklist).
 
@@ -49,8 +56,8 @@ Types `shared/src/gameServerConfig.ts:117,172-174,308`; schema `gameServerValida
 
 **Shipped broken (already open in LID — no new IDs).**
 
-- Tasks 3.1/5.4: `handler.ts:40` reads `ECS_CLUSTER` at module load, but infra sets only `AWS_REGION_` (`lambdas.ts:568`), so the function cannot start. Carried by RT-HEALTH-PROV-003/004, IAC-PROGRAM-LAMBDA-011/012.
-- Task 5.7: the test passes but its premise is false — the function sits in public subnets with no NAT or VPC endpoints and its security group allows egress only to game ports, so it cannot reach ECS or Secrets Manager. Carried by RT-HEALTH-PROV-005 and the `iac/program` arrow `next`.
+- Tasks 3.1/5.4: `handler.ts:40` reads `ECS_CLUSTER` at module load, but infra sets only `AWS_REGION_` (`lambdas.ts:568`), so the function cannot start. Carried by RT-HEALTH-PROV-003 and IAC-PROGRAM-LAMBDA-011. RT-HEALTH-PROV-005 covers the test that masks it: `handler.test.ts:18` sets `ECS_CLUSTER` before importing the handler.
+- Task 5.7: the test passes but its premise is false — the function sits in public subnets with no NAT or VPC endpoints and its security group allows egress only to game ports, so it cannot reach ECS or Secrets Manager. Carried by RT-HEALTH-PROV-004, IAC-PROGRAM-LAMBDA-012 and the `iac/program` arrow `next`.
 - Other open gaps that finish this change: RT-HEALTH-HTTP-005, RT-HEALTH-REDACT-004, RT-WATCHDOG-HC-006.
 - Task 1.5 deviation (harmless): `gamesWithHealthChecks` lives in `infra/src/iam.ts:244`, not `@hyveon/shared`.
 
@@ -91,7 +98,7 @@ Depends on `add-pluggable-health-checks` (kind discriminator, Lambda, fail-activ
 
 1. Its `game-health-checks` delta restates "AWS calls travel the normal public-subnet route, no new network provisioning". LID dropped that as false (`health-check-specs.md`, "Dropped"); do not migrate it.
 2. It predates auth types. It must say what the `secret` binding holds for `basic` (raw JSON string or parsed object) and for `bearer`. **Owner decision.**
-3. RT-HEALTH-DECL-001 ("only accepted value is `http`") must be amended alongside RT-HEALTH-DECL-007.
+3. RT-HEALTH-DECL-001 ("whose only accepted value is `http`") must be amended alongside RT-HEALTH-DECL-007, to read "whose accepted values are `http` and `script`", so the two lines do not contradict each other.
 4. Audit is mostly covered: GAME-WRITE-013 already records redacted before/after for every game write; only "script source appears in the entry" is new.
 
 **Target.** `docs/intent/game-runtime/health-check/health-check-design.md` and `health-check-specs.md`, plus one line in `game-server-specs.md` and two in `iac/program/program-specs.md`.
@@ -133,11 +140,11 @@ Given the blocker, the owner may land these as `[D]` instead of `[ ]`.
 - Open question: Lambda memory/timeout sizing (becomes IAC-PROGRAM-LAMBDA-017).
 - Docs obligations at ship time: guest environment, security posture and "prefer the declarative kind" in `docs/docs/components/lambdas.md` and the wizard page.
 
-### `add-icmp-ingress` — (1) Archive
+### `add-icmp-ingress` — (1) Archive, `--skip-specs`
 
-**Spec state.** All 4 ADDED requirements are hand-merged into `openspec/specs/game-port-visibility/spec.md:114-165`; archive with spec application skipped (`docs/arrows/game-server.md:98`). Shipped in PR #599 (`f81b09b7`).
+**Spec state.** All 4 ADDED requirements are hand-merged into `openspec/specs/game-port-visibility/spec.md:114-165`; a default archive aborts on the first ADDED requirement ("Connect-port surfaces exclude ICMP entries") that already exists and changes no file, so archive with `--skip-specs` (`docs/arrows/game-server.md:98`). Shipped in PR #599 (`f81b09b7`).
 
-**Built (15/16).**
+**Built (16/17: 16 `[x]` plus 5.3 `[~]`).**
 `isIcmpProtocol` `shared/src/gameServerConfig.ts:61`; ICMP range and cross-game visibility rule `gameServerValidator.ts:637-683,792`; rule shape `toPort: -1` `infra/src/securityGroups.ts:222-223`; `portMappings` filter `ecs.ts:279-283`; `firstPortByGame` skips ICMP `lambdas.ts:321`; wizard `networking-step.component.tsx`, `wizard-form.utils.ts` with tests; docs `docs/docs/components/infra.md:316-318`, `app/games.md:148-161`, `setup.md:373-378`, `README.md:92-105`.
 Remaining: task 5.3 `[~]`, a manual `pulumi preview` showing the ICMP rule and a zero diff on a non-ICMP config. Nothing to build.
 
@@ -151,9 +158,9 @@ Related existing gap (not from this change): GAME-VALID-010 `[ ]` — protocol n
 - `brainstorm.md` incident evidence (2026-08-31 flow-log proof: browser join = 2 ICMP echo REJECT, then no UDP; manual rule on `sg-0e37b362ca57210bf`). `setup.md:378` and `infra.md:318` keep the gist; optionally one rationale line in the game-server LLD.
 - `plan.md`: implementation script, nothing to keep.
 
-### `https-explicit-web-port` — (1) Archive
+### `https-explicit-web-port` — (1) Archive, `--skip-specs`
 
-**Spec state.** Synced into `game-https-configuration/spec.md:137,161`, `in-task-tls-termination/spec.md:11,72`, `game-port-visibility/spec.md:34,51,166`, except the MODIFIED constraint 5 (cross-game `webPort`, delta `spec.md:63,87`). That gap is moot: LID GAME-HTTPS-009/010 carry it. Proposal PR #685; implementation #688/#689/#691.
+**Spec state.** Synced into `game-https-configuration/spec.md:137,161`, `in-task-tls-termination/spec.md:11,72`, `game-port-visibility/spec.md:34,51,166`, except the MODIFIED constraint 5 (cross-game `webPort`, delta `spec.md:63,87`). That gap is moot: LID GAME-HTTPS-009/010 carry it. A default archive aborts and changes no file (the delta's RENAMED FROM header is gone from main, whose renamed requirement is at `game-port-visibility/spec.md:50`, and its MODIFIED "Internal ports" block omits a scenario main has at `:33`), so archive with `--skip-specs`. Proposal PR #685; implementation #688/#689/#691.
 
 **Built (15/15).**
 `webPort` and the `@deprecated` `normalizeGameServer` with its removal condition `shared/src/gameServerPorts.ts:33-66`; `checkWebPortCollisionsAcrossDeployment` `gameServerValidator.ts:844,1109`; Caddy `--to webPort` and port mappings in `ecs.ts`; no `webPort` ingress (`securityGroups.ts`, `ingressPorts`); `HTTPS_CONNECT_PORT` in `lambdas.ts` and `formatStatus.ts`; normaliser applied in `DeploymentConfigService`, `GameWizardDraftService`, `DriftService`; wizard field in `networking-step.component.tsx`.
@@ -172,7 +179,7 @@ Leftovers already in LID: GAME-IPC-005 `[ ]` (preload `GameServer`/`GameWizardDr
 
 ### `add-pinned-hostname` — (2) Partly built (manual verification only)
 
-**Spec state.** Never synced — there is no `openspec/specs/game-hostname-pinning` and no archive. LID already holds the full behaviour, so do not sync; archive once the manual checks are done (or close without them).
+**Spec state.** Never synced — there is no `openspec/specs/game-hostname-pinning` and no archive. LID already holds the full behaviour, so archive with `--skip-specs` (a default archive would create a new `game-hostname-pinning` main spec, +5 added); archive once the manual checks are done (or close without them).
 Proposal PR #687; implementation #692 (`5b984bbe`) plus `27bf7cec`, `104b5fac`, `8f7d8986`, `9eabf288`, `8cb01e9e`.
 
 **Built (tasks 1–4).**
@@ -232,9 +239,9 @@ Proposal PR #687; implementation #692 (`5b984bbe`) plus `27bf7cec`, `104b5fac`, 
 - D1: VPC-level, not per-subnet. D2: `ALL` traffic so ACCEPT serves as a control case. D3: CloudWatch, not S3, to reuse the existing read path. D4: log-group naming namespace. D6: boolean only; retention never-expire, matching the other groups.
 - Risks: ingestion cost; ~1-minute capture lag; disabling orphans the log group, which must be deleted by hand. The cost and orphan-cleanup notes go into `docs/docs/components/infra.md` when it ships.
 
-### `add-release-automation` — (1) Archive, do not sync
+### `add-release-automation` — (1) Archive, `--skip-specs`
 
-**Spec state.** `openspec/specs/release-automation/spec.md` is ahead of this change's delta: main says the build pipeline runs in the same workflow run and adds the "No release exists while builds are running" scenario, while the delta still routes publishing through `package.yml`'s tag trigger. Syncing the delta would regress main (`docs/arrows/operator-app/app-update-and-release.md` Finding 14).
+**Spec state.** `openspec/specs/release-automation/spec.md` is ahead of this change's delta: main says the build pipeline runs in the same workflow run and adds the "No release exists while builds are running" scenario, while the delta still routes publishing through `package.yml`'s tag trigger. A default archive aborts on the first ADDED requirement that already exists and changes no file, so archive with `--skip-specs`; the agent-driven `/opsx:sync` would overwrite main with the stale delta (`docs/arrows/operator-app/app-update-and-release.md` Finding 14).
 The change's `design.md` is also stale (model `claude-opus-5` vs `claude-sonnet-5-5` in code; `package.yml` publishing; softprops upsert for replay); `app-update-and-release-design.md` Deferred Q6 already flags this.
 
 **Built.** `.github/workflows/release.yml`, `cliff.toml`, `.github/actions/publish-release/action.yml`, `.github/actions/build-package`, carrying `@spec APP-UPDATE-REL-001` (`release.yml:3`), REL-006 (`:50`), BUMP-008 (`:68`), DRAFT-001 (`publish-release:24`), DRAFT-003 (`:38`). PRs #664–#667, #673, #677, #681, #706.
@@ -264,15 +271,15 @@ Real releases v0.7.0 → v0.10.0 have run through `release.yml` (15 tags v0.1.0�
 
 **Spec state.** Delta matches `openspec/specs/auto-update-scaffold/spec.md:141-175` exactly (synced).
 
-**Built (6/6).** `updater-fallback.ts:49` `pickFallbackRelease`, `:67` `resolveFallbackFeedUrl`; `updater.ts:33` `checkWithFallback` (`@spec APP-UPDATE-FALL-001/003/004/005`); `updater-fallback.test.ts` (12), `updater.test.ts` (31); `settings.page.tsx:80` `RELEASES_URL`, "Download manually" link `:352`, 15 cases in `settings.page.test.tsx`; docs `docs/docs/app/settings.md:168,209`. Commit `1e30ebe7` (#668), first released in v0.7.3.
+**Built (6/6).** `updater-fallback.ts:49` `pickFallbackRelease`, `:67` `resolveFallbackFeedUrl`; `updater.ts:42` `checkWithFallback` (`@spec APP-UPDATE-FALL-001/003/004/005` at `:32`); `updater-fallback.test.ts` (12), `updater.test.ts` (31); `settings.page.tsx:80` `RELEASES_URL`, "Download manually" link `:352`, 15 cases in `settings.page.test.tsx`; docs `docs/docs/app/settings.md:168,209`. Commit `1e30ebe7` (#668), first released in v0.7.3.
 
 **LID coverage.** APP-UPDATE-FALL-001..006, APP-UPDATE-UI-008/009. Later-found gap, not a task of this change: APP-UPDATE-FALL-007 `[ ]` (paginate past `per_page=10`).
 
 **Content at risk.** The motivating incident (v0.7.0 shipped with zero assets) and the fact that clients older than v0.7.3 cannot self-heal and need one manual update → one line in the "Recovering from a release without a feed" row (`app-update-and-release-design.md:127`).
 
-### `add-user-initiated-update-install` — (1) Archive, skip sync
+### `add-user-initiated-update-install` — (1) Archive
 
-**Spec state.** Unsynced: `openspec/specs/auto-update-scaffold/spec.md` has no download/install requirement. Since `openspec/` is being retired, skip the sync — APP-UPDATE-DL-*, IPC-004..008 and UI-005..009 hold the ADDED requirement and the MODIFIED "Download manually" requirement in full. (If `openspec/` stays longer, `/opsx:sync` before archiving.)
+**Spec state.** Unsynced: `openspec/specs/auto-update-scaffold/spec.md` has no download/install requirement, and its "Failed manual checks link to the releases page" requirement (`:160-172`) is the narrower pre-change text. The delta only adds the ADDED requirement and widens that MODIFIED one, and a default archive applies it cleanly (+1 added, ~1 modified), so syncing is safe if `openspec/` stays longer. Since `openspec/` is being retired, either archive or skip the apply (`--skip-specs`) — APP-UPDATE-DL-*, IPC-004..008 and UI-005..009 hold both requirements in full.
 
 **Built (11/11).** `updater.ts:197` `downloadUpdateNow` (`@spec DL-001..004/006/007`), `:251` `installDownloadedUpdate` (DL-008); controller `iac-settings.controller.ts:301,327`, self-bridged `:119-120`, in `ipc-main-bridge.ts:37` `SELF_BRIDGED_PATTERNS`; shared types `autoUpdateSetting.ts:68-84`; preload `preload.ts:654-655`; e2e stub `hyveon-http-bridge.ts:298,306`; Settings buttons `settings.page.tsx:65-67,89`; docs `settings.md:212,226-233`. Commit `47499ed7` (#675), first released in v0.9.0.
 
@@ -308,10 +315,10 @@ Drafted EARS for `program-specs.md` (new `TAG` group):
 - [x] **IAC-PROGRAM-TAG-001**: The infrastructure program shall tag each game's `{game}-server` ECS task definition with `Game: <game>`.
 - [x] **IAC-PROGRAM-TAG-002**: The infrastructure program shall tag each game's per-game CloudWatch log groups (game server and file browser) with `Game: <game>`.
 - [x] **IAC-PROGRAM-TAG-003**: Where a game declares EFS seed files, the infrastructure program shall tag that game's EFS-seeder Lambda and its log group with `Game: <game>`.
-- [x] **IAC-PROGRAM-TAG-004**: The infrastructure program shall not apply a `Game` tag to shared resources (cluster, VPC, shared Lambdas, shared log groups).
+- [ ] **IAC-PROGRAM-TAG-004**: The infrastructure program shall not apply a `Game` tag to shared resources (cluster, VPC, shared Lambdas, shared log groups).
 ```
 
-TAG-004 needs a verifying test before it is marked `[x]`; the other three are covered by `ecs.test.ts:101,123,167` and the seeder code at `lambdas.ts:741,766`.
+TAG-004 has no test yet, so it lands `[ ]` and needs a test asserting no `Game` tag on the shared resources before it is marked `[x]`. The other three are tested: TAG-001 by `ecs.test.ts:167` (`alpha-server` carries `Game: 'alpha'`), TAG-002 by `ecs.test.ts:101,123` (game and file-browser log groups) and TAG-003 by `infra/src/lambdas.test.ts:712,726` (the EFS-seeder log group and function assert `Game: 'echo'`; seeder code at `lambdas.ts:741,766`).
 
 ## Content lost if `openspec/` were deleted today
 
@@ -323,14 +330,15 @@ Beyond the per-change "Content at risk" lists above:
 | `openspec/schemas/superpowers-bridge/**` (12 files, vendored in #364) | Schema, README, artifact templates incl. a retrospective template | No CI, `package.json` or `bin/` reference. Live dependents: `.claude/hooks/guard-superpowers-paths.ts:7-26` redirects brainstorm/plan output into `openspec/changes/<name>/` and must be rewritten or removed; `.claude/rules/spec-driven-development.md` is entirely OpenSpec routing. Port the retrospective template to `.claude/rules` only if retros continue. |
 | `openspec/changes/archive/**` (35 changes) | Delta specs (already folded into main specs), designs, 18 with brainstorm/plan/verify/retro | Delta specs: drop. LLD References cite 19 of 35 archive designs; of the 16 cited nowhere, these carry rationale not in any LLD: `add-env-var-token-interpolation`, `add-internal-game-ports` (VPC-CIDR ingress choice), `add-https-toggle-to-game-form`, `add-game-wizard-draft-persistence`, `add-per-game-cost-tags`, `game-server-resource-sliders`, `add-distribution-updater`, `add-autoupdate-settings-toggle`, `add-manual-update-check`, `add-game-env-vars-ui`. Inline their decisions into the owning LLDs, then delete — git history keeps the files, and LLD References can cite a commit SHA instead of a path. |
 | Archive retrospectives | 15 retros with ~45 "Promote candidates", all unchecked, none in `.claude/rules` (e.g. a widened renderer type must check its `desktop-main` persisted twin; `desktop-main` tsconfig excludes `*.test.ts` so typecheck misses test type errors; diff user-facing action strings against existing controls) | Triage each into `.claude/rules/*` or drop. |
-| OpenSpec-only tooling | `.claude/commands/opsx/*` (14), `.claude/skills/openspec-*`, `.github/prompts/opsx-*.prompt.md` (12), `.github/skills/*` (12), `.claude/workflows/openspec-review-{proposal,implementation}.js` | Retire with `openspec/`. |
+| OpenSpec-only tooling | `.claude/commands/opsx/*` (12), `.claude/commands/openspec-review-{proposal,implementation}.md`, `.claude/skills/openspec-*`, `.github/prompts/opsx-*.prompt.md` (12), `.github/skills/*` (12), `.claude/workflows/openspec-review-{proposal,implementation}.js` | Retire with `openspec/`. |
 | `docs/superpowers/{plans,specs}/` (outside `openspec/`) | 9 plans, 1 spec, 9 OpenSpec refs | Same retirement decision. |
 
 ## Inbound references to repoint at retirement
 
 - `docs/high-level-design.md:238` cites `desktop-only-operator-surface`; `:300-303` "Legacy requirement source" says `openspec/specs/` (miscounted as 36; there are 37) "remains authoritative for anything not yet carried over" — rewrite once the partial/none capabilities above are settled.
 - `CLAUDE.md`: `:4`, `:12-13` (routing table), `:30-33` (opsx workflow), `:111`, `:138-139` (pre-PR OpenSpec sync step); invariants `:91` (`openspec/specs/in-task-tls-termination` → `docs/intent/iac/program` TLS-*) and `:102` (`openspec/specs/desktop-only-operator-surface` → `docs/intent/operator-app/ipc-bridge` XPORT).
-- `.claude/`: `agents/docs-accuracy-auditor.md:35`, `agents/docs-writer.md:10`, `agents/docs-coverage-auditor.md:44-46` (checks OpenSpec sync), `agents/docs-style-reviewer.md:52`, `rules/pr-stacking.md:5`, `rules/spec-driven-development.md`, `hooks/guard-superpowers-paths.ts`.
+- `.claude/`: `agents/docs-accuracy-auditor.md:35`, `agents/docs-writer.md:10`, `agents/docs-coverage-auditor.md:44-46` (checks OpenSpec sync), `agents/docs-style-reviewer.md:52`, `rules/pr-stacking.md:5`, `rules/spec-driven-development.md`, `hooks/guard-superpowers-paths.ts`, `skills/write-docs/SKILL.md:22,55,149` (routes `openspec/specs/**` edits to `/opsx:*` and tells the writer to read the spec first), `commands/openspec-review-{proposal,implementation}.md`.
+- `.claude/settings.json:11-17`: the `PreToolUse` `Write|Edit` entry that runs `hooks/guard-superpowers-paths.ts`. Remove the registration in the same change that removes the hook file, or every `Write`/`Edit` runs a hook whose script is missing.
 - `app/` code comments (20 files, 23 lines, plus `app/eslint.config.js:149`), most already dangling: `remove-cost-explorer-calls` ×11 (e.g. `CostService.ts:23`, `costs.controller.ts:13`, `shared/src/cloud.ts:35`), `add-first-run-wizard` ×6 (e.g. `wizard.controller.ts:104`, `IamCheckService.ts:98`), single refs to `migrate-iac-to-pulumi`, `add-diagnostics-export`, `add-infra-log-viewer`, `add-one-click-aws-bootstrap` ×2. Live spec refs `preload.ts:8,15`, `DeploymentConfigService.ts:7`, `infra/src/ecs.ts:311` should become `@spec` IDs.
 - `docs/docs/`: `app/costs.md:24`, `components/management-app.md:291,328,526`, `components/integration-tests.md:178`, `guides/maintainer.md:26` and `intro.md:107` (repo trees), `components/infra.md:251` and `components/lambdas.md:209` (cite `game-health-checks` by name).
 - `docs/arrows/index.yaml:268-277` (`unmapped.docs.openspec`) and `docs/arrows/_map-codebase/*` (bootstrap artefacts, 300+ refs; delete with the directory).
