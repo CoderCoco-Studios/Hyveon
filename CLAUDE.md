@@ -241,4 +241,4 @@ Place the annotation at the *entry point of the behavior's implementation graph*
 
 Declare project-local helper scripts LID-related skills should invoke instead of their in-prompt fallbacks. When present, the listed scripts are authoritative for the deterministic checks they perform. When absent or empty, skills fall back to performing the checks in-prompt.
 
-- **Coherence check**: `bin/coherence-check.mjs` — the arrow-maintenance reference implementation (v1.4.2) with one local change: a failed `grep` scan aborts with exit code 2 instead of reporting a clean result; run `node bin/coherence-check.mjs` from the repo root.
+- **Coherence check**: `bin/coherence-check.mjs` — the arrow-maintenance reference implementation (v1.4.2) with two local changes: a failed `grep` scan aborts with exit code 2 instead of reporting a clean result, and `--strict` exits 1 on reverse-orphan `@spec` IDs or missing arrow detail docs (default stays report-only, exit 0); run `node bin/coherence-check.mjs` (or `npm run lid:check`, which passes `--strict`) from the repo root.

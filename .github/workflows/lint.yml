@@ -68,8 +68,9 @@ jobs:
 
   # LID arrow-of-intent coherence (HLD -> LLDs -> EARS -> tests -> code). Not
   # gated on `changes`: doc-only PRs (markdown edits to specs/LLDs) are exactly
-  # what it validates. Dependency-free, so no `npm ci`. The script exits non-zero
-  # only on fatal coherence errors, not on open `[ ]` gaps.
+  # what it validates. Dependency-free, so no `npm ci`. `--strict` exits 1 only
+  # on reverse-orphan @spec IDs and missing arrow detail docs; stale arrows and
+  # open `[ ]` gaps are reported but never fail the job.
   coherence:
     runs-on: ubuntu-latest
     steps:
