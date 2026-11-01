@@ -185,6 +185,7 @@ Each decision below is recorded here because its substance crosses at least two 
    Spans `iac/program` (does not declare the table; echoes its name as `runsTableName`), `iac/run` (writes and reads it, with a pre-apply name fallback) and, across the subtree boundary, `wizard-and-bootstrap` (creates it).
    Rationale `[stated]`: the approve and apply gates need the table on the very first plan/apply cycle, before any apply has succeeded, and a stack only reports outputs after its first successful apply (`docs/docs/components/infra.md`, "The runs table invariant"; `program-design.md`, runs table).
    One name function, `resolveRunsTableName`, is called from bootstrap, `buildStackOutputs` and the pre-apply fallback so the three never disagree (`docs/docs/components/infra.md`, same section).
+   Before the first successful apply, every `iac/run` reader of the table resolves its name through that pre-apply fallback: `RunRecordService` for run records and `RunService` for the durable apply lock, so the first apply on a fresh install holds the durable lock like every later apply (`IAC-RUN-LOCK-009`). `RunService` does not yet use the fallback (`run-design.md`, "Fresh-install gap").
    Alternative rejected `[stated]`: a Pulumi-managed table (`program-design.md`).
 
 5. **Stack outputs are the only channel by which the rest of the app discovers what was deployed.**
@@ -213,11 +214,13 @@ Each decision below is recorded here because its substance crosses at least two 
    Rationale `[stated]`: `DeploymentConfig` is portable across machines and a filesystem path is not; a repo-relative default resolves inside a checkout but not inside the electron-vite bundle (`program-design.md`, "Composition and Dependency Order").
    Alternative rejected `[stated]`: an `import.meta.url`-relative default (`program-design.md`).
 
-10. **`iac/run`'s gate logic is co-located in engine-owned `PulumiService.ts`.**
-    Spans `iac/run` and `iac/engine`; this co-location is the real mutual dependency recorded between `run` and `engine` in `docs/arrows/index.yaml`.
+10. **`PulumiService.ts` splits along the run/engine seam.**
+    Spans `iac/run` and `iac/engine`.
+    `iac/run`'s gate logic (run gates, locking, run lifecycle) sits in engine-owned `PulumiService.ts` (about 5,000 lines) beside `iac/engine`'s workspace, backend, credential and engine plumbing; this co-location is the real mutual dependency recorded between `run` and `engine` in `docs/arrows/index.yaml`.
     Spec ownership follows behaviour, not file: `iac/run` specifies what the gates guarantee, `iac/engine` specifies how Pulumi is driven (`run-design.md`, "What it deliberately does not own"; `engine-design.md`, intro).
-    Rationale `[inferred]`: the gates need the workspace, the saved update plan, the resolved engine version and the in-process guard, all of which `PulumiService` holds.
-    Alternative considered: splitting `PulumiService.ts` along the run/engine seam; still open (`engine-design.md`, Deferred 18).
+    The intended structure separates the two along that same seam into separate files, as a pure refactor with no behaviour change, carried out as its own change. The `run` <-> `engine` cycle stays recorded in `index.yaml` until that refactor lands (`docs/arrows/iac/engine.md`, Work Required).
+    Rationale: the gates need the workspace, the saved update plan, the resolved engine version and the in-process guard, all of which `PulumiService` holds, which explains the co-location `[inferred]`; separating the files removes the `run` <-> `engine` cycle and makes file ownership match spec ownership.
+    Alternative rejected: keeping one file (`engine-design.md`, Decisions & Alternatives).
 
 ## Success Metrics
 
@@ -228,12 +231,10 @@ Each decision below is recorded here because its substance crosses at least two 
 Questions whose answer crosses more than one child, or where the children's designs disagree or admit two readings.
 Leaf-only questions stay in each leaf's Open Questions.
 
-1. **The durable apply lock on a fresh install depends on stack outputs.** `RunService` finds the runs table only through `getStackOutputs().runsTableName`, so before the first successful apply only the in-memory lock guards a run, while `RunRecordService` uses the pre-apply fallback and the table already exists from bootstrap (`run-design.md`, "Fresh-install gap"; `IAC-RUN-LOCK-009`). This sits on the outputs contract between `iac/engine` and `iac/run` and contradicts decision 4's "one name, three callers" reading.
-2. **Should `PulumiService.ts` be split along the run/engine seam,** removing the `run` <-> `engine` cycle in `docs/arrows/index.yaml` (`engine-design.md`, Deferred 18; decision 10)?
-3. **Is a mid-operation `null` from the outputs reader acceptable at the subtree boundary?** While any operation is in flight `getStackOutputs` returns `null`, which `ConfigService` caches for 20 s, so every downstream consumer reads "not deployed" during and just after a run (`engine-design.md`, Deferred 13). The answer is a contract with `task-and-dns`, `discord-bot`, `helper-task` and `infra-logs`, not only an engine detail.
-4. **Which region is the region of truth?** The state backend URL uses the wizard's `aws.region`, the program provisions in `config.awsRegion`, and the top-bar pill reads `outputs.awsRegion` (`engine-design.md`, "Workspace, Backend and Credentials", Deferred 15). The disagreement is owned by `game-runtime/task-and-dns`; this subtree supplies two of its three inputs.
-5. **Who corrects the stale "machine-bound" passphrase sentence in `openspec/specs/pulumi-infra-program/spec.md:70`?** `engine-design.md` Deferred 5 asks for an owner; `program-design.md` Deferred 18 says the fix is owned by `iac/engine`. The two readings should be reconciled to one owner.
-6. **Does the "no ACM certificate" invariant need a Discord-domain carve-out?** The program declares an ACM certificate for `discord.{zone}` (`program-design.md`, Deferred 5), which the CLAUDE.md wording does not allow for.
+1. **Is a mid-operation `null` from the outputs reader acceptable at the subtree boundary?** While any operation is in flight `getStackOutputs` returns `null`, which `ConfigService` caches for 20 s, so every downstream consumer reads "not deployed" during and just after a run (`engine-design.md`, Deferred 13). The answer is a contract with `task-and-dns`, `discord-bot`, `helper-task` and `infra-logs`, not only an engine detail.
+2. **Which region is the region of truth?** The state backend URL uses the wizard's `aws.region`, the program provisions in `config.awsRegion`, and the top-bar pill reads `outputs.awsRegion` (`engine-design.md`, "Workspace, Backend and Credentials", Deferred 15). The disagreement is owned by `game-runtime/task-and-dns`; this subtree supplies two of its three inputs.
+3. **Who corrects the stale "machine-bound" passphrase sentence in `openspec/specs/pulumi-infra-program/spec.md:70`?** `engine-design.md` Deferred 5 asks for an owner; `program-design.md` Deferred 18 says the fix is owned by `iac/engine`. The two readings should be reconciled to one owner.
+4. **Does the "no ACM certificate" invariant need a Discord-domain carve-out?** The program declares an ACM certificate for `discord.{zone}` (`program-design.md`, Deferred 5), which the CLAUDE.md wording does not allow for.
 
 ## References
 

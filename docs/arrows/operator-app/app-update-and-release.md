@@ -42,7 +42,7 @@ Implemented end to end (release workflow → GitHub release feed → electron-up
 - `electron-builder.yml`
 
 ### Cited from other leaves
-- `app/packages/desktop-main/src/controllers/iac-settings.controller.ts` (`deployment-config`): hosts the five `iac.settings.autoUpdate.{get,update,check,download,install}` channels (`:104-120`, `:217-320`).
+- `app/packages/desktop-main/src/controllers/iac-settings.controller.ts` (`deployment-config`): hosts the five `iac.settings.autoUpdate.{get,update,check,download,install}` channels (`:104-120`, `:217-320`) until they move to a controller this leaf owns (Work Required).
 - `app/packages/desktop-main/src/controllers/iac-settings.controller.test.ts` (`deployment-config`): `getAutoUpdate` / `updateAutoUpdate` / `checkAutoUpdate` tests (`:258-355`).
 - `app/packages/desktop-main/src/services/ElectronStoreService.ts` (`operator-app/wizard-and-bootstrap`): `enableAutoUpdate?: boolean` in the store schema (`:196-203`).
 - `app/packages/desktop-main/src/electron-entry.ts` (`operator-app/desktop-shell`): calls `initUpdater` after Nest bootstrap (`:217-223`).
@@ -123,7 +123,7 @@ Implemented end to end (release workflow → GitHub release feed → electron-up
 10. **Hard-coded native binding pin drifts from the lockfile**: `.github/actions/build-package/action.yml:18` reinstalls `@tailwindcss/oxide@4.3.0`; `package-lock.json` resolves `4.3.3` (`package-lock.json:7053-7054`).
 11. **Hand-maintained packaged runtime closure**: `electron-builder.yml:20-216` lists ~150 `node_modules` globs for the externalized `@pulumi/*`, `class-validator`, `class-transformer` and `electron-updater`, with "new transitive deps will not be picked up automatically" (`:45-47`). `packaging-manifest-pins.test.ts` guards manifest pins but not this list.
 12. **Fallback considers only the 10 newest releases**: `updater-fallback.ts:10` (`per_page=10`); if the last ten releases all lack the platform feed file, the fallback silently returns `null` and the original error surfaces.
-13. **IPC channels live under another leaf's controller and namespace**: all five auto-update channels are on `IacSettingsController` under `iac.settings.*` (`iac-settings.controller.ts:228-320`), though `enableAutoUpdate` is a local electron-store flag unrelated to `DeploymentConfig` (`autoUpdateSetting.ts:5-9` says so explicitly). Flagged in final-clustering §4 as a misplaced namespace.
+13. **IPC channels live under another leaf's controller and namespace**: all five auto-update channels are on `IacSettingsController` under `iac.settings.*` (`iac-settings.controller.ts:228-320`), though `enableAutoUpdate` is a local electron-store flag unrelated to `DeploymentConfig` (`autoUpdateSetting.ts:5-9` says so explicitly). Flagged in final-clustering §4 as a misplaced namespace. The intended structure moves the five channels to a controller this leaf owns and keeps their `iac.settings.autoUpdate.*` names (`app-update-and-release-design.md`, Decisions & Alternatives).
 14. **OpenSpec state hazard**: three changes are shipped but unarchived; `add-user-initiated-update-install` is unsynced, so the main `auto-update-scaffold` spec omits download/install entirely and still states the narrower "Download manually" requirement. Re-applying `add-release-automation` would regress main (final-clustering §6).
 15. **Task-history narrative in a packaging comment**: `electron-builder.yml:239-240` ("A later group's GuidedIamService calls it") references plan-group history, which the repo's comment rules disallow.
 
@@ -146,7 +146,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/app-update
 ### Nice to Have
 9. Detect the "no prior check" condition by state rather than error text (Finding 3). (specs: `APP-UPDATE-DL-005`)
 10. Paginate or widen the fallback release lookup (Finding 12). (specs: `APP-UPDATE-FALL-007`)
-11. Move the auto-update channels to their own controller / namespace (Finding 13).
+11. Move the five `iac.settings.autoUpdate.*` channels out of `deployment-config`'s `iac-settings.controller.ts` into a controller this leaf owns, keeping the channel names (Finding 13). Tracked with the matching item in `docs/arrows/deployment-config.md`.
 12. Decide whether workspace manifests should track the released version (Finding 8).
 13. Add a check (script or test) that the `electron-builder.yml` `files` closure covers the externalized packages' runtime deps (Finding 11). (specs: `APP-UPDATE-PKG-008`)
 14. Drop the plan-history wording in `electron-builder.yml:239-240` (Finding 15).

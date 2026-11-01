@@ -161,9 +161,9 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/engine/engine-specs
 9. Prune orphaned `.staging-`/`.trash-` engine directories (finding 9). (specs: `IAC-ENGINE-PROV-012`)
 10. Remove stale comments and dead `ConfigService.readResourcesPath` (findings 12, 13).
 11. Add `mintLockClearConfirmationToken` to `PulumiServiceStub` and derive `PulumiOperationName` from the real type (finding 14). (specs: `IAC-ENGINE-RT-003`)
+12. Split `PulumiService.ts` along the run/engine seam (run gates, locking and run lifecycle for `iac/run`; workspace, backend, credentials and engine plumbing for this leaf) as its own pure-refactor change with no behaviour change. This removes the `run` <-> `engine` cycle in `docs/arrows/index.yaml` (`iac-design.md`, decision 10; `engine-design.md`, Decisions & Alternatives, "File layout").
 
 ### Nice to Have
-12. Give `getStackOutputs` a select-only, migration-free path so reads cannot create a stack (finding 7).
-13. Provide an operator-facing reset for the legacy-migration dead end (finding 6). (specs: `IAC-ENGINE-PASS-008`)
-14. Record the state bucket's own region at bootstrap rather than reusing `aws.region`, and align stack-init phase attribution between backend and wizard (finding 15). (specs: `IAC-ENGINE-WS-010`, `IAC-ENGINE-INIT-005`)
-15. Split `PulumiService.ts` along the run/engine seam so `iac/run`'s gates and this leaf's engine plumbing live in separate files (final-clustering §4).
+13. Give `getStackOutputs` a select-only, migration-free path so reads cannot create a stack (finding 7).
+14. Provide an operator-facing reset for the legacy-migration dead end (finding 6). (specs: `IAC-ENGINE-PASS-008`)
+15. Record the state bucket's own region at bootstrap rather than reusing `aws.region`, and align stack-init phase attribution between backend and wizard (finding 15). (specs: `IAC-ENGINE-WS-010`, `IAC-ENGINE-INIT-005`)

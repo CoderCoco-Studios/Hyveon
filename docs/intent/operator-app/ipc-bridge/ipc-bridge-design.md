@@ -25,7 +25,7 @@ What this leaf owns:
 What it deliberately does not own:
 
 - Bootstrapping and the window: `main.ts:43-56` creates the transport, registers the filter and calls the bridge; `electron-entry.ts` creates the `BrowserWindow`; `app.module.ts` is the module tree the bridge dispatches into. All belong to `operator-app/desktop-shell`, as does the first-run gate that tolerates a missing `window.hyveon.wizard` (`web/src/app.component.tsx:34-43`).
-- The handlers themselves. Every controller under `desktop-main/src/controllers/` belongs to the leaf whose behaviour it serves; this leaf only fixes how they are reached. The self-bridged streaming controllers are owned by `operator-app/infra-logs` (`logs.controller.ts`), `iac/run` (`iac.controller.ts`, `iac-runs.controller.ts`) and `operator-app/app-update-and-release` (`iac-settings.controller.ts`).
+- The handlers themselves. Every controller under `desktop-main/src/controllers/` belongs to the leaf whose behaviour it serves; this leaf only fixes how they are reached. The self-bridged streaming controllers are owned by `operator-app/infra-logs` (`logs.controller.ts`) and `iac/run` (`iac.controller.ts`, `iac-runs.controller.ts`). `iac-settings.controller.ts` is owned by `deployment-config`; its self-bridged `iac.settings.autoUpdate.download` registration and the other auto-update channels belong to `operator-app/app-update-and-release` and move to a controller that leaf owns.
 - The chromium-tier `window.hyveon` HTTP shim (`web/e2e/fixtures/hyveon-http-bridge.ts`) and the electron/integration harness fixtures, which sit in the shared test harness; this leaf cites them.
 
 CLAUDE.md invariants that live here:

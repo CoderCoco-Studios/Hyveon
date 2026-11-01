@@ -20,9 +20,9 @@ Guiding principles visible in the code:
 
 What this leaf deliberately does not own:
 
-- The Settings page UI and its `ManualCheckState` machine live in `operator-app/desktop-shell` (`app/packages/web/src/pages/settings.page.tsx:64-76`), described here only as the consumer of the channel contract.
+- The Settings page file and its `ManualCheckState` machine live in `operator-app/desktop-shell` (`app/packages/web/src/pages/settings.page.tsx:64-76`). The Updates rows' behaviour is specified here (`APP-UPDATE-UI-*`) even though their code sits in that file, under the project's spec-ownership rule (`docs/high-level-design.md`, "Spec ownership across segments").
 - The preload bridge and the generic `ipcMain` bridge live in `operator-app/ipc-bridge`; this leaf relies on the `SELF_BRIDGED_PATTERNS` entry for the download stream (`app/packages/desktop-main/src/ipc-main-bridge.ts:27`).
-- The five auto-update IPC handlers are methods on `IacSettingsController`, owned by `deployment-config` (`app/packages/desktop-main/src/controllers/iac-settings.controller.ts:228-320`), even though `enableAutoUpdate` is not a `DeploymentConfig` field (`app/packages/shared/src/autoUpdateSetting.ts:1-9`).
+- `iac-settings.controller.ts` belongs to `deployment-config`. The five auto-update IPC handlers on its `IacSettingsController` (`app/packages/desktop-main/src/controllers/iac-settings.controller.ts:228-320`) are this leaf's channels, since `enableAutoUpdate` is not a `DeploymentConfig` field (`app/packages/shared/src/autoUpdateSetting.ts:1-9`); they move to a controller this leaf owns, keeping their `iac.settings.autoUpdate.*` names (Decisions & Alternatives, "Placement of the update channels").
 - The electron-store schema (`ElectronStoreService.ts:203`) belongs to `operator-app/wizard-and-bootstrap`; the boot sequence that calls `initUpdater` (`electron-entry.ts:217-223`) belongs to `operator-app/desktop-shell`; `PULUMI_ENGINE_VERSION` belongs to `iac/engine`.
 
 CLAUDE.md invariants that apply here: the desktop app has no HTTP transport (update channels are Electron IPC only), every `@MessagePattern` handler logs on entry (`iac-settings.controller.ts:230`, `:252`, `:278`, `:293`, `:318`), and `@hyveon/shared`'s barrel stays free of new AWS SDK imports (`autoUpdateSetting.ts` is pure types).
@@ -96,7 +96,7 @@ Two behaviours are worth stating plainly. First, `installDownloadedUpdate` does 
 
 ## IPC Channel Contract
 
-All five channels are handled by `IacSettingsController`; payload and result types live in `app/packages/shared/src/autoUpdateSetting.ts`.
+All five channels are handled by `IacSettingsController` until they move to a controller owned by this leaf, with the channel names below unchanged; payload and result types live in `app/packages/shared/src/autoUpdateSetting.ts`.
 
 | Channel | Kind | Payload | Result | Handler |
 |---|---|---|---|---|
@@ -127,7 +127,8 @@ The renderer's "Download manually" link points at `RELEASES_URL` (`settings.page
 | Recovering from a release without a feed | One retry against the newest feed-bearing release via the generic provider, original error surfaced on failure (`updater.ts:40-61`) | Fail outright; authenticated API lookup | A release shipped without `latest.yml` otherwise 404s every check; unauthenticated 60 req/hr suffices because it runs only on failure (`add-update-feed-fallback/design.md`, Decisions) |
 | Download progress transport | Self-bridged side-channel stream with `streamId` ack (`iac-settings.controller.ts:291-310`) | Plain invoke with no progress; polling | Reuses the existing `iac.stack.initialize` stream pattern (`add-user-initiated-update-install/design.md`, "Progress reuses the existing side-channel stream pattern") |
 | Missing cached check before download | Re-check once when the rejection text is `'Please check update first'` (`updater.ts:214-221`) | Track check state in the app | Avoids a dead end when the app restarted between check and click (`add-user-initiated-update-install/design.md`, "No prior check in this process"); matching by message text rather than state is `[inferred]` to be the simplest available signal |
-| Placement of the update channels | `IacSettingsController` under `iac.settings.autoUpdate.*` | A dedicated updater controller and namespace | `[inferred]` grown from the existing Settings controller; `autoUpdateSetting.ts:1-9` itself notes the flag is not a `DeploymentConfig` field |
+| Placement of the update channels | A controller owned by this leaf, separate from `deployment-config`'s `IacSettingsController`, keeping the `iac.settings.autoUpdate.*` channel names; the channels are hosted on `IacSettingsController` until they move | Whole of `iac-settings.controller.ts` owned by `deployment-config`, hosting the channels on this leaf's behalf; whole of `iac-settings.controller.ts` owned by this leaf | Every controller belongs to the leaf whose behaviour it serves (`ipc-bridge-design.md`, "What it deliberately does not own"). `enableAutoUpdate` is a local electron-store flag, not a `DeploymentConfig` field (`autoUpdateSetting.ts:1-9`), so the channels are not `deployment-config`'s; `iac.settings.get`, `iac.settings.update` and `iac.settings.engineVersion` are not this leaf's behaviour |
+| Spec home for the Updates rows | `APP-UPDATE-UI-*` in this leaf, with the code in `desktop-shell`'s `settings.page.tsx` | Specs in `desktop-shell`, the leaf that owns the file | An EARS spec lives in the leaf whose behaviour it specifies (`docs/high-level-design.md`, "Spec ownership across segments") |
 | Packaged runtime closure | Hand-maintained `node_modules` globs (`electron-builder.yml:20-216`) | Bundling the packages; generated list | Bundling `@pulumi/*` risks an Electron-never-quits failure via `@grpc/grpc-js` (`electron-builder.yml:22-28`); hand maintenance over generation is `[inferred]` |
 
 ## Open Questions & Future Decisions
@@ -139,6 +140,7 @@ The renderer's "Download manually" link points at `RELEASES_URL` (`settings.page
 3. ✅ Fallback feed via the generic provider, original error wins, primary feed restored (`add-update-feed-fallback/design.md`).
 4. ✅ Download and install are explicit operator actions; a downloaded-but-not-installed update is discarded at quit (`add-user-initiated-update-install/design.md`).
 5. ✅ Unsigned macOS download failures surface as ordinary failures with the "Download manually" link, no special handling (`add-user-initiated-update-install/design.md`).
+6. ✅ The five auto-update channels move from `deployment-config`'s `IacSettingsController` to a controller owned by this leaf, keeping their `iac.settings.autoUpdate.*` names (Decisions & Alternatives, "Placement of the update channels"; `docs/arrows/operator-app/app-update-and-release.md`, Work Required).
 
 ### Deferred
 
@@ -153,7 +155,7 @@ The renderer's "Download manually" link points at `RELEASES_URL` (`settings.page
 9. Should the `@tailwindcss/oxide@4.3.0` reinstall (`build-package/action.yml:18`) read its version from the lockfile, which resolves `4.3.3`?
 10. Can the "no prior check" retry key off updater state rather than the literal `'Please check update first'` (`updater.ts:172`, `:217`)?
 11. Should the fallback lookup paginate or widen beyond `per_page=10` (`updater-fallback.ts:10`)?
-12. Should the auto-update channels move to their own controller and namespace (`iac-settings.controller.ts:228-320`), and should the chunk/end channel constants stop being declared in both the controller (`:35-38`) and preload (`preload.ts:156-160`)?
+12. Should the `iac.settings.autoUpdate.download` chunk/end channel constants stop being declared in both the controller (`iac-settings.controller.ts:35-38`) and preload (`preload.ts:156-160`)?
 13. Should workspace manifests track the released version, or should the bump commit stop staging `package-lock.json` to match the spec's "only that change" wording (`release.yml:272-273`)?
 14. Can a script or test verify that `electron-builder.yml:20-216` covers the externalized packages' runtime closure?
 15. Should the plan-history wording at `electron-builder.yml:239-240` ("A later group's GuidedIamService") be dropped under the repo's comment rules?

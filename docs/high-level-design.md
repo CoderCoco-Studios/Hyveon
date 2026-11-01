@@ -182,6 +182,13 @@ flowchart LR
 
 Index `unmapped.docs` (operator documentation, screenshot capture, Node toolchain version) sits outside the tree; see `docs/arrows/_map-codebase/final-clustering.md` §1.
 
+### Spec ownership across segments
+
+An EARS spec lives in the leaf whose behaviour (capability) it specifies, even when the code that implements it sits in a file another leaf owns.
+`@spec` annotations may therefore cross segment boundaries: one file can carry annotations citing several leaves' specs, and each annotation sits at the entry point of that leaf's behaviour within the file.
+For example, the Settings page's Updates rows are specified by `operator-app/app-update-and-release` (`APP-UPDATE-UI-*`) and the nested Logs sidebar group by `operator-app/infra-logs` (`APP-LOGS-NAV-*`), while both are implemented in files owned by `operator-app/desktop-shell`; the wizard's stack-initialization step is specified by `operator-app/wizard-and-bootstrap` (`APP-WIZARD-STACK-*`) while its code sits with `iac/engine`.
+File ownership decides which leaf's arrow doc lists a file under its code; spec ownership decides which leaf's EARS a behaviour is written in and which segment a change to that behaviour cascades through.
+
 ## Key Design Decisions
 
 Each decision recurs across several leaf designs.

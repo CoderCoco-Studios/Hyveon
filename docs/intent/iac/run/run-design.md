@@ -90,7 +90,7 @@ Which operations take which lock:
 
 Plan never takes the durable lock (`IAC-RUN-LOCK-007`; `docs/docs/app/iac.md:200-201`). The `iac-rollback` spec requires "the shared operation lock" to be held across restore and plan (`openspec/specs/iac-rollback/spec.md:41`); today that is only the in-process `operationInFlight` guard.
 
-**Fresh-install gap.** `createRun`, `releaseRun` and `resolveCurrentLock` consult the durable lock only when `getStackOutputs().runsTableName` is set (`RunService.ts:179`, `:231`, `:272`). They have no pre-apply fallback, whereas `RunRecordService.resolveRunsTableName` and the store's own config do. So before the first successful apply the durable lock is skipped and only the in-memory lock guards the run, while the pre-flight marker in the same apply is written durably. `RunService.ts:16-21` describes this skip as intentional, but the reason it gives ("table not deployed") is no longer true since the table is created at bootstrap.
+**Fresh-install gap.** `createRun`, `releaseRun` and `resolveCurrentLock` consult the durable lock only when `getStackOutputs().runsTableName` is set (`RunService.ts:179`, `:231`, `:272`). They have no pre-apply fallback, whereas `RunRecordService.resolveRunsTableName` and the store's own config do. So before the first successful apply the durable lock is skipped and only the in-memory lock guards the run, while the pre-flight marker in the same apply is written durably. `RunService.ts:16-21` describes this skip as intentional, but the reason it gives ("table not deployed") is no longer true since the table is created at bootstrap. The intended behaviour is the same pre-apply fallback in `RunService`, so the first apply holds the durable lock (`IAC-RUN-LOCK-009`; `iac-design.md`, decision 4).
 
 ### Operator lock recovery
 
@@ -162,6 +162,7 @@ Unit tests cover the services, store and controllers directly (`RunService.test.
 | Status source of truth | Derive `status` from `exitCode` | Set status explicitly per call site | `status` "can't drift out of sync" with the exit code (`runs.ts:194-197`). |
 | Partial apply representation | Additive `partialApply` flag | A fourth `RunStatus` value | `RunStatus` is the GSI hash key, so widening it is an infra change (`runs.ts:135-139`). |
 | Two-layer apply lock | Synchronous in-memory lock + conditional-put DynamoDB item | In-memory only; DynamoDB only | In-memory gives race-free same-process exclusion without a mutex; DynamoDB adds restart durability and multi-process safety (`RunService.ts:1-22`). |
+| Durable lock on a fresh install | `RunService` resolves the runs table through the same pre-apply fallback as `RunRecordService`, so the first apply holds the durable lock (`IAC-RUN-LOCK-009`) | First apply on a fresh install guarded by the in-memory lock only | The table exists from bootstrap, before any apply (`RunRecordService.ts:1-6`), so the reason `RunService.ts:16-21` gives for skipping the durable lock ("table not deployed") does not hold; one name resolution for every reader keeps `iac-design.md` decision 4 true on a fresh install. |
 | Lock expiry | 1 h TTL evaluated lazily | Heartbeat/renewal; DynamoDB TTL attribute | Bounds a crashed run's wedge without a background process (`RunService.ts:32-39`); alternatives `[inferred]`, none evidenced. |
 | Persistence failure policy | `persist` best-effort, marker fail-closed | Both throw; both swallow | History must never fail a good run (`RunRecordService.ts:14-18`); the marker exists to block blind retries so it must not be skipped (`:392-438`). |
 | Log storage | Inline at or below 350 KiB, else S3 | Always S3; always inline | Stays under DynamoDB's 400 KB item limit with headroom (`RunRecordService.ts:95-103`); always-S3 alternative `[inferred]`. |
@@ -181,26 +182,26 @@ Unit tests cover the services, store and controllers directly (`RunService.test.
 1. ✅ Rollback is restore-as-new-head plus a tagged plan, not a new run kind (`add-terraform-run-ui/design.md`, Decisions 6 and 7).
 2. ✅ Stuck run locks are recovered reactively, with a `runId`-bound confirmation token reusing `releaseRun` (`add-run-lock-recovery/design.md`, D1 to D5).
 3. ✅ Kind filtering stays client-side unless run volume grows (`add-terraform-run-ui/design.md:50`).
+4. ✅ `RunService` resolves the runs table through the same pre-apply fallback as `RunRecordService`, so the first apply on a fresh install holds the durable lock (`IAC-RUN-LOCK-009`; `iac-design.md`, decision 4). The code gap is described under "Fresh-install gap".
 
 ### Deferred
 
 1. Should `AwsRunRecordStore.putRecord`/`toRunRecord` round-trip `partialApply` (`AwsRunRecordStore.ts:185-208`, `:336-374`)? Until they do, history and detail never show "partial", the marker reads as plain `aborted`, and the gate throws the generic wrong-kind error. Sweeps disagreed on durability; the code shows it is not durable.
-2. Should `RunService` resolve the runs table with the same pre-apply fallback as `RunRecordService` (`RunService.ts:179`, `:231`, `:272` vs `RunRecordService.ts:267-271`), or should the spec state that the first apply on a fresh install is guarded in-memory only? Sweeps 5 and 6 disagreed; both are describing real code paths.
-3. Does the status-filtered `listRuns` query fail against real DynamoDB because `status` is unescaped (`AwsRunRecordStore.ts:302`)? Needs a live check and an `ExpressionAttributeNames` fix.
-4. Should rollback confirm take the durable apply lock, as `iac-rollback/spec.md:41` ("the shared operation lock") implies, or is the in-process `operationInFlight` guard enough? Plan does not take it (`IAC-RUN-LOCK-007`).
-5. Should a rollback produce one plan or two (`PulumiService.ts:3631` plus `iac.page.tsx:130-135`)? Either drop the renderer's auto-submit and show the in-service plan, or drop the in-service plan.
-6. Should `iac.rollback.confirm` stream its plan to the renderer, or should `iac.rollback.confirm.chunk` be removed (`iac.controller.ts:44-56`)?
-7. The `iac.plan/apply/destroy` `.chunk`/`.end` sends have no subscriber (`hyveon-api.ts:2333-2339`). Remove them, or keep them and extract the three near-identical loops in `iac.controller.ts` (and the matching chunk setup in `PulumiService`) per the duplication rule?
-8. Should destroy output pass through `redactEnvironmentValues` like preview and apply (`PulumiService.ts:1648`, `:2297` vs `:3026-3037`)? Whether destroy output carries env values is unobserved.
-9. Should the destroy token move onto `LockClearConfirmationGate` (`PulumiService.ts:2734`), and should the gate get a co-located test?
-10. Should `iac.page.tsx:41-53` import `APPROVAL_WINDOW_MS`/`isApprovalExpired` from `@hyveon/shared` instead of copying them?
-11. Should run detail use a get-by-id channel instead of scanning the newest 200 records (`iac-run-detail.page.tsx:22`, `:49-53`), and should `getRecordByRunId` stop paging the whole partition with a filter (`AwsRunRecordStore.ts:232-252`)?
-12. How should `orchestrator-integration-coverage`'s "verify `iac.apply`'s pre-spawn gates" requirement be reconciled with a harness that stubs `PulumiService` out (`iac-apply-gates.spec.ts:30-41`)? Resolve in EARS by either narrowing the requirement or pointing it at the unit tests.
-13. `approveRun` rewrites the whole item unconditionally (`RunRecordService.ts:640-641`). Should it be a conditional update so a concurrent settlement or second approval cannot be overwritten?
-14. Should `iac.runs.get` report `running` from the durable lock too, so a run held across an app restart is not shown as finished (`iac-runs.controller.ts:219`)?
-15. Should `iac.output` drop its ignored `force` field (`iac.controller.ts:1076-1088`)?
-16. Should `RunRecord` gain an initiator field for history (open in `add-terraform-run-ui/design.md`, Open Questions)?
-17. Stale vocabulary to clean: issue number at `RunService.ts:3`, `runs_table_name` in `RunService.ts:139-144` and `RunRecordService.ts:54`, `.tfplan` in `runs.ts:310-315`, "HTTP layer ... 409" in `errors.ts:53-55`.
+2. Does the status-filtered `listRuns` query fail against real DynamoDB because `status` is unescaped (`AwsRunRecordStore.ts:302`)? Needs a live check and an `ExpressionAttributeNames` fix.
+3. Should rollback confirm take the durable apply lock, as `iac-rollback/spec.md:41` ("the shared operation lock") implies, or is the in-process `operationInFlight` guard enough? Plan does not take it (`IAC-RUN-LOCK-007`).
+4. Should a rollback produce one plan or two (`PulumiService.ts:3631` plus `iac.page.tsx:130-135`)? Either drop the renderer's auto-submit and show the in-service plan, or drop the in-service plan.
+5. Should `iac.rollback.confirm` stream its plan to the renderer, or should `iac.rollback.confirm.chunk` be removed (`iac.controller.ts:44-56`)?
+6. The `iac.plan/apply/destroy` `.chunk`/`.end` sends have no subscriber (`hyveon-api.ts:2333-2339`). Remove them, or keep them and extract the three near-identical loops in `iac.controller.ts` (and the matching chunk setup in `PulumiService`) per the duplication rule?
+7. Should destroy output pass through `redactEnvironmentValues` like preview and apply (`PulumiService.ts:1648`, `:2297` vs `:3026-3037`)? Whether destroy output carries env values is unobserved.
+8. Should the destroy token move onto `LockClearConfirmationGate` (`PulumiService.ts:2734`), and should the gate get a co-located test?
+9. Should `iac.page.tsx:41-53` import `APPROVAL_WINDOW_MS`/`isApprovalExpired` from `@hyveon/shared` instead of copying them?
+10. Should run detail use a get-by-id channel instead of scanning the newest 200 records (`iac-run-detail.page.tsx:22`, `:49-53`), and should `getRecordByRunId` stop paging the whole partition with a filter (`AwsRunRecordStore.ts:232-252`)?
+11. How should `orchestrator-integration-coverage`'s "verify `iac.apply`'s pre-spawn gates" requirement be reconciled with a harness that stubs `PulumiService` out (`iac-apply-gates.spec.ts:30-41`)? Resolve in EARS by either narrowing the requirement or pointing it at the unit tests.
+12. `approveRun` rewrites the whole item unconditionally (`RunRecordService.ts:640-641`). Should it be a conditional update so a concurrent settlement or second approval cannot be overwritten?
+13. Should `iac.runs.get` report `running` from the durable lock too, so a run held across an app restart is not shown as finished (`iac-runs.controller.ts:219`)?
+14. Should `iac.output` drop its ignored `force` field (`iac.controller.ts:1076-1088`)?
+15. Should `RunRecord` gain an initiator field for history (open in `add-terraform-run-ui/design.md`, Open Questions)?
+16. Stale vocabulary to clean: issue number at `RunService.ts:3`, `runs_table_name` in `RunService.ts:139-144` and `RunRecordService.ts:54`, `.tfplan` in `runs.ts:310-315`, "HTTP layer ... 409" in `errors.ts:53-55`.
 
 ## References
 

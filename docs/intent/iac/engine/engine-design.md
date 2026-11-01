@@ -11,10 +11,10 @@ Hyveon provisions AWS through a Pulumi Automation API program that runs inside t
 
 It is the same component regardless of what the infrastructure program declares. Neighbouring leaves own the rest:
 
-- `iac/run` owns the operator-facing lifecycle (plan, apply gate, destroy token, rollback, stale-lock clear confirmation, run records and the `iac.*` IPC controller). Its gate logic physically lives in `PulumiService.ts` alongside this leaf's plumbing; the 5,004-line file is shared ground (see Deferred).
+- `iac/run` owns the operator-facing lifecycle (plan, apply gate, destroy token, rollback, stale-lock clear confirmation, run records and the `iac.*` IPC controller). Its gate logic physically lives in `PulumiService.ts` alongside this leaf's plumbing; the file of about 5,000 lines is shared ground and splits along the run/engine seam (Decisions & Alternatives, "File layout").
 - `iac/program` owns `createInfraProgram` and the `StackOutputs` shape this leaf caches.
 - `operator-app/wizard-and-bootstrap` owns credential custody (`ElectronStoreService`, `awsCredentialSource.ts`, `SafeStorageService`) and the bootstrap that creates the state bucket; this leaf's `stack-init-step` is the wizard's final step.
-- `deployment-config` owns `iac-settings.controller.ts`, which exposes `iac.settings.engineVersion` (`iac-settings.controller.ts:210`) on this leaf's behalf.
+- `deployment-config` owns `iac-settings.controller.ts`, which hosts `iac.settings.engineVersion` (`iac-settings.controller.ts:210`) on this leaf's behalf; the channel stays in that controller, and its behaviour is specified here (`IAC-ENGINE-PIN-005`).
 
 The CLAUDE.md invariants that live here: there is no CLI-based IaC step and no host-installed `pulumi` binary, because the app provisions its own pinned engine (`PulumiEngineService.ts:308`); `electronRuntime.ts` gates every Electron import on `process.versions.electron` so the plain-Node integration harness can construct the same services (`electronRuntime.ts:17-61`); and every engine-calling method normalises errors to `.message` before logging, which this leaf mostly but not fully honours (Deferred 7, 8).
 
@@ -119,12 +119,14 @@ Stack outputs are read through two layers. `PulumiService.getStackOutputs()` (`P
 | Outputs read path | Never-throw `getStackOutputs` behind a memoising `ConfigService` | Throw to callers; uncached | Every call site relies on `null` meaning "not deployed" (`PulumiService.ts:1003-1005` comment); caching avoids an engine call per poll [inferred] |
 | Busy-while-reading | Return `null` while an operation is in flight | Queue behind the operation; read last-known outputs | unknown; appears to avoid contending for the workspace [inferred] |
 | Breaking the import cycle | Lazy `ModuleRef` tokens plus a duplicated `getConfigurationBucket` | Restructure dependencies | `ConfigService` depends on `PulumiService` (`PulumiService.ts:195-208`) |
+| File layout | Split `PulumiService.ts` along the run/engine seam: `iac/run`'s run gates, locking and run lifecycle in separate files from this leaf's workspace, backend, credential and engine plumbing; a pure refactor with no behaviour change, carried out as its own change | Keep one file shared by both leaves | Removes the `run` <-> `engine` cycle recorded in `docs/arrows/index.yaml` and makes file ownership follow the spec-ownership seam both leaves already use (`iac-design.md`, decision 10) |
 
 ## Open Questions & Future Decisions
 
 ### Resolved
 
 1. Passphrase is derived per AWS account and stack, not stored per machine (portable-passphrase `design.md` D1, D3, D5). The contradicting sentence in `pulumi-infra-program/spec.md:70` ("machine-bound and has no recovery path") is stale relative to this decision; correcting it is Deferred 5.
+2. `PulumiService.ts` splits along the run/engine seam as its own pure-refactor change (Decisions & Alternatives, "File layout"; `iac-design.md`, decision 10).
 
 ### Deferred
 
@@ -145,11 +147,10 @@ Stack outputs are read through two layers. `PulumiService.getStackOutputs()` (`P
 15. Should bootstrap record the state bucket's own region rather than reusing `aws.region` for every backend URL? (`PulumiService.ts:988,1126,1611,2270,2928,3709`)
 16. Should stack-init phase attribution be aligned so STS, migration and `createOrSelect` failures do not mark the finished `engine` row as failed? (`PulumiService.ts:1346-1354`, `stack-init-step.component.tsx:129,140,149`)
 17. Should classification be side-effect free? `classifyStackLockConflict` prunes and consumes ownership records while classifying (`PulumiLockRecovery.ts:271-282,299-302`), so a caller that classifies and then does not reclaim has still spent the evidence.
-18. Should `PulumiService.ts` be split along the run/engine seam so `iac/run`'s gates and this leaf's plumbing live in separate files? (final-clustering §4)
-19. Stale comments: Terraform-era `plan()`/`spawnAndStream` (`PulumiService.ts:1566,1635,1671,1685,1698,1737`); "no `PulumiController` yet" (`:1854,2700,3893`); destroy "never touches `RunLockService`" (`:2114-2115`) though destroy calls `createRun` (`:2960`); "three constructor dependencies" (`PulumiWorkspaceService.ts:800-801`, actually two); the "encrypted passphrase accessor pair" (`pulumi-workspace.module.ts:10-11`); `/api/games`/`/api/status` handlers (`ConfigService.ts:102-104`); `getEngineCacheRoot` "mirrors `ConfigService.getRunsDir()`" (`PulumiEngineService.ts:641`), which is `PulumiService.getRunsDir` (`PulumiService.ts:4359`). Remove them?
-20. Dead or vestigial code: `ConfigService.readResourcesPath` (`ConfigService.ts:213-215`) has no caller; `getActiveCloud()` is hard-coded `'aws'` (`:276-278`). Remove, or keep as a multi-cloud seam?
-21. Test-double drift: `PulumiServiceStub` lacks `mintLockClearConfirmationToken` (`pulumi-mock.ts:119-191`) though `iac.controller.ts:956` calls it, and `PulumiOperationName` re-declares the in-flight union by hand (`pulumi-mock.ts:10-11`). `ConfigService.test.ts:279-283` is titled "should default to 30000 and warn" but may not assert the warn [unverified].
-22. Arrow-doc line drift found while writing this design: `runTreatingLeakedPromiseAsSuccess` is at `PulumiLeakedPromise.ts:70`, not `:194`, and the `CONFIG_CACHE_INVALIDATOR` binding is at `config.module.ts:25`, not `:57`. Correct the arrow doc at audit time.
+18. Stale comments: Terraform-era `plan()`/`spawnAndStream` (`PulumiService.ts:1566,1635,1671,1685,1698,1737`); "no `PulumiController` yet" (`:1854,2700,3893`); destroy "never touches `RunLockService`" (`:2114-2115`) though destroy calls `createRun` (`:2960`); "three constructor dependencies" (`PulumiWorkspaceService.ts:800-801`, actually two); the "encrypted passphrase accessor pair" (`pulumi-workspace.module.ts:10-11`); `/api/games`/`/api/status` handlers (`ConfigService.ts:102-104`); `getEngineCacheRoot` "mirrors `ConfigService.getRunsDir()`" (`PulumiEngineService.ts:641`), which is `PulumiService.getRunsDir` (`PulumiService.ts:4359`). Remove them?
+19. Dead or vestigial code: `ConfigService.readResourcesPath` (`ConfigService.ts:213-215`) has no caller; `getActiveCloud()` is hard-coded `'aws'` (`:276-278`). Remove, or keep as a multi-cloud seam?
+20. Test-double drift: `PulumiServiceStub` lacks `mintLockClearConfirmationToken` (`pulumi-mock.ts:119-191`) though `iac.controller.ts:956` calls it, and `PulumiOperationName` re-declares the in-flight union by hand (`pulumi-mock.ts:10-11`). `ConfigService.test.ts:279-283` is titled "should default to 30000 and warn" but may not assert the warn [unverified].
+21. Arrow-doc line drift found while writing this design: `runTreatingLeakedPromiseAsSuccess` is at `PulumiLeakedPromise.ts:70`, not `:194`, and the `CONFIG_CACHE_INVALIDATOR` binding is at `config.module.ts:25`, not `:57`. Correct the arrow doc at audit time.
 
 ## References
 
