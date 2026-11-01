@@ -126,6 +126,7 @@ flowchart LR
   HELPER["helper-task"]
   S3[("deployment-config.json in S3")]
   OUT[("stack outputs")]
+  CWL[["CloudWatch Logs"]]
   ECS[["ECS task {game}-server"]]
   R53[["Route 53"]]
 
@@ -144,7 +145,9 @@ flowchart LR
   RUN -->|"gates, run records"| ENGINE
   ENGINE -->|"createInfraProgram"| PROGRAM
   PROGRAM -->|"chain 11: fan-out"| OUT
-  OUT --> TASK & DISCORD & HELPER & LOGS
+  OUT --> TASK & DISCORD & HELPER
+  PROGRAM -->|"declares log groups"| CWL
+  LOGS -->|"/ecs/{game}-server, /aws/lambda/{projectName}-{fn}"| CWL
   TASK -->|"RunTask / StopTask"| ECS
   DISCORD -->|"chain 5: followup RunTask"| ECS
   ECS -->|"task state change"| TASK
@@ -249,7 +252,7 @@ Rationale is marked `[stated]` when the cited source gives it and `[inferred]` w
 
 ## Success Metrics
 
-> The idle-stop metric is unmet until the watchdog's Container Insights traffic measurement ships: until then, games without a health check are never auto-stopped (`RT-WATCHDOG-CW-007`).
+> The idle-stop metric is unmet until two gaps close. Games without a health check are never auto-stopped until the watchdog's Container Insights traffic measurement ships (`RT-WATCHDOG-CW-007`). Games with a health check are never auto-stopped until the health-check Lambda receives the environment it needs at load and a network path to the ECS and Secrets Manager APIs (`RT-HEALTH-PROV-003`, `RT-HEALTH-PROV-004`); until then every invoke is failure-derived and reads active.
 
 | Metric | Measures goal | Target |
 |---|---|---|
@@ -258,7 +261,7 @@ Rationale is marked `[stated]` when the cited source gives it and `[inferred]` w
 | `/server-start` to joinable (task `RUNNING` and DNS record updated) | 3 | 3 minutes or less |
 | Idle server stopped after the last player leaves | 1 | within the configured idle window (`idle_checks` x watchdog interval) |
 | Files touched to add a game | 4 | one `gameServers` entry, no infra code change |
-| Secret values reaching the renderer or the app log | invariant | zero |
+| Stored secret values sent from the main process to the renderer, or written to the app log | invariant | zero; operator-typed input (pasted AWS keys, the guided-IAM bootstrap key, the Discord bot token) originates in the renderer and is sent inbound only |
 
 ## References
 

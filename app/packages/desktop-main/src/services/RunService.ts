@@ -89,7 +89,7 @@ export class RunLockChangedError extends Error {
 }
 
 /**
- * Owns the apply lock guarding Pulumi plan/apply/destroy submissions.
+ * Owns the apply lock guarding Pulumi apply/destroy submissions (plans never take it).
  * See the file-level doc comment above for the in-memory + DynamoDB
  * two-layer contract.
  */
@@ -130,7 +130,7 @@ export class RunService {
 
   /**
    * Attempts to acquire the apply lock on behalf of a new Pulumi
-   * plan/apply/destroy run and returns the acquired {@link RunLock}
+   * apply/destroy run (plans never call this) and returns the acquired {@link RunLock}
    * (`runId` freshly minted via `randomUUID()`).
    *
    * Checks (and, if free, optimistically sets) the in-memory lock

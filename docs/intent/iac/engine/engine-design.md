@@ -7,7 +7,7 @@ prefix: IAC-ENGINE
 
 ## Context and Design Philosophy
 
-Hyveon provisions AWS through a Pulumi Automation API program that runs inside the packaged desktop app, with no host-installed `pulumi` binary and no Pulumi Cloud account. The engine leaf is the machinery that makes that possible: it downloads and verifies the exact pinned CLI, builds one stable Automation API workspace pointed at the operator's own S3 state bucket, injects the wizard-selected AWS credentials exclusively, runs engine calls under cancellation and leaked-promise recovery, reclaims stale DIY backend locks only when it can prove the lock is its own orphan, and exposes the deployed stack outputs to the rest of the app through a memoised reader.
+Hyveon provisions AWS through a Pulumi Automation API program that runs inside the packaged desktop app, with no host-installed `pulumi` binary and no Pulumi Cloud account. The engine leaf is the machinery that makes that possible: it downloads and verifies the exact pinned CLI, builds one stable Automation API workspace pointed at the operator's own S3 state bucket, injects the wizard-selected AWS credentials exclusively, runs preview, up and destroy under cancellation and leaked-promise recovery (stack initialization's `refresh()` is the exception), reclaims stale DIY backend locks only when it can prove the lock is its own orphan, and exposes the deployed stack outputs to the rest of the app through a memoised reader.
 
 It is the same component regardless of what the infrastructure program declares. Neighbouring leaves own the rest:
 

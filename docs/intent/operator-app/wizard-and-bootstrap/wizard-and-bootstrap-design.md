@@ -188,7 +188,7 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 ### Resolved
 
 1. ✅ The CloudFormation stack does not create the Pulumi state bucket, and no hosted template is published by the release pipeline (archived `add-one-click-aws-bootstrap/design.md`, Resolved Questions).
-2. ✅ The template keeps publishing `SecretAccessKey` as a stack output; mandatory immediate rotation makes the published key single-use, and the delete-failed path (APP-WIZARD-ROTATE-005, APP-WIZARD-ROTATE-006) covers the window when revocation fails (APP-WIZARD-TMPL-008; archived `add-one-click-aws-bootstrap/design.md` Decision 3).
+2. ✅ The template keeps publishing `SecretAccessKey` as a stack output; mandatory immediate rotation makes the published key a temporary credential pending rotation, revoked once the replacement verifies; it stays active while rotation fails or retries (APP-WIZARD-ROTATE-004, APP-WIZARD-ROTATE-007) and when revocation fails, which the delete-failed path surfaces with a retry (APP-WIZARD-ROTATE-005, APP-WIZARD-ROTATE-006) (APP-WIZARD-TMPL-008; archived `add-one-click-aws-bootstrap/design.md` Decision 3).
 
 ### Deferred
 

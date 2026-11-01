@@ -28,7 +28,7 @@ Every per-game resource fans out from `config.gameServers`, so a game is one map
 
 ### An embedded engine: `iac/engine`
 
-The app provisions its own exact-pinned Pulumi CLI into `userData`, opens one stable workspace against the operator's own S3 state bucket with a derived passphrase, injects the wizard-selected AWS credentials exclusively, runs every engine call under cancellation and leaked-promise recovery, reclaims a stale backend lock only when it can prove the lock is its own orphan, and serves the deployed stack outputs to the rest of the app through a memoised reader (`engine-design.md`, "Context and Design Philosophy").
+The app provisions its own exact-pinned Pulumi CLI into `userData`, opens one stable workspace against the operator's own S3 state bucket with a derived passphrase, injects the wizard-selected AWS credentials exclusively, runs preview, up and destroy under cancellation and leaked-promise recovery (stack initialization's `refresh()` runs without either wrapper), reclaims a stale backend lock only when it can prove the lock is its own orphan, and serves the deployed stack outputs to the rest of the app through a memoised reader (`engine-design.md`, "Context and Design Philosophy").
 
 ### A gated, recorded run: `iac/run`
 
@@ -106,7 +106,7 @@ flowchart LR
   RT[("runs table + S3 run logs")]
   STATE[("S3 state bucket")]
   AWS[["AWS resources"]]
-  CONSUMERS["task-and-dns, discord-bot, helper-task, infra-logs"]
+  CONSUMERS["task-and-dns, discord-bot, helper-task"]
 
   PAGES --> CTRL --> PS
   PS -->|"RUN_LOCK_SERVICE, RUN_RECORD_PERSISTER"| RS & RRS
@@ -160,7 +160,7 @@ Three distinct guards keep two operations off one stack, and they are owned by d
 | `game-runtime/watchdog`, `game-runtime/health-check` | downstream | Function, role, schedule, security group and baked env (`IDLE_CHECKS`, `HEALTH_CHECKS`, `HEALTH_CHECK_FUNCTION_NAME`). | `program-design.md`, "Lambda Wiring and Environment Contract" |
 | `discord-bot` | downstream | Interactions and followup functions, Function URL behind `discord.{zone}`, Discord table, secret ARNs, seed rows; `discordInteractionsUrl` output. | `program-design.md`, "Resource Areas", "Stack Outputs and Create-Only State" |
 | `helper-task` | downstream | `efsVolumeAccessPoints`, file-manager security group, FileBrowser scheduler role and log group; per-game efs-seeder invoked during apply. | `program-design.md`, "Stack Outputs and Create-Only State"; `docs/arrows/iac/program.md`, "Cited from other leaves" |
-| `operator-app/infra-logs` | downstream | Lambda and game log groups declared by the program, found through stack outputs. | `docs/arrows/index.yaml` (`program` blocks `infra-logs`); root HLD data-flow diagram |
+| `operator-app/infra-logs` | downstream | The game and Lambda log groups the program declares, `/ecs/{game}-server` and `/aws/lambda/{projectName}-{functionKey}`. `infra-logs` resolves both names deterministically from the game name and the configured `projectName`, never through stack outputs. | `docs/arrows/index.yaml` (`program` blocks `infra-logs`); `infra-logs-design.md`, "Context and Design Philosophy" |
 
 ## Key Design Decisions
 
@@ -185,7 +185,8 @@ Each decision below is recorded here because its substance crosses at least two 
    Spans `iac/program` (does not declare the table; echoes its name as `runsTableName`), `iac/run` (writes and reads it, with a pre-apply name fallback) and, across the subtree boundary, `wizard-and-bootstrap` (creates it).
    Rationale `[stated]`: the approve and apply gates need the table on the very first plan/apply cycle, before any apply has succeeded, and a stack only reports outputs after its first successful apply (`docs/docs/components/infra.md`, "The runs table invariant"; `program-design.md`, runs table).
    One name function, `resolveRunsTableName`, is called from bootstrap, `buildStackOutputs` and the pre-apply fallback so the three never disagree (`docs/docs/components/infra.md`, same section).
-   Before the first successful apply, every `iac/run` reader of the table resolves its name through that pre-apply fallback: `RunRecordService` for run records and `RunService` for the durable apply lock, so the first apply on a fresh install holds the durable lock like every later apply (`IAC-RUN-LOCK-009`). `RunService` does not yet use the fallback (`run-design.md`, "Fresh-install gap").
+   Intended behaviour: before the first successful apply, every `iac/run` reader of the table resolves its name through that pre-apply fallback, `RunRecordService` for run records and `RunService` for the durable apply lock, so the first apply on a fresh install holds the durable lock like every later apply (`IAC-RUN-LOCK-009`).
+   Current gap: only `RunRecordService` uses the fallback; when stack outputs lack `runsTableName`, `RunService` skips the durable store, so the first apply on a fresh install is guarded by the in-memory lock alone (`run-design.md`, "Fresh-install gap").
    Alternative rejected `[stated]`: a Pulumi-managed table (`program-design.md`).
 
 5. **Stack outputs are the only channel by which the rest of the app discovers what was deployed.**
@@ -237,7 +238,7 @@ Each decision below is recorded here because its substance crosses at least two 
 Questions whose answer crosses more than one child, or where the children's designs disagree or admit two readings.
 Leaf-only questions stay in each leaf's Open Questions.
 
-1. **Is a mid-operation `null` from the outputs reader acceptable at the subtree boundary?** While any operation is in flight `getStackOutputs` returns `null`, which `ConfigService` caches for 20 s, so every downstream consumer reads "not deployed" during and just after a run (`engine-design.md`, Deferred 13). The answer is a contract with `task-and-dns`, `discord-bot`, `helper-task` and `infra-logs`, not only an engine detail.
+1. **Is a mid-operation `null` from the outputs reader acceptable at the subtree boundary?** While any operation is in flight `getStackOutputs` returns `null`, which `ConfigService` caches for 20 s, so every downstream consumer reads "not deployed" during and just after a run (`engine-design.md`, Deferred 13). The answer is a contract with `task-and-dns`, `discord-bot` and `helper-task`, not only an engine detail.
 2. **Who corrects the stale "machine-bound" passphrase sentence in `openspec/specs/pulumi-infra-program/spec.md:70`?** `engine-design.md` Deferred 5 asks for an owner; `program-design.md` Deferred 18 says the fix is owned by `iac/engine`. The two readings should be reconciled to one owner.
 3. **Does the "no ACM certificate" invariant need a Discord-domain carve-out?** The program declares an ACM certificate for `discord.{zone}` (`program-design.md`, Deferred 5), which the CLAUDE.md wording does not allow for.
 
