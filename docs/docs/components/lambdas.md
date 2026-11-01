@@ -177,22 +177,26 @@ Failure modes:
 | | |
 |---|---|
 | **Package** | `@hyveon/lambda-watchdog` |
-| **Trigger** | EventBridge schedule at `rate(${watchdog_interval_minutes} minute(s))`. No event payload. |
+| **Trigger** | EventBridge schedule at `rate(N minute(s))`, where N is `watchdogIntervalMinutes`. No event payload. |
 | **Pulumi** | `app/packages/infra/src/lambdas.ts` (`watchdogFunction`, `watchdogScheduleRule`). |
 | **IAM** | `ecs:ListTasks` / `DescribeTasks` / `StopTask` / `TagResource` / `ListTagsForResource`, `cloudwatch:GetMetricStatistics`, and — only when at least one game declares a `healthCheck` — `lambda:InvokeFunction` scoped to the health-check function's ARN. |
-| **Env vars** | `ECS_CLUSTER`, `GAME_NAMES`, `IDLE_CHECKS`, `MIN_PACKETS`, `CHECK_WINDOW_MINUTES`, `AWS_REGION_`, `HEALTH_CHECKS` (JSON map, game → that game's `healthCheck` declaration; `{}` when no game opts in), `HEALTH_CHECK_FUNCTION_NAME` (the health-check function's name; empty string when it doesn't exist). |
+| **Env vars** | `ECS_CLUSTER`, `GAME_NAMES`, `IDLE_CHECKS`, `MIN_BYTES_PER_SECOND`, `CHECK_WINDOW_MINUTES`, `AWS_REGION_`, `HEALTH_CHECKS` (JSON map, game → that game's `healthCheck` declaration; `{}` when no game opts in), `HEALTH_CHECK_FUNCTION_NAME` (the health-check function's name; empty string when it doesn't exist). |
 
 ### Behaviour
 
 1. `ListTasks(desiredStatus: RUNNING)` across the cluster. Paginates.
-2. `DescribeTasks` on the batch to get attachments and tags.
+2. `DescribeTasks` on the batch to get each task's group and status.
 3. For each task, resolve its game from the task-def family, then get a
    verdict from exactly one of two sources — never both:
-   - **`HEALTH_CHECKS[game]` is absent** (the common case today): resolve
-     the ENI ID from attachments, then `cloudwatch.GetMetricStatistics` →
-     `AWS/EC2/NetworkPacketsIn` over the last `CHECK_WINDOW_MINUTES`. If the
-     call fails, assume **active** (fails-safe for fresh tasks with no
-     metrics yet). Idle iff `packets < MIN_PACKETS`.
+   - **`HEALTH_CHECKS[game]` is absent** (the common case today):
+     `cloudwatch.GetMetricStatistics` → `ECS/ContainerInsights`
+     `NetworkRxBytes` with dimensions `ClusterName` and `TaskDefinitionFamily`
+     (the task's `{game}-server` family; no ENI or EC2 call), statistic
+     `Average`, one period of `CHECK_WINDOW_MINUTES`. If there is no datapoint
+     or the call fails, assume **active** (fails-safe for fresh tasks with no
+     metrics yet). Idle iff the average is below `MIN_BYTES_PER_SECOND`. This
+     needs Container Insights enabled on the cluster, which the infra program
+     does; it costs roughly one cent per running game-hour.
    - **`HEALTH_CHECKS[game]` is present**: synchronously `Invoke` the
      health-check Lambda (`RequestResponse`) with
      `{ game, taskArn, healthCheck }`. A failed invoke — throttled, the

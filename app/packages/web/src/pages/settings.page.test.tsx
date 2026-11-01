@@ -59,7 +59,7 @@ const SAMPLE_DEPLOYMENT_SETTINGS = {
   dnsTtl: 30,
   watchdogIntervalMinutes: 15,
   watchdogIdleChecks: 4,
-  watchdogMinPackets: 100,
+  watchdogMinBytesPerSecond: 1000,
   baseAllowedGuilds: [],
   baseAdminUserIds: [],
   baseAdminRoleIds: [],
@@ -82,7 +82,7 @@ describe('SettingsPage', () => {
     apiMock.config.mockResolvedValue({
       watchdog_interval_minutes: 15,
       watchdog_idle_checks: 4,
-      watchdog_min_packets: 100,
+      watchdog_min_bytes_per_second: 1000,
     });
     hyveonMock.wizard.getState
       .mockReset()

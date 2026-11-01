@@ -37,7 +37,7 @@ describe('validateDeploymentSettingsPatch', () => {
         dnsTtl: 30,
         watchdogIntervalMinutes: 15,
         watchdogIdleChecks: 4,
-        watchdogMinPackets: 100,
+        watchdogMinBytesPerSecond: 1000,
         baseAllowedGuilds: ['123456789012345678'],
         baseAdminUserIds: ['234567890123456789'],
         baseAdminRoleIds: ['345678901234567890'],
@@ -81,14 +81,14 @@ describe('validateDeploymentSettingsPatch', () => {
 
   // @spec RT-WATCHDOG-CFG-005
   describe('numeric fields', () => {
-    it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinPackets'] as const)(
+    it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinBytesPerSecond'] as const)(
       'should accept a positive integer for %s',
       (field) => {
         expect(validateDeploymentSettingsPatch({ [field]: 5 })).toEqual([]);
       },
     );
 
-    it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinPackets'] as const)(
+    it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinBytesPerSecond'] as const)(
       'should reject zero for %s',
       (field) => {
         const issues = validateDeploymentSettingsPatch({ [field]: 0 });
@@ -96,7 +96,7 @@ describe('validateDeploymentSettingsPatch', () => {
       },
     );
 
-    it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinPackets'] as const)(
+    it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinBytesPerSecond'] as const)(
       'should reject a negative value for %s',
       (field) => {
         const issues = validateDeploymentSettingsPatch({ [field]: -1 });
@@ -104,7 +104,7 @@ describe('validateDeploymentSettingsPatch', () => {
       },
     );
 
-    it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinPackets'] as const)(
+    it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinBytesPerSecond'] as const)(
       'should reject a fractional value for %s',
       (field) => {
         const issues = validateDeploymentSettingsPatch({ [field]: 1.5 });
@@ -168,7 +168,7 @@ describe('validateDeploymentSettingsPatch', () => {
       expect(issues).toContainEqual({ path: 'vpcCidr', message: 'Must be a string.' });
     });
 
-    it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinPackets'] as const)(
+    it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinBytesPerSecond'] as const)(
       'should reject a numeric-looking string for %s (already correct — pinned so it never regresses)',
       (field) => {
         const issues = validateDeploymentSettingsPatch(wirePayload({ [field]: '5' }));

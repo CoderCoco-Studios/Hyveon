@@ -63,7 +63,7 @@ const CONFIG_DECLARING_ARK: DeploymentConfig = {
   dnsTtl: 30,
   watchdogIntervalMinutes: 15,
   watchdogIdleChecks: 4,
-  watchdogMinPackets: 100,
+  watchdogMinBytesPerSecond: 1000,
   baseAllowedGuilds: [],
   baseAdminUserIds: [],
   baseAdminRoleIds: [],

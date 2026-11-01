@@ -4,9 +4,10 @@
  * Runs on a schedule (EventBridge rate). For each running game server task:
  *   - A game with a declared health check (`HEALTH_CHECKS[game]`) is
  *     evaluated by invoking the health-check Lambda synchronously instead;
- *     a game without one keeps reading CloudWatch `NetworkPacketsIn` on the
- *     task's ENI over the last `CHECK_WINDOW_MINUTES` window, exactly as
- *     before. Exactly one verdict source applies to any given task.
+ *     a game without one is judged by the mean inbound bytes per second that
+ *     Container Insights reports for its task definition family over the last
+ *     `CHECK_WINDOW_MINUTES` window. Exactly one verdict source applies to any
+ *     given task.
  *   - If the task counts as idle by whichever source applied, increments
  *     the per-task `idle_checks` ECS resource tag. After `IDLE_CHECKS`
  *     consecutive idle windows, the task is stopped.
@@ -32,7 +33,6 @@ import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import {
   familyToGameMap,
   gameNamesFromEnv,
-  getTaskEniId,
   parseGameMapEnv,
   requireEnv,
   type GameServerHealthCheck,
@@ -43,7 +43,7 @@ import {
 const ECS_CLUSTER = requireEnv('ECS_CLUSTER');
 const GAME_NAMES = gameNamesFromEnv();
 const IDLE_CHECKS = parseInt(process.env['IDLE_CHECKS'] ?? '4', 10);
-const MIN_PACKETS = parseInt(process.env['MIN_PACKETS'] ?? '100', 10);
+const MIN_BYTES_PER_SECOND = parseInt(process.env['MIN_BYTES_PER_SECOND'] ?? '1000', 10);
 const CHECK_WINDOW_MINUTES = parseInt(process.env['CHECK_WINDOW_MINUTES'] ?? '15', 10);
 // @spec RT-WATCHDOG-CFG-003
 /** Game name → declared health check, for the games opted into that verdict source instead of the CloudWatch heuristic. Populated by the infra program from `DeploymentConfig.gameServers`; empty when no game opts in. Parsed defensively — see {@link parseGameMapEnv}. */
@@ -77,32 +77,45 @@ interface HealthCheckInvokeResult {
 
 // @spec RT-WATCHDOG-CW-001, RT-WATCHDOG-CW-005, RT-WATCHDOG-CW-006
 /**
- * Query CloudWatch for inbound packets on this ENI over the last check window.
- * Falls back to "active" when metrics are unavailable to avoid accidental
- * shutdowns of brand-new tasks whose ENI hasn't begun emitting yet.
+ * Queries Container Insights for the mean inbound bytes per second of a task
+ * definition family over the last check window.
+ *
+ * Returns `null` when no datapoint exists or the query fails, so the caller
+ * treats the window as active. That keeps a brand-new task, whose metrics have
+ * not started flowing, from being stopped.
+ *
+ * @param family - The task definition family, `{game}-server`.
+ * @returns The highest `Average` of `NetworkRxBytes` across returned datapoints, or `null` when unavailable.
  */
-async function getNetworkPackets(eniId: string): Promise<number> {
+async function getRxBytesPerSecond(family: string): Promise<number | null> {
   const now = new Date();
   const start = new Date(now.getTime() - CHECK_WINDOW_MINUTES * 60_000);
   try {
     const resp = await cloudwatch.send(
       new GetMetricStatisticsCommand({
-        Namespace: 'AWS/EC2',
-        MetricName: 'NetworkPacketsIn',
-        Dimensions: [{ Name: 'NetworkInterfaceId', Value: eniId }],
+        Namespace: 'ECS/ContainerInsights',
+        MetricName: 'NetworkRxBytes',
+        Dimensions: [
+          { Name: 'ClusterName', Value: ECS_CLUSTER },
+          { Name: 'TaskDefinitionFamily', Value: family },
+        ],
         StartTime: start,
         EndTime: now,
         Period: CHECK_WINDOW_MINUTES * 60,
-        Statistics: ['Sum'],
+        Statistics: ['Average'],
       }),
     );
-    const datapoint = resp.Datapoints?.[0]?.Sum;
-    if (typeof datapoint === 'number') return Math.floor(datapoint);
-    console.log(`No CloudWatch datapoints for ENI ${eniId} — assuming active`);
-    return MIN_PACKETS + 1;
+    // CloudWatch does not order datapoints; the highest Average keeps the task active if any bucket saw traffic.
+    const averages = (resp.Datapoints ?? [])
+      .map((d) => d.Average)
+      .filter((a): a is number => typeof a === 'number');
+    if (averages.length > 0) return Math.max(...averages);
+    console.log(`No Container Insights datapoints for ${family} — assuming active`);
+    return null;
   } catch (err) {
-    console.warn(`CloudWatch query failed for ${eniId} — assuming active`, { err });
-    return MIN_PACKETS + 1;
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`Container Insights query failed for ${family} — assuming active`, { err: message });
+    return null;
   }
 }
 
@@ -112,7 +125,7 @@ async function getNetworkPackets(eniId: string): Promise<number> {
  * Invokes the health-check Lambda synchronously for a game with a declared
  * health check, and normalizes its result. A failed invoke — throttled,
  * the function absent, a timeout, or a malformed response — is fail-active,
- * the same treatment {@link getNetworkPackets} gives a failed CloudWatch
+ * the same treatment {@link getRxBytesPerSecond} gives a failed CloudWatch
  * query: the failure that matters most (the function is unreachable) is
  * exactly the one where no lower layer runs at all, so this layer must
  * handle it rather than assume the health-check Lambda already did.
@@ -192,17 +205,18 @@ async function listAllRunningTaskArns(): Promise<string[]> {
 
 // @spec RT-WATCHDOG-SCHED-005, RT-WATCHDOG-SCOPE-002, RT-WATCHDOG-SCOPE-003, RT-WATCHDOG-SCOPE-004
 // @spec RT-WATCHDOG-SCOPE-006, RT-WATCHDOG-ROUTE-001, RT-WATCHDOG-ROUTE-002, RT-WATCHDOG-ROUTE-003
-// @spec RT-WATCHDOG-CW-002, RT-WATCHDOG-CW-004, RT-WATCHDOG-STATE-003, RT-WATCHDOG-STATE-004
+// @spec RT-WATCHDOG-CW-002, RT-WATCHDOG-CW-004, RT-WATCHDOG-CW-007, RT-WATCHDOG-STATE-003, RT-WATCHDOG-STATE-004
 // @spec RT-WATCHDOG-STATE-005, RT-WATCHDOG-STATE-007, RT-WATCHDOG-STOP-001, RT-WATCHDOG-LOG-001, RT-WATCHDOG-LOG-002
 // @spec RT-WATCHDOG-LOG-003, RT-WATCHDOG-LOG-004, RT-WATCHDOG-LOG-005
 // @spec RT-HEALTH-LOG-002, RT-HEALTH-LOG-003
 /**
- * Runs on an EventBridge schedule (`rate(${watchdog_interval_minutes} minutes)`) and
- * stops idle game-server tasks to keep costs down. For each RUNNING task, reads
- * `NetworkPacketsIn` on its ENI via CloudWatch and bumps a consecutive-idle counter
- * stored as an ECS task tag (no DynamoDB/SSM state). After `watchdog_idle_checks`
- * consecutive idle intervals, the task is stopped — which triggers the DNS-delete
- * path in `@hyveon/lambda-update-dns` via the resulting `STOPPED` state-change event.
+ * Runs on an EventBridge schedule (`rate(N minutes)`, N = `watchdogIntervalMinutes`) and
+ * stops idle game-server tasks to keep costs down. For each RUNNING task, takes one
+ * verdict from the game's health check or, without one, from Container Insights
+ * `NetworkRxBytes`, and bumps a consecutive-idle counter stored as an ECS task tag
+ * (no DynamoDB/SSM state). After `IDLE_CHECKS` consecutive idle windows the task is
+ * stopped, which triggers the DNS-delete path in `@hyveon/lambda-update-dns` via the
+ * resulting `STOPPED` state-change event.
  */
 export const handler = async (): Promise<{ checked: number }> => {
   console.log(`Watchdog running — cluster: ${ECS_CLUSTER}, games: ${GAME_NAMES.join(',')}`);
@@ -236,11 +250,9 @@ export const handler = async (): Promise<{ checked: number }> => {
         console.warn(`${game}: health check is failure-derived — treating as active (${verdict.reason})`);
       }
     } else {
-      const eniId = getTaskEniId(task);
-      if (!eniId) continue;
-      const packets = await getNetworkPackets(eniId);
-      idleThisCheck = packets < MIN_PACKETS;
-      verdictDetail = `packets=${packets}, threshold=${MIN_PACKETS}`;
+      const rxBytesPerSecond = await getRxBytesPerSecond(family);
+      idleThisCheck = rxBytesPerSecond !== null && rxBytesPerSecond < MIN_BYTES_PER_SECOND;
+      verdictDetail = `rxBytesPerSecond=${rxBytesPerSecond ?? 'unavailable'}, threshold=${MIN_BYTES_PER_SECOND}`;
     }
 
     let idleCount = await getIdleCount(task.taskArn);

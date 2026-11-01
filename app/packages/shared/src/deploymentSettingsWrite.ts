@@ -71,7 +71,7 @@ export function validateDeploymentSettingsPatch(
   checkPositiveInteger(patch, 'dnsTtl', issues);
   checkPositiveInteger(patch, 'watchdogIntervalMinutes', issues);
   checkPositiveInteger(patch, 'watchdogIdleChecks', issues);
-  checkPositiveInteger(patch, 'watchdogMinPackets', issues);
+  checkPositiveInteger(patch, 'watchdogMinBytesPerSecond', issues);
 
   checkSnowflakeArray(patch, 'baseAllowedGuilds', issues);
   checkSnowflakeArray(patch, 'baseAdminUserIds', issues);

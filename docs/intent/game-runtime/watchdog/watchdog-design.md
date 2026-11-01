@@ -14,7 +14,7 @@ The watchdog is a single scheduled Lambda (`app/packages/lambda/watchdog/src/han
 What it owns:
 
 - The per-run evaluation loop and the stop decision (`handler.ts:191-257`).
-- The CloudWatch packet heuristic, the default verdict source (`handler.ts:79-102`).
+- The Container Insights traffic heuristic, the default verdict source.
 - The routing choice between that heuristic and the health-check Lambda, and the watchdog-side fail-active handling of a failed invoke (`handler.ts:113-144`, `:211-228`).
 - The `idle_checks` ECS task tag as its only state (`handler.ts:146-168`).
 - The static `WatchdogPanel` card on the Settings page (`app/packages/web/src/components/watchdog-panel.component.tsx:7-20`).
@@ -38,9 +38,9 @@ CLAUDE.md invariants that live here:
 Each invocation is a stateless pass over the cluster, triggered by `${projectName}-watchdog-schedule` with `rate(N minute|minutes)` where N is `watchdogIntervalMinutes` (`lambdas.ts:590-599`). The event payload is ignored (`handler.ts:191`). The function has a 60 s timeout and Lambda's default 128 MB memory (`lambdas.ts:568-570`).
 
 1. **List.** `listAllRunningTaskArns()` pages through `ListTasks(desiredStatus: RUNNING)` on `ECS_CLUSTER` (`handler.ts:170-181`). No tasks returns `{ checked: 0 }` immediately (`:195-198`).
-2. **Describe.** One `DescribeTasks` call over every listed ARN (`handler.ts:200`). This is not chunked; `DescribeTasks` accepts at most 100 tasks, so a cluster with more than 100 RUNNING tasks appears to fail the whole run here (arrow finding 4).
+2. **Describe.** One `DescribeTasks` call over every listed ARN (`handler.ts:200`). This is not chunked; `DescribeTasks` accepts at most 100 tasks, so a cluster with more than 100 RUNNING tasks appears to fail the whole run here (arrow finding 3).
 3. **Filter.** A task is skipped unless `lastStatus === 'RUNNING'` and it has an ARN (`handler.ts:204`), and unless its `group` (`family:<name>`) maps through `FAMILY_TO_GAME` (`:205-207`). `FAMILY_TO_GAME` is built from `GAME_NAMES` as `{game}-server → game` with a null prototype (`handler.ts:51`, `app/packages/shared/src/env.ts:64-65`), so helper tasks and foreign families are ignored.
-4. **Count.** `checked++` (`handler.ts:209`). This happens before the no-ENI skip at `:223-224`, so `checked` can include tasks that were never evaluated (arrow finding 7).
+4. **Count.** `checked` increments for every RUNNING task of a configured game, before its verdict is taken.
 5. **Verdict.** Exactly one source per task, described in the next section (`handler.ts:211-228`).
 6. **Transition.** Read the current count with `getIdleCount()` (`handler.ts:230`), then apply the state machine below.
 
@@ -61,7 +61,7 @@ Properties that follow from the tag being the state:
 
 - **Fresh tasks start at zero.** A new `RunTask` produces a new task ARN with no tag; `getIdleCount()` returns 0 for a missing tag, a non-numeric value, or any `ListTagsForResource` error (`handler.ts:146-155`). Restarting a stopped server therefore never inherits an old count.
 - **Tag writes are best-effort.** `setIdleCount()` swallows failures with a `console.warn` (`handler.ts:165-167`). A failed increment silently delays shutdown by one window; a failed reset leaves a stale count that the next idle window builds on.
-- **`StopTask` is not best-effort.** It is awaited with no try/catch (`handler.ts:239-245`), unlike the tag writes (arrow finding 5).
+- **`StopTask` is not best-effort.** It is awaited with no try/catch (`handler.ts:239-245`), unlike the tag writes (arrow finding 4).
 - **Single writer.** Only the watchdog reads or writes `idle_checks`, so the read-modify-write is not guarded. Overlapping invocations are possible in principle when `watchdogIntervalMinutes` is 1 and a run approaches the 60 s timeout `[inferred]`; nothing prevents that.
 
 Total idle time before shutdown is `watchdogIntervalMinutes * watchdogIdleChecks` (`deploymentConfig.ts:85-97`), 60 minutes with the defaults. The log line and stop reason compute it as `idleCount * CHECK_WINDOW_MINUTES` (`handler.ts:237,243`), which equals that product only because the infra program sets `CHECK_WINDOW_MINUTES` from the same `watchdogIntervalMinutes` that drives the schedule (`lambdas.ts:577,598`).
@@ -124,13 +124,11 @@ Operator-side validation is positive-integer only for the three tunables (`app/p
 
 ### IAM
 
-`watchdogLambdaPolicy` (`iam.ts:445-466`) grants logs, `ecs:ListTasks`/`DescribeTasks`/`StopTask`/`TagResource`/`ListTagsForResource` on `*`, `cloudwatch:GetMetricStatistics` on `*`, and `ec2:DescribeNetworkInterfaces` on `*`. The EC2 grant appears unused, since the ENI ID comes from task attachments (arrow finding 11). `lambda:InvokeFunction` on the health-check ARN is added only when `healthCheckFunctionArn` is set (`iam.ts:455-457`). `StopTask` and `TagResource` on `*` mean the watchdog can stop any task in the account, not only `{game}-server` tasks in its cluster; the family filter in code is the only scoping.
+`watchdogLambdaPolicy` (`iam.ts:445-466`) grants logs, `ecs:ListTasks`/`DescribeTasks`/`StopTask`/`TagResource`/`ListTagsForResource` on `*`, `cloudwatch:GetMetricStatistics` on `*`, and `ec2:DescribeNetworkInterfaces` on `*`. The EC2 grant is unused, since the handler no longer reads the ENI (arrow finding 8). `lambda:InvokeFunction` on the health-check ARN is added only when `healthCheckFunctionArn` is set (`iam.ts:455-457`). `StopTask` and `TagResource` on `*` mean the watchdog can stop any task in the account, not only `{game}-server` tasks in its cluster; the family filter in code is the only scoping.
 
 ### Where documentation diverges
 
 - `docs/docs/app/settings.md:250` says DNS TTL applies to "records the watchdog Lambda writes"; the watchdog writes no DNS records. This contradicts `openspec/specs/operator-documentation/spec.md:57`.
-- `docs/docs/guides/user.md:85-95` describes only the `NetworkPacketsIn` path and omits health-check routing.
-- `docs/docs/components/lambdas.md:180` and the handler doc comment (`handler.ts:183-190`) still use the Terraform-era names `watchdog_interval_minutes`/`watchdog_idle_checks`; the comment also says the handler reads only `NetworkPacketsIn`, which the module header (`handler.ts:4-9`) and code contradict.
 - `openspec/specs/desktop-only-operator-surface/spec.md:44,51-54` has `ConfigService` reading and writing watchdog tunables in `server_config.json`; no such code exists, and the tunables live in `deployment-config.json` (`deploymentConfig.ts:240-242`).
 
 ## Decisions & Alternatives
@@ -163,19 +161,17 @@ Operator-side validation is positive-integer only for the three tunables (`app/p
 1. Should `DescribeTasks` be chunked into batches of 100 so a cluster with more than 100 RUNNING tasks does not fail the run (`handler.ts:200`)?
 2. Should `StopTask` be wrapped per task so one failure does not abort evaluation of the remaining tasks (`handler.ts:239-245`)?
 3. How should health-check time be bounded per run? Sequential `RequestResponse` invokes against a 30 s health-check timeout (`lambdas.ts:547`) can exceed the watchdog's 60 s timeout (`lambdas.ts:568`) with two hung checks (`handler.ts:203-255`).
-4. Should `checked` count only tasks that were actually evaluated (`handler.ts:209` versus `:223-224`)?
-5. Should the stale `handler()` doc comment (`handler.ts:183-190`), `docs/docs/components/lambdas.md:180`, and the "Mirrors the app's original `watchdog_*` config input" comments (`deploymentConfig.ts:83-100`) be rewritten to current names and behaviour?
-6. Should `openspec/specs/desktop-only-operator-surface/spec.md:44,51-54` drop the `server_config.json` watchdog scenario, and `watchdog-panel.component.tsx:4` its historical reference?
-7. Should `docs/docs/app/settings.md:250` stop attributing DNS writes to the watchdog, and `docs/docs/guides/user.md:85-95` describe the health-check path?
-8. Is `ec2:DescribeNetworkInterfaces` (`iam.ts:452`) still needed once the traffic measurement stops reading the ENI, and are the `@aws-sdk/client-route-53` and `@smithy/core` devDependencies in `app/packages/lambda/watchdog/package.json` used?
-9. Should the `AWS_REGION_` fallback chain (`handler.ts:53-61`) move into one shared helper used by every Lambda?
-10. Should a malformed `HEALTH_CHECKS` env var, which silently becomes `{}` (`env.ts:39-49`), be logged by the watchdog so the downgrade to CloudWatch is visible?
-11. Should non-numeric `IDLE_CHECKS`/`MIN_BYTES_PER_SECOND`/`CHECK_WINDOW_MINUTES` fail at module init instead of becoming `NaN` (`handler.ts:43-45`)?
-12. Should `watchdogIntervalMinutes` have an upper bound or CloudWatch-period validation (`deploymentSettingsWrite.ts:70-72`)?
-13. Should the CloudWatch fallback log a distinct detail instead of a synthetic threshold-plus-one reading (`handler.ts:97,227`)?
-14. Should `StopTask`/`TagResource` be scoped to the game cluster's task ARNs instead of `*` (`iam.ts:449-451`)?
-15. Should the duplicated `HealthCheckInvokeResult` (`handler.ts:67-72`) gain a contract test against the health-check package so the shapes cannot drift silently?
-16. Should a game be able to override `MIN_BYTES_PER_SECOND` when its idle background traffic sits above the global threshold?
+4. Should `openspec/specs/desktop-only-operator-surface/spec.md:44,51-54` drop the `server_config.json` watchdog scenario, and `watchdog-panel.component.tsx:4` its historical reference?
+5. Should `docs/docs/app/settings.md:250` stop attributing DNS writes to the watchdog, 
+6. Should the now-unused `ec2:DescribeNetworkInterfaces` grant (`iam.ts:452`) be dropped, and are the `@aws-sdk/client-route-53` and `@smithy/core` devDependencies in `app/packages/lambda/watchdog/package.json` used?
+7. Should the `AWS_REGION_` fallback chain (`handler.ts:53-61`) move into one shared helper used by every Lambda?
+8. Should a malformed `HEALTH_CHECKS` env var, which silently becomes `{}` (`env.ts:39-49`), be logged by the watchdog so the downgrade to CloudWatch is visible?
+9. Should non-numeric `IDLE_CHECKS`/`MIN_BYTES_PER_SECOND`/`CHECK_WINDOW_MINUTES` fail at module init instead of becoming `NaN` (`handler.ts:43-45`)?
+10. Should `watchdogIntervalMinutes` have an upper bound or CloudWatch-period validation (`deploymentSettingsWrite.ts:70-72`)?
+11. Should the CloudWatch fallback log a distinct detail instead of a synthetic threshold-plus-one reading (`handler.ts:97,227`)?
+12. Should `StopTask`/`TagResource` be scoped to the game cluster's task ARNs instead of `*` (`iam.ts:449-451`)?
+13. Should the duplicated `HealthCheckInvokeResult` (`handler.ts:67-72`) gain a contract test against the health-check package so the shapes cannot drift silently?
+14. Should a game be able to override `MIN_BYTES_PER_SECOND` when its idle background traffic sits above the global threshold?
 
 ## References
 

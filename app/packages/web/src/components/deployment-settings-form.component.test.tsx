@@ -26,7 +26,7 @@ const SETTINGS = {
   dnsTtl: 30,
   watchdogIntervalMinutes: 15,
   watchdogIdleChecks: 4,
-  watchdogMinPackets: 100,
+  watchdogMinBytesPerSecond: 1000,
   baseAllowedGuilds: ['123456789012345678'],
   baseAdminUserIds: [],
   baseAdminRoleIds: [],
@@ -173,7 +173,7 @@ describe('DeploymentSettingsForm', () => {
       delete incompleteSettings['dnsTtl'];
       delete incompleteSettings['watchdogIntervalMinutes'];
       delete incompleteSettings['watchdogIdleChecks'];
-      delete incompleteSettings['watchdogMinPackets'];
+      delete incompleteSettings['watchdogMinBytesPerSecond'];
       hyveonMock.iac.settings.get.mockResolvedValue({ ok: true, settings: incompleteSettings, etag: 'etag-1' });
 
       render(<DeploymentSettingsForm />);
@@ -181,7 +181,7 @@ describe('DeploymentSettingsForm', () => {
       expect(await screen.findByLabelText('DNS TTL (seconds)')).toHaveValue(30);
       expect(screen.getByLabelText('Check interval (minutes)')).toHaveValue(15);
       expect(screen.getByLabelText('Idle checks before shutdown')).toHaveValue(4);
-      expect(screen.getByLabelText('Min packets (activity threshold)')).toHaveValue(100);
+      expect(screen.getByLabelText('Min bytes per second (activity threshold)')).toHaveValue(1000);
     });
   });
 

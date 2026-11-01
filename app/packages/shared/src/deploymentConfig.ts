@@ -98,11 +98,11 @@ export interface DeploymentConfig {
   watchdogIdleChecks: number;
 
   /**
-   * Minimum inbound packets per check interval to consider a server active.
-   * Mirrors the app's original `watchdog_min_packets` config input.
-   * Default: `100` — see {@link DEPLOYMENT_CONFIG_DEFAULTS}.
+   * Minimum mean inbound bytes per second over one check window for a server
+   * without a health check to count as active.
+   * Default: `1000` — see {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */
-  watchdogMinPackets: number;
+  watchdogMinBytesPerSecond: number;
 
   /**
    * Guild IDs permanently allowlisted, written to the
@@ -230,7 +230,7 @@ export const DEPLOYMENT_CONFIG_DEFAULTS: Readonly<
     | 'dnsTtl'
     | 'watchdogIntervalMinutes'
     | 'watchdogIdleChecks'
-    | 'watchdogMinPackets'
+    | 'watchdogMinBytesPerSecond'
     | 'discordApplicationId'
     | 'auditTableName'
     | 'runsTableName'
@@ -242,7 +242,7 @@ export const DEPLOYMENT_CONFIG_DEFAULTS: Readonly<
   dnsTtl: 30,
   watchdogIntervalMinutes: 15,
   watchdogIdleChecks: 4,
-  watchdogMinPackets: 100,
+  watchdogMinBytesPerSecond: 1000,
   discordApplicationId: '',
   auditTableName: '',
   runsTableName: '',
@@ -337,7 +337,7 @@ export function withDeploymentConfigDefaults(
     dnsTtl: partial.dnsTtl ?? DEPLOYMENT_CONFIG_DEFAULTS.dnsTtl,
     watchdogIntervalMinutes: partial.watchdogIntervalMinutes ?? DEPLOYMENT_CONFIG_DEFAULTS.watchdogIntervalMinutes,
     watchdogIdleChecks: partial.watchdogIdleChecks ?? DEPLOYMENT_CONFIG_DEFAULTS.watchdogIdleChecks,
-    watchdogMinPackets: partial.watchdogMinPackets ?? DEPLOYMENT_CONFIG_DEFAULTS.watchdogMinPackets,
+    watchdogMinBytesPerSecond: partial.watchdogMinBytesPerSecond ?? DEPLOYMENT_CONFIG_DEFAULTS.watchdogMinBytesPerSecond,
     baseAllowedGuilds: partial.baseAllowedGuilds ?? [],
     baseAdminUserIds: partial.baseAdminUserIds ?? [],
     baseAdminRoleIds: partial.baseAdminRoleIds ?? [],
@@ -404,7 +404,7 @@ const DEPLOYMENT_CONFIG_SCALAR_FIELDS: DeploymentConfigScalarField[] = [
   'dnsTtl',
   'watchdogIntervalMinutes',
   'watchdogIdleChecks',
-  'watchdogMinPackets',
+  'watchdogMinBytesPerSecond',
   'baseAllowedGuilds',
   'baseAdminUserIds',
   'baseAdminRoleIds',

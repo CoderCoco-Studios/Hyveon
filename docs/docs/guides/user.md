@@ -87,15 +87,28 @@ Once a game is RUNNING:
 The watchdog runs on an EventBridge schedule — default every 15 minutes —
 and for every running task it:
 
-1. Reads `NetworkPacketsIn` for the task's ENI over the last window.
-2. If it's below `watchdogMinPackets`, increments the `idle_checks` tag on
-   the task.
+1. Decides whether the task was idle over the last window, from exactly one
+   of two sources:
+   - **A game that declares a `healthCheck`** is asked directly: the watchdog
+     invokes the health-check Lambda, which probes the game server (for
+     example, "are any players online?").
+   - **A game with no declared `healthCheck`** is judged by network traffic:
+     the watchdog reads the mean inbound bytes per second that ECS Container
+     Insights reports for the game's task over the last window.
+2. If the task was idle — the health check said so, or the mean inbound rate
+   is below `watchdogMinBytesPerSecond` — increments the `idle_checks` tag on
+   the task. If the traffic data is missing or can't be read, the task counts
+   as active, so a brand-new server is never stopped early.
 3. If the counter reaches `watchdogIdleChecks`, issues `StopTask` with
    reason `Watchdog: idle for N minutes`. The watchdog **only** stops the
    task — it never touches DNS or any load balancer itself. The task
    stopping triggers an ECS state-change event that a separate Lambda
    (update-dns) reacts to by deleting the DNS record.
 4. If there's activity, resets the counter to 0.
+
+Container Insights is enabled on the game cluster to provide the traffic
+metric. It adds roughly one cent per running game-hour, and nothing while no
+game is running.
 
 So a burst of actual traffic resets the clock; an empty server shuts down
 after `interval × idle_checks` minutes (default 60, tunable by whoever

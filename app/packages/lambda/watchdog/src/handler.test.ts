@@ -37,7 +37,7 @@ const lambdaMock = mockClient(LambdaClient);
 process.env['ECS_CLUSTER'] = 'test-cluster';
 process.env['GAME_NAMES'] = 'palworld,foundryvtt,checkedgame';
 process.env['IDLE_CHECKS'] = '4';
-process.env['MIN_PACKETS'] = '100';
+process.env['MIN_BYTES_PER_SECOND'] = '1000';
 process.env['CHECK_WINDOW_MINUTES'] = '15';
 process.env['AWS_REGION_'] = 'us-east-1';
 process.env['HEALTH_CHECK_FUNCTION_NAME'] = 'health-check-fn';
@@ -55,17 +55,12 @@ process.env['HEALTH_CHECKS'] = JSON.stringify({
 
 const { handler } = await import('./handler.js');
 
-function runningTask(opts: { taskArn: string; game: string; eniId?: string }) {
+/** A RUNNING task with no ENI attachment, since the watchdog identifies tasks by family alone. */
+function runningTask(opts: { taskArn: string; game: string }) {
   return {
     taskArn: opts.taskArn,
     lastStatus: 'RUNNING',
     group: `family:${opts.game}-server`,
-    attachments: [
-      {
-        type: 'ElasticNetworkInterface',
-        details: [{ name: 'networkInterfaceId', value: opts.eniId ?? 'eni-xyz' }],
-      },
-    ],
   };
 }
 
@@ -102,13 +97,13 @@ describe('watchdog handler: no tasks', () => {
 
 describe('watchdog handler: idle counter', () => {
   // @spec RT-WATCHDOG-CW-004, RT-WATCHDOG-STATE-003
-  it('should increment the idle counter when the task is below the packets threshold', async () => {
+  it('should increment the idle counter when the task is below the bytes-per-second threshold', async () => {
     const taskArn = 'arn:task/idle';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
     ecsMock.on(DescribeTasksCommand).resolves({
       tasks: [runningTask({ taskArn, game: 'palworld' })],
     });
-    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Sum: 10 }] });
+    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Average: 10 }] });
     ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [{ key: 'idle_checks', value: '1' }] });
     ecsMock.on(TagResourceCommand).resolves({});
 
@@ -121,13 +116,13 @@ describe('watchdog handler: idle counter', () => {
   });
 
   // @spec RT-WATCHDOG-STATE-004
-  it('should reset the counter when packets meet the threshold and counter was non-zero', async () => {
+  it('should reset the counter when throughput meets the threshold and counter was non-zero', async () => {
     const taskArn = 'arn:task/active';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
     ecsMock.on(DescribeTasksCommand).resolves({
       tasks: [runningTask({ taskArn, game: 'palworld' })],
     });
-    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Sum: 5000 }] });
+    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Average: 5000 }] });
     ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [{ key: 'idle_checks', value: '2' }] });
     ecsMock.on(TagResourceCommand).resolves({});
 
@@ -146,7 +141,7 @@ describe('watchdog handler: idle counter', () => {
     ecsMock.on(DescribeTasksCommand).resolves({
       tasks: [runningTask({ taskArn, game: 'palworld' })],
     });
-    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Sum: 5000 }] });
+    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Average: 5000 }] });
     ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [] });
     ecsMock.on(TagResourceCommand).resolves({});
 
@@ -164,7 +159,7 @@ describe('watchdog handler: shutdown threshold', () => {
     ecsMock.on(DescribeTasksCommand).resolves({
       tasks: [runningTask({ taskArn, game: 'palworld' })],
     });
-    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Sum: 0 }] });
+    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Average: 0 }] });
     ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [{ key: 'idle_checks', value: '3' }] });
     ecsMock.on(StopTaskCommand).resolves({});
 
@@ -180,7 +175,7 @@ describe('watchdog handler: shutdown threshold', () => {
     ecsMock.on(DescribeTasksCommand).resolves({
       tasks: [runningTask({ taskArn, game: 'foundryvtt' })],
     });
-    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Sum: 0 }] });
+    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Average: 0 }] });
     ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [{ key: 'idle_checks', value: '3' }] });
     ecsMock.on(StopTaskCommand).resolves({});
 
@@ -205,13 +200,142 @@ describe('watchdog handler: shutdown threshold', () => {
   });
 });
 
+describe('watchdog handler: Container Insights traffic verdict', () => {
+  /** Runs one palworld task through the handler with the given CloudWatch response. */
+  async function runWithMetric(resp: object | Error, idleTag = '3') {
+    const taskArn = 'arn:task/cw';
+    ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
+    ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask({ taskArn, game: 'palworld' })] });
+    if (resp instanceof Error) cwMock.on(GetMetricStatisticsCommand).rejects(resp);
+    else cwMock.on(GetMetricStatisticsCommand).resolves(resp);
+    ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [{ key: 'idle_checks', value: idleTag }] });
+    ecsMock.on(TagResourceCommand).resolves({});
+    ecsMock.on(StopTaskCommand).resolves({});
+    return handler();
+  }
+
+  // @spec RT-WATCHDOG-CW-001
+  it('should query ECS/ContainerInsights NetworkRxBytes by cluster and task-definition family', async () => {
+    const before = Date.now();
+    await runWithMetric({ Datapoints: [{ Average: 5000 }] });
+    const input = cwMock.commandCalls(GetMetricStatisticsCommand)[0]!.args[0]!.input;
+    expect(input.Namespace).toBe('ECS/ContainerInsights');
+    expect(input.MetricName).toBe('NetworkRxBytes');
+    expect(input.Dimensions).toEqual([
+      { Name: 'ClusterName', Value: 'test-cluster' },
+      { Name: 'TaskDefinitionFamily', Value: 'palworld-server' },
+    ]);
+    expect(input.Statistics).toEqual(['Average']);
+    expect(input.Period).toBe(15 * 60);
+    expect(input.EndTime!.getTime() - input.StartTime!.getTime()).toBe(15 * 60_000);
+    expect(input.EndTime!.getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  // @spec RT-WATCHDOG-CW-002, RT-WATCHDOG-CW-007
+  it('should evaluate a task that has no ENI attachment and make no EC2 call', async () => {
+    const result = await runWithMetric({ Datapoints: [{ Average: 0 }] });
+    expect(result.checked).toBe(1);
+    expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(1);
+  });
+
+  // @spec RT-WATCHDOG-CW-004
+  it.each([
+    { average: 999, idle: true },
+    { average: 1000, idle: false },
+    { average: 1001, idle: false },
+  ])('should treat an Average of $average as idle=$idle against a threshold of 1000', async ({ average, idle }) => {
+    await runWithMetric({ Datapoints: [{ Average: average }] }, '1');
+    expect(ecsMock.commandCalls(TagResourceCommand)[0]!.args[0]!.input.tags![0]).toEqual({
+      key: 'idle_checks',
+      value: idle ? '2' : '0',
+    });
+  });
+
+  // @spec RT-WATCHDOG-CW-004
+  it.each([
+    { order: 'idle first', datapoints: [{ Average: 0 }, { Average: 5000 }] },
+    { order: 'active first', datapoints: [{ Average: 5000 }, { Average: 0 }] },
+  ])('should treat the window as active when datapoints are $order and any bucket meets the threshold', async ({ datapoints }) => {
+    await runWithMetric({ Datapoints: datapoints }, '1');
+    expect(ecsMock.commandCalls(TagResourceCommand)[0]!.args[0]!.input.tags![0]).toEqual({
+      key: 'idle_checks',
+      value: '0',
+    });
+  });
+
+  // @spec RT-WATCHDOG-CW-004
+  it('should treat the window as idle when every datapoint is below the threshold regardless of order', async () => {
+    await runWithMetric({ Datapoints: [{ Average: 500 }, { Average: 10 }, { Average: 999 }] }, '1');
+    expect(ecsMock.commandCalls(TagResourceCommand)[0]!.args[0]!.input.tags![0]).toEqual({
+      key: 'idle_checks',
+      value: '2',
+    });
+  });
+
+  // @spec RT-WATCHDOG-CW-005
+  it('should treat a datapoint without an Average as active', async () => {
+    await runWithMetric({ Datapoints: [{}] });
+    expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(0);
+  });
+
+  // @spec RT-WATCHDOG-CW-006
+  it('should treat a failing CloudWatch query as active and warn', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await runWithMetric(new Error('Throttled'));
+    expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(0);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  // @spec RT-WATCHDOG-LOG-001
+  it('should log the real rxBytesPerSecond and threshold on an idle window', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await runWithMetric({ Datapoints: [{ Average: 42 }] }, '1');
+    expect(log).toHaveBeenCalledWith('palworld: idle check 2/4 (rxBytesPerSecond=42, threshold=1000)');
+    log.mockRestore();
+  });
+});
+
+describe('watchdog handler: environment defaults', () => {
+  // @spec RT-WATCHDOG-CFG-002
+  it('should default IDLE_CHECKS, MIN_BYTES_PER_SECOND and CHECK_WINDOW_MINUTES to 4, 1000 and 15', async () => {
+    const saved = {
+      IDLE_CHECKS: process.env['IDLE_CHECKS'],
+      MIN_BYTES_PER_SECOND: process.env['MIN_BYTES_PER_SECOND'],
+      CHECK_WINDOW_MINUTES: process.env['CHECK_WINDOW_MINUTES'],
+    };
+    delete process.env['IDLE_CHECKS'];
+    delete process.env['MIN_BYTES_PER_SECOND'];
+    delete process.env['CHECK_WINDOW_MINUTES'];
+    try {
+      vi.resetModules();
+      const fresh = await import('./handler.js');
+      const taskArn = 'arn:task/defaults';
+      ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
+      ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask({ taskArn, game: 'palworld' })] });
+      cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Average: 999 }] });
+      ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [{ key: 'idle_checks', value: '3' }] });
+      ecsMock.on(StopTaskCommand).resolves({});
+      await fresh.handler();
+      expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(1);
+      expect(ecsMock.commandCalls(StopTaskCommand)[0]!.args[0]!.input.reason).toBe('Watchdog: idle for 60 minutes');
+      expect(cwMock.commandCalls(GetMetricStatisticsCommand)[0]!.args[0]!.input.Period).toBe(900);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+});
+
 describe('watchdog handler: health-check routing', () => {
   // @spec RT-WATCHDOG-ROUTE-002, RT-WATCHDOG-ROUTE-003
   it('should query CloudWatch and never invoke the health-check function for a game without a declared health check', async () => {
     const taskArn = 'arn:task/direct';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask({ taskArn, game: 'palworld' })] });
-    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Sum: 5000 }] });
+    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Average: 5000 }] });
     ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [] });
 
     await handler();

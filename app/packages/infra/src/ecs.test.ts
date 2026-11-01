@@ -58,7 +58,7 @@ describe('defineEcs', () => {
   });
 
   // @spec IAC-PROGRAM-ECS-001
-  it('should declare the ECS cluster with containerInsights disabled and the project-prefixed name', async () => {
+  it('should declare the ECS cluster with containerInsights enabled and the project-prefixed name', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
     await runDefineEcs({
@@ -74,7 +74,7 @@ describe('defineEcs', () => {
     const cluster = findByName(mocks.resources, 'hyveon-cluster');
     expect(cluster.type).toBe('aws:ecs/cluster:Cluster');
     expect(cluster.inputs.name).toBe('hyveon-cluster');
-    expect(cluster.inputs.settings).toEqual([{ name: 'containerInsights', value: 'disabled' }]);
+    expect(cluster.inputs.settings).toEqual([{ name: 'containerInsights', value: 'enabled' }]);
     expect(cluster.inputs.tags).toEqual({ Name: 'hyveon-cluster' });
   });
 

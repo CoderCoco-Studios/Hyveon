@@ -32,7 +32,7 @@ to shut down.
 
 This panel is read-only — a pointer, not an editor:
 
-> Check interval, idle checks, and the min-packets activity threshold are
+> Check interval, idle checks, and the minimum bytes-per-second activity threshold are
 > configured in the **General** section below ("Watchdog tuning") and take
 > effect on the next apply from the Infrastructure page.
 
@@ -249,7 +249,7 @@ values without hand-editing the JSON object in S3.
 | **Hosted zone name** | The Route 53 hosted zone domain (must already exist). Required — there is no default |
 | **DNS TTL (seconds)** | TTL on the per-game DNS A records the watchdog Lambda writes |
 | **Discord application ID** | The bot's public Application (Client) ID — can also be set from the Discord page's Credentials tab |
-| **Watchdog tuning (3 fields)** | `dnsTtl`'s siblings — check interval, idle checks, min packets — see below |
+| **Watchdog tuning (3 fields)** | `dnsTtl`'s siblings — check interval, idle checks, min bytes per second — see below |
 | **Base allowed guild IDs / admin user IDs / admin role IDs** | See below |
 | **Audit table name / Runs table name** | See below |
 
@@ -263,7 +263,7 @@ has no editable fields of its own (see that section above).
 |---|---|---|---|
 | **Check interval (min)** | minutes | `15` | How often the watchdog inspects each running task. Lower means faster shutdown but more Lambda invocations |
 | **Idle checks before shutdown** | count | `4` | How many *consecutive* idle checks must pass before the task is stopped |
-| **Min packets (activity threshold)** | packets | `100` | A task receiving fewer than this many network packets during an interval counts as idle |
+| **Min bytes per second (activity threshold)** | bytes/s | `1000` | A task whose mean inbound network rate over an interval is below this counts as idle. Applies only to games with no declared health check |
 
 Saving here writes into the deployment configuration itself — the same values
 Pulumi bakes into the watchdog Lambda's EventBridge schedule
@@ -274,13 +274,14 @@ in this section.
 
 **Tuning advice:**
 
-- **Min packets** is the one to adjust first if servers are being stopped
-  while people are still connected. Some games send keepalive traffic even
-  when idle; if the baseline chatter exceeds 100 packets per interval the
+- **Min bytes per second** is the one to adjust first if servers are being
+  stopped while people are still connected. Some games send keepalive traffic
+  even when idle; if the baseline chatter exceeds 1000 bytes per second the
   server will never look idle, and if a connected-but-quiet player generates
-  fewer, they will be cut off.
+  less, they will be cut off. The rate comes from ECS Container Insights,
+  which costs roughly one cent per running game-hour.
 - **Interval × idle checks** is your grace period — with the defaults, a
-  server with no players stops an hour after the last packet. Shortening the
+  server with no players stops an hour after traffic falls below the threshold. Shortening the
   interval makes shutdown more responsive but also makes a brief network lull
   more likely to trip the counter — which is why the counter requires
   *consecutive* idle checks rather than a single one.

@@ -114,7 +114,7 @@ export interface LambdaResources {
   healthCheckLogGroup: aws.cloudwatch.LogGroup | undefined;
   /**
    * The shared health-check Lambda invoked by the watchdog for a game with a
-   * declared `healthCheck`, in place of the CloudWatch network-packet
+   * declared `healthCheck`, in place of the Container Insights network-traffic
    * heuristic — a single function serving every opted-in game, unlike the
    * per-game {@link efsSeederFunctions}. No Function URL: it is invocable
    * only by the watchdog, via the identity-policy grant in
@@ -140,8 +140,8 @@ export interface DefineLambdasArgs {
   watchdogIntervalMinutes: number;
   /** The watchdog function's `IDLE_CHECKS` environment variable. */
   watchdogIdleChecks: number;
-  /** The watchdog function's `MIN_PACKETS` environment variable. */
-  watchdogMinPackets: number;
+  /** The watchdog function's `MIN_BYTES_PER_SECOND` environment variable. */
+  watchdogMinBytesPerSecond: number;
   /** The configured game-server map (`DeploymentConfig.gameServers`) every per-game derivation below (`GAME_NAMES`, `CONNECT_MESSAGES`, `GAME_PORTS`, the EFS-seeder functions) iterates. */
   gameServers: Record<string, GameServerConfig>;
 
@@ -383,7 +383,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     dnsTtl,
     watchdogIntervalMinutes,
     watchdogIdleChecks,
-    watchdogMinPackets,
+    watchdogMinBytesPerSecond,
     gameServers,
     roles,
     publicSubnetIds,
@@ -589,7 +589,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
           ECS_CLUSTER: ecsClusterName,
           GAME_NAMES: gameNamesCsv(gameServers),
           IDLE_CHECKS: String(watchdogIdleChecks),
-          MIN_PACKETS: String(watchdogMinPackets),
+          MIN_BYTES_PER_SECOND: String(watchdogMinBytesPerSecond),
           CHECK_WINDOW_MINUTES: String(watchdogIntervalMinutes),
           AWS_REGION_: awsRegion,
           HEALTH_CHECKS: JSON.stringify(healthChecksByGame(gameServers)),

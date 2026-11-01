@@ -39,7 +39,7 @@ export interface DiagnosticsConfigSummary {
   dnsTtl: number;
   watchdogIntervalMinutes: number;
   watchdogIdleChecks: number;
-  watchdogMinPackets: number;
+  watchdogMinBytesPerSecond: number;
   auditTableName: string;
   runsTableName: string;
   gameServers: DiagnosticsGameServerSummary[];
@@ -95,7 +95,7 @@ export function buildDiagnosticsConfigSummary(
     dnsTtl: settings.dnsTtl,
     watchdogIntervalMinutes: settings.watchdogIntervalMinutes,
     watchdogIdleChecks: settings.watchdogIdleChecks,
-    watchdogMinPackets: settings.watchdogMinPackets,
+    watchdogMinBytesPerSecond: settings.watchdogMinBytesPerSecond,
     auditTableName: settings.auditTableName,
     runsTableName: settings.runsTableName,
     gameServers: gameServers.map(summarizeGameServer),

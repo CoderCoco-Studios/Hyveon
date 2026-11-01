@@ -91,7 +91,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/game-runtime/game-runtime-design.md
-    next: "Implement the Container Insights idle signal (RT-WATCHDOG-CW-001/002/004/007, IAC-PROGRAM-ECS-001); nothing without a health check auto-stops until it ships."
+    next: "Chunk the watchdog's DescribeTasks and guard StopTask per task (RT-WATCHDOG-SCOPE-005, RT-WATCHDOG-STOP-004)."
     drift: null
 
   task-and-dns:
@@ -115,8 +115,8 @@ arrows:
     blocks: []
     blockedBy: [program, health-check]
     detail: game-runtime/watchdog.md
-    next: "Implement the Container Insights traffic measurement and the watchdogMinBytesPerSecond tunable (Must Fix 1), tests first."
-    drift: "Verified live 2026-10-31 (us-east-2): AWS/EC2 NetworkPacketsIn returns no datapoints for Fargate ENIs; 368 no-data checks, 0 idle verdicts in 7 days; games without a health check never auto-stop."
+    next: "Chunk DescribeTasks into batches of 100 and wrap StopTask per task so one failure does not abort the run (Should Fix 1 and 2)."
+    drift: null
 
   health-check:
     status: MAPPED
