@@ -1,5 +1,1 @@
 inheritance: true
-
-reviews:
-  path_filters:
-    - "!graphify-out/**"
