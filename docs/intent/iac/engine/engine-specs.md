@@ -45,7 +45,7 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 - [x] **IAC-ENGINE-WS-007**: When `getOrCreateStack` successfully creates or selects the stack, it shall set the non-secret `pulumi.stackInitialized` marker in the electron store. (OpenSpec: pulumi-engine-runtime / Automation API workspace seam)
 - [x] **IAC-ENGINE-WS-008**: If stack creation or selection fails in `getOrCreateStack`, then the `pulumi.stackInitialized` marker shall be left unchanged (unset if never set, still set if set by a prior success). (OpenSpec: pulumi-engine-runtime / Automation API workspace seam)
 - [x] **IAC-ENGINE-WS-009**: The `pulumi.stackInitialized` marker shall hold only a boolean and shall never be used as or stored alongside a passphrase value. (OpenSpec: pulumi-engine-runtime / Automation API workspace seam)
-- [ ] **IAC-ENGINE-WS-010**: The state backend region passed to `getOrCreateStack` shall be the state bucket's own region as recorded at bootstrap. (observed) (gap: every backend URL uses the wizard's `aws.region`, `PulumiService.ts:988,1126,1611,2270,2928,3709`; the store records no bucket region)
+- [x] **IAC-ENGINE-WS-010**: The state backend region passed to `getOrCreateStack` shall be the wizard region, electron-store `aws.region`, which is the region bootstrap creates the state bucket in (`PulumiService.ts:988,1126,1611,2270,2928,3709`; `BootstrapService.ts:605-617`). (observed)
 
 ## Secrets passphrase
 
@@ -126,6 +126,11 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 - [x] **IAC-ENGINE-OUT-009**: `ConfigService.getRegion` shall return the store's `aws.region`, otherwise `AWS_DEFAULT_REGION`, otherwise `us-east-1`. (observed)
 - [x] **IAC-ENGINE-OUT-010**: `ConfigService.readEnvConfigCacheTtlMs` shall return `CONFIG_CACHE_TTL_MS` when it parses to a positive finite number, and otherwise return the 30 000 ms default, logging a warning for a set-but-invalid value. (observed)
 - [x] **IAC-ENGINE-OUT-011**: When `PulumiService` projects a stack's outputs into `StackOutputs`, it shall substitute each field's typed default for an output key the stack does not have, so a stack applied before `efsVolumeAccessPoints` existed reads that field as `{}` rather than failing. (observed: `PulumiService.ts:1029-1042`)
+
+## Install region
+
+- [ ] **IAC-ENGINE-REGION-001**: When `PulumiService` builds the infrastructure program for a preview or apply, it shall set the program's `awsRegion` input to the wizard region that `ConfigService.getRegion()` returns, ignoring any `awsRegion` stored in `deployment-config.json`. (gap: `PulumiService.ts:1601,1619` and `:2266,2278` pass the parsed `DeploymentConfig` unchanged, so the program provisions in the stored `awsRegion` or its `us-east-1` default, `deploymentConfig.ts:237,327`)
+- [ ] **IAC-ENGINE-REGION-002**: Every desktop-app AWS client and store shall take its region from `ConfigService.getRegion()`, never from the stack outputs' `awsRegion` or from `DeploymentConfig.awsRegion`. (gap: the cloud provider for start, stop and status uses `outputs.awsRegion`, `EcsService.ts:72`; the audit, Discord-config and run-record stores prefer `outputs.awsRegion`, `cloud-provider.module.ts:109,131,180`)
 
 ## Electron runtime guard
 

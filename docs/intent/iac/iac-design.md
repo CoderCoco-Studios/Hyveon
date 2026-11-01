@@ -156,7 +156,7 @@ Three distinct guards keep two operations off one stack, and they are owned by d
 | `game-server` | upstream | `GameServerConfig`, `ingressPorts`, the env-token catalogue the program fans out from. | `program-design.md`, "What it deliberately does not own"; `docs/arrows/iac/program.md`, "Cited from other leaves" |
 | `operator-app/wizard-and-bootstrap` | upstream | Credential custody behind `PulumiCredentialResolver`; bootstrap creates the state bucket, configuration bucket and runs table; the wizard's final step is `iac.stack.initialize`. | `engine-design.md`, intro; `docs/docs/components/infra.md`, "The runs table invariant" |
 | `operator-app/ipc-bridge`, `operator-app/desktop-shell` | upstream | `window.hyveon.iac.*` and the self-bridged streaming channels; binding of `RUN_RECORD_STORE` with its pre-apply table-name fallback. | `run-design.md`, "What it deliberately does not own" |
-| `game-runtime/task-and-dns` | downstream | Cluster, subnets, security group and region from stack outputs; the update-dns Lambda and its EventBridge rule are declared by the program. | `docs/arrows/index.yaml` (`engine` and `program` block `task-and-dns`); `program-design.md`, Lambda table |
+| `game-runtime/task-and-dns` | downstream | Cluster, subnets and security group from stack outputs, and the install region from `ConfigService.getRegion()` (decision 11); the update-dns Lambda and its EventBridge rule are declared by the program. | `docs/arrows/index.yaml` (`engine` and `program` block `task-and-dns`); `program-design.md`, Lambda table |
 | `game-runtime/watchdog`, `game-runtime/health-check` | downstream | Function, role, schedule, security group and baked env (`IDLE_CHECKS`, `HEALTH_CHECKS`, `HEALTH_CHECK_FUNCTION_NAME`). | `program-design.md`, "Lambda Wiring and Environment Contract" |
 | `discord-bot` | downstream | Interactions and followup functions, Function URL behind `discord.{zone}`, Discord table, secret ARNs, seed rows; `discordInteractionsUrl` output. | `program-design.md`, "Resource Areas", "Stack Outputs and Create-Only State" |
 | `helper-task` | downstream | `efsVolumeAccessPoints`, file-manager security group, FileBrowser scheduler role and log group; per-game efs-seeder invoked during apply. | `program-design.md`, "Stack Outputs and Create-Only State"; `docs/arrows/iac/program.md`, "Cited from other leaves" |
@@ -222,6 +222,12 @@ Each decision below is recorded here because its substance crosses at least two 
     Rationale: the gates need the workspace, the saved update plan, the resolved engine version and the in-process guard, all of which `PulumiService` holds, which explains the co-location `[inferred]`; separating the files removes the `run` <-> `engine` cycle and makes file ownership match spec ownership.
     Alternative rejected: keeping one file (`engine-design.md`, Decisions & Alternatives).
 
+11. **One AWS region per install: the wizard region drives the backend, the program and every client.**
+    Spans `iac/engine` (the backend URL, the program's `awsRegion` input and the `ConfigService.getRegion()` resolver) and `iac/program` (every regional resource declared against one provider for `config.awsRegion`).
+    The state backend URL uses the wizard's `aws.region`, the bucket's own region because bootstrap creates it there (`IAC-ENGINE-WS-010`); `PulumiService` sets the program's `awsRegion` input from `ConfigService.getRegion()` and ignores any stored `DeploymentConfig.awsRegion` (`IAC-ENGINE-REGION-001`); stack outputs echo that region, and no desktop client reads its region from them (`IAC-ENGINE-REGION-002`). The program's `us-east-1` provider for the CloudFront certificate is an AWS-mandated placement outside the rule (`program-design.md`, "Composition and Dependency Order", step 1).
+    Rationale `[stated]`: changing the region replaces the whole stack, EFS world saves included, so the region is chosen once in the wizard and moving it is a deliberate destroy-and-rebuild (`docs/high-level-design.md`, decision 10).
+    Alternative rejected `[stated]`: a control-plane region and a separate game region (`engine-design.md`, Decisions & Alternatives, "Install region").
+
 ## Success Metrics
 
 *(not yet specified)*
@@ -232,9 +238,8 @@ Questions whose answer crosses more than one child, or where the children's desi
 Leaf-only questions stay in each leaf's Open Questions.
 
 1. **Is a mid-operation `null` from the outputs reader acceptable at the subtree boundary?** While any operation is in flight `getStackOutputs` returns `null`, which `ConfigService` caches for 20 s, so every downstream consumer reads "not deployed" during and just after a run (`engine-design.md`, Deferred 13). The answer is a contract with `task-and-dns`, `discord-bot`, `helper-task` and `infra-logs`, not only an engine detail.
-2. **Which region is the region of truth?** The state backend URL uses the wizard's `aws.region`, the program provisions in `config.awsRegion`, and the top-bar pill reads `outputs.awsRegion` (`engine-design.md`, "Workspace, Backend and Credentials", Deferred 15). The disagreement is owned by `game-runtime/task-and-dns`; this subtree supplies two of its three inputs.
-3. **Who corrects the stale "machine-bound" passphrase sentence in `openspec/specs/pulumi-infra-program/spec.md:70`?** `engine-design.md` Deferred 5 asks for an owner; `program-design.md` Deferred 18 says the fix is owned by `iac/engine`. The two readings should be reconciled to one owner.
-4. **Does the "no ACM certificate" invariant need a Discord-domain carve-out?** The program declares an ACM certificate for `discord.{zone}` (`program-design.md`, Deferred 5), which the CLAUDE.md wording does not allow for.
+2. **Who corrects the stale "machine-bound" passphrase sentence in `openspec/specs/pulumi-infra-program/spec.md:70`?** `engine-design.md` Deferred 5 asks for an owner; `program-design.md` Deferred 18 says the fix is owned by `iac/engine`. The two readings should be reconciled to one owner.
+3. **Does the "no ACM certificate" invariant need a Discord-domain carve-out?** The program declares an ACM certificate for `discord.{zone}` (`program-design.md`, Deferred 5), which the CLAUDE.md wording does not allow for.
 
 ## References
 

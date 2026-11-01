@@ -40,7 +40,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/iac/iac-design.md
-    next: "Resolve the remaining sub-HLD Open Questions: the mid-operation null outputs contract, the region of truth, the owner of the stale passphrase sentence, and the Discord-domain ACM carve-out."
+    next: "Resolve the remaining sub-HLD Open Questions: the mid-operation null outputs contract, the owner of the stale passphrase sentence, and the Discord-domain ACM carve-out."
     drift: null
 
   run:
@@ -138,7 +138,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/operator-app/operator-app-design.md
-    next: "Resolve the remaining sub-HLD Open Questions: api.* facade scope, env.ts owner, embed-file-browser status in diagnostics, entry-log rule owner, self-bridged error contract, unlogged boot failures, and region of truth."
+    next: "Resolve the remaining sub-HLD Open Questions: api.* facade scope, env.ts owner, embed-file-browser status in diagnostics, entry-log rule owner, self-bridged error contract, and unlogged boot failures."
     drift: null
 
   wizard-and-bootstrap:

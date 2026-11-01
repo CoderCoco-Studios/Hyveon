@@ -29,7 +29,6 @@ EARS requirements for prefix `RT-TASK`; design in `docs/intent/game-runtime/task
 - [x] **RT-TASK-STATUS-006**: If the ENI public-IP lookup fails for a running task, then the desktop app shall report `running` without a public IP and log the failure through the injected logger. (observed: `AwsCloudProvider.ts:388-398`, `EcsService.ts:92-94`)
 - [x] **RT-TASK-STATUS-007**: `EcsService.getStatus` shall map a `WorkloadStatus` onto the `GameStatus` shape by passing through `state`, `publicIp`, `hostname` and `message` and renaming `workloadId` to `taskArn`. (observed: `EcsService.ts:295-306`)
 - [ ] **RT-TASK-STATUS-008**: The `GameStatus`, `StartResult` and `CostEstimates` shapes shall be declared once in `@hyveon/shared` and imported by `desktop-main`, `desktop-preload` and `web`. (gap: redeclared at `EcsService.ts:148,162`, `CostService.ts:14`, `desktop-preload/src/hyveon-api.ts:100,126`, `web/src/api.service.ts:121,147`)
-- [ ] **RT-TASK-STATUS-009**: The desktop app shall use a single region source for every ECS call it makes, covering start, stop, status, the cost-estimate task-definition describe and the helper-task ECS helpers. (gap: provider uses `outputs.awsRegion` at `EcsService.ts:72`; `EcsService.getClient` uses `ConfigService.getRegion()` at `EcsService.ts:214`)
 
 ## DNS Lifecycle
 
@@ -91,6 +90,12 @@ EARS requirements for prefix `RT-TASK`; design in `docs/intent/game-runtime/task
 - [x] **RT-TASK-UI-014**: The Costs page shall display a callout linking to the static AWS Cost Explorer console home URL, with no query-string filters. (OpenSpec: cost-visibility / Costs page links out to AWS Cost Explorer for real billed spend; `costs.page.tsx:40,221-240`)
 - [x] **RT-TASK-UI-015**: The app shall render no chart, card or figure claiming to show actual historical billed spend on any page. (OpenSpec: cost-visibility / Costs page links out to AWS Cost Explorer for real billed spend)
 - [x] **RT-TASK-UI-016**: When the operator clicks Files on a dashboard game card, the renderer shall navigate to that game's file-browser route `/games/{game}/files` with `autoStart: true` router state, rather than opening an in-page file-manager dialog. (observed: `dashboard.page.tsx:80`)
+
+## Retired IDs
+
+These IDs are not reused.
+
+- `RT-TASK-STATUS-009` (one region source for every desktop ECS call): superseded by IAC-ENGINE-REGION-002, which sets `ConfigService.getRegion()` as the region source for every desktop AWS client, the ECS calls included.
 
 ## Dropped from OpenSpec
 

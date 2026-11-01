@@ -142,7 +142,7 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 8. **Env pill failure is silent**: `app-layout.component.tsx:29` sends an `api.env()` rejection to `console.error` and the pill falls back to `local` (`:32-34`), indistinguishable from a real local environment.
 9. **Polling registry quirks**: same-name `register()` silently replaces the prior poller (`polling-provider.component.tsx:154-157`); the `usePollingState` doc says the slice carries `tick` but the field is `now` (`:256` vs `:60`). `polling-indicator.component.tsx:96-102` has its own relative-time formatter, separate from `use-log-tail.hook.ts` (sweep-1 `[unverified]` on that second copy's rounding).
 10. **Stale comments in the composition root**: `app.module.ts:51-53` says `PulumiEngineModule` has "no controller of their own yet", but `iac-settings.controller.ts:210` serves `iac.settings.engineVersion` from `PulumiEngineService`. The module doc list at `:43-46` omits `FolderUploadModule`, `NativeDialogModule`, `VolumeFilesModule` and `VolumeFilesApiModule` (imported at `:78-81`). `window-chrome.component.tsx:7` cites design decision "(D2)" from an archived change.
-11. **Region of truth splits inside the cloud bindings**: the remote file store and secrets store use `config.getRegion()` (`cloud-provider.module.ts:80,198`), while audit, Discord and runs stores prefer `outputs.awsRegion` (`:109,131,180`). Credentials are resolved twice per secrets-store call (`:199-200`). `resolveDiscordConfigStoreConfig` has no test in `cloud-provider.module.test.ts` (verified: no reference). Primary owner of the region question is `task-and-dns` (§6).
+11. **Three cloud bindings read the region from stack outputs**: the remote file store and secrets store use `config.getRegion()` (`cloud-provider.module.ts:80,198`), while the audit, Discord and runs stores prefer `outputs.awsRegion` (`:109,131,180`). An install has one region, resolved only through `getRegion()` (`docs/high-level-design.md`, decision 10; `IAC-ENGINE-REGION-002`, owned by `iac/engine`). Credentials are resolved twice per secrets-store call (`:199-200`). `resolveDiscordConfigStoreConfig` has no test in `cloud-provider.module.test.ts` (verified: no reference).
 12. **Pre-apply run lock fallback is store-side only**: `cloud-provider.module.ts:174-175` lets `AwsRunRecordStore` resolve the runs table before the first apply; whether `RunService` actually takes the lock pre-apply is the `iac/run` open question (§6), cited here.
 13. **Main-process errors bypass winston**: `electron-entry.ts:49,199,222,243` use `console.error`, so window-open, renderer-load, updater-init and Nest-bootstrap failures never reach the log file that `.claude/rules/logging.md` treats as the only record. `main.ts:25` uses a top-level `await import('electron')`.
 14. **Stale e2e rationale**: `electron-clean-quit.spec.ts:11-14` says `@cdktf/hcl2json` and `@pulumi/pulumi` are "both" marked external; `electron.vite.config.ts:42` and `verify-main-bundle-externals.mjs` describe hcl2json as retired.
@@ -159,15 +159,16 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/desktop-sh
 2. Decide and record the first-run gate's failure policy; if fail-open stays, surface the IPC failure to the operator instead of silently skipping setup (finding 1). (specs: `APP-SHELL-GATE-006`)
 
 ### Should Fix
-3. Route main-process `console.error` calls through the winston logger (finding 13). (specs: `APP-SHELL-BOOT-008`)
-4. Derive the Windows overlay colours and traffic-light geometry from one shared source, or add a test pinning them to `index.css` (finding 4).
-5. Reconcile `DESIGN.md` with `index.css` (finding 6). (specs: `APP-SHELL-UI-006`)
-6. Fix stale comments in `app.module.ts`, `polling-provider.component.tsx:256`, `window-chrome.component.tsx:7`, `electron-clean-quit.spec.ts:11-14` (findings 9, 10, 14).
-7. Add tests for `resolveDiscordConfigStoreConfig`, the external-link opener and the zoom re-position (findings 11, 15).
-8. Show env-pill fetch failure distinctly from `local` (finding 8). (specs: `APP-SHELL-TOP-002`)
+3. Resolve the audit, Discord-config and run-record store regions through `config.getRegion()` instead of preferring `outputs.awsRegion` (finding 11). The spec is owned by `iac/engine` and tracked in `docs/arrows/iac/engine.md`, Work Required. (specs: `IAC-ENGINE-REGION-002`)
+4. Route main-process `console.error` calls through the winston logger (finding 13). (specs: `APP-SHELL-BOOT-008`)
+5. Derive the Windows overlay colours and traffic-light geometry from one shared source, or add a test pinning them to `index.css` (finding 4).
+6. Reconcile `DESIGN.md` with `index.css` (finding 6). (specs: `APP-SHELL-UI-006`)
+7. Fix stale comments in `app.module.ts`, `polling-provider.component.tsx:256`, `window-chrome.component.tsx:7`, `electron-clean-quit.spec.ts:11-14` (findings 9, 10, 14).
+8. Add tests for `resolveDiscordConfigStoreConfig`, the external-link opener and the zoom re-position (findings 11, 15).
+9. Show env-pill fetch failure distinctly from `local` (finding 8). (specs: `APP-SHELL-TOP-002`)
 
 ### Nice to Have
-9. Collapse the two drag-region mechanisms; rename `useAppRegionStyle` to a plain function; extract the brand block and settle the "Game Servers" vs "Hyveon" label (finding 7). (specs: `APP-SHELL-NAV-009`)
-10. Remove `dropdown-menu.component.tsx`; merge `stop` into `destructive` (finding 15).
-11. Replace positional `monitoringItems[n]` and the `startsWith('//')` check in `app-nav` (finding 3).
-12. Warn or throw on duplicate poller names (finding 9).
+10. Collapse the two drag-region mechanisms; rename `useAppRegionStyle` to a plain function; extract the brand block and settle the "Game Servers" vs "Hyveon" label (finding 7). (specs: `APP-SHELL-NAV-009`)
+11. Remove `dropdown-menu.component.tsx`; merge `stop` into `destructive` (finding 15).
+12. Replace positional `monitoringItems[n]` and the `startsWith('//')` check in `app-nav` (finding 3).
+13. Warn or throw on duplicate poller names (finding 9).

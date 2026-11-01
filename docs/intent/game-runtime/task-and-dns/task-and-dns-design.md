@@ -65,7 +65,7 @@ The Discord followup Lambda repeats this status assembly and the find-running-ta
 
 ### Region
 
-The provider gets `outputs.awsRegion` (`EcsService.ts:72`). `EcsService.getClient`, used by `getTaskDefinition` and every helper-task ECS call, uses `ConfigService.getRegion()` (`EcsService.ts:213-217`). The sibling stores in `cloud-provider.module.ts` are mixed too: the deployment-config store uses `getRegion()` (`:80`), the audit and other stores prefer `outputs.awsRegion` (`:109,131,180`), with a comment explaining that `DeploymentConfig.awsRegion` is the provisioned value and nothing keeps it in sync with the wizard region (`:91-94`). So within one app session, start/stop/status and the cost estimate can target different regions if the two values diverge.
+Every ECS call this leaf makes in the desktop app resolves its region through `ConfigService.getRegion()`, the install's one region (`IAC-ENGINE-REGION-002`, owned by `iac/engine`; `docs/high-level-design.md`, decision 10). `EcsService.getClient`, used by `getTaskDefinition` and every helper-task ECS call, already does (`EcsService.ts:213-217`). `buildProviderConfig` still gives the provider `outputs.awsRegion` (`EcsService.ts:72`), so start, stop and status read the region from the stack outputs; that is the open gap in `IAC-ENGINE-REGION-002`. The Lambdas in this leaf take their region from `AWS_REGION_`, which the program sets from its `awsRegion` input.
 
 ### Renderer polling and actions
 
@@ -134,7 +134,7 @@ A second implementation exists on the provider: `getCostEstimate` describes each
 | Cost data source | Task-definition CPU/memory times static Fargate prices | Cost Explorer `GetCostAndUsage` | Required by `cost-visibility/spec.md:10-42`; Cost Explorer calls are billed per request [inferred from the archived `remove-cost-explorer-calls` change name]. |
 | Estimate refresh cadence | Once per mount | Every status poll | Avoids per-game `DescribeTaskDefinition` traffic every 20 s for data that only changes on apply (`game-status-provider.component.tsx:54-58`). |
 | Status poll cadence | 20 s, build-time override, 1 s floor | Push via EventBridge to the app | The app has no inbound transport (desktop-only, no HTTP) [inferred]; override documented at `game-status-provider.component.tsx:16-21`. |
-| Region for the provider | `outputs.awsRegion` | `ConfigService.getRegion()` | The provisioned region is the deployment-config value, not the wizard's (`cloud-provider.module.ts:91-94`); `EcsService.getClient` was not moved to match [inferred]. |
+| Region for the provider | `ConfigService.getRegion()`, the install's one region | `outputs.awsRegion`; a game region from `DeploymentConfig.awsRegion` separate from the wizard region | One region per install (`docs/high-level-design.md`, decision 10); the outputs echo the same region once the program takes it from the wizard, so reading them adds a second source for one value. The provider still reads `outputs.awsRegion` (`EcsService.ts:72`, `IAC-ENGINE-REGION-002`). |
 | Message strings as contract | Guard/launch errors carry operator-facing text, passed through unprefixed | Error codes mapped in the renderer | Preserves the pre-provider `EcsService` message contract (`EcsService.ts:108-125`; `AwsCloudProvider.ts:427-431`). |
 
 ## Open Questions & Future Decisions
@@ -144,25 +144,25 @@ A second implementation exists on the provider: `getCostEstimate` describes each
 1. ✅ Cost Explorer is not used; estimates are static and the console link covers billed spend (`openspec/specs/cost-visibility/spec.md:10-30,79-90`, archived change `2026-08-06-remove-cost-explorer-calls`).
 2. ✅ Running tasks carry the `Game` tag through `propagateTags: 'TASK_DEFINITION'` on both start paths (`cost-visibility/spec.md:120-136`; `AwsCloudProvider.ts:441`, `followup/src/handler.ts:136`).
 3. ✅ HTTPS games use the shared Lambda DNS lifecycle with no load balancer (`openspec/specs/in-task-tls-termination/spec.md:56-58`).
+4. ✅ Every desktop ECS call, the provider's start, stop and status included, takes its region from `ConfigService.getRegion()`, not `outputs.awsRegion` (`IAC-ENGINE-REGION-002`; `docs/high-level-design.md`, decision 10).
 
 ### Deferred
 
 1. Should update-dns DELETE send the stored record's TTL from `ListResourceRecordSets` rather than the current `DNS_TTL`, so an operator `dnsTtl` change cannot orphan a record (`update-dns/src/handler.ts:130-133,159`)?
 2. Should DELETE skip when the record's IP is not the stopping task's IP, to protect a newer task's record from a late STOPPED event (`update-dns/src/handler.ts:141-166,235-238`)?
-3. Which region source is authoritative for every desktop ECS call: `outputs.awsRegion` (provider, `EcsService.ts:72`) or `ConfigService.getRegion()` (`EcsService.ts:214`, `cloud-provider.module.ts:80`)?
-4. Should the STOPPED path clear, or PATCH with an error, a `PENDING#{taskArn}` row left by a task that never reached RUNNING (`update-dns/src/handler.ts:224-238`)?
-5. Do the desktop and Discord start paths need a cross-process guard, given `withGameLock` covers only one process (`AwsCloudProvider.ts:328-336`, `followup/src/handler.ts:123-124`)?
-6. Should the Fargate formula collapse onto `estimateFargateHourlyCost` (`gameServerValidator.ts:426-431`) instead of three copies (`CostService.ts:31-42`, `AwsCloudProvider.ts:312-317`)?
-7. Should `costs.estimate` route through `CloudProvider.getCostEstimate`, or should that method be dropped from the interface (`shared/src/cloud.ts:55`, `costs.controller.ts:37-39`)?
-8. Which fallback is correct for missing task-definition data: 1024/2048 (`EcsService.ts:372-373`) or 2048/8192 (`costs.controller.ts:39`, `AwsCloudProvider.ts:297-302`)?
-9. Should `GameStatus`, `StartResult` and `CostEstimates` live only in `@hyveon/shared` instead of being redeclared in `EcsService.ts:148,162`, `CostService.ts:14`, `desktop-preload/src/hyveon-api.ts:100,126` and `web/src/api.service.ts:121,147`?
-10. Should the followup Lambda's `findRunningTask`/`getStatus`/`runStart` share code with `AwsCloudProvider` rather than duplicate it (`followup/src/handler.ts:79-147`)?
-11. `EcsService` logs raw `{ err }` objects (`EcsService.ts:330,352,377`) and update-dns logs the full event (`update-dns/src/handler.ts:252`), against `.claude/rules/logging.md`; normalise to messages?
-12. Remove `EcsService.findRunningTask` (`EcsService.ts:281-287`, no production caller; the helper task uses the fail-closed `findRunningTaskOrThrow` at `:242-268`), the unused `_ec2` parameter (`:197-200`) and the dynamic import in `registerTaskDefinition` (`:388-390`)?
-13. Should a status read that fails inside `findRunningTask` surface as `error` rather than `stopped` (`AwsCloudProvider.ts:371-374`)?
-14. Should an UPSERT failure in update-dns be caught so the pending Discord message still gets an error PATCH (`update-dns/src/handler.ts:231-232`)?
-15. Fix stale references: `openspec/changes/remove-cost-explorer-calls` (now archived) in `CostService.ts:22`, `costs.controller.ts:12`, `shared/src/cloud.ts:35`, `kpi-strip.component.tsx:56`; "tfstate" in `costs.controller.ts:25-26`; `update_dns.py` in `update-dns/src/handler.ts:69`; the `CostsPage` page object's sidebar note (`app/packages/web/e2e/pages/CostsPage.ts:12,22-23`).
-16. Renderer gaps: cost-fetch failures are silent and fetched twice (`game-status-provider.component.tsx:85`, `costs.page.tsx:172-180`); `refreshGame` cannot add a missing game (`game-status-provider.component.tsx:88-91`); Undo does not set `busy` (`use-game-actions.hook.ts:89-97`); the card's clipboard write is fire-and-forget (`game-card.component.tsx:195`).
+3. Should the STOPPED path clear, or PATCH with an error, a `PENDING#{taskArn}` row left by a task that never reached RUNNING (`update-dns/src/handler.ts:224-238`)?
+4. Do the desktop and Discord start paths need a cross-process guard, given `withGameLock` covers only one process (`AwsCloudProvider.ts:328-336`, `followup/src/handler.ts:123-124`)?
+5. Should the Fargate formula collapse onto `estimateFargateHourlyCost` (`gameServerValidator.ts:426-431`) instead of three copies (`CostService.ts:31-42`, `AwsCloudProvider.ts:312-317`)?
+6. Should `costs.estimate` route through `CloudProvider.getCostEstimate`, or should that method be dropped from the interface (`shared/src/cloud.ts:55`, `costs.controller.ts:37-39`)?
+7. Which fallback is correct for missing task-definition data: 1024/2048 (`EcsService.ts:372-373`) or 2048/8192 (`costs.controller.ts:39`, `AwsCloudProvider.ts:297-302`)?
+8. Should `GameStatus`, `StartResult` and `CostEstimates` live only in `@hyveon/shared` instead of being redeclared in `EcsService.ts:148,162`, `CostService.ts:14`, `desktop-preload/src/hyveon-api.ts:100,126` and `web/src/api.service.ts:121,147`?
+9. Should the followup Lambda's `findRunningTask`/`getStatus`/`runStart` share code with `AwsCloudProvider` rather than duplicate it (`followup/src/handler.ts:79-147`)?
+10. `EcsService` logs raw `{ err }` objects (`EcsService.ts:330,352,377`) and update-dns logs the full event (`update-dns/src/handler.ts:252`), against `.claude/rules/logging.md`; normalise to messages?
+11. Remove `EcsService.findRunningTask` (`EcsService.ts:281-287`, no production caller; the helper task uses the fail-closed `findRunningTaskOrThrow` at `:242-268`), the unused `_ec2` parameter (`:197-200`) and the dynamic import in `registerTaskDefinition` (`:388-390`)?
+12. Should a status read that fails inside `findRunningTask` surface as `error` rather than `stopped` (`AwsCloudProvider.ts:371-374`)?
+13. Should an UPSERT failure in update-dns be caught so the pending Discord message still gets an error PATCH (`update-dns/src/handler.ts:231-232`)?
+14. Fix stale references: `openspec/changes/remove-cost-explorer-calls` (now archived) in `CostService.ts:22`, `costs.controller.ts:12`, `shared/src/cloud.ts:35`, `kpi-strip.component.tsx:56`; "tfstate" in `costs.controller.ts:25-26`; `update_dns.py` in `update-dns/src/handler.ts:69`; the `CostsPage` page object's sidebar note (`app/packages/web/e2e/pages/CostsPage.ts:12,22-23`).
+15. Renderer gaps: cost-fetch failures are silent and fetched twice (`game-status-provider.component.tsx:85`, `costs.page.tsx:172-180`); `refreshGame` cannot add a missing game (`game-status-provider.component.tsx:88-91`); Undo does not set `busy` (`use-game-actions.hook.ts:89-97`); the card's clipboard write is fire-and-forget (`game-card.component.tsx:195`).
 
 ## References
 

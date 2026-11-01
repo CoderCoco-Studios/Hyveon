@@ -129,6 +129,10 @@ EARS requirements for prefix `APP-WIZARD`; design in `wizard-and-bootstrap-desig
 - [x] **APP-WIZARD-REGION-004**: The guided-IAM region dropdown shall end with an ungrouped "Other (enter manually)" item that swaps in a pre-focused free-text region input accepting any code (`guided-iam-region-screen.component.tsx:17,68,96`). (OpenSpec: guided-region-selection / Manual region entry fallback)
 - [x] **APP-WIZARD-REGION-005**: If the operator presses "Continue with guided setup" with an empty region, then the guided-IAM step shall show an inline error and stay on the region screen; with any non-empty region it shall advance to the template screen (`use-guided-iam.hook.ts:290-301`). (OpenSpec: guided-region-selection / Guided-IAM region selection dropdown; Manual region entry fallback)
 
+## One region per install
+
+- [ ] **APP-WIZARD-REGLOCK-001**: While a deployed stack exists, the wizard shall refuse to store an `aws.region` other than the region that stack was provisioned in, whether the region comes from the credentials step or the guided-IAM region screen, and shall tell the operator that moving to another region means destroying the stack and re-running the wizard. (gap: `wizard.state.save` merges any `aws.region`, `app/packages/desktop-main/src/controllers/wizard.controller.ts:202-205`; guided rotation stores `input.region`, `app/packages/desktop-main/src/services/GuidedIamService.ts:491`; neither checks for a deployed stack)
+
 ## AWS credentials step
 
 - [x] **APP-WIZARD-CREDS-001**: `AwsProfileService.listProfiles` shall parse `~/.aws/credentials` and `~/.aws/config` with `@smithy/shared-ini-file-loader` (which handles `profile <name>` aliasing), resolving the home directory through the overridable `homeDir()` seam, and return sorted `{ profileName, region? }` summaries with no key material (`AwsProfileService.ts:152-170,444-460`). (OpenSpec: aws-credentials / AWS profile discovery)

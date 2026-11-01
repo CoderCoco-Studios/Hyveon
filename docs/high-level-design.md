@@ -239,6 +239,14 @@ Rationale is marked `[stated]` when the cited source gives it and `[inferred]` w
    Rationale `[stated]`: the desktop app and both Discord Lambdas must evaluate permissions identically, and the barrel is bundled into every Lambda and imported by the renderer, so a new SDK import there bloats every bundle (`CLAUDE.md:97-103`).
    Alternative rejected `[inferred]`: per-consumer copies of validators and permission checks.
 
+10. **One AWS region per install, chosen in the first-run wizard.**
+    Cited by `engine-design.md`, `wizard-and-bootstrap-design.md`, `deployment-config-design.md`, `task-and-dns-design.md`, `desktop-shell-design.md`; sub-HLD decisions in `iac-design.md` and `operator-app-design.md`.
+    The wizard region (electron-store `aws.region`) is the only region: bootstrap creates the state and configuration buckets and the runs table in it, the state backend URL names it, the infra program's `awsRegion` input is always set from it (any `awsRegion` stored in `deployment-config.json` is ignored), and every desktop AWS client and store resolves its region through the one resolver, `ConfigService.getRegion()` (`IAC-ENGINE-REGION-001`, `IAC-ENGINE-REGION-002`).
+    Settings shows the region read-only (`CONFIG-FORM-007`), and the wizard refuses to change it while a deployed stack exists (`APP-WIZARD-REGLOCK-001`): moving regions is a deliberate destroy, then a fresh run of the wizard, never a settings edit.
+    The one exception is a placement AWS mandates regardless of region, such as the CloudFront certificate for `discord.{zone}`, which must live in `us-east-1` and is declared against a dedicated `us-east-1` provider (`program.ts:175-182`).
+    Rationale `[stated]`: changing the region replaces the whole stack, including the EFS file systems that hold world saves, so it must never happen as a side effect of a form field; one region removes a choice every new AWS client would otherwise have to make, which follows the "one copy of every rule" tenet; Hyveon is single-operator, so a split between a control-plane region and a game region buys nothing.
+    Alternative rejected `[stated]`: two regions on purpose, the wizard region for the control plane and `DeploymentConfig.awsRegion` for game resources, with each client assigned one explicitly. It leaves two settings that every new client must choose between, the secrets store and helper-task clients already follow a different region rule from start/stop, and editing the game region would still replace the whole stack, EFS world saves included.
+
 ## Success Metrics
 
 > The idle-stop metric is unmet until the watchdog's Container Insights traffic measurement ships: until then, games without a health check are never auto-stopped (`RT-WATCHDOG-CW-007`).

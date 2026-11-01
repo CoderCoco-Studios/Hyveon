@@ -245,6 +245,13 @@ Each decision below is load-bearing for more than one child.
    Rationale `[stated]`: every controller belongs to the leaf whose behaviour it serves (`ipc-bridge-design.md`, "What it deliberately does not own"), and `enableAutoUpdate` is a local electron-store flag, not a `DeploymentConfig` field (`autoUpdateSetting.ts:1-9`).
    Alternatives rejected: whole-file ownership by `deployment-config` and whole-file ownership by `app-update-and-release` (`deployment-config-design.md` and `app-update-and-release-design.md`, Decisions & Alternatives).
 
+10. **The region the wizard stores is the install's only region, and every cloud binding resolves it through one resolver.**
+    Spans `wizard-and-bootstrap` (the region pickers and the `aws.region` write paths) and `desktop-shell` (the store bindings in `cloud-provider.module.ts`) in this subtree, and `iac/engine`, `deployment-config` and `game-runtime/task-and-dns` outside it.
+    Every store binding and AWS client takes its region from `ConfigService.getRegion()`, never from stack outputs (`IAC-ENGINE-REGION-002`; today the audit, Discord-config and run-record bindings prefer `outputs.awsRegion`, `cloud-provider.module.ts:109,131,180`).
+    The wizard refuses to store a different region while a deployed stack exists (`APP-WIZARD-REGLOCK-001`), and Settings shows the region read-only, owned by `deployment-config` (`CONFIG-FORM-007`).
+    Rationale `[stated]`: one region per install, because moving regions replaces the whole stack, EFS world saves included (`docs/high-level-design.md`, decision 10).
+    Alternative rejected `[stated]`: a control-plane region for the stores and a separate game region for the provider (`engine-design.md`, Decisions & Alternatives, "Install region").
+
 ## Node Table
 
 | Node | Kind | Purpose | Design doc | Specs file | Prefix |
@@ -268,7 +275,7 @@ Each decision below is load-bearing for more than one child.
 1. **How much of the renderer uses the `api.*` facade.**
    `desktop-shell-design.md` says the Settings update rows call `window.hyveon.iac.settings` directly, "not the `api.*` facade the rest of the renderer uses".
    `ipc-bridge-design.md` says the facade wraps only nine namespaces and that all of `iac.*`, `logs.*`, `wizard.*` and `window.*` are called directly.
-   The second matches the facade's stated scope; the first reads as if direct calls were the exception. The open design question in both leaves is whether every caller should move behind the facade (`ipc-bridge-design.md` Deferred 8, `desktop-shell-design.md` Deferred 19).
+   The second matches the facade's stated scope; the first reads as if direct calls were the exception. The open design question in both leaves is whether every caller should move behind the facade (`ipc-bridge-design.md` Deferred 8, `desktop-shell-design.md` Deferred 18).
 
 2. **Owner of `desktop-main/src/env.ts`.**
    `wizard-and-bootstrap-design.md` and its arrow doc assign `env.ts` (`isTestMode`) to `ipc-bridge`; `ipc-bridge-design.md` does not list it among its files; `docs/arrows/operator-app/desktop-shell.md` lists it under `desktop-shell`'s code.
@@ -288,10 +295,6 @@ Each decision below is load-bearing for more than one child.
 
 6. **Main-process failures that never reach the log file.**
    `desktop-shell`'s four boot failure paths in `electron-entry.ts` use `console.error` rather than winston (`desktop-shell-design.md`, Deferred 3), so the record `diagnostics` exists to keep misses window-open, renderer-load, updater-init and Nest-bootstrap failures.
-
-7. **Region of truth for the cloud bindings.**
-   The secrets and remote-file stores use `config.getRegion()` while the audit, Discord-config and runs stores prefer `outputs.awsRegion` (`desktop-shell-design.md`, Deferred 7; primary owner `game-runtime/task-and-dns`).
-   The wizard writes `aws.region`; which source is authoritative when they differ?
 
 ## References
 

@@ -18,7 +18,7 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 - `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md`
 
 ### EARS
-- `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md` (151 specs)
+- `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md` (150 specs)
 
 ### Tests
 - `app/packages/desktop-main/src/cloudformationTemplate.test.ts`
@@ -153,7 +153,7 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
-| Launch gating and completion | `APP-WIZARD-GATE-001` to `APP-WIZARD-GATE-006` | 4 | 0 | 2 |
+| Launch gating and completion | `APP-WIZARD-GATE-001` to `APP-WIZARD-GATE-006` | 4 | 0 | 1 |
 | Resumable progress | `APP-WIZARD-PROG-001` to `APP-WIZARD-PROG-008` | 8 | 0 | 0 |
 | Pick-cloud step | `APP-WIZARD-CLOUD-001` to `APP-WIZARD-CLOUD-003` | 3 | 0 | 0 |
 | Wizard shell layout and sidebar | `APP-WIZARD-SHELL-001` to `APP-WIZARD-SHELL-008` | 8 | 0 | 0 |
@@ -161,12 +161,13 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 | Reconfigure | `APP-WIZARD-RECONF-001` to `APP-WIZARD-RECONF-009` | 6 | 0 | 3 |
 | Stack initialization step (code owned by iac/engine) | `APP-WIZARD-STACK-001` to `APP-WIZARD-STACK-004` | 4 | 0 | 0 |
 | Guided IAM step in the wizard | `APP-WIZARD-GSTEP-001` to `APP-WIZARD-GSTEP-006` | 5 | 0 | 1 |
-| Guided IAM CloudFormation template | `APP-WIZARD-TMPL-001` to `APP-WIZARD-TMPL-011` | 9 | 0 | 2 |
+| Guided IAM CloudFormation template | `APP-WIZARD-TMPL-001` to `APP-WIZARD-TMPL-011` | 10 | 0 | 1 |
 | Guided IAM console handoff | `APP-WIZARD-CONSOLE-001` to `APP-WIZARD-CONSOLE-006` | 5 | 1 | 0 |
 | Guided IAM bootstrap key intake | `APP-WIZARD-INTAKE-001` to `APP-WIZARD-INTAKE-006` | 5 | 0 | 1 |
 | Guided IAM mandatory rotation | `APP-WIZARD-ROTATE-001` to `APP-WIZARD-ROTATE-008` | 7 | 0 | 1 |
 | Keychain requirement for guided and pasted credentials | `APP-WIZARD-KEYCH-001` to `APP-WIZARD-KEYCH-003` | 2 | 0 | 1 |
 | Region selection (guided IAM) | `APP-WIZARD-REGION-001` to `APP-WIZARD-REGION-005` | 5 | 0 | 0 |
+| One region per install | `APP-WIZARD-REGLOCK-001` | 0 | 0 | 1 |
 | AWS credentials step | `APP-WIZARD-CREDS-001` to `APP-WIZARD-CREDS-011` | 9 | 0 | 2 |
 | In-app access key rotation (non-guided) | `APP-WIZARD-ROTKEY-001` to `APP-WIZARD-ROTKEY-005` | 4 | 0 | 1 |
 | Backend bootstrap | `APP-WIZARD-BOOT-001` to `APP-WIZARD-BOOT-016` | 14 | 0 | 2 |
@@ -175,7 +176,7 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 | Cloud Health (Settings) | `APP-WIZARD-HEALTH-001` to `APP-WIZARD-HEALTH-011` | 9 | 0 | 2 |
 | Credential custody | `APP-WIZARD-CUSTODY-001` to `APP-WIZARD-CUSTODY-008` | 7 | 0 | 1 |
 
-**Summary:** 128 of 149 active specs implemented; 1 deferred; 21 gaps.
+**Summary:** 129 of 150 active specs implemented; 1 deferred; 20 gaps.
 
 ## Key Findings
 
@@ -194,6 +195,7 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 13. **Credential signature embeds the access key id** — `resolveAwsClientCredentialsWithSignature` returns `pasted:<profile>:<accessKeyId>` (`awsCredentialSource.ts:185`); not a secret, but it travels into every cache comparison. `awsClientCache.ts` has no tests.
 14. **Template placeholder substitution is single-shot** — `GuidedIamService.renderTemplate` uses `String.replace` (first occurrence only, `:210-212`); safe today because each placeholder occurs once in `iam-bootstrap.yaml:38,55`, but latent.
 15. **Reconfigure commit vs guided credentials** `[inferred]` — `commitReconfigureAnswers` sends `credentials.toStatePayload()` whenever `credentials` is not pre-completed (`use-reconfigure-answers.hook.ts:222-224`) without the `!guidedCredentials` guard the first-run path has (`first-run-wizard.component.tsx:307`), so a Reconfigure that re-runs guided IAM may overwrite the guided profile with the untouched form. Not reproduced.
+16. **Nothing stops a region change under a deployed stack**: `wizard.state.save` merges any `aws.region` (`wizard.controller.ts:202-205`) and guided rotation stores `input.region` (`GuidedIamService.ts:491`), with no check for a deployed stack. The wizard region is the install's one region (`docs/high-level-design.md`, decision 10): it names the state backend and every client's region, and once the program takes its region from it (`IAC-ENGINE-REGION-001`) a Reconfigure that changes it would replace the whole stack on the next apply, EFS world saves included.
 
 ## Work Required
 
@@ -202,18 +204,19 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/wizard-and
 ### Must Fix
 1. Make `SafeStorageService.decrypt` fail loudly when the keychain is unavailable for an encrypted value instead of passing ciphertext through (finding 5). (specs: `APP-WIZARD-CUSTODY-007`)
 2. Move the `HYVEON_TEST_MODE` `wizardCompleted` default out of the production read path, (finding 1). The gate itself fails open by design and is specified by `desktop-shell` (`APP-SHELL-GATE-004` to `-006`). (specs: `APP-WIZARD-GATE-003`)
+3. Refuse a different `aws.region` in the wizard while a deployed stack exists, and tell the operator that moving regions means destroying the stack and re-running the wizard (finding 16). Lands no later than `iac/engine`'s `IAC-ENGINE-REGION-001`, which makes the wizard region the program's region. (specs: `APP-WIZARD-REGLOCK-001`)
 
 ### Should Fix
-3. Wrap client creation inside each `BootstrapService.ensure*` try so credential errors return `{ status: 'failed' }` (finding 6). (specs: `APP-WIZARD-BOOT-004`)
-4. Resolve the runs table name from the operator's project name (finding 7). (specs: `APP-WIZARD-BOOT-012`)
-5. Either wire `rotateActiveCredentials` to an IPC channel and UI, or drop the requirement from `aws-credentials` (finding 3). (specs: `APP-WIZARD-ROTKEY-005`)
-6. Fix the `wizard-flow` spec's state-file name and Reconfigure step order (finding 9).
-7. Use `Promise.allSettled` in `cloudHealth.list`; guard `writePolicyToDisk` (finding 11). (specs: `APP-WIZARD-HEALTH-011`)
-8. Verify and, if real, fix the Reconfigure guided-credentials overwrite (finding 15). (specs: `APP-WIZARD-RECONF-009`)
+4. Wrap client creation inside each `BootstrapService.ensure*` try so credential errors return `{ status: 'failed' }` (finding 6). (specs: `APP-WIZARD-BOOT-004`)
+5. Resolve the runs table name from the operator's project name (finding 7). (specs: `APP-WIZARD-BOOT-012`)
+6. Either wire `rotateActiveCredentials` to an IPC channel and UI, or drop the requirement from `aws-credentials` (finding 3). (specs: `APP-WIZARD-ROTKEY-005`)
+7. Fix the `wizard-flow` spec's state-file name and Reconfigure step order (finding 9).
+8. Use `Promise.allSettled` in `cloudHealth.list`; guard `writePolicyToDisk` (finding 11). (specs: `APP-WIZARD-HEALTH-011`)
+9. Verify and, if real, fix the Reconfigure guided-credentials overwrite (finding 15). (specs: `APP-WIZARD-RECONF-009`)
 
 ### Nice to Have
-9. Collapse `awsClientCache.ts` into `cloud-aws/src/cachedClient.ts`; share `GUIDED_PROFILE_NAME` and the Cloud Health/Guided IAM helpers (finding 8).
-10. Scope the IAM-check suggested policy using `HYVEON_DEPLOY_ALL_STATEMENTS` (finding 12).
-11. Clear the add-game draft and folder-upload state on wizard reset, or document why not (finding 10).
-12. Use `replaceAll` for template placeholders; add tests for `awsClientCache.ts` (findings 13, 14).
-13. Consider moving `CloudHealthService` to its own module owned by the Settings surface.
+10. Collapse `awsClientCache.ts` into `cloud-aws/src/cachedClient.ts`; share `GUIDED_PROFILE_NAME` and the Cloud Health/Guided IAM helpers (finding 8).
+11. Scope the IAM-check suggested policy using `HYVEON_DEPLOY_ALL_STATEMENTS` (finding 12).
+12. Clear the add-game draft and folder-upload state on wizard reset, or document why not (finding 10).
+13. Use `replaceAll` for template placeholders; add tests for `awsClientCache.ts` (findings 13, 14).
+14. Consider moving `CloudHealthService` to its own module owned by the Settings surface.

@@ -4,7 +4,7 @@ Start and stop a game's container on demand, publish its address in DNS while it
 
 ## Status
 
-**MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited. Core start/stop/status and the update-dns Lambda work as the cost model requires; the leaf carries a region-of-truth split, an orphaned-record risk in DNS DELETE, and cost/status types declared in several places.
+**MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited. Core start/stop/status and the update-dns Lambda work as the cost model requires; the leaf carries a provider that reads its region from stack outputs instead of `ConfigService.getRegion()`, an orphaned-record risk in DNS DELETE, and cost/status types declared in several places.
 
 ## References
 
@@ -16,7 +16,7 @@ Start and stop a game's container on demand, publish its address in DNS while it
 - `docs/intent/game-runtime/task-and-dns/task-and-dns-design.md`
 
 ### EARS
-- `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md` (72 specs)
+- `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md` (71 specs)
 
 ### Tests
 - app/packages/cloud-aws/src/AwsCloudProvider.test.ts
@@ -112,17 +112,17 @@ Start and stop a game's container on demand, publish its address in DNS while it
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Start and Stop | `RT-TASK-LAUNCH-001` to `RT-TASK-LAUNCH-014` | 12 | 0 | 2 |
-| Status | `RT-TASK-STATUS-001` to `RT-TASK-STATUS-009` | 7 | 0 | 2 |
+| Status | `RT-TASK-STATUS-001` to `RT-TASK-STATUS-008` | 7 | 0 | 1 |
 | DNS Lifecycle | `RT-TASK-DNS-001` to `RT-TASK-DNS-015` | 12 | 0 | 3 |
 | Discord Follow-up on Task State | `RT-TASK-NOTIFY-001` to `RT-TASK-NOTIFY-006` | 4 | 0 | 2 |
 | Cost Estimates | `RT-TASK-COST-001` to `RT-TASK-COST-012` | 9 | 0 | 3 |
 | Dashboard and Costs Page | `RT-TASK-UI-001` to `RT-TASK-UI-016` | 13 | 0 | 3 |
 
-**Summary:** 57 of 72 active specs implemented; 0 deferred; 15 gaps.
+**Summary:** 57 of 71 active specs implemented; 0 deferred; 14 gaps.
 
 ## Key Findings
 
-1. **Region of truth is split inside one service.** `buildProviderConfig` gives the provider `outputs.awsRegion` (`EcsService.ts:72`), so start/stop/status target the deployed region, while `EcsService.getClient` uses `ConfigService.getRegion()` (`EcsService.ts:214`), so `getTaskDefinition` (the cost estimate) and every helper-task ECS call target the wizard region. The stores split the same way (`cloud-provider.module.ts:80` uses `getRegion()`, `:109,131,180` prefer `outputs.awsRegion`). Harmless while the two agree; which one wins after a region change is undefined.
+1. **Start, stop and status read the region from stack outputs.** `buildProviderConfig` gives the provider `outputs.awsRegion` (`EcsService.ts:72`), while `EcsService.getClient`, used by `getTaskDefinition` (the cost estimate) and every helper-task ECS call, uses `ConfigService.getRegion()` (`EcsService.ts:214`). An install has one region, resolved only through `getRegion()` (`docs/high-level-design.md`, decision 10; `IAC-ENGINE-REGION-002`, owned by `iac/engine`); the provider is the call site in this leaf that does not yet comply.
 2. **DNS DELETE can orphan a record.** `deleteDns` reads the record's current IP but sends the Lambda's current `DNS_TTL` (`update-dns/handler.ts:141-170`). Route 53 DELETE must match the record exactly, so a `DNS_TTL` change between UPSERT and DELETE makes the delete fail; the failure is only logged as a warning (`:167-169`) and the stale A record stays.
 3. **DNS DELETE has no owner check.** On any STOPPED event for a known family the record is deleted (`handler.ts:235-238`) without comparing its IP to the stopping task's; a stale STOPPED event for an old task arriving after a new task's RUNNING UPSERT would remove the live record [inferred from code; not reproduced].
 4. **Pending Discord row is not cleared on STOPPED.** `notifyDiscordIfPending` runs only on RUNNING (`handler.ts:224-233`); a task that stops before reaching RUNNING leaves its `PENDING#{taskArn}` row behind.
@@ -144,9 +144,9 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-runtime/task-and-d
 
 ### Must Fix
 1. Make update-dns DELETE robust: send the record's stored TTL (from `ListResourceRecordSets`) instead of the current `DNS_TTL`, and skip the delete when the record's IP does not belong to the stopping task (findings 2, 3). (specs: `RT-TASK-DNS-009`, `RT-TASK-DNS-010`)
-2. Choose one region source for all ECS calls in the desktop app and document it (finding 1). (specs: `RT-TASK-STATUS-009`)
 
 ### Should Fix
+2. Give the provider its region from `ConfigService.getRegion()` instead of `outputs.awsRegion` in `buildProviderConfig` (finding 1). The spec is owned by `iac/engine` and tracked in `docs/arrows/iac/engine.md`, Work Required. (specs: `IAC-ENGINE-REGION-002`)
 3. Clear the pending Discord row on STOPPED (finding 4). (specs: `RT-TASK-NOTIFY-005`)
 4. Collapse the Fargate cost formula onto `estimateFargateHourlyCost` and unify the task-definition fallback values (findings 6, 8); either route `costs.estimate` through `CloudProvider.getCostEstimate` or drop that interface method (finding 7). (specs: `RT-TASK-COST-010`, `RT-TASK-COST-011`, `RT-TASK-COST-012`)
 5. Normalise logged errors to messages in `EcsService` and stop logging the full event in update-dns (finding 11). (specs: `RT-TASK-LAUNCH-014`, `RT-TASK-DNS-014`)

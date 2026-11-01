@@ -16,7 +16,7 @@ The S3-only, etag-guarded read/write path is solid and well tested; drift detect
 - `docs/intent/deployment-config/deployment-config-design.md`
 
 ### EARS
-- `docs/intent/deployment-config/deployment-config-specs.md` (80 specs)
+- `docs/intent/deployment-config/deployment-config-specs.md` (82 specs)
 
 ### Tests
 - cloud-aws: `app/packages/cloud-aws/src/AwsRemoteFileStore.test.ts`
@@ -46,7 +46,7 @@ The S3-only, etag-guarded read/write path is solid and well tested; drift detect
 ### Cited from other leaves
 - `app/packages/shared/src/cloud.ts` (`game-runtime/task-and-dns`): the cloud-agnostic `RemoteFileStore` interface and `RemoteFileConflictError` this leaf reads and writes through.
 - `app/packages/shared/src/errors.ts` (`iac/run`): `OptimisticLockError`, the only conflict shape callers see.
-- `app/packages/desktop-main/src/modules/cloud-provider.module.ts` (`operator-app/desktop-shell`): binds `REMOTE_FILE_STORE` to `AwsRemoteFileStore` with `resolveDeploymentConfigFileStoreConfig` (`:73-84`, `:203`); region-of-truth lines `:80,109,131,180`.
+- `app/packages/desktop-main/src/modules/cloud-provider.module.ts` (`operator-app/desktop-shell`): binds `REMOTE_FILE_STORE` to `AwsRemoteFileStore` with `resolveDeploymentConfigFileStoreConfig` (`:73-84`, `:203`); region resolvers `:80,109,131,180` (one install region through `getRegion()`, `IAC-ENGINE-REGION-002`).
 - `app/packages/desktop-main/src/services/ConfigService.ts` (`iac/engine`): `getConfigurationBucket()`, `getRegion()`, `readEnvConfigCacheTtlMs()`, and `getStackOutputs()` (the `appliedGameServers`/`gameNames` side of drift).
 - `app/packages/shared/src/stackOutputs.ts` (`iac/program`): the `appliedGameServers` snapshot drift compares against.
 - `app/packages/shared/src/gameServerConfig.ts` (`game-server`): `GameServerConfig` (the `gameServers` value type) and `normalizeGameServer`, the legacy-https read-time normaliser applied in `DeploymentConfigService.flattenGameServers` and `DriftService.changedFields`.
@@ -97,13 +97,13 @@ The S3-only, etag-guarded read/write path is solid and well tested; drift detect
 | Reads | `CONFIG-READ-001` to `CONFIG-READ-011` | 11 | 0 | 0 |
 | Writes | `CONFIG-WRITE-001` to `CONFIG-WRITE-013` | 13 | 0 | 0 |
 | Rollback restore | `CONFIG-RESTORE-001` to `CONFIG-RESTORE-004` | 3 | 0 | 1 |
-| Settings IPC | `CONFIG-SET-001` to `CONFIG-SET-011` | 8 | 0 | 3 |
-| Settings form | `CONFIG-FORM-001` to `CONFIG-FORM-006` | 6 | 0 | 0 |
+| Settings IPC | `CONFIG-SET-001` to `CONFIG-SET-012` | 8 | 0 | 4 |
+| Settings form | `CONFIG-FORM-001` to `CONFIG-FORM-007` | 5 | 0 | 2 |
 | Drift detection | `CONFIG-DRIFT-001` to `CONFIG-DRIFT-009` | 7 | 0 | 2 |
 | Pending-changes banner | `CONFIG-BANNER-001` to `CONFIG-BANNER-005` | 5 | 0 | 0 |
 | Rollback diff | `CONFIG-RBDIFF-001` to `CONFIG-RBDIFF-002` | 1 | 0 | 1 |
 
-**Summary:** 72 of 80 active specs implemented; 0 deferred; 8 gaps.
+**Summary:** 71 of 82 active specs implemented; 0 deferred; 11 gaps.
 
 ## Key Findings
 
@@ -119,7 +119,7 @@ The S3-only, etag-guarded read/write path is solid and well tested; drift detect
 10. **Two canonical-JSON implementations**: `canonicalStringify` (`DriftService.ts:38-48`) and `canonicalJson` (`deploymentConfig.ts:413-420`) do the same key-sorted serialisation for drift and rollback diff respectively.
 11. **Rollback diff field list is hand-maintained**: `DEPLOYMENT_CONFIG_SCALAR_FIELDS` (`deploymentConfig.ts:392-407`) is typed `DeploymentConfigScalarField[]`, which does not enforce completeness; a new top-level field silently drops out of the rollback confirmation diff. `remote-file-store-mock.ts:14-30` is a further full copy, but typed `DeploymentConfig`, so it fails to compile rather than drift.
 12. **`iac-settings.controller.ts` carries other leaves' channels**: the file is this leaf's, but only 2 of its 8 channels are deployment settings. `engineVersion` (`:210`) stays here, hosted on `iac/engine`'s behalf (`IAC-ENGINE-PIN-005`); `autoUpdate.{get,update,check,download,install}` (`:228-320`) belong to `app-update-and-release` and move to a controller that leaf owns, keeping their channel names (`deployment-config-design.md`, Decisions & Alternatives). The `OptimisticLockError` branch (`:182-190`) returns `conflict` without a log line, and `:139`, `:195` log the raw error object, both against `.claude/rules/logging.md`.
-13. **Region of truth for the config bucket**: the config `RemoteFileStore` uses `ConfigService.getRegion()` (`cloud-provider.module.ts:80`) while run and audit stores prefer `outputs.awsRegion` (`:109`, `:131`, `:180`); editing `awsRegion` in Settings does not move where `deployment-config.json` is read from. Open question carried from final-clustering §6.
+13. **The Settings region field can rebuild the stack**: `DeploymentSettingsForm` renders `awsRegion` as an editable free-text input (`deployment-settings-form.component.tsx:91-94`), `draftToPatch` sends it (`use-deployment-settings.hook.ts:155`), and `validateDeploymentSettingsPatch` accepts any non-empty value (`deploymentSettingsWrite.ts:56`). The infra program provisions in that stored value (`IAC-ENGINE-REGION-001`), so one edit moves every game resource on the next apply and replaces the whole stack, EFS world saves included, while the configuration bucket and every other store stay in the wizard region. An install has one region, the wizard's (`docs/high-level-design.md`, decision 10).
 14. **Stale comments and naming**: "Local-vs-S3" (`DeploymentConfigService.ts:223`), "from disk/S3" (`:264`), "persisted to disk/S3 ... retired HCL format" (`:782-785`), "HCL/JSON key order" (`DriftService.ts:34`), `GET /api/drift` (`DriftService.ts:196`, `drift.ts:46`), "issue #94" (`drift.ts:5`), "`game_servers` map key" (`drift.ts:33`), a dangling "empty-string-means-computed-default" module-doc reference (`use-deployment-settings.hook.ts:148-150`; no such section exists). `expectedVersionId` is an etag throughout (`DeploymentConfigService.ts:444-445`), and the IPC mock uses its `versionId` as the etag (`remote-file-store-mock.ts`), unlike real S3.
 15. **Sweep corrections**: final-clustering §4 says `diffDeploymentConfig` returns `ChangeSummary`; it returns `DeploymentConfigDiff` defined in `deploymentConfig.ts:364` and `changeSummary.ts` is not a dependency of this leaf. The sweep's "banner signature is sensitive to `changedFields` order" (`pending-changes-banner.component.tsx:58`) does not hold: `changedFields` is always emitted in `COMPARED_FIELDS` order (`DriftService.ts:83-89`) and entries are sorted (`pending-changes-banner.component.tsx:59`). `computeDriftFromOutputs` has no direct test (no reference in `DriftService.test.ts`).
 
@@ -129,19 +129,19 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/deployment-config/deplo
 
 ### Must Fix
 1. Stop drift from reporting every deployed game as `pending_delete` when the config read fails (finding 3): drift needs a rejecting read, or an explicit "declared state unknown" result. (specs: `CONFIG-DRIFT-007`)
+2. Make the Settings region field read-only: show the wizard region with the note that moving regions means destroying the stack and re-running the wizard, stop `draftToPatch` sending `awsRegion`, and reject a patch that carries it (finding 13). Lands with `iac/engine`'s Must Fix that sets the program's region from `ConfigService.getRegion()` (`IAC-ENGINE-REGION-001`). (specs: `CONFIG-FORM-007`, `CONFIG-FORM-003`, `CONFIG-SET-012`)
 
 ### Should Fix
-2. Decide whether `restoreRawConfig` should be conditional on the etag it read for the rename guard (finding 6). (specs: `CONFIG-RESTORE-004`)
-3. Distinguish "configured bucket, missing object" from a generic error in `iac.settings.get`, and treat an ETag-less S3 response as an error rather than "not found" (finding 2). (specs: `CONFIG-SET-003`, `CONFIG-STORE-007`)
-4. Return success from `iac.settings.update` when the write succeeded but the re-read failed (finding 9). (specs: `CONFIG-SET-006`)
-5. Extend drift to the remaining per-game fields, or document the narrowed scope in the banner copy (finding 4). (specs: `CONFIG-DRIFT-008`)
-6. Move the five `iac.settings.autoUpdate.*` channels out of `iac-settings.controller.ts` into a controller owned by `app-update-and-release`, keeping the channel names; `iac.settings.get`, `iac.settings.update` and `iac.settings.engineVersion` stay (finding 12). Tracked with the matching item in `docs/arrows/operator-app/app-update-and-release.md`.
-7. Add direct tests for `computeDriftFromOutputs` (finding 15).
+3. Decide whether `restoreRawConfig` should be conditional on the etag it read for the rename guard (finding 6). (specs: `CONFIG-RESTORE-004`)
+4. Distinguish "configured bucket, missing object" from a generic error in `iac.settings.get`, and treat an ETag-less S3 response as an error rather than "not found" (finding 2). (specs: `CONFIG-SET-003`, `CONFIG-STORE-007`)
+5. Return success from `iac.settings.update` when the write succeeded but the re-read failed (finding 9). (specs: `CONFIG-SET-006`)
+6. Extend drift to the remaining per-game fields, or document the narrowed scope in the banner copy (finding 4). (specs: `CONFIG-DRIFT-008`)
+7. Move the five `iac.settings.autoUpdate.*` channels out of `iac-settings.controller.ts` into a controller owned by `app-update-and-release`, keeping the channel names; `iac.settings.get`, `iac.settings.update` and `iac.settings.engineVersion` stay (finding 12). Tracked with the matching item in `docs/arrows/operator-app/app-update-and-release.md`.
+8. Add direct tests for `computeDriftFromOutputs` (finding 15).
 
 ### Nice to Have
-8. Extract one canonical-JSON helper shared by drift and rollback diff (finding 10).
-9. Derive or type-check the rollback diff field list against `DeploymentConfig` (finding 11). (specs: `CONFIG-RBDIFF-002`)
-10. Stop invalidating the config cache on every drift poll (finding 5).
-11. Log the `OptimisticLockError` branch and normalise logged errors to `.message` (finding 12). (specs: `CONFIG-SET-009`)
-12. Clean up the stale comments and the `expectedVersionId` naming (finding 14).
-13. Settle the config-bucket region question with `desktop-shell` and `iac/engine` (finding 13).
+9. Extract one canonical-JSON helper shared by drift and rollback diff (finding 10).
+10. Derive or type-check the rollback diff field list against `DeploymentConfig` (finding 11). (specs: `CONFIG-RBDIFF-002`)
+11. Stop invalidating the config cache on every drift poll (finding 5).
+12. Log the `OptimisticLockError` branch and normalise logged errors to `.message` (finding 12). (specs: `CONFIG-SET-009`)
+13. Clean up the stale comments and the `expectedVersionId` naming (finding 14).
