@@ -65,3 +65,20 @@ jobs:
       - uses: ./.github/actions/setup-app
 
       - run: npm run app:typecheck
+
+  # LID arrow-of-intent coherence (HLD -> LLDs -> EARS -> tests -> code). Not
+  # gated on `changes`: doc-only PRs (markdown edits to specs/LLDs) are exactly
+  # what it validates. Dependency-free, so no `npm ci`. The script exits non-zero
+  # only on fatal coherence errors, not on open `[ ]` gaps.
+  coherence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - run: npm run lid:check
