@@ -25,7 +25,7 @@ What this leaf owns:
 What it deliberately does not own:
 
 - Bootstrapping and the window: `main.ts:43-56` creates the transport, registers the filter and calls the bridge; `electron-entry.ts` creates the `BrowserWindow`; `app.module.ts` is the module tree the bridge dispatches into. All belong to `operator-app/desktop-shell`, as does the first-run gate that tolerates a missing `window.hyveon.wizard` (`web/src/app.component.tsx:34-43`).
-- The handlers themselves. Every controller under `desktop-main/src/controllers/` belongs to the leaf whose behaviour it serves; this leaf only fixes how they are reached. The self-bridged streaming controllers are owned by `operator-app/infra-logs` (`logs.controller.ts`), `iac/run` (`iac.controller.ts`, `iac-runs.controller.ts`) and `operator-app/app-update-and-release` (`iac-settings.controller.ts`).
+- The handlers themselves. Every controller under `desktop-main/src/controllers/` belongs to the leaf whose behaviour it serves; this leaf only fixes how they are reached. The self-bridged streaming controllers are owned by `operator-app/infra-logs` (`logs.controller.ts`) and `iac/run` (`iac.controller.ts`, `iac-runs.controller.ts`). `iac-settings.controller.ts` is owned by `deployment-config`; its self-bridged `iac.settings.autoUpdate.download` registration and the other auto-update channels belong to `operator-app/app-update-and-release` and move to a controller that leaf owns.
 - The chromium-tier `window.hyveon` HTTP shim (`web/e2e/fixtures/hyveon-http-bridge.ts`) and the electron/integration harness fixtures, which sit in the shared test harness; this leaf cites them.
 
 CLAUDE.md invariants that live here:
@@ -203,8 +203,8 @@ The only unmocked electron roundtrip is `env.get` (`electron-ipc-roundtrip.spec.
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/ipc-bridge.md`
-- EARS specs (not yet written): `docs/intent/operator-app/ipc-bridge/ipc-bridge-specs.md`, prefix `APP-IPC`
+- EARS specs: `docs/intent/operator-app/ipc-bridge/ipc-bridge-specs.md`, prefix `APP-IPC`
 - OpenSpec: `openspec/specs/preload-bridge-naming/spec.md`; `openspec/specs/desktop-only-operator-surface/spec.md` (requirements "Desktop-main exposes no HTTP transport", "Test harnesses do not depend on the removed HTTP surface", "Streamed IPC channels work across the context bridge")
 - Docs: `docs/docs/components/management-app.md` (desktop-main bootstrap, controllers and IPC channels, `@hyveon/desktop-preload`), `docs/docs/components/integration-tests.md` (mock seams and test tiers), `docs/docs/architecture.md`
 - Rules: `.claude/rules/logging.md`
-- Neighbouring leaves: `docs/intent/operator-app/desktop-shell/desktop-shell-design.md` (not yet written), `docs/intent/operator-app/infra-logs/infra-logs-design.md` (not yet written), `docs/intent/iac/run/run-design.md` (not yet written), `docs/intent/operator-app/app-update-and-release/app-update-and-release-design.md`, `docs/intent/operator-app/diagnostics/diagnostics-design.md`
+- Neighbouring leaves: `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`, `docs/intent/operator-app/infra-logs/infra-logs-design.md`, `docs/intent/iac/run/run-design.md`, `docs/intent/operator-app/app-update-and-release/app-update-and-release-design.md`, `docs/intent/operator-app/diagnostics/diagnostics-design.md`

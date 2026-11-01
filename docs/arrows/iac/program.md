@@ -11,7 +11,8 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/iac/iac-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/iac/program/program-design.md`
@@ -126,11 +127,11 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 | Security Groups | `IAC-PROGRAM-SG-001` to `IAC-PROGRAM-SG-013` | 13 | 0 | 0 |
 | IAM | `IAC-PROGRAM-IAM-001` to `IAC-PROGRAM-IAM-010` | 10 | 0 | 0 |
 | EFS | `IAC-PROGRAM-EFS-001` to `IAC-PROGRAM-EFS-004` | 3 | 0 | 1 |
-| ECS Task Definitions | `IAC-PROGRAM-ECS-001` to `IAC-PROGRAM-ECS-008` | 8 | 0 | 0 |
+| ECS Task Definitions | `IAC-PROGRAM-ECS-001` to `IAC-PROGRAM-ECS-008` | 7 | 0 | 1 |
 | In-Task TLS (Caddy Sidecar) | `IAC-PROGRAM-TLS-001` to `IAC-PROGRAM-TLS-010` | 9 | 0 | 1 |
 | Environment Tokens and Boot Wrapper | `IAC-PROGRAM-TOKEN-001` to `IAC-PROGRAM-TOKEN-007` | 6 | 0 | 1 |
 | Pinned Hostname | `IAC-PROGRAM-HOST-001` to `IAC-PROGRAM-HOST-008` | 8 | 0 | 0 |
-| Lambda Wiring | `IAC-PROGRAM-LAMBDA-001` to `IAC-PROGRAM-LAMBDA-016` | 13 | 0 | 3 |
+| Lambda Wiring | `IAC-PROGRAM-LAMBDA-001` to `IAC-PROGRAM-LAMBDA-016` | 12 | 0 | 4 |
 | Lambda Environment Wire Format | `IAC-PROGRAM-ENV-001` to `IAC-PROGRAM-ENV-007` | 7 | 0 | 0 |
 | Data Tables and Discord Seed Rows | `IAC-PROGRAM-DATA-001` to `IAC-PROGRAM-DATA-005` | 5 | 0 | 0 |
 | Secrets | `IAC-PROGRAM-SECRET-001` to `IAC-PROGRAM-SECRET-005` | 4 | 0 | 1 |
@@ -139,7 +140,7 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 | EFS Seeding During Apply | `IAC-PROGRAM-SEED-001` to `IAC-PROGRAM-SEED-005` | 3 | 0 | 2 |
 | Lambda Runtime and Bundling | `IAC-PROGRAM-RUNTIME-001` to `IAC-PROGRAM-RUNTIME-006` | 4 | 0 | 2 |
 
-**Summary:** 120 of 133 active specs implemented; 0 deferred; 13 gaps.
+**Summary:** 118 of 133 active specs implemented; 0 deferred; 15 gaps.
 
 ## Key Findings
 
@@ -166,17 +167,18 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/program/program-spe
 ### Must Fix
 1. Give the health-check Lambda `ECS_CLUSTER` (and fix the test pinning its env), and give its SG/subnet a route to the ECS and Secrets Manager APIs (finding 1). (specs: `IAC-PROGRAM-LAMBDA-011`, `IAC-PROGRAM-LAMBDA-012`)
 2. Let the efs-seeder target any volume, or document first-volume-only seeding as a hard limit; per-volume access points are already in the stack outputs (finding 2). (specs: `IAC-PROGRAM-SEED-004`)
+3. Enable Container Insights on the cluster and set the watchdog's `MIN_BYTES_PER_SECOND` env var from `watchdogMinBytesPerSecond`; both land with the watchdog's Container Insights traffic measurement (`watchdog.md`, Must Fix 1). (specs: `IAC-PROGRAM-ECS-001`, `IAC-PROGRAM-LAMBDA-009`)
 
 ### Should Fix
-3. Pin the Caddy image to an exact version (finding 3). (specs: `IAC-PROGRAM-TLS-002`)
-4. Reconcile `lambda-runtime-currency` (efs-seeder conditional; target lives in `buildLambda.mjs`) and the ACM invariant wording in CLAUDE.md and `in-task-tls-termination` with the code (findings 4, 5). (specs: `IAC-PROGRAM-RUNTIME-003`)
-5. Add a real secret-preservation test or relax the spec scenario (finding 6). (specs: `IAC-PROGRAM-SECRET-005`)
-6. Normalise `hostedZoneName` once and use it for outputs and the zone lookup (finding 7). (specs: `IAC-PROGRAM-DNS-004`)
-7. Make every Lambda depend on its log group (finding 8). (specs: `IAC-PROGRAM-LAMBDA-016`)
-8. Include `container_path` in the efs-seeder trigger hash (finding 10). (specs: `IAC-PROGRAM-SEED-003`)
+4. Pin the Caddy image to an exact version (finding 3). (specs: `IAC-PROGRAM-TLS-002`)
+5. Reconcile `lambda-runtime-currency` (efs-seeder conditional; target lives in `buildLambda.mjs`) and the ACM invariant wording in CLAUDE.md and `in-task-tls-termination` with the code (findings 4, 5). (specs: `IAC-PROGRAM-RUNTIME-003`)
+6. Add a real secret-preservation test or relax the spec scenario (finding 6). (specs: `IAC-PROGRAM-SECRET-005`)
+7. Normalise `hostedZoneName` once and use it for outputs and the zone lookup (finding 7). (specs: `IAC-PROGRAM-DNS-004`)
+8. Make every Lambda depend on its log group (finding 8). (specs: `IAC-PROGRAM-LAMBDA-016`)
+9. Include `container_path` in the efs-seeder trigger hash (finding 10). (specs: `IAC-PROGRAM-SEED-003`)
 
 ### Nice to Have
-9. Remove `HOSTED_ZONE_NAME` from interactions, restrict CloudFront methods (finding 9).
-10. Sweep stale doc comments and HCL references (finding 11).
-11. Exclude `app/packages/web/src/testing/` from the infra build; drop or ship the Lambda sourcemap; anchor `buildLambda.mjs` paths (findings 12, 13). (specs: `IAC-PROGRAM-WS-006`, `IAC-PROGRAM-RUNTIME-006`)
-12. Centralise the access-point key derivation behind one helper (finding 14). (specs: `IAC-PROGRAM-EFS-004`)
+10. Remove `HOSTED_ZONE_NAME` from interactions, restrict CloudFront methods (finding 9).
+11. Sweep stale doc comments and HCL references (finding 11).
+12. Exclude `app/packages/web/src/testing/` from the infra build; drop or ship the Lambda sourcemap; anchor `buildLambda.mjs` paths (findings 12, 13). (specs: `IAC-PROGRAM-WS-006`, `IAC-PROGRAM-RUNTIME-006`)
+13. Centralise the access-point key derivation behind one helper (finding 14). (specs: `IAC-PROGRAM-EFS-004`)

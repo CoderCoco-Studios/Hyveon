@@ -7,14 +7,14 @@ prefix: IAC-ENGINE
 
 ## Context and Design Philosophy
 
-Hyveon provisions AWS through a Pulumi Automation API program that runs inside the packaged desktop app, with no host-installed `pulumi` binary and no Pulumi Cloud account. The engine leaf is the machinery that makes that possible: it downloads and verifies the exact pinned CLI, builds one stable Automation API workspace pointed at the operator's own S3 state bucket, injects the wizard-selected AWS credentials exclusively, runs engine calls under cancellation and leaked-promise recovery, reclaims stale DIY backend locks only when it can prove the lock is its own orphan, and exposes the deployed stack outputs to the rest of the app through a memoised reader.
+Hyveon provisions AWS through a Pulumi Automation API program that runs inside the packaged desktop app, with no host-installed `pulumi` binary and no Pulumi Cloud account. The engine leaf is the machinery that makes that possible: it downloads and verifies the exact pinned CLI, builds one stable Automation API workspace pointed at the operator's own S3 state bucket, injects the wizard-selected AWS credentials exclusively, runs preview, up and destroy under cancellation and leaked-promise recovery (stack initialization's `refresh()` is the exception), reclaims stale DIY backend locks only when it can prove the lock is its own orphan, and exposes the deployed stack outputs to the rest of the app through a memoised reader.
 
 It is the same component regardless of what the infrastructure program declares. Neighbouring leaves own the rest:
 
-- `iac/run` owns the operator-facing lifecycle (plan, apply gate, destroy token, rollback, stale-lock clear confirmation, run records and the `iac.*` IPC controller). Its gate logic physically lives in `PulumiService.ts` alongside this leaf's plumbing; the 5,004-line file is shared ground (see Deferred).
+- `iac/run` owns the operator-facing lifecycle (plan, apply gate, destroy token, rollback, stale-lock clear confirmation, run records and the `iac.*` IPC controller). Its gate logic physically lives in `PulumiService.ts` alongside this leaf's plumbing; the file of about 5,000 lines is shared ground and splits along the run/engine seam (Decisions & Alternatives, "File layout").
 - `iac/program` owns `createInfraProgram` and the `StackOutputs` shape this leaf caches.
 - `operator-app/wizard-and-bootstrap` owns credential custody (`ElectronStoreService`, `awsCredentialSource.ts`, `SafeStorageService`) and the bootstrap that creates the state bucket; this leaf's `stack-init-step` is the wizard's final step.
-- `deployment-config` owns `iac-settings.controller.ts`, which exposes `iac.settings.engineVersion` (`iac-settings.controller.ts:210`) on this leaf's behalf.
+- `deployment-config` owns `iac-settings.controller.ts`, which hosts `iac.settings.engineVersion` (`iac-settings.controller.ts:210`) on this leaf's behalf; the channel stays in that controller, and its behaviour is specified here (`IAC-ENGINE-PIN-005`).
 
 The CLAUDE.md invariants that live here: there is no CLI-based IaC step and no host-installed `pulumi` binary, because the app provisions its own pinned engine (`PulumiEngineService.ts:308`); `electronRuntime.ts` gates every Electron import on `process.versions.electron` so the plain-Node integration harness can construct the same services (`electronRuntime.ts:17-61`); and every engine-calling method normalises errors to `.message` before logging, which this leaf mostly but not fully honours (Deferred 7, 8).
 
@@ -56,7 +56,7 @@ Failures surface as one of three typed errors produced by `classifyProvisioningE
 
 The stack name is the bare constant `production` (`PulumiWorkspaceService.ts:45`), because a non-legacy DIY backend silently creates the wrong stack when given a mis-shaped `organization/<project>/<stack>` name (migrate-iac-to-pulumi `design.md`, "DIY S3 backend").
 
-The state-bucket region passed in is always the wizard's `aws.region` (`PulumiService.ts:988,1126`); the store records no region for the bucket itself. `ConfigService.getRegion()` reads the same field with `AWS_DEFAULT_REGION` and `us-east-1` fallbacks (`ConfigService.ts:262-268`), while the top-bar env pill reads `outputs.awsRegion` (`env.controller.ts:23`). This is one input into the region-of-truth disagreement owned by `task-and-dns`.
+The state-bucket region passed in is always the wizard's `aws.region` (`PulumiService.ts:988,1126`), the install's one region (Install Region, below), and bootstrap creates the state bucket in that same region (`BootstrapService.ts:605-617`), so the store needs no separate bucket-region field (`IAC-ENGINE-WS-010`).
 
 Credential exclusivity lives in `resolveCredentialEnvVars` (`PulumiCredentialResolver.ts:84`). The profile path sets `AWS_PROFILE` and blanks the pasted-key variables; the pasted path sets both keys, blanks `AWS_SESSION_TOKEN`, and blanks `AWS_PROFILE`/`AWS_DEFAULT_PROFILE` (`:98-122`). Blanking rather than omitting is what stops an ambient variable inherited from the Electron process overriding the wizard's choice. A `none` source throws `PulumiCredentialsNotConfiguredError` (`:95-97`). Only the source kind is logged (`:99,105`).
 
@@ -100,6 +100,20 @@ Stack outputs are read through two layers. `PulumiService.getStackOutputs()` (`P
 
 `PulumiService` cannot import `ConfigService` by value because `ConfigService` already depends on it, so it resolves `CONFIG_CACHE_INVALIDATOR` and three other tokens lazily through `ModuleRef` (`PulumiService.ts:195-208,836-938`) and carries its own copy of `getConfigurationBucket` (`:4340-4344`).
 
+## Install Region
+
+An install has exactly one AWS region, the wizard region in electron-store `aws.region` (`docs/high-level-design.md`, decision 10). `ConfigService.getRegion()` is its one resolver: it returns `aws.region`, falling back to `AWS_DEFAULT_REGION` and then `us-east-1` only before the wizard has stored one (`ConfigService.ts:262-268`, `IAC-ENGINE-OUT-009`).
+
+Two rules follow, and this leaf owns both because it owns the resolver:
+
+- **The program's region is the wizard region.** `PulumiService` sets the program's `awsRegion` input from `ConfigService.getRegion()` before every preview and apply, and ignores any `awsRegion` stored in `deployment-config.json` (`IAC-ENGINE-REGION-001`). Today it passes the parsed document unchanged (`PulumiService.ts:1601,1619,2266,2278`), so a stored value that differs from the wizard region provisions the stack somewhere else, and editing it replaces the whole stack, EFS world saves included.
+- **Every desktop AWS client resolves its region through `getRegion()`** (`IAC-ENGINE-REGION-002`). The secrets and configuration stores, `EcsService.getClient` and the log, scheduler, EC2 and file-manager clients already do (`cloud-provider.module.ts:80,198`; `EcsService.ts:213-217`); the cloud provider used for start, stop and status reads `outputs.awsRegion` instead (`EcsService.ts:72`, code owned by `game-runtime/task-and-dns`), and the audit, Discord-config and run-record stores prefer it (`cloud-provider.module.ts:109,131,180`, code owned by `operator-app/desktop-shell`).
+
+The backend URL here and the wizard-time services (`BootstrapService.ts:605,707`, `IamCheckService.ts:137`, `AwsProfileService.ts:278`) read `aws.region` directly rather than through `getRegion()`, so they refuse to run when the wizard has not stored a region instead of taking the resolver's fallbacks; they read the same value as `getRegion()` on any configured install.
+
+Stack outputs still echo `awsRegion`, and the top-bar env pill displays it (`env.controller.ts:23`); once the program takes its region from the wizard, the echo always equals `getRegion()` for a deployed stack, so the pill is a display of the same value, not a second source a client may read.
+AWS-mandated global placements are outside the rule: the program's `us-east-1` provider for the CloudFront certificate is an `iac/program` resource and stays fixed (`program.ts:175-182`).
+
 ## Decisions & Alternatives
 
 | Decision | Chosen | Alternatives Considered | Rationale |
@@ -119,12 +133,16 @@ Stack outputs are read through two layers. `PulumiService.getStackOutputs()` (`P
 | Outputs read path | Never-throw `getStackOutputs` behind a memoising `ConfigService` | Throw to callers; uncached | Every call site relies on `null` meaning "not deployed" (`PulumiService.ts:1003-1005` comment); caching avoids an engine call per poll [inferred] |
 | Busy-while-reading | Return `null` while an operation is in flight | Queue behind the operation; read last-known outputs | unknown; appears to avoid contending for the workspace [inferred] |
 | Breaking the import cycle | Lazy `ModuleRef` tokens plus a duplicated `getConfigurationBucket` | Restructure dependencies | `ConfigService` depends on `PulumiService` (`PulumiService.ts:195-208`) |
+| File layout | Split `PulumiService.ts` along the run/engine seam: `iac/run`'s run gates, locking and run lifecycle in separate files from this leaf's workspace, backend, credential and engine plumbing; a pure refactor with no behaviour change, carried out as its own change | Keep one file shared by both leaves | Removes the `run` <-> `engine` cycle recorded in `docs/arrows/index.yaml` and makes file ownership follow the spec-ownership seam both leaves already use (`iac-design.md`, decision 10) |
+| Install region | One region per install, the wizard's `aws.region`, resolved only through `ConfigService.getRegion()`; the program's `awsRegion` input is set from it | Two regions on purpose: the wizard region for the control plane and `DeploymentConfig.awsRegion` for game resources, each client assigned one explicitly | Two settings every new client must choose between; the secrets store and helper-task clients already follow a different rule from start/stop; editing the game region would still replace the whole stack, EFS world saves included (`docs/high-level-design.md`, decision 10) |
 
 ## Open Questions & Future Decisions
 
 ### Resolved
 
 1. Passphrase is derived per AWS account and stack, not stored per machine (portable-passphrase `design.md` D1, D3, D5). The contradicting sentence in `pulumi-infra-program/spec.md:70` ("machine-bound and has no recovery path") is stale relative to this decision; correcting it is Deferred 5.
+2. `PulumiService.ts` splits along the run/engine seam as its own pure-refactor change (Decisions & Alternatives, "File layout"; `iac-design.md`, decision 10).
+3. The state bucket's region is the wizard region: bootstrap creates the bucket in `aws.region`, and an install has one region, so the backend URL keeps using `aws.region` and the store records no separate bucket region (`IAC-ENGINE-WS-010`; Install Region; `docs/high-level-design.md`, decision 10).
 
 ### Deferred
 
@@ -142,20 +160,18 @@ Stack outputs are read through two layers. `PulumiService.getStackOutputs()` (`P
 12. Should `getStackOutputs` get a select-only, migration-free path so a dashboard read cannot create a stack or re-encrypt secrets? (`PulumiWorkspaceService.ts:508`, `:459-473`)
 13. Is caching a mid-operation `null` for 20 s acceptable, given the dashboard shows "not deployed" for that window? (`PulumiService.ts:970-976`, `ConfigService.ts:99,145-150`)
 14. What operator-facing reset, if any, covers the legacy-migration dead end when `workDir` is wiped but `pulumi.passphrase` survives? (`PulumiWorkspaceService.ts:522-591`)
-15. Should bootstrap record the state bucket's own region rather than reusing `aws.region` for every backend URL? (`PulumiService.ts:988,1126,1611,2270,2928,3709`)
-16. Should stack-init phase attribution be aligned so STS, migration and `createOrSelect` failures do not mark the finished `engine` row as failed? (`PulumiService.ts:1346-1354`, `stack-init-step.component.tsx:129,140,149`)
-17. Should classification be side-effect free? `classifyStackLockConflict` prunes and consumes ownership records while classifying (`PulumiLockRecovery.ts:271-282,299-302`), so a caller that classifies and then does not reclaim has still spent the evidence.
-18. Should `PulumiService.ts` be split along the run/engine seam so `iac/run`'s gates and this leaf's plumbing live in separate files? (final-clustering §4)
-19. Stale comments: Terraform-era `plan()`/`spawnAndStream` (`PulumiService.ts:1566,1635,1671,1685,1698,1737`); "no `PulumiController` yet" (`:1854,2700,3893`); destroy "never touches `RunLockService`" (`:2114-2115`) though destroy calls `createRun` (`:2960`); "three constructor dependencies" (`PulumiWorkspaceService.ts:800-801`, actually two); the "encrypted passphrase accessor pair" (`pulumi-workspace.module.ts:10-11`); `/api/games`/`/api/status` handlers (`ConfigService.ts:102-104`); `getEngineCacheRoot` "mirrors `ConfigService.getRunsDir()`" (`PulumiEngineService.ts:641`), which is `PulumiService.getRunsDir` (`PulumiService.ts:4359`). Remove them?
-20. Dead or vestigial code: `ConfigService.readResourcesPath` (`ConfigService.ts:213-215`) has no caller; `getActiveCloud()` is hard-coded `'aws'` (`:276-278`). Remove, or keep as a multi-cloud seam?
-21. Test-double drift: `PulumiServiceStub` lacks `mintLockClearConfirmationToken` (`pulumi-mock.ts:119-191`) though `iac.controller.ts:956` calls it, and `PulumiOperationName` re-declares the in-flight union by hand (`pulumi-mock.ts:10-11`). `ConfigService.test.ts:279-283` is titled "should default to 30000 and warn" but may not assert the warn [unverified].
-22. Arrow-doc line drift found while writing this design: `runTreatingLeakedPromiseAsSuccess` is at `PulumiLeakedPromise.ts:70`, not `:194`, and the `CONFIG_CACHE_INVALIDATOR` binding is at `config.module.ts:25`, not `:57`. Correct the arrow doc at audit time.
+15. Should stack-init phase attribution be aligned so STS, migration and `createOrSelect` failures do not mark the finished `engine` row as failed? (`PulumiService.ts:1346-1354`, `stack-init-step.component.tsx:129,140,149`)
+16. Should classification be side-effect free? `classifyStackLockConflict` prunes and consumes ownership records while classifying (`PulumiLockRecovery.ts:271-282,299-302`), so a caller that classifies and then does not reclaim has still spent the evidence.
+17. Stale comments: Terraform-era `plan()`/`spawnAndStream` (`PulumiService.ts:1566,1635,1671,1685,1698,1737`); "no `PulumiController` yet" (`:1854,2700,3893`); destroy "never touches `RunLockService`" (`:2114-2115`) though destroy calls `createRun` (`:2960`); "three constructor dependencies" (`PulumiWorkspaceService.ts:800-801`, actually two); the "encrypted passphrase accessor pair" (`pulumi-workspace.module.ts:10-11`); `/api/games`/`/api/status` handlers (`ConfigService.ts:102-104`); `getEngineCacheRoot` "mirrors `ConfigService.getRunsDir()`" (`PulumiEngineService.ts:641`), which is `PulumiService.getRunsDir` (`PulumiService.ts:4359`). Remove them?
+18. Dead or vestigial code: `ConfigService.readResourcesPath` (`ConfigService.ts:213-215`) has no caller; `getActiveCloud()` is hard-coded `'aws'` (`:276-278`). Remove, or keep as a multi-cloud seam?
+19. Test-double drift: `PulumiServiceStub` lacks `mintLockClearConfirmationToken` (`pulumi-mock.ts:119-191`) though `iac.controller.ts:956` calls it, and `PulumiOperationName` re-declares the in-flight union by hand (`pulumi-mock.ts:10-11`). `ConfigService.test.ts:279-283` is titled "should default to 30000 and warn" but may not assert the warn [unverified].
+20. Arrow-doc line drift found while writing this design: `runTreatingLeakedPromiseAsSuccess` is at `PulumiLeakedPromise.ts:70`, not `:194`, and the `CONFIG_CACHE_INVALIDATOR` binding is at `config.module.ts:25`, not `:57`. Correct the arrow doc at audit time.
 
 ## References
 
 - Arrow doc: `docs/arrows/iac/engine.md`
-- EARS specs (not yet written): `docs/intent/iac/engine/engine-specs.md`
+- EARS specs: `docs/intent/iac/engine/engine-specs.md`
 - OpenSpec: `openspec/specs/pulumi-engine-runtime/spec.md` (carried); `openspec/specs/pulumi-infra-program/spec.md` (cited for `spec.md:70`); `openspec/specs/wizard-flow/spec.md` (stack-init step and engine-version row, owned by `wizard-and-bootstrap`)
 - OpenSpec design history: `openspec/changes/archive/2026-08-10-migrate-iac-to-pulumi/design.md`, `openspec/changes/archive/2026-08-13-pulumi-portable-passphrase/design.md`
 - Docs pages: `docs/docs/architecture.md`, `docs/docs/components/infra.md`, `docs/docs/components/management-app.md`, `docs/docs/app/settings.md`
-- Neighbouring leaf designs (not yet written): `docs/intent/iac/run/run-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md`, `docs/intent/deployment-config/deployment-config-design.md`
+- Neighbouring leaf designs: `docs/intent/iac/run/run-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md`, `docs/intent/deployment-config/deployment-config-design.md`

@@ -226,7 +226,7 @@ None. This leaf has no OpenSpec capability or design doc in which decisions were
 ## References
 
 - Arrow doc: `docs/arrows/discord-bot.md`
-- EARS specs (not yet written): `docs/intent/discord-bot/discord-bot-specs.md`
+- EARS specs: `docs/intent/discord-bot/discord-bot-specs.md`
 - OpenSpec: none carried; no capability under `openspec/specs/` covers Discord.
 - Operator docs: `docs/docs/app/discord.md`, `docs/docs/components/lambdas.md`, `docs/docs/architecture.md`, `docs/docs/setup.md`
 - Invariants: root `CLAUDE.md`, "Invariants that hurt to break"

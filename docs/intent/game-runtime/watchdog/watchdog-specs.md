@@ -9,7 +9,7 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 - [x] **RT-WATCHDOG-SCHED-003**: The infra program shall set the watchdog's `CHECK_WINDOW_MINUTES` env var from the same `watchdogIntervalMinutes` value that drives the watchdog schedule, so each watchdog run looks back exactly one schedule interval. (observed)
 - [x] **RT-WATCHDOG-SCHED-004**: The infra program shall grant `events.amazonaws.com` permission to invoke the watchdog Lambda only from the watchdog schedule rule's ARN. (observed)
 - [x] **RT-WATCHDOG-SCHED-005**: The watchdog Lambda shall ignore its invocation event payload and perform a full stateless pass over the cluster on every invocation. (observed)
-- [x] **RT-WATCHDOG-SCHED-006**: When the operator changes `watchdogIntervalMinutes`, `watchdogIdleChecks` or `watchdogMinPackets`, the deployed watchdog shall keep its previous values until the next infra apply, because the tunables reach the watchdog only as env vars and the schedule expression set at apply time. (observed)
+- [ ] **RT-WATCHDOG-SCHED-006**: When the operator changes `watchdogIntervalMinutes`, `watchdogIdleChecks` or `watchdogMinBytesPerSecond`, the deployed watchdog shall keep its previous values until the next infra apply, because the tunables reach the watchdog only as env vars and the schedule expression set at apply time. (gap: the code still names the tunable `watchdogMinPackets` / `MIN_PACKETS` with default 100)
 
 ## Task selection
 
@@ -25,17 +25,16 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 - [x] **RT-WATCHDOG-ROUTE-001**: When the watchdog evaluates a running task of a game that has an entry in `HEALTH_CHECKS`, it shall take the idle verdict from the health-check Lambda and shall not query CloudWatch for that task. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
 - [x] **RT-WATCHDOG-ROUTE-002**: When the watchdog evaluates a running task of a game that has no entry in `HEALTH_CHECKS`, it shall take the idle verdict from the CloudWatch packet measurement and shall not invoke the health-check Lambda for that task. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
 - [x] **RT-WATCHDOG-ROUTE-003**: The watchdog shall apply exactly one verdict source to each evaluated game-server task per run, never a combination of the health check and the packet measurement. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
-- [x] **RT-WATCHDOG-ROUTE-004**: The infra program shall build the watchdog's `HEALTH_CHECKS` env var as a JSON object mapping each game name to its full declared `healthCheck`, omitting every game with no declared health check. (observed)
+- [x] **RT-WATCHDOG-ROUTE-004**: The infra program shall build the watchdog's `HEALTH_CHECKS` env var as a JSON object mapping each game name, in sorted key order, to its full declared `healthCheck`, omitting every game with no declared health check. (observed)
 
-## CloudWatch packet verdict
+## CloudWatch traffic verdict
 
-- [x] **RT-WATCHDOG-CW-001**: When the watchdog uses the packet measurement for a game-server task, it shall query CloudWatch `GetMetricStatistics` for namespace `AWS/EC2`, metric `NetworkPacketsIn`, dimension `NetworkInterfaceId` equal to the task's ENI ID, statistic `Sum`, over the last `CHECK_WINDOW_MINUTES` with a period of `CHECK_WINDOW_MINUTES * 60` seconds. (observed)
-- [x] **RT-WATCHDOG-CW-002**: When the watchdog uses the packet measurement, it shall take the task's ENI ID from the task's own attachment details rather than an EC2 call. (observed)
-- [x] **RT-WATCHDOG-CW-003**: If a game-server task evaluated by the packet measurement has no ENI attachment, then the watchdog shall skip that task for the current run without reading or writing its `idle_checks` tag. (observed)
-- [x] **RT-WATCHDOG-CW-004**: When the packet measurement returns a `Sum` for a game-server task, the watchdog shall treat the task as idle for that window if the floored sum is below `MIN_PACKETS`, and active otherwise. (observed)
-- [x] **RT-WATCHDOG-CW-005**: If the CloudWatch packet query for a game-server task returns no datapoint, then the watchdog shall treat the task as active for that window. (observed)
-- [x] **RT-WATCHDOG-CW-006**: If the CloudWatch packet query for a game-server task throws, then the watchdog shall log a warning and treat the task as active for that window. (observed)
-- [ ] **RT-WATCHDOG-CW-007**: Where a game declares no health check, the watchdog's packet measurement shall return datapoints that reflect the Fargate task's real inbound traffic, so that an idle game without a health check is eventually stopped. (observed) (gap: unverified; `handler.ts:85-87` queries per-ENI `AWS/EC2` metrics that Fargate tasks may never emit, and `:94-97` then treats every such task as active forever)
+- [ ] **RT-WATCHDOG-CW-001**: When the watchdog uses the traffic measurement for a game-server task, it shall query CloudWatch `GetMetricStatistics` for namespace `ECS/ContainerInsights`, metric `NetworkRxBytes`, dimensions `ClusterName` equal to `ECS_CLUSTER` and `TaskDefinitionFamily` equal to the task's `{game}-server` family, statistic `Average`, over the last `CHECK_WINDOW_MINUTES` with a period of `CHECK_WINDOW_MINUTES * 60` seconds. (gap: `handler.ts:79-104` still queries `AWS/EC2` `NetworkPacketsIn` by ENI)
+- [ ] **RT-WATCHDOG-CW-002**: When the watchdog uses the traffic measurement, it shall identify the task by its task definition family alone, without reading the task's ENI attachment or calling EC2. (gap: `handler.ts:223-224` reads the ENI ID and skips tasks without one)
+- [ ] **RT-WATCHDOG-CW-004**: When the traffic measurement returns an `Average` for a game-server task, the watchdog shall treat the task as idle for that window if the value is below `MIN_BYTES_PER_SECOND`, and active otherwise. (gap: `handler.ts:226` compares a packet `Sum` against `MIN_PACKETS`)
+- [x] **RT-WATCHDOG-CW-005**: If the CloudWatch traffic query for a game-server task returns no datapoint, then the watchdog shall treat the task as active for that window. (observed)
+- [x] **RT-WATCHDOG-CW-006**: If the CloudWatch traffic query for a game-server task throws, then the watchdog shall log a warning and treat the task as active for that window. (observed)
+- [ ] **RT-WATCHDOG-CW-007**: Where a game declares no health check, the watchdog's idle measurement shall return data that reflects the Fargate task's real inbound traffic, so that an idle game without a health check is eventually stopped. (observed) (gap: confirmed live 2026-10-31 in the operator's `us-east-2` deployment: 368 `No CloudWatch datapoints for ENI … assuming active` lines and zero `idle check` lines over 7 days, and no `AWS/EC2` `NetworkPacketsIn` metric exists in the region. Closed by `RT-WATCHDOG-CW-001`, `RT-WATCHDOG-CW-002`, `RT-WATCHDOG-CW-004` and `IAC-PROGRAM-ECS-001`.)
 
 ## Health-check verdict
 
@@ -65,7 +64,7 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 
 ## Logging
 
-- [x] **RT-WATCHDOG-LOG-001**: When a game-server task is idle for the current window, the watchdog shall log the game, the incremented idle count against `IDLE_CHECKS`, and the verdict detail (the health-check reason, or `packets=N, threshold=MIN_PACKETS`). (OpenSpec: game-health-checks / The basis for a shutdown decision is recoverable from the logs)
+- [ ] **RT-WATCHDOG-LOG-001**: When a game-server task is idle for the current window, the watchdog shall log the game, the incremented idle count against `IDLE_CHECKS`, and the verdict detail (the health-check reason, or `rxBytesPerSecond=N, threshold=MIN_BYTES_PER_SECOND`). (OpenSpec: game-health-checks / The basis for a shutdown decision is recoverable from the logs) (gap: `handler.ts:227` logs `packets=N, threshold=MIN_PACKETS`)
 - [x] **RT-WATCHDOG-LOG-002**: When the watchdog resets a game-server task's idle count after an active window, it shall log the game and the verdict detail that caused the reset. (OpenSpec: game-health-checks / The basis for a shutdown decision is recoverable from the logs)
 - [x] **RT-WATCHDOG-LOG-003**: When the watchdog stops a game-server task, it shall log the game, the idle count and the computed idle minutes before calling `StopTask`. (OpenSpec: game-health-checks / The basis for a shutdown decision is recoverable from the logs)
 - [x] **RT-WATCHDOG-LOG-004**: When a health-check verdict received by the watchdog is failure-derived, the watchdog shall log it at warn level with the game and the failure reason. (OpenSpec: game-health-checks / The basis for a shutdown decision is recoverable from the logs)
@@ -74,11 +73,11 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 ## Configuration
 
 - [x] **RT-WATCHDOG-CFG-001**: If `ECS_CLUSTER` is unset when the watchdog module initialises, then the watchdog shall throw at module init. (observed)
-- [x] **RT-WATCHDOG-CFG-002**: When `IDLE_CHECKS`, `MIN_PACKETS` or `CHECK_WINDOW_MINUTES` is absent from the watchdog's environment, the watchdog shall default them to 4, 100 and 15 respectively. (observed)
-- [x] **RT-WATCHDOG-CFG-003**: If the watchdog's `HEALTH_CHECKS` env var is absent or not valid JSON, then the watchdog shall treat it as an empty map without throwing, routing every game to the packet measurement. (observed)
+- [ ] **RT-WATCHDOG-CFG-002**: When `IDLE_CHECKS`, `MIN_BYTES_PER_SECOND` or `CHECK_WINDOW_MINUTES` is absent from the watchdog's environment, the watchdog shall default them to 4, 1000 and 15 respectively. (gap: the code still names the tunable `watchdogMinPackets` / `MIN_PACKETS` with default 100)
+- [x] **RT-WATCHDOG-CFG-003**: If the watchdog's `HEALTH_CHECKS` env var is absent or not valid JSON, then the watchdog shall treat it as an empty map without throwing, routing every game to the traffic measurement. (observed)
 - [x] **RT-WATCHDOG-CFG-004**: The watchdog shall resolve its AWS region from `AWS_REGION_`, then `AWS_REGION`, then `AWS_DEFAULT_REGION`, then `us-east-1`, and the infra program shall set `AWS_REGION_` on the watchdog function. (observed)
-- [x] **RT-WATCHDOG-CFG-005**: When the operator saves deployment settings, the system shall reject a `watchdogIntervalMinutes`, `watchdogIdleChecks` or `watchdogMinPackets` value that is not a positive integer. (observed)
-- [x] **RT-WATCHDOG-CFG-006**: Where `DeploymentConfig` omits the watchdog tunables, the system shall default `watchdogIntervalMinutes` to 15, `watchdogIdleChecks` to 4 and `watchdogMinPackets` to 100. (observed)
+- [ ] **RT-WATCHDOG-CFG-005**: When the operator saves deployment settings, the system shall reject a `watchdogIntervalMinutes`, `watchdogIdleChecks` or `watchdogMinBytesPerSecond` value that is not a positive integer. (gap: the code still names the tunable `watchdogMinPackets` / `MIN_PACKETS` with default 100)
+- [ ] **RT-WATCHDOG-CFG-006**: Where `DeploymentConfig` omits the watchdog tunables, the system shall default `watchdogIntervalMinutes` to 15, `watchdogIdleChecks` to 4 and `watchdogMinBytesPerSecond` to 1000. (gap: the code still names the tunable `watchdogMinPackets` / `MIN_PACKETS` with default 100)
 - [x] **RT-WATCHDOG-CFG-007**: The watchdog shall not read `deployment-config.json` or any S3 object at runtime. (observed)
 
 ## IAM
@@ -95,7 +94,7 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 
 - [x] **RT-WATCHDOG-DOC-001**: `docs/docs/guides/user.md` and `docs/diagrams/control-loops.d2` shall describe the watchdog as issuing `StopTask` only, with update-dns removing the DNS record on the resulting `STOPPED` event. (OpenSpec: operator-documentation / Documentation contains no references to removed infrastructure)
 - [ ] **RT-WATCHDOG-DOC-002**: No page under `docs/docs/**` shall describe the watchdog as writing or deleting DNS records. (OpenSpec: operator-documentation / Documentation contains no references to removed infrastructure) (gap: `docs/docs/app/settings.md:250` says DNS TTL applies to "records the watchdog Lambda writes")
-- [ ] **RT-WATCHDOG-DOC-003**: `docs/docs/guides/user.md`'s watchdog section shall describe both verdict sources, the health-check route and the `NetworkPacketsIn` route. (observed) (gap: `docs/docs/guides/user.md:85-95` describes only `NetworkPacketsIn`)
+- [ ] **RT-WATCHDOG-DOC-003**: `docs/docs/guides/user.md`'s watchdog section shall describe both verdict sources, the health-check route and the Container Insights traffic route. (observed) (gap: `docs/docs/guides/user.md:85-95` describes only the `NetworkPacketsIn` route)
 
 ## Dropped from OpenSpec
 

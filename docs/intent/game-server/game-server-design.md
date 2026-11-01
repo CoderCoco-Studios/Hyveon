@@ -181,8 +181,8 @@ The draft is stored in plaintext on disk; `ElectronStoreService` justifies this 
 ## References
 
 - Arrow doc: `docs/arrows/game-server.md`
-- EARS specs (not yet written): `docs/intent/game-server/game-server-specs.md`, prefix `GAME`
-- Parent: `docs/high-level-design.md` (not yet written)
+- EARS specs: `docs/intent/game-server/game-server-specs.md`, prefix `GAME`
+- Parent: `docs/high-level-design.md`
 - OpenSpec capabilities carried:
   - `openspec/specs/game-environment-variables/spec.md`
   - `openspec/specs/game-https-configuration/spec.md`
@@ -192,4 +192,4 @@ The draft is stored in plaintext on disk; `ElectronStoreService` justifies this 
   - `openspec/specs/game-draft-persistence/spec.md`
 - Active OpenSpec changes: `openspec/changes/add-pinned-hostname/` (unsynced), `openspec/changes/https-explicit-web-port/` and `openspec/changes/add-icmp-ingress/` (synced, unarchived); touching but owned elsewhere: `add-healthcheck-auth-type`, `embed-file-browser`
 - Docs pages: `docs/docs/app/games.md`, `docs/docs/components/management-app.md`, `docs/docs/components/infra.md`, `docs/docs/architecture.md`
-- Neighbouring leaf design docs (not yet written): `docs/intent/deployment-config/deployment-config-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/game-runtime/task-and-dns/task-and-dns-design.md`, `docs/intent/game-runtime/health-check/health-check-design.md`, `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md`, `docs/intent/operator-app/diagnostics/diagnostics-design.md`, `docs/intent/helper-task/helper-task-design.md`
+- Neighbouring leaf design docs: `docs/intent/deployment-config/deployment-config-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/game-runtime/task-and-dns/task-and-dns-design.md`, `docs/intent/game-runtime/health-check/health-check-design.md`, `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md`, `docs/intent/operator-app/diagnostics/diagnostics-design.md`, `docs/intent/helper-task/helper-task-design.md`

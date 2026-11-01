@@ -23,8 +23,8 @@ taxonomy:
   discord-bot: standalone
   helper-task: standalone
 
-# Design tree. Grouping nodes (sub-HLDs) point `detail` at their future design
-# doc under docs/intent/<group>/<group>-design.md (not yet written). Leaves point
+# Design tree. Grouping nodes (sub-HLDs) point `detail` at their design
+# doc under docs/intent/<group>/<group>-design.md. Leaves point
 # at their tree-mirrored arrow doc under docs/arrows/.
 #
 # blockedBy edges come from each arrow doc's "Cited from other leaves" section,
@@ -40,7 +40,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/iac/iac-design.md
-    next: "Write the iac sub-HLD design doc."
+    next: "Resolve the remaining sub-HLD Open Questions: the mid-operation null outputs contract, the owner of the stale passphrase sentence, and the Discord-domain ACM carve-out."
     drift: null
 
   run:
@@ -91,7 +91,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/game-runtime/game-runtime-design.md
-    next: "Write the game-runtime sub-HLD design doc."
+    next: "Implement the Container Insights idle signal (RT-WATCHDOG-CW-001/002/004/007, IAC-PROGRAM-ECS-001); nothing without a health check auto-stops until it ships."
     drift: null
 
   task-and-dns:
@@ -115,8 +115,8 @@ arrows:
     blocks: []
     blockedBy: [program, health-check]
     detail: game-runtime/watchdog.md
-    next: "Verify in a live account whether AWS/EC2 NetworkPacketsIn by NetworkInterfaceId returns datapoints for Fargate tasks, and replace the verdict source if not."
-    drift: null
+    next: "Implement the Container Insights traffic measurement and the watchdogMinBytesPerSecond tunable (Must Fix 1), tests first."
+    drift: "Verified live 2026-10-31 (us-east-2): AWS/EC2 NetworkPacketsIn returns no datapoints for Fargate ENIs; 368 no-data checks, 0 idle verdicts in 7 days; games without a health check never auto-stop."
 
   health-check:
     status: MAPPED
@@ -138,7 +138,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/operator-app/operator-app-design.md
-    next: "Write the operator-app sub-HLD design doc."
+    next: "Resolve the remaining sub-HLD Open Questions: api.* facade scope, env.ts owner, embed-file-browser status in diagnostics, entry-log rule owner, self-bridged error contract, and unlogged boot failures."
     drift: null
 
   wizard-and-bootstrap:

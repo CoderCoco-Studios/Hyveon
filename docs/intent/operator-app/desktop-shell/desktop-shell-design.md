@@ -74,7 +74,7 @@ The module's doc comment is stale in two places: it says `PulumiEngineModule`/`P
 | `DISCORD_CONFIG_STORE` | `AwsDiscordConfigStore` | `resolveDiscordConfigStoreConfig` (`:123-131`) | `outputs.awsRegion ?? getRegion()` (`:131`) |
 | `RUN_RECORD_STORE` | `AwsRunRecordStore` | `resolveRunRecordStoreConfig` (`:163-184`) | `outputs.awsRegion ?? getRegion()` (`:180`) |
 
-Every store receives a lazy resolver closure rather than a resolved config, so the container builds on a fresh install with no stack outputs. `RUN_RECORD_STORE` injects `REMOTE_FILE_STORE` so its resolver can fall back to `resolvePreApplyRunsTableName(remoteFileStore)` before the first apply (`:174-175`, `:285-293`). The region split across rows is a known open question (see Deferred). The secrets-store binding resolves credentials twice per call, once for credentials and once for the signature (`:199-200`).
+Every store receives a lazy resolver closure rather than a resolved config, so the container builds on a fresh install with no stack outputs. `RUN_RECORD_STORE` injects `REMOTE_FILE_STORE` so its resolver can fall back to `resolvePreApplyRunsTableName(remoteFileStore)` before the first apply (`:174-175`, `:285-293`). Every row's region resolves through `config.getRegion()`, the install's one region (`IAC-ENGINE-REGION-002`, owned by `iac/engine`; `docs/high-level-design.md`, decision 10); the audit, Discord-config and run-record rows still prefer `outputs.awsRegion`, which is that spec's open gap. The secrets-store binding resolves credentials twice per call, once for credentials and once for the signature (`:199-200`).
 
 ## Window Chrome
 
@@ -161,7 +161,7 @@ Polling does not pause when the window is hidden or minimised; nothing in the pr
 
 `SettingsPage` (`pages/settings.page.tsx`) is a host. It renders, in order: Watchdog Configuration (`WatchdogPanel`, `:268-272`), Cloud Health (`CloudHealthSection`, `:274-278`), Cloud Setup (engine version row plus a Reconfigure button, `:286-293`), Updates (auto-update toggle, check, download, install, `:295-371`), General (`DeploymentSettingsForm`, `:373-377`) and Diagnostics (`DiagnosticsPanel`, `:379-383`). Reconfigure replaces the whole page with `FirstRunWizard mode="reconfigure"` until it completes or is cancelled (`:250-258`).
 
-The page's own logic is the engine-version and update rows. Each models its IPC call as `'loading' | ready | 'error'` so a real failure renders different copy from an expected `null` ("Not yet provisioned") (`:15-57`). An absent `window.hyveon.iac.settings` is routed through the same rejected-promise path as an IPC failure (`:145-170`). A failed auto-update write keeps the last confirmed value and sets `writeError` rather than dropping to `'error'` (`:180-196`). Download consumes the streaming `autoUpdateDownload()` iterator and mirrors percent progress; install failures surface like a failed download (`:219-244`). These rows call `window.hyveon.iac.settings` directly, not the `api.*` facade the rest of the renderer uses.
+The page hosts the engine-version row (`APP-SHELL-SET-003`) and the Updates rows, whose behaviour is specified by `app-update-and-release` (`APP-UPDATE-UI-*`) while their code lives in this file (`docs/high-level-design.md`, "Spec ownership across segments"). Each row models its IPC call as `'loading' | ready | 'error'` so a real failure renders different copy from an expected `null` ("Not yet provisioned") (`:15-57`). An absent `window.hyveon.iac.settings` is routed through the same rejected-promise path as an IPC failure (`:145-170`). A failed auto-update write keeps the last confirmed value and sets `writeError` rather than dropping to `'error'` (`:180-196`). Download consumes the streaming `autoUpdateDownload()` iterator and mirrors percent progress; install failures surface like a failed download (`:219-244`). These rows call `window.hyveon.iac.settings` directly, not the `api.*` facade the rest of the renderer uses.
 
 The rest of the leaf is presentation code with no behaviour of its own beyond conformance to `DESIGN.md` and `index.css` tokens. Current drift:
 
@@ -198,6 +198,7 @@ The icon pipeline is a build-time script: `npm run icons:generate` (root `packag
 
 1. ✅ Windows `titleBarOverlay` height: 56 px, matching the header's `h-14` (archived `add-custom-title-bar/design.md` Open Questions; implemented at `electron-entry.ts:113`).
 2. ✅ Linux button glyphs: `lucide-react` `Minus`, `Square`/`Copy`, `X` (same Open Questions; `window-chrome.component.tsx:2,96-116`).
+3. ✅ Region source for the cloud bindings: every store resolves its region through `config.getRegion()`, never `outputs.awsRegion`, because an install has one region (`IAC-ENGINE-REGION-002`; `docs/high-level-design.md`, decision 10).
 
 ### Deferred
 
@@ -207,26 +208,25 @@ The icon pipeline is a build-time script: `npm run icons:generate` (root `packag
 4. Should the overlay colours and traffic-light geometry come from one shared source, or be pinned to `index.css` and the Tailwind layout by a test (`electron-entry.ts:60-70,113`; `index.css:11-21`)? The `electron-entry.ts:96-100` comment also names `--color-surface` where `index.css` uses `--color-card` for the header.
 5. Which file is authoritative for tokens, `DESIGN.md` or `index.css` (`DESIGN.md:23` vs `index.css:21`; `--color-card` missing from `DESIGN.md`)?
 6. Should an `api.env()` failure render distinctly from a genuine `local` environment in the env pill (`app-layout.component.tsx:28-34`)?
-7. Region of truth: the secrets and remote-file stores use `config.getRegion()` while audit, Discord-config and runs stores prefer `outputs.awsRegion` (`cloud-provider.module.ts:80,109,131,180,198`). Which is correct when they differ? Primary owner `game-runtime/task-and-dns`.
-8. Pre-apply run lock: `cloud-provider.module.ts:174-175` lets `AwsRunRecordStore` resolve its table before the first apply, but whether `RunService` takes the lock pre-apply is open in `iac/run`. Is the store-side fallback sufficient?
-9. Should the secrets-store binding resolve credentials once per call instead of twice (`cloud-provider.module.ts:199-200`)?
-10. Test gaps: `resolveDiscordConfigStoreConfig` has no test in `cloud-provider.module.test.ts`, and `electron-entry.test.ts` asserts neither the external-link redirect nor the `zoom-changed` re-position. Should they be covered?
-11. Stale comments: `app.module.ts:43-53` (engine module "no controller yet", missing `FolderUploadModule`, `NativeDialogModule`, `VolumeFilesModule`, `VolumeFilesApiModule`), `polling-provider.component.tsx:256` (`tick` vs `now`), `window-chrome.component.tsx:7` (cites archived design "(D2)"), `electron-clean-quit.spec.ts:11-14` (says `@cdktf/hcl2json` is still external). Fix in place?
-12. Duplicate poller names: should `register()` warn or throw instead of silently replacing a same-name poller (`polling-provider.component.tsx:154-157`)? Relatedly, after a same-name re-registration the old run's `finally` clears `inFlight` on the new entry (`:146-148`), which appears able to admit a concurrent fetch `[inferred]`.
-13. Should polling pause while the window is hidden or minimised? No visibility handling exists in `polling-provider.component.tsx`.
-14. Drag regions: collapse the inline `WebkitAppRegion` styles and `useAppRegionStyle` into one mechanism, and rename the helper since it is not a hook (`use-app-region-style.hook.ts:16-18`; `app-layout.component.tsx:51,71-75`; `window-chrome.component.tsx:89`)? The inline `no-drag` styles also skip the bridge check the helper performs.
-15. Branding: should the sidebar say "Game Servers" or "Hyveon", and should the duplicated brand block be extracted (`app-layout.component.tsx:77-82,108-113`; `app-topbar.component.tsx:112`)?
-16. Navigation: replace positional `monitoringItems[n]` and the `startsWith('//')` Dashboard check with explicit items (`app-nav.component.tsx:87-113`)?
-17. Dead and duplicated primitives: remove `dropdown-menu.component.tsx` (no importer) and merge `button.component.tsx`'s `stop` into `destructive` (`:13-14,25-26`)? Sweep-2 also reports the input class string copied into `native-select` and `textarea` `[unverified]`.
-18. Relative-time formatting: `polling-indicator.component.tsx:96-102` has its own formatter separate from `use-log-tail.hook.ts`; should they share one helper (`lib/format.utils.ts`)?
-19. Should the Settings update rows go through the `api.*` facade like the rest of the renderer instead of calling `window.hyveon.iac.settings` directly (`settings.page.tsx:150,161,181,205,222,237`)?
-20. Linux native title bar: the archived design names migrating Linux to Electron's native `titleBarOverlay` as a future change (D3). Is that still planned, and would it retire `WindowControls` and the `window.*` request channels?
-21. Is the decorative "OP" avatar (`app-topbar.component.tsx:122-129`) compatible with "the chrome exposes no non-functional controls"? It is `aria-hidden` and not a control, but it implies an account feature that does not exist.
+7. Pre-apply run lock: `cloud-provider.module.ts:174-175` lets `AwsRunRecordStore` resolve its table before the first apply, but whether `RunService` takes the lock pre-apply is open in `iac/run`. Is the store-side fallback sufficient?
+8. Should the secrets-store binding resolve credentials once per call instead of twice (`cloud-provider.module.ts:199-200`)?
+9. Test gaps: `resolveDiscordConfigStoreConfig` has no test in `cloud-provider.module.test.ts`, and `electron-entry.test.ts` asserts neither the external-link redirect nor the `zoom-changed` re-position. Should they be covered?
+10. Stale comments: `app.module.ts:43-53` (engine module "no controller yet", missing `FolderUploadModule`, `NativeDialogModule`, `VolumeFilesModule`, `VolumeFilesApiModule`), `polling-provider.component.tsx:256` (`tick` vs `now`), `window-chrome.component.tsx:7` (cites archived design "(D2)"), `electron-clean-quit.spec.ts:11-14` (says `@cdktf/hcl2json` is still external). Fix in place?
+11. Duplicate poller names: should `register()` warn or throw instead of silently replacing a same-name poller (`polling-provider.component.tsx:154-157`)? Relatedly, after a same-name re-registration the old run's `finally` clears `inFlight` on the new entry (`:146-148`), which appears able to admit a concurrent fetch `[inferred]`.
+12. Should polling pause while the window is hidden or minimised? No visibility handling exists in `polling-provider.component.tsx`.
+13. Drag regions: collapse the inline `WebkitAppRegion` styles and `useAppRegionStyle` into one mechanism, and rename the helper since it is not a hook (`use-app-region-style.hook.ts:16-18`; `app-layout.component.tsx:51,71-75`; `window-chrome.component.tsx:89`)? The inline `no-drag` styles also skip the bridge check the helper performs.
+14. Branding: should the sidebar say "Game Servers" or "Hyveon", and should the duplicated brand block be extracted (`app-layout.component.tsx:77-82,108-113`; `app-topbar.component.tsx:112`)?
+15. Navigation: replace positional `monitoringItems[n]` and the `startsWith('//')` Dashboard check with explicit items (`app-nav.component.tsx:87-113`)?
+16. Dead and duplicated primitives: remove `dropdown-menu.component.tsx` (no importer) and merge `button.component.tsx`'s `stop` into `destructive` (`:13-14,25-26`)? Sweep-2 also reports the input class string copied into `native-select` and `textarea` `[unverified]`.
+17. Relative-time formatting: `polling-indicator.component.tsx:96-102` has its own formatter separate from `use-log-tail.hook.ts`; should they share one helper (`lib/format.utils.ts`)?
+18. Should the Settings update rows go through the `api.*` facade like the rest of the renderer instead of calling `window.hyveon.iac.settings` directly (`settings.page.tsx:150,161,181,205,222,237`)?
+19. Linux native title bar: the archived design names migrating Linux to Electron's native `titleBarOverlay` as a future change (D3). Is that still planned, and would it retire `WindowControls` and the `window.*` request channels?
+20. Is the decorative "OP" avatar (`app-topbar.component.tsx:122-129`) compatible with "the chrome exposes no non-functional controls"? It is `aria-hidden` and not a control, but it implies an account feature that does not exist.
 
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/desktop-shell.md`
-- EARS specs (not yet written): `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md`
+- EARS specs: `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md`
 - OpenSpec (owned): `openspec/specs/custom-title-bar/spec.md`, `openspec/specs/app-icon/spec.md`
 - OpenSpec (cited, UI-integrity requirements only): `openspec/specs/desktop-only-operator-surface/spec.md`
 - Archived design: `openspec/changes/archive/2026-08-14-add-custom-title-bar/design.md`

@@ -10,7 +10,8 @@ The run lifecycle works end to end through the IaC page and history, but `partia
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/iac/iac-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/iac/run/run-design.md`
@@ -124,19 +125,20 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/run/run-specs.md`; 
 
 ### Must Fix
 1. Persist and restore `partialApply` in `AwsRunRecordStore.putRecord`/`toRunRecord`, with a store test (finding 1). (specs: `IAC-RUN-STORE-007`, `IAC-RUN-STORE-008`, `IAC-RUN-PART-005`)
-2. Give `RunService.createRun`/`releaseRun` the same pre-apply runs-table fallback `RunRecordService` uses, or document the first-apply exception in the spec (finding 2). (specs: `IAC-RUN-LOCK-009`)
+2. Give `RunService.createRun`, `releaseRun` and the durable lock lookup the same pre-apply runs-table fallback `RunRecordService` uses, so the first apply on a fresh install holds the durable lock (finding 2; `iac-design.md`, decision 4). (specs: `IAC-RUN-LOCK-009`)
 3. Escape `status` with `ExpressionAttributeNames` in the status-filtered `listRuns` query and verify against real DynamoDB (finding 3). (specs: `IAC-RUN-HIST-004`)
 
 ### Should Fix
-4. Redact env values in destroy output and add a test (finding 5). (specs: `IAC-RUN-DSTR-013`)
+4. Redact env values in destroy output and add a test (finding 5). (specs: `IAC-ENGINE-REDACT-002`, owned by `iac/engine`)
 5. Move the destroy token onto `LockClearConfirmationGate` and add a gate test (finding 6). (specs: `IAC-RUN-DSTR-014`, `IAC-RUN-LCLR-008`)
 6. Import `APPROVAL_WINDOW_MS`/`isApprovalExpired` from `@hyveon/shared` in `iac.page.tsx` (finding 7). (specs: `IAC-RUN-APPR-006`)
 7. Extract the shared streaming loop in `iac.controller.ts` and the chunk setup in `PulumiService` (finding 9). (specs: `IAC-RUN-IPC-008`)
 8. Decide whether rollback confirm should stream its plan or drop the unused chunk channel (finding 8). (specs: `IAC-RUN-RBK-010`)
 9. Reconcile `orchestrator-integration-coverage` with the stub-replaces-`PulumiService` harness (finding 10). (specs: `IAC-RUN-ITEST-005`, `IAC-RUN-ITEST-007`)
 10. Replace the 200-record client-side lookup in run detail with a get-by-id call (finding 4). (specs: `IAC-RUN-DETL-004`)
+11. Split `PulumiService.ts` along the run/engine seam so this leaf's run gates, locking and run lifecycle sit in files separate from `iac/engine`'s plumbing, as its own pure-refactor change with no behaviour change; this removes the `run` <-> `engine` cycle in `docs/arrows/index.yaml` (`iac-design.md`, decision 10). Tracked with the matching Should Fix item in `docs/arrows/iac/engine.md`.
 
 ### Nice to Have
-11. Remove stale issue numbers, `runs_table_name` and HTTP references (finding 12). (specs: `IAC-RUN-STORE-009`)
-12. Drop or honour the ignored `force` on `iac.output` (finding 11).
-13. Server-side kind filter or a clearer empty state on history (finding 13).
+12. Remove stale issue numbers, `runs_table_name` and HTTP references (finding 12). (specs: `IAC-RUN-STORE-009`)
+13. Drop or honour the ignored `force` on `iac.output` (finding 11).
+14. Server-side kind filter or a clearer empty state on history (finding 13).

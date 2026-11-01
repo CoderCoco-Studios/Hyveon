@@ -10,7 +10,8 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/operator-app/operator-app-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md`
@@ -64,7 +65,7 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 - `app/packages/desktop-main/src/app.module.ts` (desktop-shell): the Nest module tree the bridge dispatches into.
 - `app/packages/web/src/app.component.tsx` (desktop-shell): first-run gate that tolerates a missing `window.hyveon.wizard` for the chromium tier (`app.component.tsx:34-43`).
 - `app/packages/web/e2e/specs/electron-smoke.spec.ts` (desktop-shell): asserts `window.hyveon` is defined.
-- Self-bridged streaming controllers: `logs.controller.ts:40-52` (infra-logs), `iac.controller.ts:568-615`, `iac-runs.controller.ts:183` (iac/run), `iac-settings.controller.ts:116-119` (app-update-and-release).
+- Self-bridged streaming controllers: `logs.controller.ts:40-52` (infra-logs), `iac.controller.ts:568-615`, `iac-runs.controller.ts:183` (iac/run), `iac-settings.controller.ts:116-119` (file owned by deployment-config; the `iac.settings.autoUpdate.download` registration is app-update-and-release's and moves to a controller that leaf owns).
 - `app/packages/web/e2e/integration-specs/error-propagation.spec.ts` (`game-runtime/task-and-dns`): asserts RunTask and not-deployed errors surface as `{success:false, message}` across the bridge.
 - `requireStringArray` consumers: `discord.controller.ts:159-194` (discord-bot), `folder-upload.controller.ts:146` (helper-task).
 - Test harness (unmapped shared harness): `app/packages/web/e2e/fixtures/hyveon-http-bridge.ts` (chromium-tier `window.hyveon` shim backing the no-HTTP invariant's test half), `app/packages/web/e2e/fixtures/electron-mock.ts` and `electron-launch.ts` (mock seam), `app/packages/web/e2e/fixtures/ipc-harness.ts` (integration tier).

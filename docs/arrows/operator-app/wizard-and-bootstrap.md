@@ -11,13 +11,14 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/operator-app/operator-app-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md`
 
 ### EARS
-- `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md` (151 specs)
+- `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md` (150 specs)
 
 ### Tests
 - `app/packages/desktop-main/src/cloudformationTemplate.test.ts`
@@ -152,20 +153,21 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
-| Launch gating and completion | `APP-WIZARD-GATE-001` to `APP-WIZARD-GATE-006` | 4 | 0 | 2 |
+| Launch gating and completion | `APP-WIZARD-GATE-001` to `APP-WIZARD-GATE-006` | 4 | 0 | 1 |
 | Resumable progress | `APP-WIZARD-PROG-001` to `APP-WIZARD-PROG-008` | 8 | 0 | 0 |
 | Pick-cloud step | `APP-WIZARD-CLOUD-001` to `APP-WIZARD-CLOUD-003` | 3 | 0 | 0 |
 | Wizard shell layout and sidebar | `APP-WIZARD-SHELL-001` to `APP-WIZARD-SHELL-008` | 8 | 0 | 0 |
 | Start over (first-run reset) | `APP-WIZARD-RESET-001` to `APP-WIZARD-RESET-003` | 3 | 0 | 0 |
 | Reconfigure | `APP-WIZARD-RECONF-001` to `APP-WIZARD-RECONF-009` | 6 | 0 | 3 |
-| Stack initialization step (code owned by iac/engine) | `APP-WIZARD-STACK-001` to `APP-WIZARD-STACK-005` | 5 | 0 | 0 |
+| Stack initialization step (code owned by iac/engine) | `APP-WIZARD-STACK-001` to `APP-WIZARD-STACK-004` | 4 | 0 | 0 |
 | Guided IAM step in the wizard | `APP-WIZARD-GSTEP-001` to `APP-WIZARD-GSTEP-006` | 5 | 0 | 1 |
-| Guided IAM CloudFormation template | `APP-WIZARD-TMPL-001` to `APP-WIZARD-TMPL-011` | 9 | 0 | 2 |
+| Guided IAM CloudFormation template | `APP-WIZARD-TMPL-001` to `APP-WIZARD-TMPL-011` | 10 | 0 | 1 |
 | Guided IAM console handoff | `APP-WIZARD-CONSOLE-001` to `APP-WIZARD-CONSOLE-006` | 5 | 1 | 0 |
 | Guided IAM bootstrap key intake | `APP-WIZARD-INTAKE-001` to `APP-WIZARD-INTAKE-006` | 5 | 0 | 1 |
 | Guided IAM mandatory rotation | `APP-WIZARD-ROTATE-001` to `APP-WIZARD-ROTATE-008` | 7 | 0 | 1 |
 | Keychain requirement for guided and pasted credentials | `APP-WIZARD-KEYCH-001` to `APP-WIZARD-KEYCH-003` | 2 | 0 | 1 |
 | Region selection (guided IAM) | `APP-WIZARD-REGION-001` to `APP-WIZARD-REGION-005` | 5 | 0 | 0 |
+| One region per install | `APP-WIZARD-REGLOCK-001` | 0 | 0 | 1 |
 | AWS credentials step | `APP-WIZARD-CREDS-001` to `APP-WIZARD-CREDS-011` | 9 | 0 | 2 |
 | In-app access key rotation (non-guided) | `APP-WIZARD-ROTKEY-001` to `APP-WIZARD-ROTKEY-005` | 4 | 0 | 1 |
 | Backend bootstrap | `APP-WIZARD-BOOT-001` to `APP-WIZARD-BOOT-016` | 14 | 0 | 2 |
@@ -174,14 +176,14 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 | Cloud Health (Settings) | `APP-WIZARD-HEALTH-001` to `APP-WIZARD-HEALTH-011` | 9 | 0 | 2 |
 | Credential custody | `APP-WIZARD-CUSTODY-001` to `APP-WIZARD-CUSTODY-008` | 7 | 0 | 1 |
 
-**Summary:** 129 of 150 active specs implemented; 1 deferred; 21 gaps.
+**Summary:** 129 of 150 active specs implemented; 1 deferred; 20 gaps.
 
 ## Key Findings
 
 1. **Test-mode default lives in production code** — `WizardController.readState()` returns `wizardCompleted = this.isTestMode()` when the store key is unset (`wizard.controller.ts:166-168`), so `HYVEON_TEST_MODE=1` in a packaged build skips the first-run wizard. `isTestMode()` (`:217-219`) also re-implements `app/packages/desktop-main/src/env.ts:12`.
 2. **First-run gate fails open** — `app.component.tsx:40-54` (desktop-shell) sets `wizardCompleted=true` when `window.hyveon.wizard` is missing or `getState()` rejects, so an IPC failure drops a fresh install straight into the dashboard.
 3. **Key rotation has no caller** — `AwsProfileService.rotateActiveCredentials()` (`AwsProfileService.ts:267`) is referenced only by docs and tests; no controller exposes it, so the `aws-credentials` "In-app access key rotation" requirement is service-only.
-4. **Bootstrap secret is a CloudFormation stack output** — `iam-bootstrap.yaml:87-89` publishes `SecretAccessKey` via `!GetAtt`, readable by anyone with `cloudformation:DescribeStacks` for as long as the stack exists. Guided rotation deletes that key once the new one verifies (`GuidedIamService.rotate`, `:414`), so exposure is the window before rotation plus any run where deletion fails (the "delete failed" screen path). The access key resource uses `DeletionPolicy: RetainExceptOnCreate` (`:73`).
+4. **Bootstrap secret is a CloudFormation stack output** — `iam-bootstrap.yaml:87-89` publishes `SecretAccessKey` via `!GetAtt`, readable by anyone with `cloudformation:DescribeStacks` for as long as the stack exists. Guided rotation deletes that key once the new one verifies (`GuidedIamService.rotate`, `:414`), so exposure is the window before rotation plus any run where rotation fails before deletion (verification-failed, or a throw such as a denied `iam:CreateAccessKey`) or deletion itself fails (the "delete failed" screen path). The access key resource uses `DeletionPolicy: RetainExceptOnCreate` (`:73`). This exposure is the accepted design (APP-WIZARD-TMPL-008): the published key is a temporary credential pending rotation, active until `iam:DeleteAccessKey` succeeds.
 5. **Keychain degrade path returns ciphertext as plaintext** — `SafeStorageService.decrypt` returns the input unchanged when `isAvailable()` is false (`SafeStorageService.ts:88-93`), and `encrypt` returns plaintext (`:51-54`). Writers guard with `SafeStorageUnavailableError` (`AwsProfileService.ts:183,270`, `GuidedIamService.ts:417`), but a keychain that is locked at read time would hand base64 ciphertext to `awsCredentialSource` as the secret key. `[inferred]` consequence; the doc comment at `:78-79` acknowledges it.
 6. **Bootstrap credential error escapes the result model** — `createS3Client()` throws `BootstrapCredentialsNotConfiguredError` (`BootstrapService.ts:701-708`) and is called outside the `try` in every `ensure*` method (`:125,187,315,410`), so the controller rejects instead of returning `{ status: 'failed' }`, against `.claude/rules/logging.md` rule 2.
 7. **Runs table name ignores the operator's project name** — `wizard.controller.ts:310` always passes `DEPLOYMENT_CONFIG_DEFAULTS.projectName` to `resolveRunsTableName`, while buckets take operator-edited names.
@@ -193,15 +195,16 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 13. **Credential signature embeds the access key id** — `resolveAwsClientCredentialsWithSignature` returns `pasted:<profile>:<accessKeyId>` (`awsCredentialSource.ts:185`); not a secret, but it travels into every cache comparison. `awsClientCache.ts` has no tests.
 14. **Template placeholder substitution is single-shot** — `GuidedIamService.renderTemplate` uses `String.replace` (first occurrence only, `:210-212`); safe today because each placeholder occurs once in `iam-bootstrap.yaml:38,55`, but latent.
 15. **Reconfigure commit vs guided credentials** `[inferred]` — `commitReconfigureAnswers` sends `credentials.toStatePayload()` whenever `credentials` is not pre-completed (`use-reconfigure-answers.hook.ts:222-224`) without the `!guidedCredentials` guard the first-run path has (`first-run-wizard.component.tsx:307`), so a Reconfigure that re-runs guided IAM may overwrite the guided profile with the untouched form. Not reproduced.
+16. **Nothing stops a region change after bootstrap**: `wizard.state.save` merges any `aws.region` (`wizard.controller.ts:202-205`) and guided rotation stores `input.region` (`GuidedIamService.ts:491`), with no check for a completed bootstrap. The wizard region is the install's one region (`docs/high-level-design.md`, decision 10): it names the state backend and every client's region, and once the program takes its region from it (`IAC-ENGINE-REGION-001`) a Reconfigure that changes it would replace the whole stack on the next apply, EFS world saves included.
 
 ## Work Required
 
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-1. Stop publishing `SecretAccessKey` as a CloudFormation stack output (finding 4). (specs: `APP-WIZARD-TMPL-008`)
-2. Make `SafeStorageService.decrypt` fail loudly when the keychain is unavailable for an encrypted value instead of passing ciphertext through (finding 5). (specs: `APP-WIZARD-CUSTODY-007`)
-3. Move the `HYVEON_TEST_MODE` `wizardCompleted` default out of the production read path, and make the renderer gate fail closed (findings 1, 2). (specs: `APP-WIZARD-GATE-003`, `APP-WIZARD-GATE-004`)
+1. Make `SafeStorageService.decrypt` fail loudly when the keychain is unavailable for an encrypted value instead of passing ciphertext through (finding 5). (specs: `APP-WIZARD-CUSTODY-007`)
+2. Move the `HYVEON_TEST_MODE` `wizardCompleted` default out of the production read path, (finding 1). The gate itself fails open by design and is specified by `desktop-shell` (`APP-SHELL-GATE-004` to `-006`). (specs: `APP-WIZARD-GATE-003`)
+3. Refuse a different `aws.region` in the wizard once bootstrap has completed, and tell the operator that moving regions means destroying the stack, deleting the bootstrap resources and resetting the app (finding 16). Lands no later than `iac/engine`'s `IAC-ENGINE-REGION-001`, which makes the wizard region the program's region. (specs: `APP-WIZARD-REGLOCK-001`)
 
 ### Should Fix
 4. Wrap client creation inside each `BootstrapService.ensure*` try so credential errors return `{ status: 'failed' }` (finding 6). (specs: `APP-WIZARD-BOOT-004`)

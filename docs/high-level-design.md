@@ -36,7 +36,11 @@ Needs and acceptable cost per role are not stated: *(not yet specified)*.
 
 ## Goals
 
-*(not yet specified)*
+1. **No idle compute cost.** When no one is playing, no game compute bills: no persistent ECS Service, no load balancer, no always-on bot host. Only storage and per-request services remain.
+2. **Blank AWS account to a running game server from inside the app.** One operator on one machine goes from first launch to a running server through the packaged app alone, with no host-installed CLI and no console work beyond the guided CloudFormation upload.
+3. **Players self-serve.** Allowlisted Discord users start, stop and check servers from slash commands without the operator present and without a 24/7 process.
+4. **Adding a game is one config entry.** Every per-game resource fans out from one `gameServers` map entry.
+5. **Worlds survive restarts.** A game's saves persist across task stops and starts.
 
 ## Non-Goals
 
@@ -56,9 +60,12 @@ Product-level non-goals beyond these invariants (for example which games, clouds
 
 ## Tenets
 
-*(not yet specified, to be elicited)*
+Tie-breakers for choices no spec anticipates. Every sub-HLD and leaf inherits them.
 
-Candidates the leaf designs surface repeatedly, for the user to confirm or reject as tenets, include "one copy of every rule" (`game-server-design.md`), "pollers degrade, editors fail loudly" (`deployment-config-design.md`), "fail active rather than stop a live server" (`watchdog-design.md`, `health-check-design.md`) and "humans gate both ends of a release" (`app-update-and-release-design.md`).
+- **One copy of every rule.** Shared logic (validators, permission checks, data shapes) lives once in `@hyveon/shared` and every consumer imports it, even when that couples bundles; never fork a rule to keep a package self-contained.
+- **Pollers degrade, editors fail loudly.** Background readers tolerate failure and show stale or empty state quietly; operator-initiated writes surface every failure.
+- **Fail active.** When a server's liveness is uncertain, keep it running; an extra stretch of cost beats stopping a game someone is playing.
+- **Humans gate both ends of a release.** A person cuts every release and a person approves every install; nothing ships or updates silently.
 
 ## System Design
 
@@ -119,6 +126,7 @@ flowchart LR
   HELPER["helper-task"]
   S3[("deployment-config.json in S3")]
   OUT[("stack outputs")]
+  CWL[["CloudWatch Logs"]]
   ECS[["ECS task {game}-server"]]
   R53[["Route 53"]]
 
@@ -137,7 +145,9 @@ flowchart LR
   RUN -->|"gates, run records"| ENGINE
   ENGINE -->|"createInfraProgram"| PROGRAM
   PROGRAM -->|"chain 11: fan-out"| OUT
-  OUT --> TASK & DISCORD & HELPER & LOGS
+  OUT --> TASK & DISCORD & HELPER
+  PROGRAM -->|"declares log groups"| CWL
+  LOGS -->|"/ecs/{game}-server, /aws/lambda/{projectName}-{fn}"| CWL
   TASK -->|"RunTask / StopTask"| ECS
   DISCORD -->|"chain 5: followup RunTask"| ECS
   ECS -->|"task state change"| TASK
@@ -153,15 +163,15 @@ flowchart LR
 
 | Node | Kind | Purpose | Design doc path | Specs prefix |
 |---|---|---|---|---|
-| `iac` | sub-HLD | Turning the operator's declared setup into real AWS resources, safely and with a record of every attempt. | `docs/intent/iac/iac-design.md` (not yet written; flesh-out) | `IAC` (namespace root, owns no EARS) |
+| `iac` | sub-HLD | Turning the operator's declared setup into real AWS resources, safely and with a record of every attempt. | `docs/intent/iac/iac-design.md` | `IAC` (namespace root, owns no EARS) |
 | `iac/run` | leaf | Each plan / apply / destroy / rollback attempt as a durable record, plus the IaC, history and run-detail pages. | `docs/intent/iac/run/run-design.md` | `IAC-RUN` |
 | `iac/engine` | leaf | Runs Pulumi inside the app: pinned engine download, workspace, credentials, cancellation, lock recovery, cached outputs. | `docs/intent/iac/engine/engine-design.md` | `IAC-ENGINE` |
 | `iac/program` | leaf | The inline Pulumi program describing every AWS resource and the `StackOutputs` it hands back. | `docs/intent/iac/program/program-design.md` | `IAC-PROGRAM` |
-| `game-runtime` | sub-HLD | What happens to a game while it is deployed: starting, stopping, DNS, idle shutdown and liveness verdicts. | `docs/intent/game-runtime/game-runtime-design.md` (not yet written; flesh-out) | `RT` (namespace root, owns no EARS) |
+| `game-runtime` | sub-HLD | What happens to a game while it is deployed: starting, stopping, DNS, idle shutdown and liveness verdicts. | `docs/intent/game-runtime/game-runtime-design.md` | `RT` (namespace root, owns no EARS) |
 | `game-runtime/task-and-dns` | leaf | Start and stop a game's container on demand, publish its address in DNS, show live status and estimated cost. | `docs/intent/game-runtime/task-and-dns/task-and-dns-design.md` | `RT-TASK` |
 | `game-runtime/watchdog` | leaf | Automatically stop a game nobody is playing, keeping its idle counter in an ECS task tag. | `docs/intent/game-runtime/watchdog/watchdog-design.md` | `RT-WATCHDOG` |
 | `game-runtime/health-check` | leaf | Optionally ask a game over HTTP whether it is serving players, so the watchdog judges idleness by the game's own answer. | `docs/intent/game-runtime/health-check/health-check-design.md` | `RT-HEALTH` |
-| `operator-app` | sub-HLD | The desktop application itself and the operator-facing jobs about the app or the AWS account rather than a game. | `docs/intent/operator-app/operator-app-design.md` (not yet written; flesh-out) | `APP` (namespace root, owns no EARS) |
+| `operator-app` | sub-HLD | The desktop application itself and the operator-facing jobs about the app or the AWS account rather than a game. | `docs/intent/operator-app/operator-app-design.md` | `APP` (namespace root, owns no EARS) |
 | `operator-app/wizard-and-bootstrap` | leaf | First launch and Reconfigure: connect an AWS account, pick a region, create buckets and runs table, check permissions, keep credentials safe. | `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md` | `APP-WIZARD` |
 | `operator-app/diagnostics` | leaf | The app's own log, the support bundle export, renderer crash forwarding, and the audit trail. | `docs/intent/operator-app/diagnostics/diagnostics-design.md` | `APP-DIAG` |
 | `operator-app/infra-logs` | leaf | Read a game's or a Lambda's CloudWatch logs inside the app: live tail, pause, page back. | `docs/intent/operator-app/infra-logs/infra-logs-design.md` | `APP-LOGS` |
@@ -174,6 +184,13 @@ flowchart LR
 | `helper-task` | leaf | Putting files onto a game's EFS volume: the throwaway FileBrowser task, folder upload with pinned TLS, and seeding during deploy. | `docs/intent/helper-task/helper-task-design.md` | `HELPER` |
 
 Index `unmapped.docs` (operator documentation, screenshot capture, Node toolchain version) sits outside the tree; see `docs/arrows/_map-codebase/final-clustering.md` §1.
+
+### Spec ownership across segments
+
+An EARS spec lives in the leaf whose behaviour (capability) it specifies, even when the code that implements it sits in a file another leaf owns.
+`@spec` annotations may therefore cross segment boundaries: one file can carry annotations citing several leaves' specs, and each annotation sits at the entry point of that leaf's behaviour within the file.
+For example, the Settings page's Updates rows are specified by `operator-app/app-update-and-release` (`APP-UPDATE-UI-*`) and the nested Logs sidebar group by `operator-app/infra-logs` (`APP-LOGS-NAV-*`), while both are implemented in files owned by `operator-app/desktop-shell`; the wizard's stack-initialization step is specified by `operator-app/wizard-and-bootstrap` (`APP-WIZARD-STACK-*`) while its code sits with `iac/engine`.
+File ownership decides which leaf's arrow doc lists a file under its code; spec ownership decides which leaf's EARS a behaviour is written in and which segment a change to that behaviour cascades through.
 
 ## Key Design Decisions
 
@@ -225,11 +242,34 @@ Rationale is marked `[stated]` when the cited source gives it and `[inferred]` w
    Rationale `[stated]`: the desktop app and both Discord Lambdas must evaluate permissions identically, and the barrel is bundled into every Lambda and imported by the renderer, so a new SDK import there bloats every bundle (`CLAUDE.md:97-103`).
    Alternative rejected `[inferred]`: per-consumer copies of validators and permission checks.
 
+10. **One AWS region per install, chosen in the first-run wizard.**
+    Cited by `engine-design.md`, `wizard-and-bootstrap-design.md`, `deployment-config-design.md`, `task-and-dns-design.md`, `desktop-shell-design.md`; sub-HLD decisions in `iac-design.md` and `operator-app-design.md`.
+    The wizard region (electron-store `aws.region`) is the only region: bootstrap creates the state and configuration buckets and the runs table in it, the state backend URL names it, the infra program's `awsRegion` input is always set from it (any `awsRegion` stored in `deployment-config.json` is ignored), and every desktop AWS client and store resolves its region through the one resolver, `ConfigService.getRegion()` (`IAC-ENGINE-REGION-001`, `IAC-ENGINE-REGION-002`).
+    Settings shows the region read-only (`CONFIG-FORM-007`), and the wizard refuses to change it once bootstrap has completed (`APP-WIZARD-REGLOCK-001`): moving regions is a deliberate destroy of the stack and the bootstrap resources, then an app reset and a fresh run of the wizard, never a settings edit.
+    The one exception is a placement AWS mandates regardless of region, such as the CloudFront certificate for `discord.{zone}`, which must live in `us-east-1` and is declared against a dedicated `us-east-1` provider (`program.ts:175-182`).
+    Rationale `[stated]`: changing the region replaces the whole stack, including the EFS file systems that hold world saves, so it must never happen as a side effect of a form field; one region removes a choice every new AWS client would otherwise have to make, which follows the "one copy of every rule" tenet; Hyveon is single-operator, so a split between a control-plane region and a game region buys nothing.
+    Alternative rejected `[stated]`: two regions on purpose, the wizard region for the control plane and `DeploymentConfig.awsRegion` for game resources, with each client assigned one explicitly. It leaves two settings that every new client must choose between, the secrets store and helper-task clients already follow a different region rule from start/stop, and editing the game region would still replace the whole stack, EFS world saves included.
+
 ## Success Metrics
 
-*(not yet specified)*
+> The idle-stop metric is unmet until two gaps close. Games without a health check are never auto-stopped until the watchdog's Container Insights traffic measurement ships (`RT-WATCHDOG-CW-007`). Games with a health check are never auto-stopped until the health-check Lambda receives the environment it needs at load and a network path to the ECS and Secrets Manager APIs (`RT-HEALTH-PROV-003`, `RT-HEALTH-PROV-004`); until then every invoke is failure-derived and reads active.
+
+| Metric | Measures goal | Target |
+|---|---|---|
+| Compute cost while no task runs | 1 | $0 (no hourly-billed compute); monthly storage-and-state baseline under $5 |
+| Time from first launch to first running server, blank account | 2 | 30 minutes or less, in one session, zero CLI steps |
+| `/server-start` to joinable (task `RUNNING` and DNS record updated) | 3 | 3 minutes or less |
+| Idle server stopped after the last player leaves | 1 | within the configured idle window (`idle_checks` x watchdog interval) |
+| Files touched to add a game | 4 | one `gameServers` entry, no infra code change |
+| Stored secret values sent from the main process to the renderer, or written to the app log | invariant | zero; operator-typed input (pasted AWS keys, the guided-IAM bootstrap key, the Discord bot token) originates in the renderer and is sent inbound only |
 
 ## References
+
+### Sub-HLD design docs
+
+- `docs/intent/iac/iac-design.md`
+- `docs/intent/game-runtime/game-runtime-design.md`
+- `docs/intent/operator-app/operator-app-design.md`
 
 ### Leaf design docs
 

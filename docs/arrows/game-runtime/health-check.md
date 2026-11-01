@@ -10,7 +10,8 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 ## References
 
 ### HLD
-- `docs/high-level-design.md
+- `docs/high-level-design.md`
+- `docs/intent/game-runtime/game-runtime-design.md` (sub-HLD)
 
 ### LLD
 - `docs/intent/game-runtime/health-check/health-check-design.md`
@@ -77,11 +78,11 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
-| Declaration and routing | `RT-HEALTH-DECL-001` to `RT-HEALTH-DECL-006` | 6 | 0 | 0 |
+| Declaration | `RT-HEALTH-DECL-001`, `RT-HEALTH-DECL-006` (routing and invoke are `RT-WATCHDOG-ROUTE-*`, `RT-WATCHDOG-HC-*`) | 2 | 0 | 0 |
 | HTTP request | `RT-HEALTH-HTTP-001` to `RT-HEALTH-HTTP-005` | 4 | 0 | 1 |
 | Credential injection | `RT-HEALTH-AUTH-001` to `RT-HEALTH-AUTH-006` | 6 | 0 | 0 |
 | Verdict evaluation | `RT-HEALTH-EVAL-001` to `RT-HEALTH-EVAL-009` | 9 | 0 | 0 |
-| Fail-active | `RT-HEALTH-FAIL-001` to `RT-HEALTH-FAIL-006` | 5 | 0 | 1 |
+| Fail-active | `RT-HEALTH-FAIL-001` to `RT-HEALTH-FAIL-004` (the watchdog-side wrapper is `RT-WATCHDOG-HC-003`, `-004`, `-006`) | 4 | 0 | 0 |
 | Provisioning and runtime environment | `RT-HEALTH-PROV-001` to `RT-HEALTH-PROV-006` | 3 | 0 | 3 |
 | Network and permission confinement | `RT-HEALTH-NET-001` to `RT-HEALTH-NET-005` | 5 | 0 | 0 |
 | Save-time validation | `RT-HEALTH-VALID-001` to `RT-HEALTH-VALID-008` | 8 | 0 | 0 |
@@ -114,7 +115,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-runtime/health-che
 ### Must Fix
 1. Pass `ECS_CLUSTER` to the health-check function (`lambdas.ts:552`), update the pinned env test (`lambdas.test.ts:792`) and `lambdas.md:296`, or move the cluster name into the watchdog's invoke payload. (specs: `RT-HEALTH-PROV-003`)
 2. Give the function a path to ECS and Secrets Manager: VPC interface endpoints (or NAT) plus SG egress 443 to them, or drop `vpcConfig` and reach the task another way. Correct `spec.md:213-220` and `lambdas.test.ts:794-796` to match. (specs: `RT-HEALTH-PROV-004`)
-3. Land 1 and 2 together, or bound per-invoke time in the watchdog, to avoid the cascading watchdog timeout in Finding 3. (specs: `RT-HEALTH-FAIL-006`)
+3. Land 1 and 2 together, or bound per-invoke time in the watchdog, to avoid the cascading watchdog timeout in Finding 3. (specs: `RT-WATCHDOG-HC-006`)
 
 ### Should Fix
 4. Add an infra-level or contract test asserting the handler's required env is a subset of the provisioned env, so `handler.test.ts:18` can no longer mask the gap. (specs: `RT-HEALTH-PROV-005`)
