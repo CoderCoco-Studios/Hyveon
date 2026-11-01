@@ -149,7 +149,6 @@ describe('SettingsPage', () => {
 
   // @spec APP-SHELL-SET-003
   describe('Cloud Setup — Pulumi engine version row', () => {
-    // @spec APP-WIZARD-STACK-005
     it('should render the resolved engine version and the pinned version once the read resolves', async () => {
       hyveonMock.iac.settings.engineVersion.mockResolvedValue({ resolvedVersion: '3.255.0' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
