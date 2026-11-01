@@ -9,6 +9,7 @@ export interface DropZoneProps {
   children: ReactNode;
 }
 
+// @spec HELPER-FB-029
 /** Wraps the listing so files dragged from the desktop upload into the current folder. */
 export function DropZone({ disabled, onDropFiles, children }: DropZoneProps) {
   const [over, setOver] = useState(false);

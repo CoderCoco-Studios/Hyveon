@@ -87,6 +87,7 @@ afterEach(() => {
 });
 
 describe('InteractionsLambda: signature verification', () => {
+  // @spec DISCORD-AUTH-001
   it('should return 401 when the signature headers are missing', async () => {
     const res = await handler({
       headers: {},
@@ -97,18 +98,21 @@ describe('InteractionsLambda: signature verification', () => {
     expect(p.statusCode).toBe(401);
   });
 
+  // @spec DISCORD-AUTH-003
   it('should return 401 when the public key secret is unset', async () => {
     getPublicKeyMock.mockResolvedValueOnce(null);
     const res = await handler(makeEvent({ type: 1 }));
     expect(parsed(res).statusCode).toBe(401);
   });
 
+  // @spec DISCORD-AUTH-004
   it('should return 401 when ed25519 verification fails', async () => {
     verifyAsyncMock.mockResolvedValueOnce(false);
     const res = await handler(makeEvent({ type: 1 }));
     expect(parsed(res).statusCode).toBe(401);
   });
 
+  // @spec DISCORD-AUTH-004
   it('should return 401 when the signature hex contains a non-hex digit', async () => {
     // 'parseInt("0g", 16)' returns 0 rather than NaN — without pair-validation this would
     // silently decode as a valid byte and let a malformed signature reach verifyAsync.
@@ -118,6 +122,7 @@ describe('InteractionsLambda: signature verification', () => {
     expect(verifyAsyncMock).not.toHaveBeenCalled();
   });
 
+  // @spec DISCORD-AUTH-002
   it('should verify against timestamp + raw body concatenation', async () => {
     verifyAsyncMock.mockResolvedValueOnce(true);
     await handler(makeEvent({ type: 1 }, 'aa', '1234567890'));
@@ -131,6 +136,7 @@ describe('InteractionsLambda: signature verification', () => {
 });
 
 describe('InteractionsLambda: PING handshake', () => {
+  // @spec DISCORD-AUTH-006
   it('should respond with type:1 PONG on a valid PING', async () => {
     verifyAsyncMock.mockResolvedValue(true);
     const res = await handler(makeEvent({ type: 1, id: 'i1', application_id: 'app', token: 'tok' }));
@@ -170,6 +176,7 @@ describe('InteractionsLambda: APPLICATION_COMMAND dispatch', () => {
     });
   }
 
+  // @spec DISCORD-CMD-004
   it('should refuse a command from a guild that is not on the allowlist', async () => {
     const res = await handler(commandEvent({ name: 'server-start', guildId: 'GX', game: 'palworld' }));
     const body = parsed(res).body as { type: number; data: { content: string } };
@@ -178,6 +185,7 @@ describe('InteractionsLambda: APPLICATION_COMMAND dispatch', () => {
     expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(0);
   });
 
+  // @spec DISCORD-CMD-007
   it('should refuse a command when the user lacks permission for the action', async () => {
     const res = await handler(commandEvent({ name: 'server-start', userId: 'NOBODY', game: 'palworld' }));
     const body = parsed(res).body as { type: number; data: { content: string } };
@@ -186,6 +194,7 @@ describe('InteractionsLambda: APPLICATION_COMMAND dispatch', () => {
     expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(0);
   });
 
+  // @spec DISCORD-CMD-008
   it('should reply with a deferred ack and async-invoke the followup Lambda on a permitted command', async () => {
     const res = await handler(commandEvent({ name: 'server-start', userId: 'U1', game: 'palworld' }));
     const body = parsed(res).body as { type: number; data: { flags: number } };
@@ -203,6 +212,7 @@ describe('InteractionsLambda: APPLICATION_COMMAND dispatch', () => {
     expect(payload.interactionToken).toBe('tok-1');
   });
 
+  // @spec DISCORD-CMD-006
   it('should reject server-start without a game option', async () => {
     const res = await handler(commandEvent({ name: 'server-start', userId: 'U1' }));
     const body = parsed(res).body as { type: number; data: { content: string } };
@@ -210,6 +220,7 @@ describe('InteractionsLambda: APPLICATION_COMMAND dispatch', () => {
     expect(body.data.content).toMatch(/required/i);
   });
 
+  // @spec DISCORD-CMD-005
   it('should dispatch server-list without requiring a game option', async () => {
     const res = await handler(commandEvent({ name: 'server-list', userId: 'U1' }));
     const body = parsed(res).body as { type: number };
@@ -222,6 +233,7 @@ describe('InteractionsLambda: APPLICATION_COMMAND dispatch', () => {
     expect(payload.kind).toBe('list');
   });
 
+  // @spec DISCORD-CMD-005
   it('should treat server-status without a game as list-style dispatch', async () => {
     const res = await handler(commandEvent({ name: 'server-status', userId: 'U1' }));
     expect((parsed(res).body as { type: number }).type).toBe(5);
@@ -260,6 +272,7 @@ describe('InteractionsLambda: APPLICATION_COMMAND_AUTOCOMPLETE', () => {
     });
   }
 
+  // @spec DISCORD-CMD-010
   it('should return only games the caller can run and matching the partial input', async () => {
     const res = await handler(autocompleteEvent('pal'));
     const body = parsed(res).body as { type: number; data: { choices: { name: string; value: string }[] } };
@@ -267,6 +280,7 @@ describe('InteractionsLambda: APPLICATION_COMMAND_AUTOCOMPLETE', () => {
     expect(body.data.choices).toEqual([{ name: 'palworld', value: 'palworld' }]);
   });
 
+  // @spec DISCORD-CMD-010
   it('should cap autocomplete choices at 25 to satisfy the Discord limit', async () => {
     const manyGames = Array.from({ length: 50 }, (_, i) => `game${i}`);
     process.env['GAME_NAMES'] = manyGames.join(',');
@@ -282,6 +296,7 @@ describe('InteractionsLambda: APPLICATION_COMMAND_AUTOCOMPLETE', () => {
     process.env['GAME_NAMES'] = 'palworld,satisfactory';
   });
 
+  // @spec DISCORD-CMD-011
   it('should return an empty choice list when no game option is focused', async () => {
     const evt = makeEvent({
       id: 'i1',

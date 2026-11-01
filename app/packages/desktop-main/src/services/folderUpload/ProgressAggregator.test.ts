@@ -13,6 +13,7 @@ function make(bytesTotal = 1000, filesTotal = 4) {
 }
 
 describe('ProgressAggregator', () => {
+  // @spec HELPER-PROG-002
   it('should emit about every 500 ms while started and once more on stop', () => {
     const { agg, emitted } = make();
     agg.start();
@@ -21,6 +22,7 @@ describe('ProgressAggregator', () => {
     expect(emitted).toHaveLength(1 + 3 + 1);
   });
 
+  // @spec HELPER-PROG-001
   it('should report bytes, files and the current path from the counters', () => {
     const { agg } = make();
     agg.setPhase('uploading');
@@ -30,6 +32,7 @@ describe('ProgressAggregator', () => {
     expect(agg.snapshot()).toMatchObject({ phase: 'uploading', bytesDone: 250, bytesTotal: 1000, filesDone: 1, filesTotal: 4, currentPath: 'Data/a.db' });
   });
 
+  // @spec HELPER-PROG-003
   it('should roll counted bytes back when a failed attempt subtracts them, never below zero', () => {
     const { agg } = make();
     agg.addBytes(100);
@@ -51,6 +54,7 @@ describe('ProgressAggregator', () => {
     expect(agg.snapshot().bytesPerSecond).toBe(600);
   });
 
+  // @spec HELPER-PROG-001
   it('should smooth the rate and only report an ETA after enough samples', () => {
     const { agg } = make(10_000);
     agg.setPhase('uploading');

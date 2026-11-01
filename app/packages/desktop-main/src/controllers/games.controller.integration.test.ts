@@ -251,6 +251,7 @@ describe('GamesController + GamesWriteService write-then-list round trip', () =>
     vi.clearAllMocks();
   });
 
+  // @spec GAME-WRITE-013, GAME-HTTPS-003
   it('should rewrite the config JSON and show the new game as declared on a subsequent games.list when games.create writes a valid entry', async () => {
     const remoteFileStore = makeMutableRemoteFileStore(CONFIG_JSON_DECLARING_ARK);
 
@@ -377,6 +378,7 @@ describe('GamesController + GamesWriteService games.create failure paths', () =>
     vi.clearAllMocks();
   });
 
+  // @spec GAME-WRITE-001
   it("should surface code 'validation' with a per-field issue and write nothing when the proposed config has a Fargate cpu/memory mismatch", async () => {
     const remoteFileStore = makeSpyableRemoteFileStore();
     remoteFileStore.get.mockResolvedValue({
@@ -404,6 +406,7 @@ describe('GamesController + GamesWriteService games.create failure paths', () =>
     expect(mockWrite).not.toHaveBeenCalled();
   });
 
+  // @spec GAME-WRITE-002
   it("should surface code 'validation' with a name-path issue and write nothing when creating a game with an already-declared name", async () => {
     // `validateGameServer()`'s own port-collision check skips a sibling
     // whose `name` matches the proposed entry (it's designed for the
@@ -438,6 +441,7 @@ describe('GamesController + GamesWriteService games.create failure paths', () =>
     expect(mockWrite).not.toHaveBeenCalled();
   });
 
+  // @spec GAME-WRITE-008
   it("should surface code 'conflict' with the current version id when a write hits a stale etag", async () => {
     const remoteFileStore = makeSpyableRemoteFileStore();
     remoteFileStore.get

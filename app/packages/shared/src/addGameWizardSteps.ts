@@ -1,3 +1,4 @@
+// @spec GAME-WIZ-001, GAME-ENV-001
 /**
  * Ordered add-game wizard steps — the single source of truth for step
  * ordering, shared between the renderer (`@hyveon/web`'s

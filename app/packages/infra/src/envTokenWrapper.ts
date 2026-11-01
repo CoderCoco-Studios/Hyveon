@@ -33,6 +33,7 @@ function quotedWithIpSplices(value: string): string {
 }
 
 // @spec IAC-PROGRAM-TOKEN-005, IAC-PROGRAM-TOKEN-006
+// @spec GAME-TOKEN-007, GAME-TOKEN-009, GAME-TOKEN-011, GAME-TOKEN-012
 /**
  * Builds the wrapper script: retry loop against the IP-echo endpoint (wget
  * then curl, 30 × 2s), a shape check rejecting any non-IPv4 response before

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { settleVolumeResult, sortVolumeEntries } from './volume-files.utils.js';
 import { makeDirEntry, makeFileEntry } from './volume-files.test-utils.js';
 
+// @spec HELPER-FB-024
 describe('sortVolumeEntries', () => {
   it('should order names case-insensitively with a deterministic tiebreak', () => {
     const sorted = sortVolumeEntries([makeFileEntry('b'), makeFileEntry('a'), makeFileEntry('B'), makeFileEntry('A')], {

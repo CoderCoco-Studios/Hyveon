@@ -16,6 +16,7 @@ import { DeploymentConfigService } from './DeploymentConfigService.js';
 import { buildHelperVolumeLayout, type HelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
 import { SECRETS_STORE } from '../modules/cloud-provider.tokens.js';
 
+// @spec HELPER-LAUNCH-007
 /**
  * Pinned by digest on purpose: upstream FileBrowser was archived on 2026-09-01 and `v2.63.23` is its final release, so
  * there is nothing newer to track and a moving tag would only add supply-chain risk.
@@ -50,6 +51,7 @@ const SG_RULE_DESCRIPTION_PREFIX = 'hyveon-filemgr:';
 export const BROWSE_RUN_ID = 'browse';
 /** ECS task tag recording the operator IP a helper's security-group rule was opened for. */
 const OPERATOR_IP_TAG = 'OperatorIp';
+// @spec HELPER-STRAY-001
 /** Tags applied to upload helpers so they are identifiable as upload sessions. */
 export const UPLOAD_TAGS: readonly { key: string; value: string }[] = [
   { key: 'Purpose', value: 'seed-upload' },
@@ -186,6 +188,7 @@ export class FileManagerService {
     return description.slice(SG_RULE_DESCRIPTION_PREFIX.length).split(':')[0] ?? null;
   }
 
+  // @spec HELPER-REACH-005, HELPER-REACH-008
   /**
    * Revokes every app-created ingress rule whose CIDR no remaining helper needs, whichever game's description it carries.
    *
@@ -225,6 +228,7 @@ export class FileManagerService {
     return ok ? ids.length : 0;
   }
 
+  // @spec HELPER-REACH-008
   /**
    * Revokes orphaned rules (see {@link FileManagerService.revokeOrphanedRules}) treating every running helper except
    * `game`'s own as remaining; a failed helper lookup keeps the rules (fail safe).
@@ -260,6 +264,7 @@ export class FileManagerService {
     return eniId ? this.ec2.getPublicIp(eniId) : null;
   }
 
+  // @spec HELPER-UPLOAD-014, HELPER-FB-022
   /**
    * The helper's public IP once its task is RUNNING and its ENI has an address; `null` before that (or when no helper
    * exists). Used by the upload service to wait for the helper without fetching the whole file-manager status.
@@ -289,6 +294,8 @@ export class FileManagerService {
     return outputs ? this.ecs.describeStoppedReason(outputs.ecsClusterName, taskArn) : null;
   }
 
+  // @spec HELPER-REACH-001, HELPER-REACH-002, HELPER-REACH-003, HELPER-LAUNCH-001, HELPER-LAUNCH-002
+  // @spec HELPER-LAUNCH-003, HELPER-LAUNCH-008, HELPER-FB-010
   /**
    * Launches a FileBrowser helper for `game`: registers a throwaway task definition, opens the operator's `/32`, runs
    * the task and schedules its auto-stop. Every launch serves HTTPS with a per-launch certificate returned on the outcome;
@@ -489,6 +496,7 @@ export class FileManagerService {
     };
   }
 
+  // @spec HELPER-LAUNCH-004
   /**
    * Creates the one-time auto-stop schedule for a freshly launched task.
    *
@@ -514,6 +522,7 @@ export class FileManagerService {
     return scheduled ? '' : ' Warning: failed to schedule auto-stop — remember to stop it manually.';
   }
 
+  // @spec HELPER-LAUNCH-001, HELPER-LAUNCH-004
   /**
    * Stops `task`, drops `game`'s auto-stop schedule, and deregisters the throwaway task definition.
    *
@@ -529,6 +538,7 @@ export class FileManagerService {
     if (task.taskDefinitionArn) await this.ecs.deregisterTaskDefinition(task.taskDefinitionArn);
   }
 
+  // @spec HELPER-REACH-005
   /**
    * Stop the FileBrowser task for `game`. Locates it by `startedBy` tag
    * rather than task-def family since multiple revisions may have been
@@ -563,6 +573,7 @@ export class FileManagerService {
     }
   }
 
+  // @spec HELPER-FB-012, HELPER-REACH-006
   /**
    * Opens `newIp` for `game`'s helper after the operator's public IP changed: authorizes `${newIp}/32`, re-tags the task
    * `OperatorIp=newIp`, then revokes every app rule no running helper needs any more.
@@ -600,6 +611,7 @@ export class FileManagerService {
     await this.revokeOrphanedRules(outputs, remaining, new Set(), [cidr]);
   }
 
+  // @spec HELPER-STRAY-004, HELPER-REACH-005
   /**
    * Stops stray file-manager helpers: running `filemgr-*` tasks with no active run here that are at least
    * `minAgeMs` old. Deregisters their task definitions, then revokes app-created security-group rules whose game

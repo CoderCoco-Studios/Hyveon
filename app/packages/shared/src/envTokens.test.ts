@@ -43,11 +43,13 @@ describe('substituteHyveonToken', () => {
     ).toBe('a=palworld.example.com,b=palworld.example.com');
   });
 
+  // @spec GAME-TOKEN-004
   it('should leave non-hyveon placeholders byte-for-byte untouched', () => {
     expect(substituteHyveonToken('${JAVA_OPTS} ${hyveon.network.public-address}', HYVEON_ENV_TOKENS.publicAddress, 'x.example.com')).toBe('${JAVA_OPTS} x.example.com');
   });
 });
 
+// @spec GAME-TOKEN-001
 describe('ALLOWED_HYVEON_ENV_TOKENS', () => {
   it('should contain exactly the two v1 tokens', () => {
     expect([...ALLOWED_HYVEON_ENV_TOKENS].sort()).toEqual([

@@ -119,6 +119,7 @@ describe('NetworkingStep', () => {
     ]);
   });
 
+  // @spec GAME-PORT-008
   it('should update the visibility for the edited row when its select changes to "internal"', () => {
     const onChange = vi.fn();
     render(
@@ -185,6 +186,7 @@ describe('NetworkingStep', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Expected number, received null');
   });
 
+  // @spec GAME-HTTPS-001
   describe('HTTPS toggle', () => {
     it('should render unchecked and without a callout by default', () => {
       render(<NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
@@ -235,6 +237,7 @@ describe('NetworkingStep', () => {
       expect(onHttpsChange).toHaveBeenCalledWith(false);
     });
 
+    // @spec GAME-HTTPS-014
     it('should render the warning callout, describing all three consequences, only when enabled', () => {
       render(
         <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={true} onHttpsChange={vi.fn()} webPort={null} onWebPortChange={vi.fn()}
@@ -279,6 +282,7 @@ describe('NetworkingStep', () => {
         />,
       );
 
+    // @spec GAME-HTTPS-011
     it('should render a labeled web-port field stating Caddy serves it on 443 when https is on', () => {
       renderStep();
 
@@ -287,6 +291,7 @@ describe('NetworkingStep', () => {
       expect(screen.getByText(/for example 30000/)).toBeInTheDocument();
     });
 
+    // @spec GAME-HTTPS-012
     it('should not render the web-port field or the additional-ports heading when https is off', () => {
       renderStep({ https: false });
 
@@ -335,6 +340,7 @@ describe('NetworkingStep', () => {
     });
   });
 
+  // @spec GAME-PORT-013
   describe('icmp protocol option', () => {
     it('should offer icmp in the protocol dropdown', () => {
       render(

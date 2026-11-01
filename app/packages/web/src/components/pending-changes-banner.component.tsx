@@ -60,6 +60,7 @@ function signatureFor(entries: DriftEntry[]): string {
     .join('|');
 }
 
+// @spec CONFIG-BANNER-001, CONFIG-BANNER-002, CONFIG-BANNER-003, CONFIG-BANNER-004, CONFIG-BANNER-005
 /**
  * Persistent dashboard banner — "Configuration changed, n changes pending —
  * run plan and apply on the Infrastructure page to deploy". Polls

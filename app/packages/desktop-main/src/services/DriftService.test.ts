@@ -46,6 +46,7 @@ function makeDeploymentConfig(declared: GameServer[] = []): DeploymentConfigServ
 }
 
 describe('computeDrift', () => {
+  // @spec CONFIG-DRIFT-003
   it('should report pending_create when a declared game is absent from deployedNames', () => {
     const ark = buildGameServer('ark');
 
@@ -54,12 +55,14 @@ describe('computeDrift', () => {
     expect(result).toEqual({ entries: [{ game: 'ark', kind: 'pending_create' }] });
   });
 
+  // @spec CONFIG-DRIFT-004
   it('should report pending_delete when a deployed game is absent from declared', () => {
     const result = computeDrift([], null, ['minecraft']);
 
     expect(result).toEqual({ entries: [{ game: 'minecraft', kind: 'pending_delete' }] });
   });
 
+  // @spec CONFIG-DRIFT-005
   it('should report config_drift with the exact set of changed fields when declared and applied configs differ', () => {
     const declared = buildGameServer('minecraft', { cpu: 2048, ports: [{ container: 25566, protocol: 'tcp' }] });
     const applied = { image: 'example/image:latest', cpu: 1024, memory: 2048, ports: [{ container: 25565, protocol: 'tcp' }], volumes: [{ name: 'saves', container_path: '/data' }] };
@@ -94,6 +97,7 @@ describe('computeDrift', () => {
     });
   });
 
+  // @spec CONFIG-DRIFT-002
   it('should use game_names as the deployed set (not treat it as empty) when applied_game_servers is null but the game is already listed in game_names', () => {
     const minecraft = buildGameServer('minecraft');
 
@@ -110,6 +114,7 @@ describe('computeDrift', () => {
     expect(result).toEqual({ entries: [{ game: 'minecraft', kind: 'pending_delete' }] });
   });
 
+  // @spec CONFIG-DRIFT-006
   it('should not report config_drift for ports/volumes that differ only in element order', () => {
     const declared = buildGameServer('minecraft', {
       ports: [
@@ -140,6 +145,7 @@ describe('computeDrift', () => {
     expect(result).toEqual({ entries: [] });
   });
 
+  // @spec CONFIG-DRIFT-006
   it('should not report config_drift between a legacy applied https snapshot and its normalised declared form', () => {
     const declared = buildGameServer('foundry', {
       https: true,
@@ -161,6 +167,7 @@ describe('computeDrift', () => {
     expect(computeDrift([declared], { foundry: applied }, ['foundry'])).toEqual({ entries: [] });
   });
 
+  // @spec CONFIG-DRIFT-005
   it('should report ports drift when only webPort changed', () => {
     const declared = buildGameServer('foundry', { https: true, webPort: 30001, ports: [] });
     const applied = { ...declared, webPort: 30000 };
@@ -232,12 +239,14 @@ describe('computeDrift', () => {
 
 describe('DriftService', () => {
   describe('getDrift', () => {
+    // @spec CONFIG-DRIFT-001
     it('should NOT invalidate the stack-outputs cache — this method backs a 30-second dashboard poll, and eagerly invalidating a cache fronting an expensive Pulumi round-trip would turn an idle dashboard into a steady stream of engine-resolution + S3 calls', async () => {
       const config = makeConfig();
       await new DriftService(makeDeploymentConfig(), config).getDrift();
       expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
+    // @spec CONFIG-DRIFT-001
     it('should invalidate the DeploymentConfigService cache before reading state', async () => {
       const deploymentConfig = makeDeploymentConfig();
       await new DriftService(deploymentConfig, makeConfig()).getDrift();
@@ -313,6 +322,7 @@ describe('DriftService', () => {
       });
     });
 
+    // @spec CONFIG-DRIFT-009
     it('should log a warning and rethrow with just the message when getGameServers fails', async () => {
       vi.mocked(logger.warn).mockClear();
       const deploymentConfig = {

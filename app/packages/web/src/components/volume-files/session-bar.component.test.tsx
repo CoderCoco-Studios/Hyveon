@@ -10,6 +10,7 @@ afterEach(() => {
 });
 
 describe('SessionBar', () => {
+  // @spec HELPER-FB-020
   it('should report once when the auto-stop countdown reaches zero', async () => {
     vi.useFakeTimers();
     const onAutoStopDue = vi.fn();
@@ -33,6 +34,7 @@ describe('SessionBar', () => {
       return onStop;
     }
 
+    // @spec HELPER-FB-017
     it('should confirm before stopping while a download runs with no upload holders', async () => {
       const onStop = renderBar(0, true);
 
@@ -53,6 +55,7 @@ describe('SessionBar', () => {
       expect(screen.queryByText('This cancels the running transfer.')).not.toBeInTheDocument();
     });
 
+    // @spec HELPER-FB-017
     it('should confirm before stopping while an upload holder is present', async () => {
       const onStop = renderBar(1, false);
 

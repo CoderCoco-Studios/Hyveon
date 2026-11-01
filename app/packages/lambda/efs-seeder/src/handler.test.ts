@@ -30,6 +30,7 @@ describe('efs-seeder handler', () => {
     vi.restoreAllMocks();
   });
 
+  // @spec HELPER-SEED-004
   it('should write a UTF-8 text seed to the correct EFS path', async () => {
     await handler({
       game: GAME,
@@ -48,6 +49,7 @@ describe('efs-seeder handler', () => {
     );
   });
 
+  // @spec HELPER-SEED-004
   it('should write a binary seed decoded from base64', async () => {
     const binaryContent = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
     const b64 = binaryContent.toString('base64');
@@ -65,6 +67,7 @@ describe('efs-seeder handler', () => {
     );
   });
 
+  // @spec HELPER-SEED-004
   it('should apply a custom mode when provided', async () => {
     await handler({
       game: GAME,
@@ -92,6 +95,7 @@ describe('efs-seeder handler', () => {
     expect(writeFileSyncMock).toHaveBeenCalledTimes(2);
   });
 
+  // @spec HELPER-SEED-002
   it('should throw when a seed path does not start with container_path', async () => {
     await expect(
       handler({
@@ -102,6 +106,7 @@ describe('efs-seeder handler', () => {
     ).rejects.toThrow('does not start with container_path');
   });
 
+  // @spec HELPER-SEED-002
   it('should throw when the seed path equals container_path with no file component', async () => {
     await expect(
       handler({
@@ -112,6 +117,7 @@ describe('efs-seeder handler', () => {
     ).rejects.toThrow('no file component after container_path');
   });
 
+  // @spec HELPER-SEED-002
   it('should throw on path traversal attempts', async () => {
     await expect(
       handler({
@@ -122,6 +128,7 @@ describe('efs-seeder handler', () => {
     ).rejects.toThrow();
   });
 
+  // @spec HELPER-SEED-003
   it('should throw when a seed has neither content nor content_base64', async () => {
     await expect(
       handler({
@@ -132,6 +139,7 @@ describe('efs-seeder handler', () => {
     ).rejects.toThrow('neither content nor content_base64');
   });
 
+  // @spec HELPER-SEED-003
   it('should throw when a seed sets both content and content_base64', async () => {
     await expect(
       handler({
@@ -142,6 +150,7 @@ describe('efs-seeder handler', () => {
     ).rejects.toThrow('sets both content and content_base64');
   });
 
+  // @spec HELPER-SEED-003
   it('should throw when mode is not a valid octal string', async () => {
     await expect(
       handler({

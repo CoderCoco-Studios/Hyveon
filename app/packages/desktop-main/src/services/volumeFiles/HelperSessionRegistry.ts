@@ -102,6 +102,7 @@ function isPinMismatch(err: unknown): boolean {
   return err instanceof VolumeFileError && err.code === 'pin-mismatch';
 }
 
+// @spec HELPER-FB-007, HELPER-LAYOUT-005
 /** Projects a layout onto the declared volumes a snapshot reports. */
 function volumesOf(layout: HelperVolumeLayout): SessionVolumes {
   return [
@@ -110,6 +111,7 @@ function volumesOf(layout: HelperVolumeLayout): SessionVolumes {
   ];
 }
 
+// @spec HELPER-FB-008
 /**
  * Owns the one application-managed file-manager helper session per game, shared by the file browser page and folder
  * uploads.
@@ -144,6 +146,7 @@ export class HelperSessionRegistry {
     private readonly publicIp: PublicIpService,
   ) {}
 
+  // @spec HELPER-FB-013, HELPER-FB-014, HELPER-UPLOAD-010, HELPER-SESS-001, HELPER-SESS-002
   /**
    * Adds `holder` to `game`'s session, launching the helper when none is owned, and resolves once it is ready.
    *
@@ -178,6 +181,7 @@ export class HelperSessionRegistry {
     return entry.ready;
   }
 
+  // @spec HELPER-FB-016
   /**
    * Re-holds `browse` on an existing session, cancelling its grace timer.
    *
@@ -192,6 +196,7 @@ export class HelperSessionRegistry {
     return true;
   }
 
+  // @spec HELPER-SESS-003, HELPER-STRAY-006
   /**
    * Drops `holder` from `game`'s session. Releasing `browse` always starts the grace timer, even while an upload still
    * holds the session; the last holder leaving stops the session immediately unless a grace timer is pending, in which
@@ -209,6 +214,7 @@ export class HelperSessionRegistry {
     void this.stopEntry(game, entry);
   }
 
+  // @spec HELPER-SESS-008, HELPER-FB-017, HELPER-FB-019
   /**
    * Stops `game`'s helper: runs the before-stop listeners, closes the backend, and stops the ECS task. With no owned
    * session it stops an orphaned helper instead.
@@ -237,6 +243,7 @@ export class HelperSessionRegistry {
     }
   }
 
+  // @spec HELPER-FB-019
   /**
    * Stops `game`'s helper and opens a fresh `browse` session.
    *
@@ -277,6 +284,7 @@ export class HelperSessionRegistry {
     return this.failVanishedSession(game, entry, task);
   }
 
+  // @spec HELPER-FB-012, HELPER-REACH-006
   /**
    * Runs `op` against the live backend of `game`'s session.
    *
@@ -306,6 +314,7 @@ export class HelperSessionRegistry {
     }
   }
 
+  // @spec HELPER-SESS-004, HELPER-FB-011
   /** Runs `op` on `entry`'s running backend; a pin mismatch fails the session before it is rethrown. */
   private async runOp<T>(
     game: string,
@@ -366,6 +375,7 @@ export class HelperSessionRegistry {
     return true;
   }
 
+  // @spec HELPER-FB-041
   /**
    * Whether an upload (a volume-files upload transfer or a folder-upload run) currently holds `game`'s session.
    *
@@ -411,11 +421,13 @@ export class HelperSessionRegistry {
     return () => this.beforeStopListeners.delete(listener);
   }
 
+  // @spec HELPER-QUIT-003, HELPER-FB-018
   /** Stops every owned session; never throws. */
   async stopAll(): Promise<void> {
     await Promise.allSettled([...this.entries.keys()].map((game) => this.stop(game)));
   }
 
+  // @spec HELPER-FB-021, HELPER-FB-022, HELPER-LAUNCH-002
   /** Launch body behind the entry's `ready` promise: orphan check, launch, then readiness. */
   private async launch(game: string, entry: Entry, options: AcquireOptions): Promise<AcquireResult> {
     try {
@@ -464,6 +476,7 @@ export class HelperSessionRegistry {
     return this.isStopping(entry) || this.entries.get(game) !== entry;
   }
 
+  // @spec HELPER-FB-010, HELPER-FB-021
   /**
    * Waits for the helper's public IP, builds the pinned-TLS backend, and retries login until it succeeds. Returns early,
    * unconnected, when the entry is stopped meanwhile; a pin mismatch aborts without retrying.
@@ -484,6 +497,7 @@ export class HelperSessionRegistry {
     await this.waitForLogin(game, entry, entry.backend);
   }
 
+  // @spec HELPER-UPLOAD-014
   /** Polls until the task exposes a public IP; `null` when the entry was superseded. A task that stopped first throws. */
   private async waitForHelperIp(game: string, entry: Entry): Promise<string | null> {
     const deadline = Date.now() + this.timings.helperIpTimeoutMs;
@@ -497,6 +511,7 @@ export class HelperSessionRegistry {
     }
   }
 
+  // @spec HELPER-UPLOAD-015, HELPER-FB-011
   /** Retries login while the container boots until `loginTimeoutMs`; a pin mismatch throws immediately (fail closed). */
   private async waitForLogin(game: string, entry: Entry, backend: VolumeFileBackend): Promise<void> {
     const deadline = Date.now() + this.timings.loginTimeoutMs;
@@ -512,6 +527,7 @@ export class HelperSessionRegistry {
     }
   }
 
+  // @spec HELPER-UPLOAD-016, HELPER-FB-022
   /** Appends the helper container's ECS stop reason to `message` when the task died, so the failure names its cause. */
   private async withStopReason(game: string, entry: Entry, message: string): Promise<string> {
     if (!entry.taskArn || message.includes('stopped before it was reachable')) return message;
@@ -534,6 +550,7 @@ export class HelperSessionRegistry {
     return { ok: false, code, message };
   }
 
+  // @spec HELPER-SESS-006
   /**
    * Records a failed launch, readiness wait, or live session: closes the backend, stops a task that did launch so its
    * operator-IP rule is revoked, removes the entry, and keeps the error for {@link HelperSessionRegistry.status}.
@@ -550,6 +567,7 @@ export class HelperSessionRegistry {
     return { ok: false, code: 'failed', message };
   }
 
+  // @spec HELPER-SESS-005, HELPER-FB-022
   /**
    * Handles a `running` entry whose ECS task is gone or replaced: fails it with ECS's stop reason.
    *
@@ -651,6 +669,7 @@ export class HelperSessionRegistry {
     this.entries.delete(game);
   }
 
+  // @spec HELPER-FB-015
   /** Starts the browse grace timer, which stops the session if no holder remains when it fires. */
   private startGrace(game: string, entry: Entry): void {
     this.cancelGrace(entry);
@@ -680,6 +699,7 @@ export class HelperSessionRegistry {
     }
   }
 
+  // @spec HELPER-FB-008, HELPER-FB-009
   /** Builds the caller-visible snapshot of `entry`; only the fields a snapshot is allowed to carry are read. */
   private snapshot(game: string, state: HelperSessionState, entry: Entry, error?: string): HelperSessionSnapshot {
     const holders = [...entry.holders];
@@ -696,6 +716,7 @@ export class HelperSessionRegistry {
     };
   }
 
+  // @spec HELPER-FB-019, HELPER-SESS-006
   /** Snapshot for a game with no owned session: a kept failure, an undeployed stack, an orphaned helper, or stopped. */
   private async idleSnapshot(game: string): Promise<HelperSessionSnapshot> {
     const base = { game, browseHeld: false, uploadHolders: 0, supportsArchive: false };

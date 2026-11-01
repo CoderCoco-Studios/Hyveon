@@ -25,6 +25,7 @@ beforeEach(async () => {
 afterEach(() => rm(root, { recursive: true, force: true }));
 
 describe('FolderScanService', () => {
+  // @spec HELPER-SELECT-001
   it('should build a tree with POSIX relPaths, rolled-up sizes and counts', async () => {
     const result = await new FolderScanService(new NativeDialogService()).scan(root);
     expect(result.fileCount).toBe(3);
@@ -35,12 +36,14 @@ describe('FolderScanService', () => {
     expect(data.children![0]!.children![0]).toMatchObject({ kind: 'file', relPath: 'Data/worlds/a.db', size: 100 });
   });
 
+  // @spec HELPER-SAFE-001
   it('should skip symlinks to files and directories and count them', async () => {
     const result = await new FolderScanService(new NativeDialogService()).scan(root);
     expect(result.skippedLinks).toBe(2);
     expect(JSON.stringify(result.tree)).not.toContain('link');
   });
 
+  // @spec HELPER-SELECT-001
   it('should hold the scan by id with per-file mtimes and never expose the absolute path in the result', async () => {
     const svc = new FolderScanService(new NativeDialogService());
     const result = await svc.scan(root);
@@ -50,6 +53,7 @@ describe('FolderScanService', () => {
     expect(JSON.stringify(result)).not.toContain(root);
   });
 
+  // @spec HELPER-SELECT-007
   it('should evict the oldest scans beyond the retention limit', async () => {
     const svc = new FolderScanService(new NativeDialogService());
     const first = await svc.scan(root);

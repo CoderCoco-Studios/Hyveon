@@ -173,6 +173,7 @@ async function deleteDns(dnsName: string): Promise<void> {
 }
 
 // @spec RT-TASK-NOTIFY-001, RT-TASK-NOTIFY-002, RT-TASK-NOTIFY-003, RT-TASK-NOTIFY-004
+// @spec DISCORD-MSG-006
 /**
  * If a Discord interaction is pending for this task, PATCH it with the resolved
  * hostname/IP (or an error message when `publicIp` is `null`) and delete the pending row.

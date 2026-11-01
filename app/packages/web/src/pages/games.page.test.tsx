@@ -157,6 +157,7 @@ describe('GamesPage', () => {
     expect(screen.getByText('Pending deploy')).toBeInTheDocument();
   });
 
+  // @spec GAME-IPC-006
   it('should render a "Config drift" chip for a declared and deployed game whose config has drifted', async () => {
     apiMock.games.mockResolvedValue({ games: [declaredDeployed, declaredOnly, ghostRow, configDrifted] });
     renderPage(<GamesPage />, { initialEntries: ['/games'] });
@@ -256,6 +257,7 @@ describe('GamesPage', () => {
     expect(banner.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // @spec GAME-DRAFT-006
   it('should show no draft-resume banner when no draft is saved', async () => {
     renderPage(<GamesPage />, { initialEntries: ['/games'] });
 
@@ -263,6 +265,7 @@ describe('GamesPage', () => {
     expect(screen.queryByText(/Unfinished draft/i)).not.toBeInTheDocument();
   });
 
+  // @spec GAME-DRAFT-006
   it('should show a Resume/Discard banner when a draft is saved', async () => {
     apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
     renderPage(<GamesPage />, { initialEntries: ['/games'] });
@@ -273,6 +276,7 @@ describe('GamesPage', () => {
     expect(screen.queryByRole('heading', { name: 'Add a game server' })).not.toBeInTheDocument();
   });
 
+  // @spec GAME-DRAFT-007
   it('should open the wizard pre-filled when Resume is clicked', async () => {
     apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
     const user = userEvent.setup();
@@ -311,6 +315,7 @@ describe('GamesPage', () => {
     expect(screen.getAllByRole('button', { name: 'Add game' })).toHaveLength(1);
   });
 
+  // @spec GAME-DRAFT-007
   it('should restore the resume/discard banner after closing a resumed draft without submitting', async () => {
     apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
     const user = userEvent.setup();

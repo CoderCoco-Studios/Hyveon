@@ -143,6 +143,7 @@ describe('DiscordConfigService construction', () => {
 });
 
 describe('DiscordConfigService.getRedacted', () => {
+  // @spec DISCORD-DESK-002
   it('should indicate when both secrets are configured and return the DDB config body', async () => {
     getConfigMock.mockResolvedValue({
       clientId: 'client-xyz',
@@ -227,6 +228,7 @@ describe('DiscordConfigService.getRedacted', () => {
     expect(getBaseConfigMock).toHaveBeenCalledTimes(1);
   });
 
+  // @spec DISCORD-DESK-003
   it('should resolve with both secrets unset instead of throwing when Pulumi stack outputs are missing', async () => {
     // Regression test: `botTokenSecretArn`/`publicKeySecretArn` throw when
     // the stack hasn't been deployed yet. That throw used to happen before
@@ -242,6 +244,7 @@ describe('DiscordConfigService.getRedacted', () => {
 });
 
 describe('DiscordConfigService.setCredentials', () => {
+  // @spec DISCORD-DESK-005, DISCORD-CFG-005
   it('should route clientId to DynamoDB and both secrets to Secrets Manager', async () => {
     const svc = makeService();
     const ok = await svc.setCredentials({ clientId: 'abc', botToken: 'tok', publicKey: 'hex' });
@@ -259,6 +262,7 @@ describe('DiscordConfigService.setCredentials', () => {
     expect(secretsPutMock).not.toHaveBeenCalled();
   });
 
+  // @spec DISCORD-DESK-005
   it('should leave a field unchanged when its key is omitted from the body', async () => {
     const svc = makeService();
     await svc.setCredentials({ publicKey: 'hex' });
@@ -267,12 +271,14 @@ describe('DiscordConfigService.setCredentials', () => {
     expect(putConfigMock).not.toHaveBeenCalled();
   });
 
+  // @spec DISCORD-DESK-005
   it('should skip Secrets Manager writes when a token field is an empty string', async () => {
     const svc = makeService();
     await svc.setCredentials({ botToken: '' });
     expect(secretsPutMock).not.toHaveBeenCalled();
   });
 
+  // @spec DISCORD-DESK-005
   it('should not wipe the stored clientId when clientId is an empty string', async () => {
     const svc = makeService();
     await svc.setCredentials({ clientId: '' });
@@ -305,6 +311,7 @@ describe('DiscordConfigService.setCredentials', () => {
 });
 
 describe('DiscordConfigService.allowedGuilds mutations', () => {
+  // @spec DISCORD-DESK-007
   it('should add a guild idempotently (no-op if already present)', async () => {
     getConfigMock.mockResolvedValue({
       clientId: '',
@@ -336,6 +343,7 @@ describe('DiscordConfigService.allowedGuilds mutations', () => {
     expect(putConfigMock).toHaveBeenCalledWith(expect.objectContaining({ allowedGuilds: ['G2'] }));
   });
 
+  // @spec DISCORD-DESK-006
   it('should refuse to remove a guild that is in the base config', async () => {
     getBaseConfigMock.mockResolvedValue({
       allowedGuilds: ['G-base'],
@@ -367,6 +375,7 @@ describe('DiscordConfigService.allowedGuilds mutations', () => {
 });
 
 describe('DiscordConfigService.setGamePermission', () => {
+  // @spec DISCORD-DESK-008
   it('should persist a sanitized permission entry for a known game', async () => {
     const svc = makeService();
     const ok = await svc.setGamePermission('palworld', {
@@ -382,6 +391,7 @@ describe('DiscordConfigService.setGamePermission', () => {
     );
   });
 
+  // @spec DISCORD-DESK-009
   it('should reject prototype-pollution game keys without writing', async () => {
     const svc = makeService();
     const ok = await svc.setGamePermission('__proto__', { userIds: [], roleIds: [], actions: [] });
@@ -406,6 +416,7 @@ describe('DiscordConfigService.deleteGamePermission', () => {
     expect(putConfigMock).toHaveBeenCalledWith(expect.objectContaining({ gamePermissions: {} }));
   });
 
+  // @spec DISCORD-DESK-009
   it('should refuse to delete with an unsafe key', async () => {
     const svc = makeService();
     const ok = await svc.deleteGamePermission('constructor');

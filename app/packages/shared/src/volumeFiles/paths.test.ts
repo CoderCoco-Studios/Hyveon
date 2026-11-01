@@ -9,11 +9,13 @@ import {
 } from './paths.js';
 
 describe('volumeFiles paths', () => {
+  // @spec HELPER-FB-031
   it('should accept the root and nested absolute paths', () => {
     expect(normalizeVolumePath('/')).toBe('/');
     expect(normalizeVolumePath('/Data/worlds/')).toBe('/Data/worlds');
   });
 
+  // @spec HELPER-FB-031
   it.each(['', 'Data', '/a/../b', '/a/./b', '/a//b', '/a\\b', '/a\0b', '..'])('should reject %j', (p) => {
     expect(isCleanVolumePath(p)).toBe(false);
     expect(() => normalizeVolumePath(p)).toThrow(VolumePathError);
@@ -23,10 +25,12 @@ describe('volumeFiles paths', () => {
     expect(isValidEntryName(n)).toBe(true);
   });
 
+  // @spec HELPER-FB-032
   it.each(['', '.', '..', 'a/b', 'a\\b', 'a\0', 'x'.repeat(256)])('should reject the entry name %j', (n) => {
     expect(isValidEntryName(n)).toBe(false);
   });
 
+  // @spec HELPER-FB-032
   it('should limit entry names by UTF-8 bytes rather than characters', () => {
     expect(isValidEntryName('é'.repeat(127))).toBe(true);
     expect(isValidEntryName('é'.repeat(128))).toBe(false);

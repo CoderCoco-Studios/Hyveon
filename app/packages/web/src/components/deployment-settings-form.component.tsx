@@ -20,6 +20,7 @@ function messagesForField(issues: DeploymentSettingsValidationIssue[], field: st
   return issues.filter((issue) => issue.path === field || issue.path.startsWith(`${field}[`)).map((issue) => issue.message);
 }
 
+// @spec CONFIG-FORM-006
 /** Self-contained deployment-settings form — see the module doc for the full contract. */
 export function DeploymentSettingsForm() {
   const {

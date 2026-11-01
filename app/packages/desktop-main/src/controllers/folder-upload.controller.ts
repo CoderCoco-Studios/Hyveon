@@ -19,6 +19,7 @@ import { isNonEmptyString, requireStringArray } from './validation.js';
 /** Push channel carrying {@link FolderUploadProgress} snapshots to every renderer window. */
 export const FOLDER_UPLOAD_PROGRESS_CHANNEL = 'folderUpload.progress';
 
+// @spec HELPER-IPC-001, HELPER-IPC-002
 /**
  * IPC-only controller for seeding a game's volume from a local folder. File contents and the helper credential never
  * cross this boundary: the renderer sees scan metadata, relative include paths, and progress snapshots only.
@@ -32,6 +33,7 @@ export class FolderUploadController implements OnModuleInit, OnModuleDestroy {
     private readonly scans: FolderScanService,
   ) {}
 
+  // @spec HELPER-PROG-002
   /**
    * Forwards progress snapshots to every open window over {@link FOLDER_UPLOAD_PROGRESS_CHANNEL}; a no-op outside
    * Electron.
@@ -45,6 +47,7 @@ export class FolderUploadController implements OnModuleInit, OnModuleDestroy {
     this.unsubscribe?.();
   }
 
+  // @spec HELPER-SELECT-001
   /** Opens the native folder dialog and scans the choice; `null` when cancelled (or outside Electron). */
   @MessagePattern('folderUpload.pickFolder')
   pickFolder(): Promise<FolderScanResult | null> {

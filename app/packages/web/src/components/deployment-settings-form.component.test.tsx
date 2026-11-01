@@ -49,6 +49,7 @@ describe('DeploymentSettingsForm', () => {
     expect(screen.getByText(/loading deployment settings/i)).toBeInTheDocument();
   });
 
+  // @spec CONFIG-FORM-001
   it('should populate every field from the loaded settings', async () => {
     render(<DeploymentSettingsForm />);
 
@@ -71,6 +72,7 @@ describe('DeploymentSettingsForm', () => {
     expect(await screen.findByLabelText('Hosted zone name')).toHaveValue('example.com');
   });
 
+  // @spec CONFIG-FORM-001
   it('should render a "finish the wizard" message when the read reports setup_incomplete', async () => {
     hyveonMock.iac.settings.get.mockResolvedValue({
       ok: false,
@@ -95,6 +97,7 @@ describe('DeploymentSettingsForm', () => {
     expect(hyveonMock.iac.settings.get).toHaveBeenCalledTimes(2);
   });
 
+  // @spec CONFIG-FORM-002
   describe('client-side validation', () => {
     it('should disable Save and show an inline issue when hostedZoneName is cleared', async () => {
       render(<DeploymentSettingsForm />);
@@ -182,6 +185,7 @@ describe('DeploymentSettingsForm', () => {
     });
   });
 
+  // @spec CONFIG-FORM-006
   describe('Discord ID chip fields', () => {
     it('should add a chip on Enter and remove it via its remove button', async () => {
       render(<DeploymentSettingsForm />);
@@ -196,6 +200,7 @@ describe('DeploymentSettingsForm', () => {
   });
 
   describe('submit', () => {
+    // @spec CONFIG-FORM-003
     it('should submit the patch with the etag last read as expectedVersionId', async () => {
       hyveonMock.iac.settings.update.mockResolvedValue({
         ok: true,
@@ -218,6 +223,7 @@ describe('DeploymentSettingsForm', () => {
       expect(toastMock.success).toHaveBeenCalledWith('Deployment settings saved');
     });
 
+    // @spec CONFIG-FORM-005
     it('should re-render the same fields with server-reported issues on a validation rejection', async () => {
       hyveonMock.iac.settings.update.mockResolvedValue({
         ok: false,
@@ -234,6 +240,7 @@ describe('DeploymentSettingsForm', () => {
       expect(screen.getByLabelText('Hosted zone name')).toHaveValue('example.com');
     });
 
+    // @spec CONFIG-FORM-005
     it('should surface a clear "reload and try again" message on a conflict, without silently retrying or overwriting', async () => {
       hyveonMock.iac.settings.update.mockResolvedValue({
         ok: false,
@@ -276,6 +283,7 @@ describe('DeploymentSettingsForm', () => {
       await waitFor(() => expect(screen.getByLabelText('DNS TTL (seconds)')).toHaveValue(999));
     });
 
+    // @spec CONFIG-FORM-005
     it('should surface the message inline for a setup_incomplete write rejection', async () => {
       hyveonMock.iac.settings.update.mockResolvedValue({
         ok: false,
@@ -300,6 +308,7 @@ describe('DeploymentSettingsForm', () => {
       expect(await screen.findByText('IPC transport failed')).toBeInTheDocument();
     });
 
+    // @spec CONFIG-FORM-004
     it('should refuse to save and never call iac.settings.update when the loaded settings carried no etag', async () => {
       hyveonMock.iac.settings.get.mockResolvedValue({ ok: true, settings: SETTINGS, etag: undefined });
       render(<DeploymentSettingsForm />);

@@ -6,6 +6,7 @@
  * while all other text (including `${OTHER_VAR}` shell syntax) is opaque.
  */
 
+// @spec GAME-TOKEN-001
 /** The v1 token catalog, keyed by a descriptive alias. */
 export const HYVEON_ENV_TOKENS = {
   /** Resolves to the game's DNS name `<game>.<zone>` at deploy time. */

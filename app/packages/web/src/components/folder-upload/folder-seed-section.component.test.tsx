@@ -36,12 +36,14 @@ describe('FolderSeedSection', () => {
     apiMock.folderClearSelection.mockResolvedValue(undefined);
   });
 
+  // @spec HELPER-SELECT-001
   it('should offer only a picker before a folder is chosen', async () => {
     render(<Harness />);
     expect(screen.getByRole('button', { name: 'Choose folder' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Destination in container')).not.toBeInTheDocument();
   });
 
+  // @spec HELPER-SELECT-002, HELPER-SAFE-003
   it('should include everything by default, default the destination, and persist the selection', async () => {
     apiMock.folderPick.mockResolvedValue(makeScan());
     render(<Harness />);
@@ -57,6 +59,7 @@ describe('FolderSeedSection', () => {
     });
   });
 
+  // @spec HELPER-SAFE-001
   it('should summarize the selection and note skipped links', async () => {
     apiMock.folderPick.mockResolvedValue(makeScan());
     render(<Harness />);
@@ -68,6 +71,7 @@ describe('FolderSeedSection', () => {
     expect(summary).toHaveTextContent('2 files selected, 30 B');
   });
 
+  // @spec HELPER-SELECT-005
   it('should report a destination outside every volume and not persist it', async () => {
     apiMock.folderPick.mockResolvedValue(makeScan());
     render(<Harness />);
@@ -80,6 +84,7 @@ describe('FolderSeedSection', () => {
     expect(apiMock.folderSetSelection).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-SELECT-005
   it('should reject a destination containing parent-directory segments', async () => {
     apiMock.folderPick.mockResolvedValue(makeScan());
     render(<Harness />);
@@ -90,6 +95,7 @@ describe('FolderSeedSection', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('without ".."');
   });
 
+  // @spec HELPER-SAFE-004
   it('should restore the persisted selection and a live scan on mount', async () => {
     apiMock.folderGetSelection.mockResolvedValue({ localPath: '/x', include: ['Config'], destination: '/data/cfg' });
     apiMock.folderRescan.mockResolvedValue(makeScan());

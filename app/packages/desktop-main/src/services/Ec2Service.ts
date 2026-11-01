@@ -81,6 +81,7 @@ export class Ec2Service {
     }
   }
 
+  // @spec HELPER-REACH-001
   /**
    * Opens `cidr` on `port` (tcp) of `securityGroupId`, tagging the rule with `description` so it can be found again
    * by {@link Ec2Service.listIngressRulesByDescriptionPrefix}. An identical rule that already exists counts as success.
@@ -114,6 +115,7 @@ export class Ec2Service {
     }
   }
 
+  // @spec HELPER-REACH-005
   /**
    * Lists the ingress rules of `securityGroupId` whose description starts with `prefix` — how the app finds rules it
    * added itself (outside Pulumi's inline set). Returns `[]` when the lookup fails, so cleanup stays best-effort.
@@ -150,6 +152,7 @@ export class Ec2Service {
     }
   }
 
+  // @spec HELPER-REACH-005
   /** Revokes the given ingress rule ids from `securityGroupId`. Best-effort: returns `false` (after logging) on failure. */
   async revokeIngressRules(securityGroupId: string, ruleIds: string[]): Promise<boolean> {
     if (ruleIds.length === 0) return true;

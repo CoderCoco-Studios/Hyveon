@@ -20,6 +20,7 @@ beforeEach(async () => {
 afterEach(() => rm(dir, { recursive: true, force: true }));
 
 describe('streamToFile', () => {
+  // @spec HELPER-XFER-002
   it('should rename the part file on success', async () => {
     const target = join(dir, 'out.bin');
     const seen: number[] = [];
@@ -32,6 +33,7 @@ describe('streamToFile', () => {
     expect(seen.reduce((a, b) => a + b, 0)).toBe(5);
   });
 
+  // @spec HELPER-XFER-002, HELPER-FB-027
   it('should leave no partial file when the source errors', async () => {
     const target = join(dir, 'out.bin');
     const source = new Readable({ read() {} });
@@ -42,6 +44,7 @@ describe('streamToFile', () => {
     expect(await readdir(dir)).toEqual([]);
   });
 
+  // @spec HELPER-XFER-002, HELPER-FB-027
   it('should leave no partial file when cancelled', async () => {
     const target = join(dir, 'out.bin');
     const controller = new AbortController();
@@ -53,6 +56,7 @@ describe('streamToFile', () => {
     expect(await readdir(dir)).toEqual([]);
   });
 
+  // @spec HELPER-XFER-002
   it('should not touch an existing target when the transfer fails', async () => {
     const target = join(dir, 'out.bin');
     await writeFile(target, 'old');
@@ -63,6 +67,7 @@ describe('streamToFile', () => {
   });
 });
 
+// @spec HELPER-XFER-002
 describe('streamToFile with an existing neighbouring file', () => {
   it('should not touch a file already named like a part file, on success or failure', async () => {
     const target = join(dir, 'out.bin');
@@ -140,6 +145,7 @@ const terminal = async (events: VolumeTransferProgress[]) => {
 };
 
 describe('TransferManager', () => {
+  // @spec HELPER-XFER-005
   it('should hold the session while the transfer runs and release it afterwards', async () => {
     const { manager, registry, events } = managerHarness();
     const id = await manager.start(spec());
@@ -148,6 +154,7 @@ describe('TransferManager', () => {
     expect(registry.release).toHaveBeenCalledWith('mc', `download:xfer-${id}`);
   });
 
+  // @spec HELPER-FB-041
   it('should hold an upload transfer as an upload holder so a game start is refused while it runs', async () => {
     const { manager, registry, events } = managerHarness();
     const id = await manager.start(spec({ kind: 'upload' }));
@@ -156,12 +163,14 @@ describe('TransferManager', () => {
     expect(registry.release).toHaveBeenCalledWith('mc', `upload:xfer-${id}`);
   });
 
+  // @spec HELPER-XFER-004
   it('should not join a session that is not running', async () => {
     const { manager, registry } = managerHarness('stopped');
     await expect(manager.start(spec())).rejects.toMatchObject({ name: 'NoSessionError' });
     expect(registry.acquire).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-XFER-006
   it('should report running progress and a final done with the saved name', async () => {
     const { manager, events } = managerHarness();
     const id = await manager.start(spec({ savedAs: 'level.dat' }));
@@ -177,6 +186,7 @@ describe('TransferManager', () => {
     expect(registry.release).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-XFER-010
   it('should cancel a running transfer by id', async () => {
     const { manager, events } = managerHarness();
     const id = await manager.start(
@@ -187,6 +197,7 @@ describe('TransferManager', () => {
     expect(last(events)?.error).toBeUndefined();
   });
 
+  // @spec HELPER-XFER-010
   it('should not cancel a transfer of another game or an unknown id', async () => {
     const { manager, events } = managerHarness();
     const id = await manager.start(spec({ run: ({ signal }) => new Promise((resolve) => signal.addEventListener('abort', () => resolve()))}));
@@ -196,6 +207,7 @@ describe('TransferManager', () => {
     await terminal(events);
   });
 
+  // @spec HELPER-SESS-008, HELPER-FB-017
   it('should abort every transfer of a game when its session is stopping', async () => {
     const { manager, events } = managerHarness();
     const wait = ({ signal }: { signal: AbortSignal }) => new Promise<void>((_r, reject) => signal.addEventListener('abort', () => reject(new Error('x'))));

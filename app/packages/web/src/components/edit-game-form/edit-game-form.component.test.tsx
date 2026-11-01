@@ -103,6 +103,7 @@ describe('EditGameForm', () => {
     expect(await screen.findByText(/collides with existing game "othergame"/i)).toBeInTheDocument();
   });
 
+  // @spec GAME-RES-005, GAME-ENV-004
   it('should prefill every field from the supplied GameServer config', async () => {
     renderForm(<EditGameForm game={sampleGame()} />);
 
@@ -118,6 +119,7 @@ describe('EditGameForm', () => {
     expect(screen.getByLabelText('Container path')).toHaveValue('/data');
   });
 
+  // @spec GAME-HOST-013
   it('should load an existing pinnedHostname with the switch on and the field filled', async () => {
     renderForm(<EditGameForm game={sampleGame({ pinnedHostname: 'my_foundry_host' })} />);
 
@@ -136,6 +138,7 @@ describe('EditGameForm', () => {
     expect('pinnedHostname' in apiMock.updateGame.mock.calls[0][0].config).toBe(false);
   });
 
+  // @spec GAME-VALID-008
   it('should render the Name field as not editable', async () => {
     renderForm(<EditGameForm game={sampleGame()} />);
 
@@ -231,6 +234,7 @@ describe('EditGameForm', () => {
     expect(pathInput).toHaveValue('/healthz');
   });
 
+  // @spec GAME-ENV-005
   it('should call api.updateGame with an added environment variable after editing and Save', async () => {
     apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
     renderForm(<EditGameForm game={sampleGame({ environment: [] })} />);
@@ -249,6 +253,7 @@ describe('EditGameForm', () => {
     );
   });
 
+  // @spec GAME-ENV-005
   it('should call api.updateGame with environment variables removed after Save', async () => {
     apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
     renderForm(<EditGameForm game={sampleGame()} />);
@@ -265,6 +270,7 @@ describe('EditGameForm', () => {
     );
   });
 
+  // @spec GAME-PORT-008
   it('should persist a port visibility change to "internal" on submit', async () => {
     apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
     renderForm(<EditGameForm game={sampleGame({ ports: [{ container: 8212, protocol: 'tcp' }] })} />);
@@ -332,6 +338,7 @@ describe('EditGameForm', () => {
   });
 
   describe('https field', () => {
+    // @spec GAME-HTTPS-001
     it('should render the HTTPS control enabled for a game declared with https: true', async () => {
       renderForm(<EditGameForm game={sampleGame({ https: true })} />);
 
@@ -344,6 +351,7 @@ describe('EditGameForm', () => {
       expect(await screen.findByLabelText('Enable HTTPS (Caddy sidecar)')).not.toBeChecked();
     });
 
+    // @spec GAME-HTTPS-002
     it('should send https: false rather than carrying the previous true forward when the control is disabled and saved', async () => {
       apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
       renderForm(<EditGameForm game={sampleGame({ https: true })} />);
@@ -359,6 +367,7 @@ describe('EditGameForm', () => {
       );
     });
 
+    // @spec GAME-HTTPS-002
     it('should still send https: true when only an unrelated field (image) is edited on an https: true game', async () => {
       apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
       renderForm(<EditGameForm game={sampleGame({ https: true, webPort: 30000 })} />);
@@ -384,6 +393,7 @@ describe('EditGameForm', () => {
       expect(screen.getByText('No additional ports.')).toBeInTheDocument();
     });
 
+    // @spec GAME-HTTPS-013
     it('should block saving when the web port is cleared and unblock it once re-entered', async () => {
       renderForm(<EditGameForm game={sampleGame({ https: true, webPort: 30000 })} />);
 

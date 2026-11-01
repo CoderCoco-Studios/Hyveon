@@ -233,6 +233,7 @@ describe('defineEcs', () => {
   });
 
   // @spec IAC-PROGRAM-ECS-006
+  // @spec GAME-PORT-011
   it('should exclude icmp port entries from portMappings, keeping only tcp/udp entries', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -449,6 +450,7 @@ describe('defineEcs', () => {
   });
 
   // @spec IAC-PROGRAM-TOKEN-001
+  // @spec GAME-TOKEN-005
   it('should substitute the public-address token with the game hostname at build time', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -475,6 +477,7 @@ describe('defineEcs', () => {
   });
 
   // @spec IAC-PROGRAM-TOKEN-003
+  // @spec GAME-TOKEN-007
   it('should inject the wrapper entryPoint and command for an ipv4-token game', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -504,6 +507,7 @@ describe('defineEcs', () => {
   });
 
   // @spec IAC-PROGRAM-TOKEN-004, IAC-PROGRAM-TOKEN-007
+  // @spec GAME-TOKEN-010, GAME-TOKEN-013
   it('should pass command through without tokens and without a wrapper', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -550,6 +554,7 @@ describe('defineEcs', () => {
     }
 
     // @spec IAC-PROGRAM-HOST-001, IAC-PROGRAM-HOST-002, IAC-PROGRAM-HOST-003
+    // @spec GAME-HOST-006, GAME-HOST-009
     it('should give an opted-in game the init container, dependsOn, read-only mount, and ephemeral volume', async () => {
       const resources = await arrangeDefineEcs({
         ...FIXTURE_GAME_SERVERS,
@@ -584,6 +589,7 @@ describe('defineEcs', () => {
     });
 
     // @spec IAC-PROGRAM-HOST-004
+    // @spec GAME-HOST-007
     it('should leave the caddy definition unchanged for an https game', async () => {
       const resources = await arrangeDefineEcs({
         ...FIXTURE_GAME_SERVERS,
@@ -598,6 +604,7 @@ describe('defineEcs', () => {
     });
 
     // @spec IAC-PROGRAM-HOST-005
+    // @spec GAME-HOST-008
     it('should not affect other games when one opts in', async () => {
       const resources = await arrangeDefineEcs({
         ...FIXTURE_GAME_SERVERS,
@@ -622,6 +629,7 @@ describe('defineEcs', () => {
     });
 
     // @spec IAC-PROGRAM-HOST-008
+    // @spec GAME-HOST-010
     it('should coexist with the ipv4 boot wrapper and keep the token in the merged NODE_OPTIONS', async () => {
       const resources = await arrangeDefineEcs({
         ...FIXTURE_GAME_SERVERS,
@@ -642,6 +650,7 @@ describe('defineEcs', () => {
     });
   });
 
+  // @spec GAME-TOKEN-006
   it('should throw naming the game and token when a public-address token is used but the hosted zone is empty', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {

@@ -115,6 +115,7 @@ test.describe('discord settings', () => {
     await expect(discord.wizardHeading()).toBeVisible();
   });
 
+  // @spec DISCORD-UI-002
   test('should render live checkmarks for satisfied wizard steps', async () => {
     // clientId set → step 1 done; botTokenSet + publicKeySet → step 2 done;
     // interactionsEndpointUrl set → step 3 done; no guilds → step 4 pending.
@@ -188,6 +189,7 @@ test.describe('discord settings', () => {
     await expect(discord.addGuildInput()).toBeVisible();
   });
 
+  // @spec DISCORD-UI-003
   test('should reject a malformed guild snowflake with an inline error', async () => {
     await seedBaseMocks(win);
     await seedDiscordMocks(win, CONFIGURED_DISCORD_CONFIG);
@@ -276,6 +278,7 @@ test.describe('discord settings', () => {
     await expect(discord.guildRowNotRegisteredBadge(VALID_GUILD_ID)).toHaveCount(0);
   });
 
+  // @spec DISCORD-UI-003
   test('should reject adding a guild that is already allowlisted', async () => {
     await seedBaseMocks(win);
     await seedDiscordMocks(win, CONFIGURED_DISCORD_CONFIG);

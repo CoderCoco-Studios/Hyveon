@@ -100,6 +100,7 @@ function isTrustFailure(err: unknown): boolean {
   return false;
 }
 
+// @spec HELPER-REACH-004, HELPER-FB-010, HELPER-FB-011
 /**
  * FileBrowser REST client for one helper. All traffic goes through an undici dispatcher whose only trust anchor is the
  * per-launch certificate and whose server-identity check compares the certificate fingerprint, so a different

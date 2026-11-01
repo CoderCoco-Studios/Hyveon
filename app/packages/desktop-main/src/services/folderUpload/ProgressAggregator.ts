@@ -7,6 +7,7 @@ const RATE_SMOOTHING = 0.3;
 /** Samples required before an ETA is reported, so a cold start does not produce a wild estimate. */
 const MIN_SAMPLES_FOR_ETA = 3;
 
+// @spec HELPER-PROG-002, HELPER-PROG-003
 /**
  * Accumulates byte/file counts from concurrent uploads and emits a {@link FolderUploadProgress} snapshot on a fixed
  * interval with a smoothed transfer rate and ETA.

@@ -4,6 +4,7 @@ import { CloudProviderModule } from './cloud-provider.module.js';
 import { DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import { DEPLOYMENT_CONFIG_SERVICE } from '../services/PulumiService.js';
 
+// @spec CONFIG-WRITE-013
 /**
  * Feature module for `DeploymentConfigService`, the S3-backed `deployment-config.json`
  * reader/parser (see `DeploymentConfigService`'s file-level doc comment for source

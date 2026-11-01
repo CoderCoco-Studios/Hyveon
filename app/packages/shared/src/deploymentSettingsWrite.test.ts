@@ -21,6 +21,7 @@ function wirePayload(patch: Record<string, unknown>): Partial<TopLevelDeployment
   return patch as unknown as Partial<TopLevelDeploymentSettings>;
 }
 
+// @spec CONFIG-SET-011
 describe('validateDeploymentSettingsPatch', () => {
   it('should return no issues for an empty patch', () => {
     expect(validateDeploymentSettingsPatch({})).toEqual([]);

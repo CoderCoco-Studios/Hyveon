@@ -85,6 +85,7 @@ export class SchedulerService {
     return `at(${when.toISOString().slice(0, 19)})`;
   }
 
+  // @spec HELPER-LAUNCH-004
   /**
    * Creates a one-time schedule that calls `ecs:StopTask` on `params.taskArn`
    * at `params.at`, then deletes itself once it fires
@@ -131,6 +132,7 @@ export class SchedulerService {
     }
   }
 
+  // @spec HELPER-LAUNCH-004
   /**
    * Deletes a schedule by name — best-effort: a schedule that already fired
    * (and self-deleted via `actionAfterCompletion: 'DELETE'`) or never existed

@@ -56,6 +56,7 @@ describe('SchedulerService', () => {
       expect(schedulerMock.commandCalls(DeleteScheduleCommand)[0]!.args[0].input.Name).toBe('filemgr-stop-minecraft');
     });
 
+    // @spec HELPER-LAUNCH-004
     it('should create a one-time schedule with the universal ecs:StopTask target, no flexible time window, and delete-after-completion', async () => {
       schedulerMock.on(DeleteScheduleCommand).resolves({});
       schedulerMock.on(CreateScheduleCommand).resolves({ ScheduleArn: 'arn:schedule' });
@@ -108,6 +109,7 @@ describe('SchedulerService', () => {
       expect(schedulerMock.commandCalls(DeleteScheduleCommand)[0]!.args[0].input.Name).toBe('filemgr-stop-minecraft');
     });
 
+    // @spec HELPER-LAUNCH-004
     it('should treat ResourceNotFoundException as a no-op, not an error', async () => {
       schedulerMock.on(DeleteScheduleCommand).rejects(
         new ResourceNotFoundException({ message: 'not found', $metadata: {} }),

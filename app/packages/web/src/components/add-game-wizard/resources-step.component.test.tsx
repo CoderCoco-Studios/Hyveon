@@ -8,6 +8,7 @@ import {
 import { ResourcesStep } from './resources-step.component.js';
 
 describe('ResourcesStep', () => {
+  // @spec GAME-RES-001, GAME-RES-002
   it('should render the vCPU slider with one snap point per Fargate cpu tier', () => {
     render(<ResourcesStep cpu={null} memory={null} onChange={() => undefined} issues={[]} />);
 
@@ -16,6 +17,7 @@ describe('ResourcesStep', () => {
     expect(cpuSlider.max).toBe(String(getFargateCpuOptions().length - 1));
   });
 
+  // @spec GAME-RES-003
   it('should only offer Fargate-valid memory pairings for the selected cpu (256 -> 512/1024/2048 MiB)', () => {
     render(<ResourcesStep cpu={256} memory={null} onChange={() => undefined} issues={[]} />);
 
@@ -78,6 +80,7 @@ describe('ResourcesStep', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  // @spec GAME-RES-004
   it('should reset memory to unset when a cpu change makes the current memory value invalid', () => {
     const onChange = vi.fn();
     // cpu=256/memory=512 is a valid pairing; cpu=512 does not accept 512 MiB.
@@ -113,6 +116,7 @@ describe('ResourcesStep', () => {
     expect(onChange).toHaveBeenCalledWith({ cpu: 256, memory: 1024 });
   });
 
+  // @spec GAME-RES-003
   it('should handle the 0.25 vCPU tier fixed 3-value memory list including the 0.5 GiB option', () => {
     render(<ResourcesStep cpu={256} memory={512} onChange={() => undefined} issues={[]} />);
 
@@ -133,6 +137,7 @@ describe('ResourcesStep', () => {
     expect(onChange).toHaveBeenCalledWith({ cpu: 16384, memory: memoryOptions[1] });
   });
 
+  // @spec GAME-RES-006
   it('should show a live hourly cost estimate matching estimateFargateHourlyCost', () => {
     render(<ResourcesStep cpu={1024} memory={2048} onChange={() => undefined} issues={[]} />);
 

@@ -24,6 +24,7 @@ export interface FolderSeedSectionProps {
   hideHeading?: boolean;
 }
 
+// @spec HELPER-SELECT-001, HELPER-SELECT-002, HELPER-SELECT-005, HELPER-SAFE-001, HELPER-SAFE-005
 /**
  * "Seed from folder" section shared by the add-game wizard's Storage step and the game page: folder picker, include
  * tree, destination field with validation against the game's volumes, and a summary.

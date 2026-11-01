@@ -105,6 +105,7 @@ export const escapeResourceOptions = {
 };
 
 // @spec IAC-PROGRAM-DATA-004, IAC-PROGRAM-DATA-005
+// @spec DISCORD-CFG-002
 /**
  * Declares the two conditional Discord table rows — see this file's doc for
  * the resource table and rationale. Must be called from inside the Pulumi
@@ -217,6 +218,7 @@ function fileSeedsHash(fileSeeds: GameServerConfig['file_seeds']): string {
 }
 
 // @spec IAC-PROGRAM-FANOUT-001, IAC-PROGRAM-SEED-001, IAC-PROGRAM-SEED-002, IAC-PROGRAM-SEED-005
+// @spec HELPER-SEED-001
 /**
  * Declares one `aws.lambda.Invocation` per game with `file_seeds` — see this
  * file's doc for the full rationale and the required `dependsOn` constraint.

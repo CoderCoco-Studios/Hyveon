@@ -74,6 +74,8 @@ export class GamesWriteService {
     private readonly audit: AuditService,
   ) {}
 
+  // @spec GAME-VALID-001, GAME-HTTPS-003, GAME-WRITE-001, GAME-WRITE-002, GAME-WRITE-003, GAME-WRITE-008
+  // @spec GAME-WRITE-009, GAME-WRITE-011, GAME-WRITE-013
   /**
    * Adds a brand-new `gameServers` entry. Validates `payload.config` via
    * `validateGameServer()` against every currently-declared game (so a port
@@ -171,6 +173,8 @@ export class GamesWriteService {
     return this.successResult('create', name, validation.data, { before: null, after: validation.data, versionId: write.versionId });
   }
 
+  // @spec GAME-VALID-001, GAME-VALID-008, GAME-HTTPS-003, GAME-WRITE-001, GAME-WRITE-003, GAME-WRITE-008
+  // @spec GAME-WRITE-011, GAME-WRITE-013
   /**
    * Replaces an existing `gameServers` entry's value in place. Validates
    * `payload.config` via `validateGameServer()` against every declared game
@@ -246,6 +250,7 @@ export class GamesWriteService {
   }
 
   // @spec RT-HEALTH-CRED-005, RT-HEALTH-CRED-006
+  // @spec GAME-WRITE-007, GAME-WRITE-008, GAME-WRITE-011, GAME-WRITE-013
   /**
    * Removes a `gameServers` entry. Skips `validateGameServer()` entirely —
    * there's no proposed config to validate — and delegates straight to

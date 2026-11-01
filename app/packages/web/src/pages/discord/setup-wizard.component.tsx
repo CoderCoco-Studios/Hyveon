@@ -2,6 +2,7 @@ import { CheckCircle2, ExternalLink, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card.component';
 import type { DiscordConfigRedacted } from '../../api.service.js';
 
+// @spec DISCORD-UI-002
 /**
  * Setup wizard shown when no guilds are allowlisted. Walks the operator through
  * Discord developer-portal steps with live green checks as each precondition

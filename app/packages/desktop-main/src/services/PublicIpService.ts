@@ -9,6 +9,7 @@ const CHECK_IP_TIMEOUT_MS = 5000;
 /** Detects the operator's current public IPv4 address, used to scope the helper's security-group rule. */
 @Injectable()
 export class PublicIpService {
+  // @spec HELPER-REACH-001
   /**
    * Asks `checkip.amazonaws.com` for the caller's public IPv4.
    *

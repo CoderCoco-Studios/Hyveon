@@ -42,6 +42,7 @@ describe('RegistryUploadBackend', () => {
     expect(backend.close).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-UPLOAD-019
   it('should not replay a consumed source stream when the registry retries a write', async () => {
     const writeStream = vi.fn().mockRejectedValue(new VolumeFileError('unreachable', 'connection reset'));
     const backend = fakeBackend({ writeStream });

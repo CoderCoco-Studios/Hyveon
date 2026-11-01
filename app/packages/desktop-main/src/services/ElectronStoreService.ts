@@ -657,6 +657,7 @@ export class ElectronStoreService {
     return this.get('folderUpload')?.[game];
   }
 
+  // @spec HELPER-SAFE-003
   /**
    * Persists the operator's folder selection for `game`, preserving its `lastRun`.
    *
@@ -675,6 +676,7 @@ export class ElectronStoreService {
     this.set('folderUpload', rest);
   }
 
+  // @spec HELPER-SAFE-003
   /** Records the outcome of the most recent upload run for `game`; a no-op when no selection was ever stored. */
   setFolderUploadLastRun(game: string, lastRun: FolderUploadLastRun): void {
     const all = this.get('folderUpload') ?? {};

@@ -17,6 +17,7 @@ function stubFetch(body: string, status = 200): ReturnType<typeof vi.fn> {
 }
 
 describe('PublicIpService', () => {
+  // @spec HELPER-REACH-001
   it('should return the trimmed IPv4 from checkip.amazonaws.com over HTTPS', async () => {
     const fn = stubFetch('203.0.113.7\n');
     expect(await new PublicIpService().detect()).toBe('203.0.113.7');

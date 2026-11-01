@@ -8,6 +8,7 @@ import { Button } from './ui/button.component.js';
 /** Client-side state of the cleanup action: idle, in flight, finished with a report, or failed. */
 type CleanupState = 'idle' | 'loading' | { status: 'done'; report: StrayHelperReport } | { status: 'error'; message: string };
 
+// @spec HELPER-STRAY-004
 /**
  * "Clean up stray helpers" Diagnostics action: stops every file-manager helper task that no active upload owns and
  * lists what it stopped, so an app that exited mid-upload cannot leave a billable task running.

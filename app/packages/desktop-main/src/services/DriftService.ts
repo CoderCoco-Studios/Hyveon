@@ -89,6 +89,7 @@ function changedFields(
   ).map(({ field }) => field);
 }
 
+// @spec CONFIG-DRIFT-003, CONFIG-DRIFT-004, CONFIG-DRIFT-005, CONFIG-DRIFT-006
 /**
  * Pure computation of a {@link DriftReport} from a declared game list
  * (`DeploymentConfigService.getGameServers()`), the applied game config snapshot
@@ -156,6 +157,7 @@ export function computeDrift(
   return { entries };
 }
 
+// @spec CONFIG-DRIFT-002
 /**
  * Derives {@link computeDrift}'s `applied`/`deployedNames` inputs from a
  * {@link StackOutputs} value and delegates. Pure — no I/O. Shared by every
@@ -188,6 +190,7 @@ export class DriftService {
     private readonly config: ConfigService,
   ) {}
 
+  // @spec CONFIG-DRIFT-001, CONFIG-DRIFT-009
   /**
    * Returns the current {@link DriftReport} — see {@link computeDrift} for
    * the classification rules. Invalidates only the `DeploymentConfigService` cache

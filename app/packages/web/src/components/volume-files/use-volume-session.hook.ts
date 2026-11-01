@@ -31,6 +31,7 @@ export interface VolumeSession {
   error: string | null;
 }
 
+// @spec HELPER-FB-015, HELPER-FB-016, HELPER-FB-021
 /**
  * Follows one game's file-browser helper session.
  *

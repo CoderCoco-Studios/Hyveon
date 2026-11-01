@@ -336,6 +336,7 @@ describe('DeploymentConfigService', () => {
     vi.clearAllMocks();
   });
 
+  // @spec CONFIG-READ-011
   describe('isConfigured', () => {
     it('should return false when no configuration bucket is configured', () => {
       const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
@@ -353,6 +354,7 @@ describe('DeploymentConfigService', () => {
     });
   });
 
+  // @spec CONFIG-READ-001
   describe('unconfigured (no disk fallback reachable)', () => {
     it('should resolve getGameServers() to [] without ever touching fs or the RemoteFileStore', async () => {
       const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
@@ -432,6 +434,7 @@ describe('DeploymentConfigService', () => {
     });
   });
 
+  // @spec CONFIG-READ-009
   describe('getRawConfig', () => {
     it('should return the raw config text plus the RemoteFileStore etag', async () => {
       remoteFileStore.get.mockResolvedValue({
@@ -446,6 +449,7 @@ describe('DeploymentConfigService', () => {
       expect(result.etag).toBe('etag-1');
     });
 
+    // @spec CONFIG-READ-002
     it('should reject when the S3 object does not exist', async () => {
       remoteFileStore.get.mockResolvedValue(undefined);
 
@@ -469,6 +473,7 @@ describe('DeploymentConfigService', () => {
       expect(mockRead).not.toHaveBeenCalled();
     });
 
+    // @spec CONFIG-MODEL-005
     it('should fetch the object keyed by the fixed CONFIGURATION_OBJECT_KEY constant, not a filesystem-path-derived key', async () => {
       remoteFileStore.get.mockResolvedValue({
         body: new TextEncoder().encode(FIXTURE_JSON),
@@ -481,6 +486,7 @@ describe('DeploymentConfigService', () => {
       expect(remoteFileStore.get).toHaveBeenCalledWith('deployment-config.json');
     });
 
+    // @spec CONFIG-READ-005
     it('should return an empty array and log when the remote config object does not exist', async () => {
       remoteFileStore.get.mockResolvedValue(undefined);
 
@@ -491,6 +497,7 @@ describe('DeploymentConfigService', () => {
     });
   });
 
+  // @spec CONFIG-READ-003, CONFIG-READ-005
   describe('parse errors', () => {
     it('should return an empty array and log when the config text is malformed JSON', async () => {
       remoteFileStore.get.mockResolvedValue({
@@ -539,6 +546,7 @@ describe('DeploymentConfigService', () => {
       expect(remoteFileStore.get).toHaveBeenCalledTimes(1);
     });
 
+    // @spec CONFIG-WRITE-010
     it('should throw a structural GameServerEntryError from addGameServer when the config JSON has no gameServers map', async () => {
       remoteFileStore.get.mockResolvedValue({
         body: new TextEncoder().encode('{"awsRegion":"us-east-1"}'),
@@ -643,6 +651,7 @@ describe('DeploymentConfigService', () => {
     });
   });
 
+  // @spec CONFIG-READ-007
   describe('legacy https normalisation on read', () => {
     /** A config whose `foundry` game uses the legacy shape (https, no `webPort`, `ports[0]` as upstream). */
     function legacyConfigJson(foundryPorts: { container: number; protocol: string }[]): string {
@@ -721,6 +730,7 @@ describe('DeploymentConfigService', () => {
       expect(remoteFileStore.get).toHaveBeenCalledTimes(1);
     });
 
+    // @spec CONFIG-READ-004
     it('should be a cache hit on a second call within the TTL, not re-reading the source', async () => {
       remoteFileStore.get.mockResolvedValue({
         body: new TextEncoder().encode(FIXTURE_JSON),

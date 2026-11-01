@@ -8,6 +8,7 @@ import {
   type DiscordMutationResult,
 } from '../../api.service.js';
 
+// @spec DISCORD-UI-002
 /**
  * Owns the Discord config's fetch/refresh/mutate lifecycle for {@link DiscordPage}'s
  * Credentials/Guilds/Admins/Permissions tabs, so the page component is just layout.

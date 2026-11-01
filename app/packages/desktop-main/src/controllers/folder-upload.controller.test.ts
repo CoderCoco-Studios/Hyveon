@@ -45,6 +45,7 @@ describe('FolderUploadController', () => {
     ] as const);
   });
 
+  // @spec HELPER-SELECT-001
   it('should delegate pickFolder to the scan service', async () => {
     const { controller, scans } = make();
     await controller.pickFolder();
@@ -57,12 +58,14 @@ describe('FolderUploadController', () => {
     expect(uploads.startUpload).toHaveBeenCalledWith({ game: 'g', scanId: 's', destination: '/data', include: [] });
   });
 
+  // @spec HELPER-IPC-002
   it('should reject a start request with no scan id or a non-array include', () => {
     const { controller } = make();
     expect(() => controller.startUpload({ game: 'g', destination: '/d', include: [] } as never)).toThrow(BadRequestException);
     expect(() => controller.startUpload({ game: 'g', scanId: 's', destination: '/d', include: 'x' } as never)).toThrow(BadRequestException);
   });
 
+  // @spec HELPER-IPC-002
   it('should reject an empty game on the per-game channels', () => {
     const { controller } = make();
     expect(() => controller.cancelUpload('')).toThrow(BadRequestException);
@@ -84,6 +87,7 @@ describe('FolderUploadController', () => {
     },
   );
 
+  // @spec HELPER-SAFE-003
   it('should persist selections and report saved', () => {
     const { controller, uploads } = make();
     expect(controller.setSelection({ game: 'g', scanId: 's', include: ['a'], destination: '/d' })).toEqual({ saved: true });
@@ -97,6 +101,7 @@ describe('FolderUploadController', () => {
     expect(() => controller.clearSelection('')).toThrow(BadRequestException);
   });
 
+  // @spec HELPER-PROG-002
   it('should not subscribe to progress outside Electron', async () => {
     const { controller, uploads } = make();
     await controller.onModuleInit();

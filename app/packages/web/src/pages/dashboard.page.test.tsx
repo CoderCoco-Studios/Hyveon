@@ -125,6 +125,7 @@ describe('DashboardPage', () => {
   });
 
   // @spec RT-TASK-UI-016
+  // @spec HELPER-FB-002
   it("should navigate to the game's files page when Files is clicked", async () => {
     const user = userEvent.setup();
     renderPage(

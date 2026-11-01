@@ -47,6 +47,7 @@ function secondsBetween(fromMs: number, toMs: number): number {
   return Math.max(0, (toMs - fromMs) / 1000);
 }
 
+// @spec HELPER-FB-020, HELPER-FB-023
 /** Elapsed time and auto-stop countdown for a running session, with the warning once the countdown is short. */
 function SessionClock({ status, onAutoStopDue }: { status: VolumeSessionStatus; onAutoStopDue?: () => void }) {
   const now = useNowTick(1000);
@@ -77,6 +78,7 @@ function SessionClock({ status, onAutoStopDue }: { status: VolumeSessionStatus; 
   );
 }
 
+// @spec HELPER-FB-017, HELPER-FB-019, HELPER-FB-020, HELPER-FB-022
 /**
  * Header strip for a game's file-browser session: state badge, clock, the actions each state allows and the failure
  * reason.

@@ -8,6 +8,7 @@ export type FolderUploadPhase =
   | 'failed'
   | 'cancelled';
 
+// @spec HELPER-OVER-002
 /** Most conflicting paths carried in an {@link OverwriteSummary}. */
 export const MAX_OVERWRITE_SAMPLES = 20;
 

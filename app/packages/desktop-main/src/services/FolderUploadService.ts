@@ -92,6 +92,7 @@ export interface StartUploadOptions {
   persistSelection?: boolean;
 }
 
+// @spec HELPER-UPLOAD-003
 /**
  * Orchestrates a folder-to-volume upload: guards, helper lifecycle, the streamed upload with resume, verification, and
  * progress/last-run reporting.
@@ -116,6 +117,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
   private readonly latest = new Map<string, FolderUploadProgress>();
   private readonly listeners = new Set<(progress: FolderUploadProgress) => void>();
 
+  // @spec HELPER-SESS-008
   constructor(
     private readonly config: ConfigService,
     private readonly deploymentConfig: DeploymentConfigService,
@@ -130,6 +132,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     });
   }
 
+  // @spec HELPER-STRAY-003
   /** Sweeps stray helpers left by a previous app session; best-effort and Electron-only. */
   onApplicationBootstrap(): void {
     if (!process.versions.electron) return;
@@ -154,6 +157,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     return this.store.getFolderUploadState(game) ?? null;
   }
 
+  // @spec HELPER-SAFE-003
   /**
    * Persists the selection described by `request` (resolving the local path from the held scan).
    *
@@ -173,12 +177,14 @@ export class FolderUploadService implements OnApplicationBootstrap {
     this.store.clearFolderUploadState(game);
   }
 
+  // @spec HELPER-SAFE-004
   /** Re-scans the persisted `localPath` for `game` so a restored selection has a live `scanId`; `null` if none stored. */
   async rescanSelection(game: string): Promise<FolderScanResult | null> {
     const state = this.store.getFolderUploadState(game);
     return state ? this.scans.scan(state.localPath) : null;
   }
 
+  // @spec HELPER-PROG-005
   /** Cancels `game`'s run in this process, if any. */
   cancel(game: string): { cancelled: boolean } {
     const run = this.active.get(game);
@@ -186,6 +192,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     return { cancelled: !!run };
   }
 
+  // @spec HELPER-OVER-003, HELPER-OVER-004
   /**
    * Answers the overwrite warning for `game`'s run: `proceed` lets the upload continue, otherwise the run is cancelled
    * (helper stopped, IP rule revoked) before any file is written.
@@ -198,6 +205,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     return { resolved: !!answer };
   }
 
+  // @spec HELPER-STRAY-004, HELPER-STRAY-005
   /** Operator-requested cleanup: stops every file-manager helper neither an active run nor the session registry owns. */
   cleanupStrayHelpers(): Promise<StrayHelperReport> {
     return this.fileManager.sweepStrayHelpers({
@@ -206,6 +214,9 @@ export class FolderUploadService implements OnApplicationBootstrap {
     });
   }
 
+  // @spec HELPER-SELECT-004, HELPER-SELECT-007, HELPER-UPLOAD-002, HELPER-UPLOAD-005, HELPER-UPLOAD-006
+  // @spec HELPER-UPLOAD-008, HELPER-UPLOAD-009, HELPER-UPLOAD-011, HELPER-UPLOAD-012, HELPER-UPLOAD-017
+  // @spec HELPER-SAFE-006
   /**
    * Validates the request and, if every guard passes, starts the run in the background.
    *
@@ -333,6 +344,8 @@ export class FolderUploadService implements OnApplicationBootstrap {
     for (const listener of this.listeners) listener(progress);
   }
 
+  // @spec HELPER-UPLOAD-001, HELPER-STRAY-002, HELPER-STRAY-006, HELPER-VERIFY-002, HELPER-VERIFY-003
+  // @spec HELPER-RESUME-005
   /**
    * The run body: holds the helper session, uploads, verifies, and always releases the session before reporting the
    * terminal phase.
@@ -385,6 +398,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     }
   }
 
+  // @spec HELPER-FB-014, HELPER-STRAY-001
   /**
    * Acquires the run's session hold, rejecting with {@link UploadCancelledError} as soon as `signal` aborts.
    *
@@ -419,6 +433,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     });
   }
 
+  // @spec HELPER-UPLOAD-016
   /**
    * Appends why the session died to `message` when the helper task vanished mid-run.
    *
@@ -431,6 +446,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     return `${message} (${snap.error})`;
   }
 
+  // @spec HELPER-UPLOAD-020
   /**
    * Maps the plan onto the live session's layout.
    *
@@ -451,6 +467,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     }));
   }
 
+  // @spec HELPER-OVER-001, HELPER-OVER-002, HELPER-OVER-004, HELPER-OVER-006, HELPER-OVER-007
   /**
    * Preflight: when the plan would overwrite files already on the volume, publishes an `awaiting-confirmation` snapshot
    * and waits for {@link FolderUploadService.confirmOverwrite}. Nothing has been written at this point.
@@ -490,6 +507,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     }
   }
 
+  // @spec HELPER-OVER-005
   /** Resolves with the operator's answer; rejects on cancel (abort) or timeout. Always clears the pending answer. */
   private waitForDecision(game: string, signal: AbortSignal): Promise<boolean> {
     return new Promise<boolean>((resolve, reject) => {

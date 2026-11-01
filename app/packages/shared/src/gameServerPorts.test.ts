@@ -21,6 +21,7 @@ function makeConfig(gameServers: Record<string, GameServerConfig>): DeploymentCo
   return withDeploymentConfigDefaults({ hostedZoneName: 'example.com', gameServers });
 }
 
+// @spec GAME-HTTPS-015, GAME-HTTPS-016
 describe('normalizeGameServer', () => {
   it('should return a malformed https game with no ports array untouched', () => {
     const malformed = { ...makeGame({ https: true }), ports: undefined } as unknown as GameServerConfig;
@@ -81,6 +82,7 @@ describe('normalizeGameServer', () => {
     expect(normalizeGameServer(once)).toEqual(once);
   });
 
+  // @spec GAME-HTTPS-017
   it('should leave a legacy https game with a non-tcp ports[0] untouched so the validator reports it', () => {
     const game = makeGame({ https: true, ports: [{ container: 7777, protocol: 'udp' }] });
     expect(normalizeGameServer(game)).toBe(game);
@@ -102,6 +104,7 @@ describe('normalizeGameServer', () => {
   });
 });
 
+// @spec GAME-PORT-004
 describe('ingressPorts', () => {
   it('should return every port of a non-https game', () => {
     const ports = [
@@ -167,6 +170,7 @@ describe('normalizeDeploymentConfigGames', () => {
   });
 });
 
+// @spec GAME-HTTPS-010
 describe('findWebPortCollisions', () => {
   it('should report an https webPort that is another game\'s extra tcp port', () => {
     const config = makeConfig({

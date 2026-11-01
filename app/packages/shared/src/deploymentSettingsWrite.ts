@@ -32,6 +32,7 @@ export interface DeploymentSettingsValidationIssue {
 }
 
 // @spec RT-WATCHDOG-CFG-005
+// @spec CONFIG-SET-011
 /**
  * Validates a proposed {@link TopLevelDeploymentSettings} patch — the single source of truth for
  * both `@hyveon/web`'s live, before-submit form validation and `IacSettingsController.update`

@@ -32,6 +32,7 @@ const empty = dir('Empty', []);
 const TREE = dir('', [config, data, empty, file('root.txt', 1)]);
 
 describe('folder-seed.utils', () => {
+  // @spec HELPER-SELECT-002
   it('should select every file by default as the top-level children', () => {
     expect(selectAll(TREE)).toEqual(['Config', 'Data', 'root.txt']);
   });
@@ -47,6 +48,7 @@ describe('folder-seed.utils', () => {
     expect(nodeState(empty, selectedFileSet(TREE, selectAll(TREE)))).toBe('unchecked');
   });
 
+  // @spec HELPER-SELECT-003
   it('should clear all descendants when a checked parent is toggled', () => {
     expect(toggleNode(TREE, selectAll(TREE), data)).toEqual(['Config', 'root.txt']);
   });

@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream';
 
+// @spec HELPER-EDIT-001
 /** Reads `stream` fully unless it exceeds `limit` bytes; the stream is destroyed either way. */
 export async function readCapped(stream: Readable, limit: number): Promise<Buffer | null> {
   const chunks: Buffer[] = [];
@@ -17,6 +18,7 @@ export async function readCapped(stream: Readable, limit: number): Promise<Buffe
   }
 }
 
+// @spec HELPER-EDIT-001
 /** Decodes strict UTF-8; `null` when the bytes are not valid. */
 export function decodeUtf8(bytes: Buffer): string | null {
   try {

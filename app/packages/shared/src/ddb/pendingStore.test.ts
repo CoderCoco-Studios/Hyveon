@@ -14,6 +14,7 @@ const ddb = mockClient(DynamoDBDocumentClient);
 const TABLE = 'test-discord';
 const ARN = 'arn:aws:ecs:us-east-1:123:task/abc';
 
+// @spec DISCORD-PEND-001, DISCORD-PEND-002
 describe('putPending', () => {
   beforeEach(() => {
     ddb.reset();
@@ -52,6 +53,7 @@ describe('putPending', () => {
   });
 });
 
+// @spec DISCORD-PEND-003, DISCORD-PEND-004
 describe('getPending', () => {
   beforeEach(() => {
     ddb.reset();

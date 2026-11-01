@@ -279,6 +279,8 @@ function connectMessagesByGame(gameServers: Record<string, GameServerConfig>): R
 }
 
 // @spec IAC-PROGRAM-ENV-003
+// @spec GAME-PORT-014, GAME-PORT-015
+// @spec DISCORD-MSG-004, DISCORD-MSG-005
 /**
  * Builds the `GAME_PORTS` JSON object shared by the followup and dns-updater
  * functions — consumed to render the player-facing `host:port` connect
@@ -739,6 +741,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       const logGroup = lambdaLogGroup(projectName, `efs-seeder-${game}`, opts, { Game: game });
       efsSeederLogGroups[game] = logGroup;
 
+      // @spec HELPER-SEED-001
       efsSeederFunctions[game] = new aws.lambda.Function(
         `${projectName}-efs-seeder-${game}`,
         {

@@ -9,6 +9,7 @@ export class VolumePathError extends Error {
   }
 }
 
+// @spec HELPER-FB-031
 /**
  * True when `path` is an absolute POSIX path with no NUL, backslash, or `.`/`..`/empty segments.
  *
@@ -25,6 +26,7 @@ export function isCleanVolumePath(path: string): boolean {
   return body.split('/').every((s) => s !== '' && s !== '.' && s !== '..');
 }
 
+// @spec HELPER-FB-031
 /**
  * Returns the canonical form of a clean volume path: no trailing `/` except for the root.
  *
@@ -37,6 +39,7 @@ export function normalizeVolumePath(path: string): string {
   return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
 }
 
+// @spec HELPER-FB-032
 /**
  * True when `name` is usable as a single directory entry name.
  *
@@ -52,6 +55,7 @@ export function isValidEntryName(name: string): boolean {
   );
 }
 
+// @spec HELPER-FB-032
 /**
  * Joins an entry name onto a directory path.
  *

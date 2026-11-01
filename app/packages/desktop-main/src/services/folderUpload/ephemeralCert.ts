@@ -15,6 +15,7 @@ const CERT_VALIDITY_MS = 24 * 60 * 60 * 1000;
 /** Back-dated start so a small clock skew between the operator machine and the helper never rejects the cert. */
 const CERT_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
+// @spec HELPER-REACH-003
 /**
  * Generates a self-signed P-256 certificate for one helper launch.
  *

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { sanitizeLocalFileName } from './localNames.js';
 
+// @spec HELPER-XFER-003
 describe('sanitizeLocalFileName', () => {
   it('should replace characters reserved on Windows', () => {
     expect(sanitizeLocalFileName('a:b?.txt', 'win32')).toBe('a_b_.txt');

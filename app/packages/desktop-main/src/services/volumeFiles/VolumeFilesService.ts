@@ -34,6 +34,7 @@ export { METADATA_OP_TIMEOUT_MS } from './fileOps.js';
 
 const entryInfo = ({ name, isDir, size, modifiedMs }: VolumeEntry): VolumeEntryInfo => ({ name, isDir, size, modifiedMs });
 
+// @spec HELPER-FB-008, HELPER-FB-009, HELPER-LAYOUT-005, HELPER-SESS-007
 /** Maps a registry snapshot (epoch milliseconds) to the renderer-visible status (ISO strings), field by field. */
 function toSessionStatus(s: HelperSessionSnapshot): VolumeSessionStatus {
   return {
@@ -49,6 +50,7 @@ function toSessionStatus(s: HelperSessionSnapshot): VolumeSessionStatus {
   };
 }
 
+// @spec HELPER-SESS-007
 /**
  * A `failed` session status with no volumes, for lookups that could not produce a real snapshot.
  *
@@ -75,6 +77,7 @@ export class VolumeFilesService {
   private readonly transfers: TransferOps;
   private readonly reservations = new UploadReservations();
 
+  // @spec HELPER-SESS-008
   constructor(
     private readonly registry: HelperSessionRegistry,
     config: ConfigService,
@@ -89,6 +92,7 @@ export class VolumeFilesService {
     this.registry.onBeforeStop((game) => this.transfers.abortGame(game));
   }
 
+  // @spec HELPER-FB-009
   /**
    * Reads a game's session state; a failed lookup is reported as a `failed` status rather than thrown.
    *
@@ -104,6 +108,7 @@ export class VolumeFilesService {
     }
   }
 
+  // @spec HELPER-IPC-008
   /**
    * Subscribes to session state changes, mapped to the renderer-visible status.
    *
@@ -114,6 +119,7 @@ export class VolumeFilesService {
     return this.registry.onState((snapshot) => listener(toSessionStatus(snapshot)));
   }
 
+  // @spec HELPER-FB-009
   /**
    * Starts (or joins) the browse session without waiting for the helper to become ready; progress arrives as pushes.
    *
@@ -145,6 +151,7 @@ export class VolumeFilesService {
     return this.sessionStatus(game);
   }
 
+  // @spec HELPER-FB-017
   /**
    * Stops the session now, cancelling anything running on it.
    *
@@ -156,6 +163,7 @@ export class VolumeFilesService {
     return ok(await this.sessionStatus(game));
   }
 
+  // @spec HELPER-FB-019
   /**
    * Stops the session, then starts a new browse session without waiting for it to become ready.
    *
@@ -168,6 +176,7 @@ export class VolumeFilesService {
     return ok(await this.sessionStatus(game));
   }
 
+  // @spec HELPER-FB-006, HELPER-FB-024
   /**
    * Lists a directory of a volume.
    *
@@ -185,6 +194,7 @@ export class VolumeFilesService {
     );
   }
 
+  // @spec HELPER-FB-025, HELPER-FB-030, HELPER-FB-032
   /**
    * Creates a folder.
    *
@@ -204,6 +214,7 @@ export class VolumeFilesService {
     );
   }
 
+  // @spec HELPER-FB-025, HELPER-FB-030, HELPER-FB-032
   /**
    * Renames an entry within its directory.
    *
@@ -231,6 +242,7 @@ export class VolumeFilesService {
     );
   }
 
+  // @spec HELPER-FB-025
   /**
    * Deletes a file or a folder with its contents.
    *
@@ -248,6 +260,7 @@ export class VolumeFilesService {
     );
   }
 
+  // @spec HELPER-FB-036, HELPER-FB-038, HELPER-EDIT-001
   /**
    * Reads a UTF-8 text file of at most {@link MAX_TEXT_EDIT_BYTES}.
    *
@@ -272,6 +285,7 @@ export class VolumeFilesService {
     );
   }
 
+  // @spec HELPER-FB-036, HELPER-FB-037, HELPER-EDIT-002, HELPER-RSV-003
   /**
    * Overwrites a text file, but only if it is unchanged since it was read.
    *
@@ -318,6 +332,7 @@ export class VolumeFilesService {
     );
   }
 
+  // @spec HELPER-IPC-008
   /**
    * Subscribes to download and upload progress.
    *
@@ -328,6 +343,7 @@ export class VolumeFilesService {
     return this.transfers.onTransfer(listener);
   }
 
+  // @spec HELPER-XFER-010
   /**
    * Cancels a running download or upload; the partial local file is removed.
    *

@@ -24,6 +24,7 @@ export interface FolderUploadCardProps {
 /** Matches the start guard's message for an open file-manager session. */
 const HELPER_OPEN = /already open/i;
 
+// @spec HELPER-UPLOAD-004, HELPER-UPLOAD-006, HELPER-UPLOAD-011, HELPER-SELECT-005, HELPER-SAFE-004
 /**
  * Game-page card for seeding a volume from a local folder: the selection (shared with the wizard's Storage step),
  * the upload action with its disabled explanations, and the progress meter.

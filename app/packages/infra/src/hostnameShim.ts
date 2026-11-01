@@ -45,6 +45,7 @@ export function buildHostnameShimSource(hostname: string): string {
 }
 
 // @spec IAC-PROGRAM-HOST-002
+// @spec GAME-HOST-006
 /**
  * Builds the non-essential init container that writes the shim into the shared volume and exits.
  *
@@ -74,6 +75,7 @@ export function buildHostnameShimContainer(args: {
 }
 
 // @spec IAC-PROGRAM-HOST-006, IAC-PROGRAM-HOST-007
+// @spec GAME-HOST-009
 /**
  * Ensures exactly one `NODE_OPTIONS` entry that loads the shim first.
  *

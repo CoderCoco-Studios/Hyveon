@@ -9,6 +9,7 @@ import type { DiscordConfigRedacted } from '../../api.service.js';
 import { isSnowflake } from './snowflake.utils.js';
 import { useCopiedReset } from '../../hooks/use-copied-reset.hook.js';
 
+// @spec DISCORD-UI-004
 /**
  * Credentials editor — Application (Client) ID, Bot Token, Public Key, plus the
  * read-only Interactions Endpoint URL the operator pastes back into Discord.

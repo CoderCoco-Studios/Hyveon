@@ -57,6 +57,7 @@ describe('AwsRemoteFileStore', () => {
       expect(input.Key).toBe('foo/bar.txt');
     });
 
+    // @spec CONFIG-STORE-006
     it('should return undefined when the object does not exist (NoSuchKey)', async () => {
       s3Mock.on(GetObjectCommand).rejects(new NoSuchKey({ message: 'not found', $metadata: {} }));
 
@@ -115,6 +116,7 @@ describe('AwsRemoteFileStore', () => {
   });
 
   describe('put', () => {
+    // @spec CONFIG-STORE-003
     it('should write the body and return the unquoted etag when no ifMatch is given', async () => {
       s3Mock.on(PutObjectCommand).resolves({ ETag: '"etag-1"' });
 
@@ -149,6 +151,7 @@ describe('AwsRemoteFileStore', () => {
       });
     });
 
+    // @spec CONFIG-STORE-003
     it('should send IfMatch when opts.ifMatch is provided', async () => {
       s3Mock.on(PutObjectCommand).resolves({ ETag: '"etag-2"' });
 
@@ -159,6 +162,7 @@ describe('AwsRemoteFileStore', () => {
       expect(input.IfMatch).toBe('stale-etag');
     });
 
+    // @spec CONFIG-STORE-005
     it('should throw a clear error when the PutObject response has no ETag', async () => {
       s3Mock.on(PutObjectCommand).resolves({});
 
@@ -168,6 +172,7 @@ describe('AwsRemoteFileStore', () => {
       );
     });
 
+    // @spec CONFIG-STORE-004
     it('should throw RemoteFileConflictError when S3 returns 412 Precondition Failed', async () => {
       s3Mock.on(PutObjectCommand).rejects(
         new S3ServiceException({
@@ -188,6 +193,7 @@ describe('AwsRemoteFileStore', () => {
       expect((err as RemoteFileConflictError).ifMatch).toBe('stale-etag');
     });
 
+    // @spec CONFIG-STORE-004
     it('should throw RemoteFileConflictError when S3 returns 409 ConditionalRequestConflict', async () => {
       s3Mock.on(PutObjectCommand).rejects(
         new S3ServiceException({
@@ -227,6 +233,7 @@ describe('AwsRemoteFileStore', () => {
   });
 
   describe('listVersions', () => {
+    // @spec CONFIG-STORE-009
     it('should return matching versions sorted newest-first', async () => {
       s3Mock.on(ListObjectVersionsCommand).resolves({
         Versions: [
@@ -266,6 +273,7 @@ describe('AwsRemoteFileStore', () => {
       await expect(store.listVersions('foo.txt')).resolves.toEqual([]);
     });
 
+    // @spec CONFIG-STORE-010
     it('should not request a further page when the first response is not truncated', async () => {
       s3Mock.on(ListObjectVersionsCommand).resolves({
         Versions: [{ Key: 'foo.txt', VersionId: 'v1', LastModified: new Date('2024-01-01T00:00:00Z') }],
@@ -278,6 +286,7 @@ describe('AwsRemoteFileStore', () => {
       expect(s3Mock.commandCalls(ListObjectVersionsCommand)).toHaveLength(1);
     });
 
+    // @spec CONFIG-STORE-008
     it('should loop on IsTruncated, forwarding NextKeyMarker/NextVersionIdMarker as the next page\'s markers, and accumulate every page', async () => {
       s3Mock
         .on(ListObjectVersionsCommand)
@@ -315,6 +324,7 @@ describe('AwsRemoteFileStore', () => {
       expect(calls[2]!.args[0].input.VersionIdMarker).toBe('v2');
     });
 
+    // @spec CONFIG-STORE-009
     it('should filter and sort across accumulated pages, not just the last one', async () => {
       s3Mock
         .on(ListObjectVersionsCommand)

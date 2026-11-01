@@ -1,6 +1,7 @@
 import { HTTPS_CONNECT_PORT, type ConnectPort } from './gameServerPorts.js';
 import type { GameStatus } from './types.js';
 
+// @spec DISCORD-MSG-002, DISCORD-MSG-005
 /**
  * Render a connect-message template, substituting `{host}`, `{ip}`, `{port}`,
  * and `{game}` placeholders with the supplied values.
@@ -30,6 +31,7 @@ export function renderConnectMessage(
     .replace(/\{game\}/g, values.game);
 }
 
+// @spec DISCORD-MSG-001, DISCORD-MSG-005
 /**
  * Render a game's status as a Discord-ready message.
  *

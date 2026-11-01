@@ -42,6 +42,8 @@ function verificationPaths(error: string): string[] | null {
   return error.slice(VERIFICATION_PREFIX.length).split(/, (?=\S)/);
 }
 
+// @spec HELPER-PROG-001, HELPER-PROG-004, HELPER-PROG-005, HELPER-PROG-006, HELPER-VERIFY-003, HELPER-RESUME-005
+// @spec HELPER-REACH-006
 /**
  * Determinate progress meter for a folder upload: phase, percent bar, bytes, files, current file, rate, ETA, Cancel,
  * Resume/Retry on failure, and the verification result.

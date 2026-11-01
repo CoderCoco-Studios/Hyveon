@@ -26,6 +26,7 @@ describe('mergeGameLists', () => {
     expect(result).toEqual([{ name: 'valheim', declared: true, deployed: true, config: valheim }]);
   });
 
+  // @spec GAME-MODEL-003
   it('should merge a mix of declared-only, deployed-only, and both entries without duplicates', () => {
     const declaredOnly = buildGameServer('ark');
     const both = buildGameServer('rust');
@@ -46,6 +47,7 @@ describe('mergeGameLists', () => {
     expect(mergeGameLists([], [])).toEqual([]);
   });
 
+  // @spec GAME-MODEL-004
   it('should order results as declared entries first (in declared-config order), then deployed-only entries (in tfstate order)', () => {
     const ark = buildGameServer('ark');
     const rust = buildGameServer('rust');
@@ -109,6 +111,7 @@ describe('mergeGameLists', () => {
   });
 
   // @spec RT-HEALTH-REDACT-001
+  // @spec GAME-MODEL-002
   it('should redact a declared game\'s health-check credential to secretSet, never the ARN, before it reaches the caller', () => {
     const secretArn = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:palworld-token-AbCdEf';
     const palworld: GameServer = {

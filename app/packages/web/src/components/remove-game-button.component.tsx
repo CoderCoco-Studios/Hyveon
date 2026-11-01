@@ -22,6 +22,7 @@ interface Props {
 }
 
 // @spec IAC-RUN-PLAN-010
+// @spec GAME-IPC-008
 /**
  * Destructive "Remove game" button for a single declared `game_servers`
  * entry. Modeled on the type-to-confirm pattern in `ConfirmDialog`, but built

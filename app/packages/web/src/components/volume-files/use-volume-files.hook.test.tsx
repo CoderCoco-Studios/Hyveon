@@ -51,6 +51,7 @@ afterEach(() => {
 });
 
 describe('useVolumeFiles', () => {
+  // @spec HELPER-FB-024
   it('should list the root when enabled and sort folders first', async () => {
     const { result } = await renderLoaded([makeFileEntry('b.txt'), makeDirEntry('A'), makeFileEntry('a.txt')]);
 
@@ -68,6 +69,7 @@ describe('useVolumeFiles', () => {
     expect(result.current.listing).toBeNull();
   });
 
+  // @spec HELPER-FB-024
   it('should keep folders first when sorting by size descending', async () => {
     const { result } = await renderLoaded([makeFileEntry('small', 1), makeDirEntry('d'), makeFileEntry('big', 99)]);
 
@@ -123,6 +125,7 @@ describe('useVolumeFiles', () => {
     expect(result.current.listing).toEqual([]);
   });
 
+  // @spec HELPER-FB-025
   it('should create a folder under the current path', async () => {
     const { result } = await renderLoaded([makeDirEntry('world')]);
     act(() => result.current.open('/world'));
@@ -173,6 +176,7 @@ describe('useVolumeFiles', () => {
     expect(onFailure.mock.calls).toEqual([['server-running'], ['server-check-failed']]);
   });
 
+  // @spec HELPER-FB-028
   it('should upload a folder into an explicit directory when one is given', async () => {
     const { result } = await renderLoaded();
     apiMock.volumeUploadFolder.mockResolvedValue({ ok: true, value: { started: true, runId: 'r' } });
@@ -182,6 +186,7 @@ describe('useVolumeFiles', () => {
     expect(apiMock.volumeUploadFolder).toHaveBeenCalledWith('minecraft', 'data', '/world');
   });
 
+  // @spec HELPER-FB-029
   it('should upload into the current path through the dialog and the dropped-files route', async () => {
     const { result } = await renderLoaded();
     apiMock.volumeUploadFiles.mockResolvedValue({ ok: true, value: null });

@@ -1,5 +1,6 @@
 import { redactGameServer, type DriftEntry, type GameListEntry, type GameServer } from '@hyveon/shared';
 
+// @spec GAME-MODEL-002, GAME-MODEL-003, GAME-MODEL-004
 /**
  * Merges the declared view of games (`deployment-config.json`'s `gameServers`
  * map, via {@link GameServer}) with the deployed view (the deployed stack's

@@ -40,6 +40,7 @@ function makeExisting(overrides: Partial<GameServer> = {}): GameServer {
   };
 }
 
+// @spec GAME-VALID-001
 describe('validateGameServer', () => {
   it('should succeed for a fully valid entry and reattach name onto the returned GameServer', () => {
     const result = validateGameServer('minecraft', makeProposed(), []);
@@ -52,6 +53,7 @@ describe('validateGameServer', () => {
     }
   });
 
+  // @spec GAME-VALID-004
   describe('Fargate cpu/memory pairing', () => {
     it('should accept each of the three discrete memory values for cpu=256', () => {
       for (const memory of [512, 1024, 2048]) {
@@ -179,6 +181,7 @@ describe('validateGameServer', () => {
     });
   });
 
+  // @spec GAME-VALID-005
   describe('absolute paths', () => {
     it('should accept an absolute volumes[].container_path and file_seeds[].path', () => {
       const result = validateGameServer(
@@ -217,6 +220,7 @@ describe('validateGameServer', () => {
     });
   });
 
+  // @spec GAME-ENV-006
   describe('environment variables', () => {
     it('should accept distinct, non-empty environment variable names', () => {
       const result = validateGameServer(
@@ -267,6 +271,7 @@ describe('validateGameServer', () => {
     });
   });
 
+  // @spec GAME-VALID-006
   describe('connect_message placeholders', () => {
     it('should accept all four allowed placeholder tokens', () => {
       const result = validateGameServer(
@@ -286,6 +291,7 @@ describe('validateGameServer', () => {
     });
   });
 
+  // @spec GAME-PORT-005
   describe('port collisions', () => {
     it('should reject two ports within the proposed entry that collide on container/protocol', () => {
       const result = validateGameServer(
@@ -345,6 +351,7 @@ describe('validateGameServer', () => {
     });
   });
 
+  // @spec GAME-PORT-012
   describe('cross-game icmp collision exemption', () => {
     it('should allow the same icmp entry on two games when effective visibility matches', () => {
       const existing = makeExisting({ name: 'minecraft', ports: [{ container: 8, protocol: 'icmp' }] });
@@ -404,6 +411,7 @@ describe('validateGameServer', () => {
     });
   });
 
+  // @spec GAME-HTTPS-005, GAME-HTTPS-006
   describe('https web port rules', () => {
     it('should accept a Foundry-style https game with webPort and no ports', () => {
       const result = validateGameServer('game', makeProposed({ https: true, webPort: 30000, ports: [] }), []);
@@ -447,6 +455,7 @@ describe('validateGameServer', () => {
       expect(result.success).toBe(false);
     });
 
+    // @spec GAME-VALID-003
     it('should report webPort feedback even when an unrelated field fails the schema', () => {
       const result = validateGameServer('game', makeProposed({ https: true, volumes: [] }), []);
       expect(result.success).toBe(false);
@@ -456,6 +465,7 @@ describe('validateGameServer', () => {
     });
   });
 
+  // @spec GAME-HTTPS-007
   describe('https additional port rules', () => {
     it('should accept an https game whose first extra port is udp', () => {
       const result = validateGameServer(
@@ -573,6 +583,7 @@ describe('validateGameServer', () => {
       expect(result.success).toBe(true);
     });
 
+    // @spec GAME-HTTPS-008
     it('should not report any https rule when https is false, even with a violating port list', () => {
       const result = validateGameServer(
         'game',
@@ -590,6 +601,7 @@ describe('validateGameServer', () => {
     });
   });
 
+  // @spec GAME-PORT-009
   describe('icmp port rules', () => {
     it('should accept a non-https game server declaring an icmp entry with a valid type', () => {
       const result = validateGameServer('game', makeProposed({ ports: [{ container: 8, protocol: 'icmp' }] }), []);
@@ -606,6 +618,7 @@ describe('validateGameServer', () => {
       }
     });
 
+    // @spec GAME-PORT-010
     it('should still reject an icmp entry on an https game server via the existing tcp/udp-only rule', () => {
       const result = validateGameServer(
         'game',
@@ -644,6 +657,7 @@ describe('validateGameServer', () => {
     });
   });
 
+  // @spec GAME-PORT-006, GAME-PORT-007
   describe('reserved https ports across the deployment', () => {
     it.each([
       { container: 443 as const, protocol: 'tcp' },
@@ -746,6 +760,7 @@ describe('validateGameServer', () => {
     });
   });
 
+  // @spec GAME-HTTPS-009
   describe('webPort collisions across the deployment', () => {
     it('should reject an extra tcp port equal to another game webPort, pathed at ports[N]', () => {
       const foundry = makeExisting({ name: 'foundry', https: true, webPort: 30000, ports: [] });
@@ -1010,6 +1025,7 @@ describe('validateGameServer', () => {
   });
 
   describe('structural (zod) failures', () => {
+    // @spec GAME-VALID-002
     it('should surface a missing required field with its JSON-path issue.path', () => {
       const proposed = makeProposed();
       delete (proposed as Record<string, unknown>)['image'];
@@ -1028,6 +1044,7 @@ describe('validateGameServer', () => {
       }
     });
 
+    // @spec GAME-VALID-005
     it('should reject an empty volumes array', () => {
       const result = validateGameServer('game', makeProposed({ volumes: [] }), []);
       expect(result.success).toBe(false);
@@ -1038,6 +1055,7 @@ describe('validateGameServer', () => {
   });
 });
 
+// @spec GAME-PORT-001, GAME-PORT-002
 describe('gameServerPortSchema', () => {
   it('should accept a port with visibility omitted', () => {
     const result = gameServerPortSchema.safeParse({ container: 25565, protocol: 'tcp' });
@@ -1142,6 +1160,7 @@ describe('validateHealthCheckAuthInput', () => {
   });
 });
 
+// @spec GAME-ENV-010
 describe('command', () => {
   it('should accept a command array of non-empty strings', () => {
     const result = validateGameServer('game', makeProposed({ command: ['/start.sh', '--port', '8211'] }), []);
@@ -1160,6 +1179,7 @@ describe('command', () => {
 });
 
 describe('environment value tokens', () => {
+  // @spec GAME-TOKEN-002
   it('should accept an allow-listed token embedded in a longer value', () => {
     const result = validateGameServer(
       'game',
@@ -1172,6 +1192,7 @@ describe('environment value tokens', () => {
     expect(result.success).toBe(true);
   });
 
+  // @spec GAME-TOKEN-003
   it('should reject an unknown ${hyveon.*} token at the value path', () => {
     const result = validateGameServer(
       'game',
@@ -1186,6 +1207,7 @@ describe('environment value tokens', () => {
     }
   });
 
+  // @spec GAME-TOKEN-004
   it('should accept non-hyveon placeholder syntax untouched', () => {
     const result = validateGameServer(
       'game',
@@ -1195,6 +1217,7 @@ describe('environment value tokens', () => {
     expect(result.success).toBe(true);
   });
 
+  // @spec GAME-TOKEN-014
   it('should reject the ipv4 token when command is absent', () => {
     const result = validateGameServer(
       'game',
@@ -1216,6 +1239,7 @@ describe('environment value tokens', () => {
     expect(result.success).toBe(false);
   });
 
+  // @spec GAME-TOKEN-009
   it('should reject an ipv4-token row whose name is not a valid shell identifier', () => {
     const result = validateGameServer(
       'game',
@@ -1241,6 +1265,7 @@ describe('environment value tokens', () => {
   });
 });
 
+// @spec GAME-HOST-003, GAME-HOST-004, GAME-HOST-005
 describe('pinnedHostname', () => {
   /** Validate a proposed entry and return only the issues at the given path. */
   function issuesAt(proposed: Record<string, unknown>, path: string): { path: string; message: string }[] {
@@ -1315,6 +1340,7 @@ describe('pinnedHostname', () => {
     expect(issuesAt(proposed, 'volumes[0].container_path')).toHaveLength(0);
   });
 
+  // @spec GAME-HOST-002
   it('should not synthesize the field when absent', () => {
     const result = validateGameServer('foundry', makeProposed(), []);
     expect(result.success).toBe(true);
@@ -1323,6 +1349,7 @@ describe('pinnedHostname', () => {
     }
   });
 
+  // @spec GAME-HOST-001
   it('should preserve pinnedHostname through redactGameServer', () => {
     expect(redactGameServer(makeExisting({ pinnedHostname: 'foundry' })).pinnedHostname).toBe('foundry');
   });

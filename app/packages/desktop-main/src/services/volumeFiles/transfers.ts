@@ -21,6 +21,7 @@ export interface StreamToFileOptions {
   onBytes: (n: number) => void;
 }
 
+// @spec HELPER-XFER-002, HELPER-FB-027
 /**
  * Copies `source` to `target` through a `.part` file, so `target` only ever holds a complete download.
  *
@@ -154,6 +155,7 @@ export class TransferManager {
     if (status?.state !== 'running') throw new NoSessionError(game);
   }
 
+  // @spec HELPER-XFER-004
   /**
    * Holds the game's running session and starts `spec.run` in the background.
    *
@@ -175,6 +177,7 @@ export class TransferManager {
     return transferId;
   }
 
+  // @spec HELPER-XFER-010
   /**
    * Cancels one transfer of `game`.
    *
@@ -188,6 +191,7 @@ export class TransferManager {
     return { cancelled: true };
   }
 
+  // @spec HELPER-SESS-008, HELPER-FB-017
   /**
    * Cancels every transfer of `game`.
    *
@@ -209,6 +213,7 @@ export class TransferManager {
     }
   }
 
+  // @spec HELPER-XFER-005, HELPER-XFER-006
   private async execute(spec: TransferSpec, transferId: string, holder: HelperHolder, controller: AbortController): Promise<void> {
     const { signal } = controller;
     let bytesDone = 0;

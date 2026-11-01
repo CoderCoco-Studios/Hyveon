@@ -88,6 +88,7 @@ function makeGameWizardDraft(): GameWizardDraftService {
 
 describe('GamesController', () => {
   describe('@MessagePattern channel names', () => {
+    // @spec GAME-IPC-001
     it('should register every channel', () => {
       expectChannels(GamesController.prototype, [
         ['listGames', 'games.list'],
@@ -103,6 +104,7 @@ describe('GamesController', () => {
   });
 
   describe('listGames', () => {
+    // @spec GAME-IPC-004
     it('should NOT invalidate the stack-outputs cache — this channel is called on every games-list page visit, and eagerly invalidating a cache fronting an expensive Pulumi round-trip would pay that cost far more often than a fresh deploy could plausibly have happened', async () => {
       const config = makeConfig();
       await new GamesController(config, makeEcs(), makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft(), makeRegistry()).listGames();
@@ -138,6 +140,7 @@ describe('GamesController', () => {
       });
     });
 
+    // @spec GAME-MODEL-003
     it('should merge declared deployment-config games with deployed tfstate games', async () => {
       const palworld = buildGameServer('palworld');
       const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig([palworld]), makeGamesWrite(), makeGameWizardDraft(), makeRegistry()).listGames();
@@ -240,6 +243,8 @@ describe('GamesController', () => {
       expect(result).toMatchObject({ success: true, taskArn: 'arn:task' });
     });
 
+    // @spec GAME-IPC-009
+    // @spec HELPER-FB-041
     it('should refuse to start a game while an upload holds it, without calling ECS', async () => {
       const ecs = makeEcs();
       const result = await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft(), makeRegistry(['palworld'])).start('palworld');
@@ -295,6 +300,7 @@ describe('GamesController', () => {
       expect(gamesWrite.createGame).toHaveBeenCalledWith(payload);
     });
 
+    // @spec GAME-IPC-003
     it('should return whatever GamesWriteService.createGame returns via the IPC transport', async () => {
       const gamesWrite = makeGamesWrite();
       const failure: GameWriteResult = { ok: false, code: 'validation', issues: [{ path: 'name', message: 'required' }] };

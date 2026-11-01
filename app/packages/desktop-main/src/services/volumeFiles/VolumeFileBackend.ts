@@ -48,6 +48,7 @@ export interface WriteOptions {
   onBytes?: (n: number) => void;
 }
 
+// @spec HELPER-FB-039, HELPER-FB-040
 /**
  * Reads and writes the files of one game server's data volume, whatever serves them.
  *

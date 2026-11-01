@@ -107,6 +107,7 @@ function TreeRow({ node, depth, tree, include, selected, disabled, onChange }: T
   );
 }
 
+// @spec HELPER-SELECT-002
 /**
  * Tri-state checkbox tree for choosing which entries of a scanned folder to upload.
  *

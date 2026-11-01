@@ -1,5 +1,6 @@
 import type { DiscordAction, DiscordConfig } from './types.js';
 
+// @spec DISCORD-SVC-002, DISCORD-PERM-001, DISCORD-PERM-002, DISCORD-PERM-003, DISCORD-PERM-004, DISCORD-PERM-005
 /**
  * Resolve whether a user with given role IDs is allowed to run `action` on
  * `game` in `guildId`. Evaluation order:

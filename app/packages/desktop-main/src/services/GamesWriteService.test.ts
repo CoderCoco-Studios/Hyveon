@@ -161,6 +161,7 @@ describe('GamesWriteService', () => {
     });
 
     // @spec RT-HEALTH-REDACT-001
+    // @spec GAME-MODEL-002
     it("should redact the returned game's health-check credential to secretSet, never the ARN", async () => {
       const secretArn = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:ark-token-AbCdEf';
       const deploymentConfig = makeDeploymentConfig();
@@ -190,6 +191,7 @@ describe('GamesWriteService', () => {
     });
 
     // @spec APP-DIAG-AUDIT-005
+    // @spec GAME-WRITE-013
     it('should record an audit entry exactly once with a null before, the validated after, and the write versionId', async () => {
       const deploymentConfig = makeDeploymentConfig();
       const audit = makeAudit();
@@ -226,6 +228,7 @@ describe('GamesWriteService', () => {
       });
     });
 
+    // @spec GAME-WRITE-001
     it('should return a validation failure without writing or recording an audit entry when the proposed config fails business-rule validation', async () => {
       const deploymentConfig = makeDeploymentConfig();
       const audit = makeAudit();
@@ -242,6 +245,7 @@ describe('GamesWriteService', () => {
       expect(audit.record).not.toHaveBeenCalled();
     });
 
+    // @spec GAME-WRITE-008
     it('should return a conflict result without recording an audit entry when the write raises OptimisticLockError', async () => {
       const deploymentConfig = makeDeploymentConfig();
       deploymentConfig.addGameServer = vi.fn().mockRejectedValue(new OptimisticLockError('old-etag', 'new-etag'));
@@ -274,6 +278,7 @@ describe('GamesWriteService', () => {
       });
     });
 
+    // @spec GAME-WRITE-002
     it('should return a validation failure with a name-path issue without recording an audit entry when the entry name already exists', async () => {
       const deploymentConfig = makeDeploymentConfig();
       deploymentConfig.addGameServer = vi
@@ -297,6 +302,7 @@ describe('GamesWriteService', () => {
       expect(audit.record).not.toHaveBeenCalled();
     });
 
+    // @spec GAME-WRITE-011
     it('should return a catch-all error result without recording an audit entry when the write raises an unexpected error', async () => {
       const deploymentConfig = makeDeploymentConfig();
       const originalError = new Error('disk full');
@@ -393,6 +399,7 @@ describe('GamesWriteService', () => {
       });
     });
 
+    // @spec GAME-WRITE-001
     it('should return a validation failure without writing or recording an audit entry when the proposed config fails business-rule validation', async () => {
       const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       const audit = makeAudit();
@@ -408,6 +415,7 @@ describe('GamesWriteService', () => {
       expect(audit.record).not.toHaveBeenCalled();
     });
 
+    // @spec GAME-WRITE-008
     it('should return a conflict result without recording an audit entry when the write raises OptimisticLockError', async () => {
       const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       deploymentConfig.updateGameServer = vi.fn().mockRejectedValue(new OptimisticLockError('old-etag', 'new-etag'));
@@ -527,6 +535,7 @@ describe('GamesWriteService', () => {
       });
     });
 
+    // @spec GAME-WRITE-008
     it('should return a conflict result without recording an audit entry when the write raises OptimisticLockError', async () => {
       const deploymentConfig = makeDeploymentConfig([gameServer('minecraft')]);
       deploymentConfig.removeGameServer = vi.fn().mockRejectedValue(new OptimisticLockError('old-etag', 'new-etag'));
@@ -641,6 +650,7 @@ describe('GamesWriteService', () => {
     });
 
     // @spec RT-HEALTH-CRED-005
+    // @spec GAME-WRITE-007
     it('should delete the app-owned secret when a game with an app-owned credential is deleted', async () => {
       const before = makeExistingGame({
         name: 'minecraft',
@@ -674,6 +684,7 @@ describe('GamesWriteService', () => {
       expect(deleteHealthCheckAuthSecret).not.toHaveBeenCalled();
     });
 
+    // @spec GAME-WRITE-002
     it('should reject a createGame for a name that already exists without ever calling upsertHealthCheckAuthSecret', async () => {
       // Regression coverage: an existing game "minecraft" already has a live
       // basic credential. A duplicate createGame for the same name (with a
@@ -720,6 +731,7 @@ describe('GamesWriteService', () => {
       expect(upsertHealthCheckAuthSecret).not.toHaveBeenCalled();
     });
 
+    // @spec GAME-WRITE-003
     it('should return a validation failure without calling Secrets Manager when a valid basic credential accompanies an unrelated cpu/memory pairing failure', async () => {
       // auth.type is a valid, otherwise-savable 'basic' credential — the
       // only thing wrong with this entry is the Fargate cpu/memory pairing

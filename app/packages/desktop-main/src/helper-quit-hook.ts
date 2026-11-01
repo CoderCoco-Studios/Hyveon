@@ -11,6 +11,7 @@ export interface QuitApp {
 /** How long quitting waits for helpers to stop before giving up. */
 const DEFAULT_QUIT_TIMEOUT_MS = 5000;
 
+// @spec HELPER-FB-018, HELPER-QUIT-001, HELPER-QUIT-002
 /**
  * Stops the file manager helpers this app session owns before the app quits, so no helper is left billing and its
  * operator-IP rule is revoked.

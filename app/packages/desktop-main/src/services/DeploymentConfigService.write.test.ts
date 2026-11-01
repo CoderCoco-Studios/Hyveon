@@ -165,6 +165,7 @@ describe('DeploymentConfigService write path', () => {
     vi.clearAllMocks();
   });
 
+  // @spec CONFIG-READ-001
   describe('unconfigured (no disk fallback reachable)', () => {
     it('should reject every write method with ConfigurationNotConfiguredError without touching fs or the RemoteFileStore', async () => {
       const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
@@ -186,6 +187,7 @@ describe('DeploymentConfigService write path', () => {
   });
 
   describe('sibling preservation', () => {
+    // @spec CONFIG-WRITE-001
     it('should leave every existing gameServers entry and every top-level field intact when addGameServer splices in a new entry', async () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
@@ -240,6 +242,7 @@ describe('DeploymentConfigService write path', () => {
   });
 
   describe('legacy https round trip', () => {
+    // @spec CONFIG-WRITE-003
     it('should persist webPort and the shortened ports on the next save, byte-identically on a repeat save', async () => {
       const legacy: DeploymentConfig = {
         ...FIXTURE_CONFIG,
@@ -333,6 +336,7 @@ describe('DeploymentConfigService write path', () => {
     });
   });
 
+  // @spec CONFIG-WRITE-007
   describe('addGameServer name validation', () => {
     it('should reject a name containing uppercase letters instead of writing a corrupt DNS label', async () => {
       stubCurrentConfig(remoteFileStore);
@@ -383,6 +387,7 @@ describe('DeploymentConfigService write path', () => {
       expect(remoteFileStore.put).toHaveBeenCalledTimes(1);
     });
 
+    // @spec CONFIG-WRITE-008
     it('should reject adding a name that already exists in gameServers, with reason: \'duplicate-name\' pinned for GamesWriteService\'s coupling', async () => {
       stubCurrentConfig(remoteFileStore);
 
@@ -401,6 +406,7 @@ describe('DeploymentConfigService write path', () => {
     });
   });
 
+  // @spec CONFIG-WRITE-009
   describe('updateGameServer / removeGameServer not-found', () => {
     it('should reject updateGameServer when the name does not exist in gameServers, with reason: \'not-found\' pinned for GamesWriteService\'s coupling', async () => {
       stubCurrentConfig(remoteFileStore);
@@ -479,6 +485,7 @@ describe('DeploymentConfigService write path', () => {
   });
 
   describe('restoreRawConfig (rollback flow, #112)', () => {
+    // @spec CONFIG-RESTORE-001, CONFIG-RESTORE-002
     it('should write the supplied config unconditionally (no ifMatch) and return the store put() result', async () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValueOnce({ etag: 'etag-restored', versionId: 'v-restored' });
@@ -496,6 +503,7 @@ describe('DeploymentConfigService write path', () => {
       );
     });
 
+    // @spec CONFIG-WRITE-006
     it('should invalidate the in-memory cache so the next getGameServers() re-reads the restored content', async () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValueOnce({ etag: 'etag-restored', versionId: 'v-restored' });
@@ -513,6 +521,7 @@ describe('DeploymentConfigService write path', () => {
       expect(remoteFileStore.get).toHaveBeenCalledTimes(3);
     });
 
+    // @spec CONFIG-RESTORE-003, CONFIG-WRITE-012
     it('should throw RunsTableRenameError and skip the write when the restored document resolves to a different runs-table name', async () => {
       stubCurrentConfig(remoteFileStore, JSON.stringify({ ...FIXTURE_CONFIG, projectName: 'current-project' }));
 
@@ -525,6 +534,7 @@ describe('DeploymentConfigService write path', () => {
   });
 
   describe('concurrent writes', () => {
+    // @spec CONFIG-WRITE-004, CONFIG-WRITE-005
     it('should fail the second of two concurrent writes with a clear OptimisticLockError, not silently overwrite the first', async () => {
       // Both writers read the same starting etag...
       stubCurrentConfig(remoteFileStore);
@@ -565,6 +575,7 @@ describe('DeploymentConfigService write path', () => {
       ).resolves.toEqual({ etag: 'etag-2', versionId: 'v-123' });
     });
 
+    // @spec CONFIG-WRITE-005
     it('should throw OptimisticLockError (not a raw RemoteFileConflictError) when the store rejects a conditional put', async () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockRejectedValue(
@@ -580,6 +591,7 @@ describe('DeploymentConfigService write path', () => {
   });
 
   describe('structured lock error', () => {
+    // @spec CONFIG-WRITE-005
     it('should carry the expected and current etags so callers can display "remote moved — refresh"', async () => {
       remoteFileStore.get
         .mockResolvedValueOnce({
@@ -640,6 +652,7 @@ describe('DeploymentConfigService write path', () => {
   });
 
   describe('getTopLevelSettings / updateTopLevelSettings', () => {
+    // @spec CONFIG-READ-010
     it('should return every top-level field except gameServers, plus the read etag', async () => {
       stubCurrentConfig(remoteFileStore);
       const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
@@ -652,12 +665,14 @@ describe('DeploymentConfigService write path', () => {
       expect(etag).toBe('etag-1');
     });
 
+    // @spec CONFIG-READ-001
     it('should reject getTopLevelSettings with ConfigurationNotConfiguredError when no bucket is configured', async () => {
       const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
       await expect(service.getTopLevelSettings()).rejects.toBeInstanceOf(ConfigurationNotConfiguredError);
       expect(remoteFileStore.get).not.toHaveBeenCalled();
     });
 
+    // @spec CONFIG-READ-010
     describe('defaulting a document missing fields', () => {
       /**
        * A stored document that predates the three base-allowlist array
@@ -746,6 +761,7 @@ describe('DeploymentConfigService write path', () => {
       expect(written.gameServers).toEqual(FIXTURE_CONFIG.gameServers);
     });
 
+    // @spec CONFIG-WRITE-011
     it('should leave gameServers untouched even when a caller sneaks a "gameServers" key into the patch at runtime', async () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
@@ -774,6 +790,7 @@ describe('DeploymentConfigService write path', () => {
       );
     });
 
+    // @spec CONFIG-WRITE-004
     it('should honour expectedVersionId as the conditional-put ifMatch guard', async () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
@@ -807,6 +824,7 @@ describe('DeploymentConfigService write path', () => {
       expect(remoteFileStore.put).not.toHaveBeenCalled();
     });
 
+    // @spec CONFIG-WRITE-006
     it('should invalidate the in-memory cache so the next getGameServers() re-reads the written content', async () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
@@ -825,6 +843,7 @@ describe('DeploymentConfigService write path', () => {
       expect(remoteFileStore.get).toHaveBeenCalledTimes(3);
     });
 
+    // @spec CONFIG-WRITE-012
     /**
      * Final-review round 2, finding 2: `BootstrapService.ensureRunsTable`
      * physically creates the run-history DynamoDB table exactly once, at
@@ -916,6 +935,7 @@ describe('DeploymentConfigService write path', () => {
    * a canned fixture.
    */
   describe('comprehensive round-trip (every field, top-level and per-game)', () => {
+    // @spec CONFIG-WRITE-002
     it('should survive a write-then-read cycle through addGameServer/getGameServers/getRawConfig deeply equal to the original, including booleans and numerics', async () => {
       const startingConfig: DeploymentConfig = {
         projectName: 'full-round-trip-project',

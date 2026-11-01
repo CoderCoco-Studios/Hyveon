@@ -26,6 +26,7 @@ describe('OverwriteConfirmation', () => {
     apiMock.folderConfirmOverwrite.mockResolvedValue({ resolved: true });
   });
 
+  // @spec HELPER-OVER-002
   it('should state the counts and list each conflicting path with existing and new sizes', () => {
     render(<OverwriteConfirmation game="minecraft" summary={summary()} />);
     expect(screen.getByRole('alertdialog')).toHaveTextContent(
@@ -35,6 +36,7 @@ describe('OverwriteConfirmation', () => {
     expect(screen.getByText('Data/w.db: 1000 B on volume, 5 B new')).toBeInTheDocument();
   });
 
+  // @spec HELPER-OVER-002, HELPER-OVER-008
   it('should singularize one file and mention unrelated existing files and hidden samples', () => {
     render(
       <OverwriteConfirmation
@@ -47,6 +49,7 @@ describe('OverwriteConfirmation', () => {
     expect(screen.getByText('and 19 more')).toBeInTheDocument();
   });
 
+  // @spec HELPER-OVER-003
   it('should confirm the overwrite when Overwrite and upload is pressed', async () => {
     render(<OverwriteConfirmation game="minecraft" summary={summary()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Overwrite and upload' }));
@@ -54,6 +57,7 @@ describe('OverwriteConfirmation', () => {
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
   });
 
+  // @spec HELPER-OVER-004
   it('should decline when Cancel is pressed', async () => {
     render(<OverwriteConfirmation game="minecraft" summary={summary()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));

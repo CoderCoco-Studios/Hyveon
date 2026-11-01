@@ -92,6 +92,7 @@ export class AwsRemoteFileStore implements RemoteFileStore {
     return this.getCachedClient({ region, credentials: config?.credentials, credentialsSignature: config?.credentialsSignature });
   }
 
+  // @spec CONFIG-STORE-006
   /**
    * Retrieves the current version of a file by path.
    *
@@ -112,6 +113,7 @@ export class AwsRemoteFileStore implements RemoteFileStore {
     }
   }
 
+  // @spec CONFIG-STORE-011
   /**
    * Retrieves a specific historical version of a file by path.
    *
@@ -133,6 +135,7 @@ export class AwsRemoteFileStore implements RemoteFileStore {
     }
   }
 
+  // @spec CONFIG-STORE-003, CONFIG-STORE-004, CONFIG-STORE-005
   /**
    * Writes a remote file, optionally conditioned on a matching etag.
    *
@@ -172,6 +175,7 @@ export class AwsRemoteFileStore implements RemoteFileStore {
     }
   }
 
+  // @spec CONFIG-STORE-008, CONFIG-STORE-009, CONFIG-STORE-010
   /**
    * Lists the known versions of a remote file.
    *

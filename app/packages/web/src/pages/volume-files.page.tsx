@@ -27,6 +27,7 @@ const IDLE_MESSAGES = {
   failed: 'The file browser session is not running. Start it to try again.',
 } as const;
 
+// @spec HELPER-FB-001, HELPER-FB-002, HELPER-FB-003, HELPER-FB-004, HELPER-FB-005, HELPER-FB-006
 /**
  * Game volume file browser route (`/games/:name/files`).
  *

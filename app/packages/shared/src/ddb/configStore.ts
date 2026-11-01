@@ -3,6 +3,7 @@ import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { BaseDiscordConfig, DiscordConfig } from '../types.js';
 import { asString, asStringArray, isSafeGameKey, sanitizeGamePermission } from '../sanitize.js';
 import { getDocClient } from './client.js';
+// @spec DISCORD-SVC-004
 
 const CONFIG_PK = 'CONFIG#discord';
 const CONFIG_SK = 'CONFIG';
@@ -66,6 +67,7 @@ function parseBaseData(raw: unknown): BaseDiscordConfig {
   };
 }
 
+// @spec DISCORD-CFG-002, DISCORD-CFG-004
 /**
  * Read the Pulumi-managed BASE#discord row (historically managed by the
  * app's original IaC tool). Returns an empty base when the row is absent (i.e. `baseAllowedGuilds`,
@@ -94,6 +96,7 @@ export async function getBaseDiscordConfig(
   return parseBaseData(resp.Item['data']);
 }
 
+// @spec DISCORD-CFG-003
 /**
  * Read both the Pulumi-managed base row and the app-managed dynamic row, then
  * return their union as the effective config. This is what `canRun()` and
@@ -121,6 +124,7 @@ export async function getEffectiveDiscordConfig(
   };
 }
 
+// @spec DISCORD-CFG-001, DISCORD-CFG-004
 /**
  * Read the single DiscordConfig row; returns an empty config if the item is absent.
  *
@@ -141,6 +145,7 @@ export async function getDiscordConfig(
   return parseConfigData(resp.Item['data']);
 }
 
+// @spec DISCORD-CFG-001
 /**
  * Overwrite the single DiscordConfig row.
  *

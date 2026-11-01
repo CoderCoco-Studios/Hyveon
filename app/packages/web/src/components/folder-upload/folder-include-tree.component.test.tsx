@@ -7,6 +7,7 @@ import { makeScan } from './folder-upload.test-utils.js';
 const TREE = makeScan().tree;
 
 describe('FolderIncludeTree', () => {
+  // @spec HELPER-SELECT-002
   it('should show every top-level entry checked with its size when all are included', () => {
     render(<FolderIncludeTree tree={TREE} include={['Config', 'Data']} onChange={vi.fn()} />);
     expect(screen.getByRole('checkbox', { name: 'Include Config' })).toBeChecked();
@@ -23,6 +24,7 @@ describe('FolderIncludeTree', () => {
     expect(screen.getByRole('checkbox', { name: 'Include Data' })).not.toBeChecked();
   });
 
+  // @spec HELPER-SELECT-003
   it('should clear all descendants when a checked parent is toggled', async () => {
     const onChange = vi.fn();
     render(<FolderIncludeTree tree={TREE} include={['Config', 'Data']} onChange={onChange} />);

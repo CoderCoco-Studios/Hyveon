@@ -13,6 +13,7 @@ export interface LocalFile {
 /** Outcome of {@link statLocalFiles}: the files, or an operator message that names no local directory. */
 export type LocalFilesResult = { ok: true; files: LocalFile[] } | { ok: false; message: string };
 
+// @spec HELPER-XFER-007
 /**
  * Checks that every path is a regular file (links and folders are refused) and reads its size.
  *

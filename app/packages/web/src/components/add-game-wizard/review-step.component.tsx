@@ -31,6 +31,7 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+// @spec GAME-HOST-015
 /**
  * Final step of the add-game wizard: renders a read-only summary of
  * every field entered across the Identity, Resources, Networking, Storage,

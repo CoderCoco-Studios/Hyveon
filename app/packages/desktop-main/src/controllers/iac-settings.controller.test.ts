@@ -74,12 +74,14 @@ describe('IacSettingsController', () => {
   });
 
   describe('get', () => {
+    // @spec CONFIG-SET-001
     it('should return the top-level settings and etag from DeploymentConfigService.getTopLevelSettings', async () => {
       const deploymentConfig = makeDeploymentConfig();
       const result = await new IacSettingsController(deploymentConfig).get();
       expect(result).toEqual({ ok: true, settings: SETTINGS, etag: 'etag-1' });
     });
 
+    // @spec CONFIG-SET-002
     it('should return code: "setup_incomplete" when no configuration bucket is configured', async () => {
       const deploymentConfig = makeDeploymentConfig();
       vi.mocked(deploymentConfig.getTopLevelSettings).mockRejectedValue(new ConfigurationNotConfiguredError());
@@ -89,6 +91,7 @@ describe('IacSettingsController', () => {
       expect(result).toEqual({ ok: false, code: 'setup_incomplete', message: expect.any(String) });
     });
 
+    // @spec CONFIG-SET-010
     it('should return the catch-all code: "error" for any other failure', async () => {
       const deploymentConfig = makeDeploymentConfig();
       vi.mocked(deploymentConfig.getTopLevelSettings).mockRejectedValue(new Error('S3 unreachable'));
@@ -106,12 +109,14 @@ describe('IacSettingsController', () => {
       expectedVersionId: 'etag-1',
     };
 
+    // @spec CONFIG-SET-005
     it('should delegate to DeploymentConfigService.updateTopLevelSettings with the patch and expectedVersionId', async () => {
       const deploymentConfig = makeDeploymentConfig();
       await new IacSettingsController(deploymentConfig).update(PAYLOAD);
       expect(deploymentConfig.updateTopLevelSettings).toHaveBeenCalledWith({ dnsTtl: 60 }, 'etag-1');
     });
 
+    // @spec CONFIG-SET-005
     it('should return ok: true with the re-read settings and the write result etag/versionId on success', async () => {
       const deploymentConfig = makeDeploymentConfig();
       vi.mocked(deploymentConfig.getTopLevelSettings).mockResolvedValue({
@@ -146,6 +151,7 @@ describe('IacSettingsController', () => {
       expect(calls).toEqual(['update', 'get']);
     });
 
+    // @spec CONFIG-SET-004
     it('should never call DeploymentConfigService.updateTopLevelSettings when the patch fails validation', async () => {
       const deploymentConfig = makeDeploymentConfig();
       const result = await new IacSettingsController(deploymentConfig).update({ patch: { hostedZoneName: '' } });
@@ -158,6 +164,7 @@ describe('IacSettingsController', () => {
       expect(deploymentConfig.updateTopLevelSettings).not.toHaveBeenCalled();
     });
 
+    // @spec CONFIG-SET-008
     it('should return code: "conflict" with both etags on OptimisticLockError', async () => {
       const deploymentConfig = makeDeploymentConfig();
       vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValue(new OptimisticLockError('etag-1', 'etag-current'));
@@ -173,6 +180,7 @@ describe('IacSettingsController', () => {
       });
     });
 
+    // @spec CONFIG-SET-002
     it('should return code: "setup_incomplete" when no configuration bucket is configured', async () => {
       const deploymentConfig = makeDeploymentConfig();
       vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValue(new ConfigurationNotConfiguredError());
@@ -182,6 +190,7 @@ describe('IacSettingsController', () => {
       expect(result).toEqual({ ok: false, code: 'setup_incomplete', message: expect.any(String) });
     });
 
+    // @spec CONFIG-SET-007
     it('should return code: "validation" with one issue per affected field on RunsTableRenameError (final-review round 2, finding 2)', async () => {
       const deploymentConfig = makeDeploymentConfig();
       vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValue(
@@ -203,6 +212,7 @@ describe('IacSettingsController', () => {
       });
     });
 
+    // @spec CONFIG-SET-010
     it('should return the catch-all code: "error" for any other failure', async () => {
       const deploymentConfig = makeDeploymentConfig();
       vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValue(new Error('malformed config JSON'));
@@ -212,6 +222,7 @@ describe('IacSettingsController', () => {
       expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
     });
 
+    // @spec CONFIG-SET-010
     it('should return the catch-all code: "error" (never throw) for a malformed payload envelope', async () => {
       const deploymentConfig = makeDeploymentConfig();
 

@@ -150,6 +150,8 @@ function requireWebPort(game: string, config: GameServerConfig): number {
 // @spec IAC-PROGRAM-HOST-005, IAC-PROGRAM-HOST-008, IAC-PROGRAM-IAM-001, IAC-PROGRAM-IAM-002, IAC-PROGRAM-TLS-001
 // @spec IAC-PROGRAM-TLS-003, IAC-PROGRAM-TLS-004, IAC-PROGRAM-TLS-005, IAC-PROGRAM-TLS-006, IAC-PROGRAM-TLS-007
 // @spec IAC-PROGRAM-TOKEN-001, IAC-PROGRAM-TOKEN-003, IAC-PROGRAM-TOKEN-004, IAC-PROGRAM-TOKEN-007
+// @spec GAME-TOKEN-004, GAME-TOKEN-005, GAME-TOKEN-006, GAME-TOKEN-007, GAME-TOKEN-010, GAME-TOKEN-013, GAME-PORT-011
+// @spec GAME-HOST-006, GAME-HOST-007, GAME-HOST-008, GAME-HOST-009, GAME-HOST-010
 /**
  * Declares the ECS cluster, one CloudWatch log group per game, and one task
  * definition per game. Must be called from inside the Pulumi inline-program

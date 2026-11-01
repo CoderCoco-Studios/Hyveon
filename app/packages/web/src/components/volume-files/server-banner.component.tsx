@@ -15,6 +15,7 @@ export interface ServerBannerProps {
   onRetry(): void;
 }
 
+// @spec HELPER-FB-035
 /** Explains why file changes are disabled; the unconfirmed state also offers Retry. */
 export function ServerBanner({ block, onRetry }: ServerBannerProps) {
   return (

@@ -115,6 +115,7 @@ beforeEach(() => {
 });
 
 describe('VolumeFilesPage', () => {
+  // @spec HELPER-FB-003
   it('should show session state without starting a helper when opened directly', async () => {
     mockSession(session({ state: 'stopped' }));
 
@@ -124,6 +125,7 @@ describe('VolumeFilesPage', () => {
     expect(apiMock.volumeSessionStart).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-002
   it('should start the session when arriving from the dashboard Files action', async () => {
     mockSession(session({ state: 'stopped' }));
     apiMock.volumeSessionStart.mockResolvedValue(session({ state: 'starting' }));
@@ -134,6 +136,7 @@ describe('VolumeFilesPage', () => {
     expect(apiMock.volumeSessionStart).toHaveBeenCalledWith(GAME);
   });
 
+  // @spec HELPER-FB-002
   it('should start the session on arrival when the last session failed', async () => {
     mockSession(session({ state: 'failed', error: 'Could not launch.' }));
     apiMock.volumeSessionStart.mockResolvedValue(session({ state: 'starting' }));
@@ -143,6 +146,7 @@ describe('VolumeFilesPage', () => {
     await waitFor(() => expect(apiMock.volumeSessionStart).toHaveBeenCalledTimes(1));
   });
 
+  // @spec HELPER-FB-016
   it('should reuse a running session instead of starting another on arrival', async () => {
     renderFiles({ autoStart: true });
 
@@ -150,6 +154,7 @@ describe('VolumeFilesPage', () => {
     expect(apiMock.volumeSessionStart).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-024
   it('should navigate into a folder and update the breadcrumb', async () => {
     mockListings({ '/': [makeDirEntry('world')], '/world': [makeFileEntry('level.dat')] });
     const user = userEvent.setup();
@@ -164,6 +169,7 @@ describe('VolumeFilesPage', () => {
     expect(within(breadcrumb).getByText('world')).toBeInTheDocument();
   });
 
+  // @spec HELPER-FB-024
   it('should sort by size when the size header is clicked', async () => {
     mockListings({ '/': [makeFileEntry('a.txt', 50), makeFileEntry('b.txt', 5), makeFileEntry('c.txt', 20)] });
     const user = userEvent.setup();
@@ -188,6 +194,7 @@ describe('VolumeFilesPage', () => {
     expect(row.textContent).not.toMatch(/1970/);
   });
 
+  // @spec HELPER-FB-034
   it('should disable mutating actions while the server is running', async () => {
     mockServerState('running');
     mockListings({ '/': [makeFileEntry('a.txt')] });
@@ -204,6 +211,7 @@ describe('VolumeFilesPage', () => {
     expect(screen.getByRole('button', { name: 'Download a.txt' })).toBeEnabled();
   });
 
+  // @spec HELPER-FB-035
   it('should disable mutating actions and offer Retry when the server state can not be confirmed', async () => {
     apiMock.volumeMkdir.mockResolvedValue({ ok: false, code: 'server-check-failed', message: 'Could not check.' });
     const user = userEvent.setup();
@@ -241,6 +249,7 @@ describe('VolumeFilesPage', () => {
     expect(screen.getByRole('button', { name: 'New folder' })).toBeDisabled();
   });
 
+  // @spec HELPER-FB-006
   it('should list the selected volume when the operator switches volumes', async () => {
     mockSession(
       session({
@@ -259,6 +268,7 @@ describe('VolumeFilesPage', () => {
     await waitFor(() => expect(apiMock.volumeList).toHaveBeenCalledWith(GAME, 'saves', '/'));
   });
 
+  // @spec HELPER-FB-007
   it('should show an unapplied volume as unavailable', async () => {
     mockSession(
       session({
@@ -302,6 +312,7 @@ describe('VolumeFilesPage', () => {
     expect(screen.getByRole('button', { name: 'Edit ok.txt' })).toBeEnabled();
   });
 
+  // @spec HELPER-FB-026
   it('should confirm before deleting a folder with folder wording', async () => {
     mockListings({ '/': [makeDirEntry('world')] });
     apiMock.volumeRemove.mockResolvedValue({ ok: true, value: true });
@@ -325,6 +336,7 @@ describe('VolumeFilesPage', () => {
     expect(await screen.findByText('Delete a.txt?')).toBeInTheDocument();
   });
 
+  // @spec HELPER-FB-032
   it('should reject an invalid name in the name dialog before submitting', async () => {
     const user = userEvent.setup();
     renderFiles();
@@ -337,6 +349,7 @@ describe('VolumeFilesPage', () => {
     expect(apiMock.volumeMkdir).not.toHaveBeenCalled();
   });
 
+  // @spec HELPER-FB-025
   it('should rename an entry from the name dialog', async () => {
     apiMock.volumeRename.mockResolvedValue({ ok: true, value: makeFileEntry('b.txt') });
     const user = userEvent.setup();
@@ -351,6 +364,7 @@ describe('VolumeFilesPage', () => {
     await waitFor(() => expect(apiMock.volumeRename).toHaveBeenCalledWith(GAME, 'config', '/a.txt', 'b.txt'));
   });
 
+  // @spec HELPER-FB-037
   it('should keep edits and show a conflict on save', async () => {
     apiMock.volumeReadText.mockResolvedValue({ ok: true, value: { path: '/a.txt', content: 'hello', modifiedMs: 5 } });
     apiMock.volumeWriteText.mockResolvedValue({ ok: false, code: 'conflict', message: 'The file changed on disk.' });
@@ -370,6 +384,7 @@ describe('VolumeFilesPage', () => {
     expect(screen.getAllByText('The file changed on disk.')).toHaveLength(1);
   });
 
+  // @spec HELPER-FB-038
   it('should offer a download when the file can not be edited here', async () => {
     apiMock.volumeReadText.mockResolvedValue({ ok: false, code: 'binary', message: 'Binary file.' });
     apiMock.volumeDownload.mockResolvedValue({ ok: true, value: null });
@@ -384,6 +399,7 @@ describe('VolumeFilesPage', () => {
     await waitFor(() => expect(apiMock.volumeDownload).toHaveBeenCalledWith(GAME, 'config', '/a.txt', false));
   });
 
+  // @spec HELPER-EDIT-001, HELPER-FB-038
   it('should not offer Edit for a file larger than the editor limit', async () => {
     mockListings({ '/': [makeFileEntry('big.bin', 2_000_000)] });
 
@@ -393,6 +409,7 @@ describe('VolumeFilesPage', () => {
     expect(screen.queryByRole('button', { name: 'Edit big.bin' })).not.toBeInTheDocument();
   });
 
+  // @spec HELPER-FB-019
   it('should offer only Restart for an orphaned session', async () => {
     mockSession(session({ state: 'orphaned' }));
 
@@ -403,6 +420,7 @@ describe('VolumeFilesPage', () => {
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
   });
 
+  // @spec HELPER-FB-022
   it('should show the stop reason and offer Start for a failed session', async () => {
     mockSession(session({ state: 'failed', error: 'The helper exited.' }));
 
@@ -413,6 +431,7 @@ describe('VolumeFilesPage', () => {
     expect(screen.queryByRole('button', { name: 'Restart' })).not.toBeInTheDocument();
   });
 
+  // @spec HELPER-FB-017
   it('should confirm before stopping a session with a running upload', async () => {
     mockSession(session({ uploadHolders: 1 }));
     apiMock.volumeSessionStop.mockResolvedValue({ ok: true, value: session({ state: 'stopped' }) });
@@ -427,6 +446,7 @@ describe('VolumeFilesPage', () => {
     await waitFor(() => expect(apiMock.volumeSessionStop).toHaveBeenCalledWith(GAME));
   });
 
+  // @spec HELPER-FB-017
   it('should confirm before stopping a session with a running download', async () => {
     apiMock.volumeSessionStop.mockResolvedValue({ ok: true, value: session({ state: 'stopped' }) });
     const user = userEvent.setup();
@@ -469,6 +489,7 @@ describe('VolumeFilesPage', () => {
     await waitFor(() => expect(apiMock.volumeSessionStop).toHaveBeenCalledWith(GAME));
   });
 
+  // @spec HELPER-FB-004
   it('should explain a not-deployed volume and offer no actions', async () => {
     mockSession(session({ state: 'not_deployed', volumes: [] }));
 
@@ -479,6 +500,7 @@ describe('VolumeFilesPage', () => {
     expect(screen.queryByRole('button', { name: 'New folder' })).not.toBeInTheDocument();
   });
 
+  // @spec HELPER-FB-023
   it('should warn when fewer than ten minutes remain before auto-stop', async () => {
     mockSession(session({ startedAt: new Date(Date.now() - 60_000).toISOString(), autoStopAt: new Date(Date.now() + 5 * 60_000).toISOString() }));
 
@@ -496,6 +518,7 @@ describe('VolumeFilesPage', () => {
     expect(screen.queryByText(/stops automatically soon/)).not.toBeInTheDocument();
   });
 
+  // @spec HELPER-FB-040
   it('should hide folder download when the backend has no archive support', async () => {
     mockSession(session({ supportsArchive: false }));
     mockListings({ '/': [makeDirEntry('world'), makeFileEntry('a.txt')] });
@@ -518,6 +541,7 @@ describe('VolumeFilesPage', () => {
     expect(apiMock.volumeDownload).toHaveBeenCalledWith(GAME, 'config', '/world', true);
   });
 
+  // @spec HELPER-FB-029
   it('should upload dropped files into the current folder', async () => {
     apiMock.volumeUploadDropped.mockResolvedValue({ ok: true, value: { transferId: 't' } });
     renderFiles();
@@ -529,6 +553,7 @@ describe('VolumeFilesPage', () => {
     await waitFor(() => expect(apiMock.volumeUploadDropped).toHaveBeenCalledWith(GAME, 'config', '/', [file]));
   });
 
+  // @spec HELPER-FB-034
   it('should ignore dropped files while the server is running', async () => {
     mockServerState('running');
     renderFiles();
@@ -562,6 +587,7 @@ describe('VolumeFilesPage', () => {
     expect(screen.getByText(/b \(1\)\.zip/)).toBeInTheDocument();
   });
 
+  // @spec HELPER-FB-028
   it('should refresh the listing when a folder upload run settles', async () => {
     renderFiles();
     await screen.findByText('a.txt');
@@ -613,6 +639,7 @@ describe('VolumeFilesPage', () => {
       expect(apiMock.volumeSessionStatus).toHaveBeenCalledTimes(readsBefore);
     });
 
+    // @spec HELPER-EDIT-003
     it('should keep an open editor, with Save disabled and a notice, when the session ends', async () => {
       apiMock.volumeReadText.mockResolvedValue({ ok: true, value: { path: '/a.txt', content: 'hello', modifiedMs: 5 } });
       const user = userEvent.setup();
@@ -652,6 +679,7 @@ describe('VolumeFilesPage', () => {
     });
   });
 
+  // @spec HELPER-FB-035
   describe('fail-closed server guard', () => {
     it('should treat a game missing from the loaded statuses as unconfirmed', async () => {
       apiMock.status.mockResolvedValue([]);
@@ -686,6 +714,7 @@ describe('VolumeFilesPage', () => {
     });
   });
 
+  // @spec HELPER-FB-034
   describe('dialogs left open when the server starts', () => {
     beforeEach(() => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -721,6 +750,7 @@ describe('VolumeFilesPage', () => {
     });
   });
 
+  // @spec HELPER-FB-028
   describe('folder upload resume', () => {
     const cancelled: FolderUploadProgress = {
       game: GAME,

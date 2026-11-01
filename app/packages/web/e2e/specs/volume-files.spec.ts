@@ -25,6 +25,7 @@ const LISTINGS: NonNullable<VolumeFilesSeed['listings']> = {
 };
 
 test.describe('volume files page', () => {
+  // @spec HELPER-FB-002
   test('should browse into a folder from the dashboard Files action', async ({ dashboard, volumeFiles }) => {
     await stubApis(dashboard.page, { statuses: [STOPPED_GAME] });
     await seedVolumeFiles(dashboard.page, { volumes: [DATA_VOLUME], listings: LISTINGS });
@@ -43,6 +44,7 @@ test.describe('volume files page', () => {
     await expect(volumeFiles.newFolderButton()).toBeEnabled();
   });
 
+  // @spec HELPER-FB-034
   test('should show the read-only banner while the server runs', async ({ volumeFiles }) => {
     await stubApis(volumeFiles.page, { statuses: [RUNNING_GAME] });
     await seedVolumeFiles(volumeFiles.page, { state: 'running', volumes: [DATA_VOLUME], listings: LISTINGS });
@@ -55,6 +57,7 @@ test.describe('volume files page', () => {
     await expect(volumeFiles.uploadFilesButton()).toBeDisabled();
   });
 
+  // @spec HELPER-FB-009
   test('should keep the bridge fixture responses free of secret fields', async ({ dashboard, volumeFiles }) => {
     await stubApis(dashboard.page, { statuses: [STOPPED_GAME] });
     await seedVolumeFiles(dashboard.page, { volumes: [DATA_VOLUME], listings: LISTINGS });
@@ -71,6 +74,7 @@ test.describe('volume files page', () => {
     expect(findSecretFields(responses)).toEqual([]);
   });
 
+  // @spec HELPER-FB-005, HELPER-FB-008
   test('should render no credential, IP or URL and no link out to the helper', async ({ volumeFiles }) => {
     await stubApis(volumeFiles.page, { statuses: [STOPPED_GAME] });
     await seedVolumeFiles(volumeFiles.page, { state: 'running', volumes: [DATA_VOLUME], listings: LISTINGS });

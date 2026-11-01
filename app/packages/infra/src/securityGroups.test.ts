@@ -123,6 +123,7 @@ describe('dedupedDirectGamePorts', () => {
     expect(dedupedDirectGamePorts(gameServers)).toEqual([{ port: 25565, protocol: 'tcp' }]);
   });
 
+  // @spec GAME-PORT-001
   it('should treat visibility: "public" the same as omitting visibility', () => {
     const gameServers: Record<string, GameServerConfig> = {
       onlyGame: {
@@ -261,6 +262,7 @@ describe('defineSecurityGroups', () => {
   });
 
   // @spec IAC-PROGRAM-SG-002
+  // @spec GAME-PORT-003
   it('should ingress a visibility: "internal" port from the VPC CIDR block instead of the open internet', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -309,6 +311,7 @@ describe('defineSecurityGroups', () => {
   });
 
   // @spec IAC-PROGRAM-SG-009
+  // @spec HELPER-REACH-001
   it('should declare the file-manager security group with no ingress rules', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineSecurityGroups({
@@ -472,6 +475,7 @@ describe('defineSecurityGroups', () => {
   });
 
   // @spec IAC-PROGRAM-SG-004
+  // @spec GAME-PORT-011
   it('should declare an icmp ingress rule with toPort -1 and no separate host port, sourced from the open internet for a public entry', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -510,6 +514,7 @@ describe('defineSecurityGroups', () => {
     ]);
   });
 
+  // @spec GAME-PORT-012
   it('should collapse the same icmp type/visibility pair declared by two games into a single ingress rule', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -598,6 +603,7 @@ describe('defineSecurityGroups', () => {
   });
 
   // @spec IAC-PROGRAM-SG-007, IAC-PROGRAM-SG-008
+  // @spec GAME-PORT-003, GAME-PORT-004
   it('should ingress https extras by visibility, give webPort none, and keep one 443/80 pair across two https games', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const common = { image: 'example/game:latest', cpu: 1024, memory: 2048, https: true, volumes: [{ name: 'saves', container_path: '/data' }] };

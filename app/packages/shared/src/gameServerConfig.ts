@@ -195,6 +195,7 @@ export interface GameServerHealthCheck {
   activeWhen: GameServerHealthCheckCondition;
 }
 
+// @spec GAME-MODEL-001, GAME-HTTPS-004, GAME-TOKEN-013, GAME-HOST-001
 /**
  * Per-game container configuration, keyed by game name in
  * `DeploymentConfig.gameServers`'s `game_servers` map (historically the
@@ -358,6 +359,7 @@ export type RedactedGameServer = Omit<GameServer, 'healthCheck'> & {
 
 // @spec RT-HEALTH-REDACT-001
 // @spec APP-IPC-SEC-001
+// @spec GAME-MODEL-002, GAME-HOST-001
 /**
  * Redacts a {@link GameServer} for the renderer: replaces
  * `healthCheck.auth` with a `secretSet` boolean, never the credential

@@ -69,6 +69,7 @@ describe('DiscordPage', () => {
     expect(screen.getByRole('tab', { name: 'Per-Game Permissions' })).toBeInTheDocument();
   });
 
+  // @spec DISCORD-UI-002
   describe('SetupWizard', () => {
     it('should render the setup wizard when allowedGuilds is empty', async () => {
       apiMock.discordConfig.mockResolvedValue({
@@ -166,6 +167,7 @@ describe('DiscordPage', () => {
       expect(screen.getByText('Remove guild?')).toBeInTheDocument();
     });
 
+    // @spec DISCORD-UI-006
     it('should enable Confirm only after the guild ID is typed', async () => {
       renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
 
@@ -250,6 +252,7 @@ describe('DiscordPage', () => {
       expect(within(guildRow('111111111111111111')).getByText('not registered')).toBeInTheDocument();
     });
 
+    // @spec DISCORD-UI-007
     it('should report the failing guild and leave only that guild unregistered on a partial bulk failure', async () => {
       const TWO_GUILD_CONFIG = {
         ...REDACTED_CONFIG,

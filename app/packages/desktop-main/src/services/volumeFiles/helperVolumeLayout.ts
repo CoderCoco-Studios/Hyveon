@@ -19,6 +19,7 @@ export interface HelperVolumeMount {
   taskVolumeName: string;
 }
 
+// @spec HELPER-LAYOUT-005
 /** Which of a game's volumes a helper mounts, and where. Main-process only; never crosses IPC. */
 export interface HelperVolumeLayout {
   mounts: HelperVolumeMount[];
@@ -52,6 +53,7 @@ function volumesFromOutputs(
   return efsAccessPoints[game] ? [{ name: '', container_path: '' }] : [];
 }
 
+// @spec HELPER-LAYOUT-001, HELPER-LAYOUT-002, HELPER-LAYOUT-003
 /**
  * Plans which of a game's volumes the file-manager helper mounts and under which directory.
  *

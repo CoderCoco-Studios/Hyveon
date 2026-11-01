@@ -62,6 +62,7 @@ function NameForm({ label, submitLabel, initialValue = '', submitDisabledReason,
   );
 }
 
+// @spec HELPER-FB-032
 /**
  * Prompts for one entry name (new folder or rename) and validates it with `isValidEntryName` before submitting.
  *

@@ -507,6 +507,7 @@ describe('defineLambdas', () => {
     });
   });
 
+  // @spec GAME-PORT-014
   describe('CONNECT_MESSAGES / GAME_PORTS derivation', () => {
     // @spec IAC-PROGRAM-ENV-002, IAC-PROGRAM-ENV-003
     it('should omit a game with no connect_message from CONNECT_MESSAGES but include its first port in GAME_PORTS', async () => {
@@ -520,6 +521,7 @@ describe('defineLambdas', () => {
     });
 
     // @spec IAC-PROGRAM-ENV-003
+    // @spec DISCORD-MSG-005
     it('should advertise the https marker for an https game, never its webPort or a udp extra', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         foundry: {
@@ -591,6 +593,7 @@ describe('defineLambdas', () => {
     });
 
     // @spec IAC-PROGRAM-ENV-003
+    // @spec DISCORD-MSG-004
     it('should exclude an icmp port from GAME_PORTS, advertising the first connectable port instead', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         echo: {
@@ -634,6 +637,7 @@ describe('defineLambdas', () => {
     });
 
     // @spec IAC-PROGRAM-ENV-003
+    // @spec GAME-PORT-015
     it('should fall back to the first port when every declared port is internal-visibility', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         allInternal: {
@@ -730,6 +734,7 @@ describe('defineLambdas', () => {
       expect(await handlerAsset.path).toBe(bundlePath(LAMBDA_BUNDLES_DIR, 'efs-seeder'));
     });
 
+    // @spec HELPER-SEED-001
     it('should declare one seeder function per role in roles.efsSeederRoles, never drifting from that set', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         ...FIXTURE_GAME_SERVERS,

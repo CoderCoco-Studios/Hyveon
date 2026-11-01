@@ -12,6 +12,7 @@ describe('StrayHelpersButton', () => {
     vi.resetAllMocks();
   });
 
+  // @spec HELPER-STRAY-004
   it('should list the helpers it stopped', async () => {
     apiMock.folderCleanupStrayHelpers.mockResolvedValue({
       stopped: [{ game: 'minecraft', taskArn: 'arn:1', ageMinutes: 42 }],
@@ -26,6 +27,7 @@ describe('StrayHelpersButton', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Skipped 1, revoked 2 access rules');
   });
 
+  // @spec HELPER-STRAY-004
   it('should say when nothing was stray and surface per-item errors', async () => {
     apiMock.folderCleanupStrayHelpers.mockResolvedValue({ stopped: [], skipped: 0, revokedRules: 0, errors: ['stop failed'] });
     render(<StrayHelpersButton />);

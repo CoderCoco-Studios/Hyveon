@@ -46,6 +46,7 @@ describe('FolderUploadCard', () => {
     });
   });
 
+  // @spec HELPER-SAFE-004
   it('should start the upload with the restored selection', async () => {
     setup();
     const button = screen.getByRole('button', { name: 'Upload folder' });
@@ -59,6 +60,7 @@ describe('FolderUploadCard', () => {
     });
   });
 
+  // @spec HELPER-UPLOAD-004
   it('should disable upload with an explanation when the game is not deployed, keeping the selection', async () => {
     setup({ deployed: false });
     expect(await screen.findByRole('checkbox', { name: 'Include Config' })).toBeChecked();
@@ -66,6 +68,7 @@ describe('FolderUploadCard', () => {
     expect(screen.getByRole('status')).toHaveTextContent('not been deployed');
   });
 
+  // @spec HELPER-UPLOAD-006
   it('should disable upload with an explanation while the server is running', async () => {
     apiMock.statusGame.mockResolvedValue({ game: 'minecraft', state: 'running' });
     setup();
@@ -88,6 +91,7 @@ describe('FolderUploadCard', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('scan expired');
   });
 
+  // @spec HELPER-UPLOAD-011
   it('should stop the orphaned session and retry the upload', async () => {
     apiMock.folderStartUpload
       .mockResolvedValueOnce({ started: false, error: "A file manager session is already open for 'minecraft'. Restart it, then retry." })
@@ -114,6 +118,7 @@ describe('FolderUploadCard', () => {
     expect(apiMock.folderStartUpload).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-PROG-001
   it('should follow pushed progress and lock the controls during a run', async () => {
     setup();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Upload folder' })).toBeEnabled());
@@ -137,6 +142,7 @@ describe('FolderUploadCard', () => {
     expect(apiMock.folderGetProgress).toHaveBeenCalledWith('minecraft');
   });
 
+  // @spec HELPER-SAFE-004, HELPER-PROG-006
   it('should restart from the persisted selection after the app restarts mid-run', async () => {
     apiMock.folderGetSelection.mockResolvedValue({
       ...STORED,
@@ -160,6 +166,7 @@ describe('FolderUploadCard', () => {
     expect(screen.getByText(/could not be read/)).toBeInTheDocument();
   });
 
+  // @spec HELPER-RESUME-005
   it('should resume a failed run through the same start path', async () => {
     setup();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Upload folder' })).toBeEnabled());
