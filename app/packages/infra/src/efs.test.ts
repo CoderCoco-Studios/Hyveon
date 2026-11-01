@@ -35,6 +35,7 @@ describe('defineEfs', () => {
     mocks = installPulumiMocks();
   });
 
+  // @spec IAC-PROGRAM-EFS-001
   it('should declare the shared EFS filesystem, encrypted, with the project-prefixed creation token', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineEfs({
@@ -52,6 +53,7 @@ describe('defineEfs', () => {
     expect(fs.inputs.tags).toEqual({ Name: 'hyveon-saves' });
   });
 
+  // @spec IAC-PROGRAM-EFS-001
   it('should declare one mount target per public subnet, referencing the efs security group', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineEfs({
@@ -72,6 +74,7 @@ describe('defineEfs', () => {
     }
   });
 
+  // @spec IAC-PROGRAM-EFS-002
   it('should declare exactly one access point per (game, volume) pair with posix/root-directory attributes byte-faithful to the HCL', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineEfs({
@@ -96,6 +99,7 @@ describe('defineEfs', () => {
     expect(alphaAp.inputs.tags).toEqual({ Name: 'alpha-saves' });
   });
 
+  // @spec IAC-PROGRAM-FANOUT-002
   it('should add exactly the new access points for a newly-added game with two volumes', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -131,6 +135,7 @@ describe('defineEfs', () => {
     expect(echoMods.inputs.rootDirectory).toMatchObject({ path: '/echo/mods' });
   });
 
+  // @spec IAC-PROGRAM-EFS-003
   it('should declare a certificate-storage access point only for the https: true game', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineEfs({

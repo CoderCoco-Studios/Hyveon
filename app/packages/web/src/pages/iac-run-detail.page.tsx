@@ -165,6 +165,7 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
   return { chunks, source, loading };
 }
 
+// @spec IAC-RUN-DETL-001, IAC-RUN-DETL-002, IAC-RUN-DETL-003
 /**
  * Read-only run-detail route (`/iac/history/:runId`) — shows a single
  * persisted iac run's status and captured log, reusing the live

@@ -18,6 +18,7 @@ export interface UseRunHistoryResult {
   loadMore: () => void;
 }
 
+// @spec IAC-RUN-HIST-006, IAC-RUN-HIST-007
 /**
  * Fetch orchestration for `/iac/history`'s run table: the initial page for the given
  * `statusFilter` — server-side via the `status-index` GSI — plus cursor-based "Load more"

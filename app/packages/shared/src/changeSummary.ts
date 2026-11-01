@@ -14,6 +14,7 @@
  * (Node-only, Electron-bundled-as-`external`) `@pulumi/pulumi` package.
  */
 
+// @spec IAC-RUN-REC-009
 /**
  * The granular CRUD operation Pulumi's engine performed (or planned to
  * perform) on a single resource during a `preview`/`up`/`destroy`. Mirrors
@@ -37,6 +38,7 @@ export type OpType =
   | 'import'
   | 'import-replacement';
 
+// @spec IAC-RUN-REC-006, IAC-RUN-REC-007, IAC-RUN-REC-008
 /**
  * A structured resource-change summary: a count of affected resources keyed
  * by {@link OpType}. Sourced verbatim from the Automation API's own

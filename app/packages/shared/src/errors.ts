@@ -8,6 +8,7 @@
 
 import type { RunLock } from './runs.js';
 
+// @spec IAC-RUN-REC-009
 /**
  * Thrown by `DeploymentConfig` write helpers (e.g.
  * `DeploymentConfigService.updateGameServer`) when an optimistic-concurrency
@@ -45,6 +46,7 @@ export class OptimisticLockError extends Error {
   }
 }
 
+// @spec IAC-RUN-LOCK-004
 /**
  * Thrown by `RunService.createRun()` (desktop-main) when a caller
  * tries to start a new plan/apply/destroy run (see `RunKind`'s doc in

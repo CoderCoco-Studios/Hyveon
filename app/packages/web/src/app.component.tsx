@@ -60,6 +60,7 @@ function useWizardCompleted(): boolean | null {
   return wizardCompleted;
 }
 
+// @spec IAC-RUN-PLAN-001
 /**
  * Root component.
  *

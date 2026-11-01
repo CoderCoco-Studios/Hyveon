@@ -197,6 +197,7 @@ export class IacSettingsController implements OnModuleInit {
     }
   }
 
+  // @spec IAC-ENGINE-PIN-005
   /**
    * Returns the resolved Pulumi engine version — `PulumiEngineService.getResolvedVersion()`
    * verbatim — for Settings' Cloud Setup version row. `resolvedVersion: null`

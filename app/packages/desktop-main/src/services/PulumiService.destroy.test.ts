@@ -288,6 +288,7 @@ describe('PulumiService.destroy concurrency guard', () => {
     void initPromise.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.
   });
 
+  // @spec IAC-RUN-GATE-013
   /**
    * Regression test for Finding 2 (final whole-branch review) — mirrors
    * `PulumiService.apply.test.ts`'s identical test and reasoning: the
@@ -337,6 +338,7 @@ describe('PulumiService.destroy concurrency guard', () => {
   });
 });
 
+// @spec IAC-RUN-DSTR-004
 describe('PulumiService.destroy confirmation gate', () => {
   it('should reject with DestroyNotConfirmedError and never call getOrCreateStack or createRun when no token has ever been minted', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
@@ -372,6 +374,7 @@ describe('PulumiService.destroy confirmation gate', () => {
     dateNowSpy.mockRestore();
   });
 
+  // @spec IAC-RUN-DSTR-012
   it('should reject with DestroyNotConfirmedError on a second destroy() call reusing an already-consumed token', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
     const service = makeService({ workspace });
@@ -383,6 +386,7 @@ describe('PulumiService.destroy confirmation gate', () => {
     await expect(collectDestroyChunks(service.destroy(token))).rejects.toBeInstanceOf(DestroyNotConfirmedError);
   });
 
+  // @spec IAC-RUN-DSTR-003
   it('should reject with DestroyNotConfirmedError when the token was minted for a different state bucket (target binding)', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
     const store = makeFullyConfiguredStore();
@@ -439,6 +443,7 @@ describe('PulumiService.destroy confirmation gate', () => {
     await expect(collectDestroyChunks(service.destroy(tokenB))).resolves.toBeDefined();
   });
 
+  // @spec IAC-RUN-DSTR-005
   it('should let two concurrent destroy() calls sharing the SAME token resolve the race via the token itself: the loser gets DestroyNotConfirmedError, not RunLockHeldError', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
     const runLockService = makeRunLockService();
@@ -530,6 +535,7 @@ describe('PulumiService.destroy gate ordering and reservations', () => {
     await expect(collectDestroyChunks(service.destroy(secondToken))).resolves.toBeDefined();
   });
 
+  // @spec IAC-RUN-DSTR-007
   it('should acquire the durable lock only AFTER the token and config-existence checks pass', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
     const runLockService = makeRunLockService();
@@ -563,6 +569,7 @@ describe('PulumiService.destroy gate ordering and reservations', () => {
     expect(runRecordPersister.persist).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-GATE-013
   it('should release the just-won durable lock and refuse when a concurrent preview() starts running against the shared workspace DURING the destroy gate phase', async () => {
     // Exercising a genuinely concurrent preview() (rather than faking
     // operationInFlight directly — a private field, deliberately not
@@ -675,6 +682,7 @@ describe('PulumiService.destroy gate ordering and reservations', () => {
   });
 });
 
+// @spec IAC-RUN-DSTR-006
 describe('PulumiService.destroy spawning', () => {
   it('should construct the stack via getOrCreateStack with a no-op program, then call stack.destroy with no plan option', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
@@ -793,6 +801,7 @@ describe('PulumiService.destroy run persistence', () => {
   });
 });
 
+// @spec IAC-ENGINE-OUT-006
 describe('PulumiService.destroy cache invalidation', () => {
   it('should invalidate the stack-outputs cache on a successful destroy', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
@@ -852,6 +861,7 @@ describe('PulumiService.destroy lock-recovery', () => {
     return header + lines.join('');
   }
 
+  // @spec IAC-ENGINE-LOCK-004
   it('should clear a provably-own-orphan lock via stack.cancel() and retry stack.destroy() once, succeeding on the retry', async () => {
     vi.spyOn(process, 'kill').mockImplementation(() => {
       const err = new Error('no such process') as NodeJS.ErrnoException;
@@ -885,6 +895,7 @@ describe('PulumiService.destroy lock-recovery', () => {
     expect(result).toMatchObject({ changeSummary: {} });
   });
 
+  // @spec IAC-ENGINE-LOCK-005
   it('should reject with PulumiUnrecognizedLockError, and never call stack.cancel(), when the lock cannot be proven this installation\'s own orphan', async () => {
     const lockedAt = new Date().toISOString();
     const conflictMessage = diyLockMessage([{ pid: 4242, username: 'someone-else', hostname: 'someone-elses-machine', lockedAt }]);
@@ -1068,6 +1079,7 @@ describe('PulumiService.destroy abort handling', () => {
     expect(result.value).toBeUndefined();
   });
 
+  // @spec IAC-RUN-DSTR-010
   it('should persist a run.json record with a null exitCode via the outer finally when force-closed before the process settles', async () => {
     let rejectDestroy!: (err: unknown) => void;
     const destroyMock = vi.fn().mockImplementation((opts: DestroyOptions) => {
@@ -1125,6 +1137,7 @@ describe('PulumiService.destroy concurrency guard', () => {
     await expect(collectDestroyChunks(service.destroy(token2))).resolves.toBeDefined();
   });
 
+  // @spec IAC-ENGINE-LOCK-009
   it('should throw a descriptive Error from a second destroy() call while the first is still in flight (different tokens)', async () => {
     let resolveDestroy!: () => void;
     const workspace = makeWorkspace(

@@ -152,6 +152,7 @@ export type PulumiLockClassification =
   | { kind: 'reclaimable-own-orphan'; locks: PulumiStackLockInfo[] }
   | { kind: 'requires-confirmation'; locks: PulumiStackLockInfo[] };
 
+// @spec IAC-ENGINE-LOCK-006
 /**
  * True when a process with `pid` still exists, checked via
  * `process.kill(pid, 0)` — signal `0` is a standard, cross-platform (Node/
@@ -219,6 +220,7 @@ function findReclaimEvidence(
   return freshRecords.find((record) => new Date(record.startedAt).getTime() <= lockedAtMs) ?? null;
 }
 
+// @spec IAC-ENGINE-LOCK-003, IAC-ENGINE-LOCK-007, IAC-ENGINE-LOCK-008
 /**
  * Classifies a caught error against the `pulumi-engine-runtime` delta spec's
  * "Stale backend lock recovery" requirement's provable-ownership test — see
@@ -325,6 +327,7 @@ export function formatLockAge(lockedAt: Date, now: Date = new Date()): string {
   return formatRelativeAge(now.getTime() - lockedAt.getTime());
 }
 
+// @spec IAC-ENGINE-LOCK-005
 /**
  * Thrown when a backend lock conflict cannot be proven to belong to this
  * installation — the `pulumi-engine-runtime` delta spec's "Unrecognised lock

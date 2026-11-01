@@ -595,6 +595,7 @@ const api: HyveonApi = {
     list: (opts?: { limit?: number; before?: string }) => invoke('audit.list', opts),
   },
 
+  // @spec IAC-RUN-IPC-006
   iac: {
     stack: {
       initialize: openStackInitializeStream,

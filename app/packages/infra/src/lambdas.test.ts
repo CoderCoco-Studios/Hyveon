@@ -197,6 +197,7 @@ const CONNECT_MESSAGE_FIXTURE: Record<string, GameServerConfig> = {
 };
 
 describe('bundlePath', () => {
+  // @spec IAC-PROGRAM-LAMBDA-002
   it('should join the bundles dir, the lambda directory name, dist, and handler.cjs', () => {
     expect(bundlePath('/some/dir', 'interactions')).toBe(path.join('/some/dir', 'interactions', 'dist', 'handler.cjs'));
   });
@@ -214,6 +215,7 @@ describe('defineLambdas', () => {
   });
 
   describe('followup function', () => {
+    // @spec IAC-PROGRAM-LAMBDA-001, IAC-PROGRAM-LAMBDA-002, IAC-PROGRAM-RUNTIME-001
     it('should set name/role/handler/runtime/timeout/memorySize exactly per the HCL', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       const result = await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -230,6 +232,7 @@ describe('defineLambdas', () => {
       expect(await promiseOf(result.followupFunction.name)).toBe('hyveon-followup');
     });
 
+    // @spec IAC-PROGRAM-ENV-001, IAC-PROGRAM-LAMBDA-003, IAC-PROGRAM-LAMBDA-008
     it('should set every environment variable exactly per the HCL, including the AWS_REGION_ trailing underscore', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -250,6 +253,7 @@ describe('defineLambdas', () => {
       expect('AWS_REGION' in variables).toBe(false);
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-015
     it('should declare its log group at /aws/lambda/{project}-followup with 7-day retention', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -261,6 +265,7 @@ describe('defineLambdas', () => {
       expect(logGroup.inputs.tags).toEqual({ Name: 'hyveon-followup-logs' });
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-002
     it('should source its code from the followup bundle directory, zipped as a single handler.cjs entry', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -276,6 +281,7 @@ describe('defineLambdas', () => {
   });
 
   describe('interactions function, function URL, and permissions', () => {
+    // @spec IAC-PROGRAM-LAMBDA-001, IAC-PROGRAM-RUNTIME-001
     it('should set name/role/handler/runtime/timeout/memorySize exactly per the HCL', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       const result = await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -308,6 +314,7 @@ describe('defineLambdas', () => {
       });
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-004
     it('should declare a NONE-auth function URL scoped to Discord CORS', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -322,6 +329,7 @@ describe('defineLambdas', () => {
       });
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-004
     it('should declare both the InvokeFunctionUrl and InvokeFunction public permissions with their exact statement ids', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -347,6 +355,7 @@ describe('defineLambdas', () => {
   });
 
   describe('watchdog function and EventBridge schedule', () => {
+    // @spec IAC-PROGRAM-LAMBDA-001, IAC-PROGRAM-RUNTIME-001
     it('should set name/role/handler/runtime/timeout exactly per the HCL, with no memorySize', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -358,6 +367,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.tags).toEqual({ Name: 'hyveon-watchdog' });
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-009
     it('should set every environment variable exactly per the HCL', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -376,6 +386,7 @@ describe('defineLambdas', () => {
       });
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-005
     it('should use the plural "minutes" schedule expression for an interval greater than 1', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider, watchdogIntervalMinutes: 15 }));
@@ -386,6 +397,7 @@ describe('defineLambdas', () => {
       expect(rule.inputs.description).toBe('Check for idle game servers every 15 minute(s)');
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-005
     it('should use the singular "minute" schedule expression for a 1-minute interval', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider, watchdogIntervalMinutes: 1 }));
@@ -416,6 +428,7 @@ describe('defineLambdas', () => {
   });
 
   describe('dns-updater function and EventBridge ECS-state-change rule', () => {
+    // @spec IAC-PROGRAM-LAMBDA-001, IAC-PROGRAM-RUNTIME-001
     it('should set name/role/handler/runtime/timeout exactly per the HCL, with no memorySize', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -427,6 +440,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.tags).toEqual({ Name: 'hyveon-dns-updater' });
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-002
     it('should source its code from the update-dns bundle directory, not dns-updater', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -438,6 +452,7 @@ describe('defineLambdas', () => {
       expect(await handlerAsset.path).toBe(bundlePath(LAMBDA_BUNDLES_DIR, 'update-dns'));
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-010
     it('should set every environment variable exactly per the HCL, including the deferred HOSTED_ZONE_ID', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -456,6 +471,7 @@ describe('defineLambdas', () => {
       });
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-006
     it('should declare an event pattern matching RUNNING/STOPPED ECS Task State Change events on the live cluster ARN', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -485,6 +501,7 @@ describe('defineLambdas', () => {
   });
 
   describe('CONNECT_MESSAGES / GAME_PORTS derivation', () => {
+    // @spec IAC-PROGRAM-ENV-002, IAC-PROGRAM-ENV-003
     it('should omit a game with no connect_message from CONNECT_MESSAGES but include its first port in GAME_PORTS', async () => {
       const { provider, roles, efs } = await arrangeDependencies(CONNECT_MESSAGE_FIXTURE);
       await runDefineLambdas(buildArgs({ gameServers: CONNECT_MESSAGE_FIXTURE, roles, efs, provider }));
@@ -495,6 +512,7 @@ describe('defineLambdas', () => {
       expect(JSON.parse(variables.GAME_PORTS as string)).toEqual({ withMessage: 25565, noMessage: 7777 });
     });
 
+    // @spec IAC-PROGRAM-ENV-003
     it('should advertise the https marker for an https game, never its webPort or a udp extra', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         foundry: {
@@ -522,6 +540,7 @@ describe('defineLambdas', () => {
       expect(JSON.parse(variables.GAME_PORTS as string)).toEqual({ foundry: 'https', palworld: 8211 });
     });
 
+    // @spec IAC-PROGRAM-ENV-003
     it('should advertise the first public port in GAME_PORTS, not an internal-visibility port declared first', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         managementFirst: {
@@ -564,6 +583,7 @@ describe('defineLambdas', () => {
       expect(JSON.parse(variables.GAME_PORTS as string)).toEqual({ typoVisibility: 8211 });
     });
 
+    // @spec IAC-PROGRAM-ENV-003
     it('should exclude an icmp port from GAME_PORTS, advertising the first connectable port instead', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         echo: {
@@ -606,6 +626,7 @@ describe('defineLambdas', () => {
       expect(JSON.parse(variables.GAME_PORTS as string)).toEqual({ echo: 8211 });
     });
 
+    // @spec IAC-PROGRAM-ENV-003
     it('should fall back to the first port when every declared port is internal-visibility', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         allInternal: {
@@ -626,6 +647,7 @@ describe('defineLambdas', () => {
   });
 
   describe('efs-seeder per-game log groups and functions', () => {
+    // @spec IAC-PROGRAM-LAMBDA-001
     it('should declare no log groups or functions when no game declares file_seeds', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       const result = await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -634,6 +656,7 @@ describe('defineLambdas', () => {
       expect(result.efsSeederFunctions).toEqual({});
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-014
     it('should throw when a game declares file_seeds but no efsSeederSecurityGroupId was supplied', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         ...FIXTURE_GAME_SERVERS,
@@ -653,6 +676,7 @@ describe('defineLambdas', () => {
       );
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-001, IAC-PROGRAM-LAMBDA-013
     it('should declare one log group/function per game with file_seeds, wired to the externally-supplied security group id', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         ...FIXTURE_GAME_SERVERS,
@@ -753,6 +777,7 @@ describe('defineLambdas', () => {
       };
     }
 
+    // @spec IAC-PROGRAM-LAMBDA-001
     it('should declare no log group or function when no game declares healthCheck', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       const result = await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
@@ -762,6 +787,7 @@ describe('defineLambdas', () => {
       expect(mocks.resources.some((resource) => resource.name === 'hyveon-health-check')).toBe(false);
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-014
     it('should throw when a game declares healthCheck but no healthCheckSecurityGroupId was supplied', async () => {
       const gameServers = gameServersWithHealthCheck();
       const { provider, roles, efs } = await arrangeDependencies(gameServers);
@@ -810,6 +836,7 @@ describe('defineLambdas', () => {
       ).toBe(false);
     });
 
+    // @spec IAC-PROGRAM-ENV-002, IAC-PROGRAM-LAMBDA-009
     it("should set the watchdog function's HEALTH_CHECKS and HEALTH_CHECK_FUNCTION_NAME when a game declares healthCheck", async () => {
       const gameServers = gameServersWithHealthCheck();
       const { provider, roles, efs } = await arrangeDependencies(gameServers);

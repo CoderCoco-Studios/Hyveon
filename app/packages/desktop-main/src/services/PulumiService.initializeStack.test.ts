@@ -137,6 +137,7 @@ beforeEach(() => {
 
 describe('PulumiService.initializeStack', () => {
   describe('phase reporting', () => {
+    // @spec IAC-ENGINE-INIT-001, IAC-ENGINE-PROV-009
     it('should report start/end for all three phases, in order, on a fully successful run', async () => {
       const workspace = makeWorkspace();
       const service = makeService({ workspace });
@@ -192,6 +193,7 @@ describe('PulumiService.initializeStack', () => {
       expect(refresh).toHaveBeenCalledTimes(1);
     });
 
+    // @spec IAC-ENGINE-LOCK-001
     it('should record a Pulumi lock attempt immediately before stack.refresh() and clear it once refresh settles — success case', async () => {
       const store = makeNewStackStore();
       const recordSpy = vi.spyOn(store, 'recordPulumiLockAttempt');
@@ -254,6 +256,7 @@ describe('PulumiService.initializeStack', () => {
     });
   });
 
+  // @spec IAC-ENGINE-INIT-004
   describe('error attribution', () => {
     it("should tag an engine-resolution failure as 'engine', not 'operation'", async () => {
       // PulumiEngineService.resolve fires ('engine', 'end') on BOTH success
@@ -454,6 +457,7 @@ describe('PulumiService.initializeStack', () => {
     });
   });
 
+  // @spec IAC-ENGINE-INIT-003
   describe('pre-flight config check', () => {
     it('should reject with a descriptive, engine-tagged error and never call getOrCreateStack when the state bucket / AWS region is not configured', async () => {
       const workspace = makeWorkspace();
@@ -474,6 +478,7 @@ describe('PulumiService.initializeStack', () => {
     });
   });
 
+  // @spec IAC-ENGINE-INIT-002
   describe('reentrancy guards', () => {
     it('should reject with PulumiOperationInFlightError, and never call getOrCreateStack, when destroy() is already in flight', async () => {
       // Mirrors PulumiService.clearStaleLock.test.ts's identical concurrency

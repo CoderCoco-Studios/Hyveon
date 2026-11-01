@@ -179,6 +179,7 @@ describe('defineIamRoles', () => {
     mocks = installPulumiMocks();
   });
 
+  // @spec IAC-PROGRAM-IAM-001
   it('should declare the ECS task-execution role with the ecs-tasks.amazonaws.com trust policy', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineIamRoles({ projectName: 'hyveon', gameServers: FIXTURE_GAME_SERVERS, provider });
@@ -192,6 +193,7 @@ describe('defineIamRoles', () => {
     });
   });
 
+  // @spec IAC-PROGRAM-IAM-001
   it('should attach the AmazonECSTaskExecutionRolePolicy managed policy to the task-execution role by name', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineIamRoles({ projectName: 'hyveon', gameServers: FIXTURE_GAME_SERVERS, provider });
@@ -202,6 +204,7 @@ describe('defineIamRoles', () => {
     expect(attachment.inputs.role).toBe('hyveon-task-execution');
   });
 
+  // @spec IAC-PROGRAM-IAM-003
   it('should declare every Lambda role with the lambda.amazonaws.com trust policy and no external ARN dependency', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineIamRoles({ projectName: 'hyveon', gameServers: FIXTURE_GAME_SERVERS, provider });
@@ -224,6 +227,7 @@ describe('defineIamRoles', () => {
     expect(roles.efsSeederRoles).toEqual({});
   });
 
+  // @spec IAC-PROGRAM-IAM-007
   it('should declare one EFS-seeder role per game with file_seeds', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -248,6 +252,7 @@ describe('defineIamRoles', () => {
     });
   });
 
+  // @spec IAC-PROGRAM-IAM-008
   it('should declare the FileBrowser scheduler role with the scheduler.amazonaws.com trust policy', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineIamRoles({ projectName: 'hyveon', gameServers: FIXTURE_GAME_SERVERS, provider });
@@ -268,6 +273,7 @@ describe('defineIamRoles', () => {
     expect(roles.healthCheckLambdaRole).toBeUndefined();
   });
 
+  // @spec IAC-PROGRAM-IAM-009
   it('should declare a single shared health-check role when at least one game declares healthCheck', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const roles = await runDefineIamRoles({ projectName: 'hyveon', gameServers: GAME_SERVERS_WITH_HEALTH_CHECK, provider });
@@ -290,6 +296,7 @@ describe('defineIamPolicies', () => {
     mocks = installPulumiMocks();
   });
 
+  // @spec IAC-PROGRAM-IAM-003, IAC-PROGRAM-IAM-005
   it('should declare the watchdog Lambda policy with no external ARN dependency', async () => {
     const { provider, roles } = await arrangeRoles(FIXTURE_GAME_SERVERS);
     await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS });
@@ -336,6 +343,7 @@ describe('defineIamPolicies', () => {
     });
   });
 
+  // @spec IAC-PROGRAM-IAM-003, IAC-PROGRAM-IAM-004
   it('should grant the interactions Lambda policy dynamodb, secretsmanager, and lambda:InvokeFunction on their respective deferred ARNs', async () => {
     const { provider, roles } = await arrangeRoles(FIXTURE_GAME_SERVERS);
     await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS });
@@ -380,6 +388,7 @@ describe('defineIamPolicies', () => {
     expect(policies.efsSeederPolicies).toEqual({});
   });
 
+  // @spec IAC-PROGRAM-IAM-007
   it('should declare one EFS-seeder policy per role in roles.efsSeederRoles, granting elasticfilesystem access on the deferred EFS filesystem ARN', async () => {
     const gameServers: Record<string, GameServerConfig> = {
       ...FIXTURE_GAME_SERVERS,
@@ -416,6 +425,7 @@ describe('defineIamPolicies', () => {
     });
   });
 
+  // @spec IAC-PROGRAM-IAM-008
   it('should grant the FileBrowser scheduler policy only ecs:StopTask, scoped to tasks in the deferred ECS cluster', async () => {
     const { provider, roles } = await arrangeRoles(FIXTURE_GAME_SERVERS);
     await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS });
@@ -442,6 +452,7 @@ describe('defineIamPolicies', () => {
     expect(policies.healthCheckLambdaPolicy).toBeUndefined();
   });
 
+  // @spec IAC-PROGRAM-IAM-009
   it('should grant the health-check policy ec2/ecs access plus secretsmanager scoped to exactly the referenced secret ARNs', async () => {
     const { provider, roles } = await arrangeRoles(GAME_SERVERS_WITH_HEALTH_CHECK);
     const policies = await runDefineIamPolicies({
@@ -494,6 +505,7 @@ describe('defineIamPolicies', () => {
     expect(statements.some((s) => s.Action.includes('secretsmanager:GetSecretValue'))).toBe(false);
   });
 
+  // @spec IAC-PROGRAM-IAM-006
   it('should grant the watchdog policy lambda:InvokeFunction on the health-check function ARN when provided', async () => {
     const { provider, roles } = await arrangeRoles(GAME_SERVERS_WITH_HEALTH_CHECK);
     const healthCheckFunctionArn = 'arn:aws:lambda:us-east-1:123456789012:function:hyveon-health-check';

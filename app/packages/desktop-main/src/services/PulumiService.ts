@@ -16,6 +16,7 @@ import type {
   UpdateKind,
   UpResult,
 } from '@pulumi/pulumi/automation/index.js';
+// @spec IAC-PROGRAM-WS-002
 import { createInfraProgram } from '@hyveon/infra';
 import {
   CONFIGURATION_OBJECT_KEY,
@@ -736,6 +737,7 @@ export class PulumiService {
     private readonly engine: PulumiEngineService,
   ) {}
 
+  // @spec IAC-ENGINE-LOCK-009
   /**
    * Read-only accessor for {@link operationInFlight}, for callers'
    * pre-flight busy checks.
@@ -937,6 +939,8 @@ export class PulumiService {
     }
   }
 
+  // @spec IAC-ENGINE-OUT-001, IAC-ENGINE-OUT-002
+  // @spec IAC-PROGRAM-OUT-008
   /**
    * Reads every value the app cares about off the deployed Pulumi stack.
    * Returns `null` — NEVER throws, full stop. Every call site is written
@@ -1017,6 +1021,7 @@ export class PulumiService {
     return PulumiService.projectStackOutputs(outputs);
   }
 
+  // @spec IAC-ENGINE-OUT-011
   /**
    * Projects a raw Automation API {@link OutputMap} into {@link StackOutputs}.
    * NO key translation happens here: `@hyveon/infra`'s `buildStackOutputs`
@@ -1055,6 +1060,8 @@ export class PulumiService {
     };
   }
 
+  // @spec IAC-ENGINE-INIT-001, IAC-ENGINE-INIT-002, IAC-ENGINE-INIT-003, IAC-ENGINE-INIT-004, IAC-ENGINE-PROV-009,
+  // @spec IAC-ENGINE-PFAIL-005, IAC-ENGINE-LOCK-001
   /**
    * The wizard's stack-initialization step. Initializes — or, on a retry,
    * re-verifies — the one Pulumi stack this app manages end to end:
@@ -1378,6 +1385,7 @@ export class PulumiService {
     );
   }
 
+  // @spec IAC-ENGINE-REDACT-001
   /**
    * Replaces every occurrence of every value in `redactedValues` within
    * `line` with {@link ENV_REDACTION_PLACEHOLDER}.
@@ -1408,6 +1416,8 @@ export class PulumiService {
     return redacted;
   }
 
+  // @spec IAC-RUN-GATE-002, IAC-RUN-REC-007, IAC-RUN-LOCK-007
+  // @spec IAC-ENGINE-LOCK-009
   /**
    * Runs `pulumi preview` against the current deployment configuration,
    * yielding a {@link PulumiRunChunk} per line of stdout/stderr as the
@@ -1848,6 +1858,11 @@ export class PulumiService {
     }
   }
 
+  // @spec IAC-RUN-GATE-003, IAC-RUN-GATE-004, IAC-RUN-GATE-005, IAC-RUN-GATE-006, IAC-RUN-GATE-007, IAC-RUN-GATE-008
+  // @spec IAC-RUN-GATE-009, IAC-RUN-GATE-010, IAC-RUN-GATE-011, IAC-RUN-GATE-012, IAC-RUN-GATE-013, IAC-RUN-PART-001
+  // @spec IAC-RUN-PART-002, IAC-RUN-LOCK-007, IAC-RUN-RBK-008, IAC-RUN-REC-007
+  // @spec IAC-ENGINE-LOCK-001, IAC-ENGINE-LOCK-002, IAC-ENGINE-LOCK-004, IAC-ENGINE-LOCK-005, IAC-ENGINE-LOCK-009,
+  // @spec IAC-ENGINE-LIFE-005, IAC-ENGINE-OUT-006
   /**
    * Runs `pulumi up` constrained by a previously approved, unexpired plan,
    * behind a **self-contained** 8-step gate this method owns end-to-end —
@@ -2714,6 +2729,7 @@ export class PulumiService {
     }
   }
 
+  // @spec IAC-RUN-DSTR-003
   /**
    * Mints a fresh, single-use confirmation token for a subsequent
    * {@link destroy} call, valid for {@link DESTROY_CONFIRMATION_TTL_MS},
@@ -2759,6 +2775,10 @@ export class PulumiService {
     });
   }
 
+  // @spec IAC-RUN-DSTR-004, IAC-RUN-DSTR-005, IAC-RUN-DSTR-006, IAC-RUN-DSTR-007, IAC-RUN-DSTR-010, IAC-RUN-DSTR-012
+  // @spec IAC-RUN-GATE-013, IAC-RUN-LOCK-007
+  // @spec IAC-ENGINE-LOCK-001, IAC-ENGINE-LOCK-002, IAC-ENGINE-LOCK-004, IAC-ENGINE-LOCK-005, IAC-ENGINE-LOCK-009,
+  // @spec IAC-ENGINE-LIFE-005, IAC-ENGINE-OUT-006
   /**
    * Runs `pulumi destroy` against the deployed stack, yielding a
    * {@link PulumiRunChunk} per line of stdout/stderr as the operation
@@ -3354,6 +3374,7 @@ export class PulumiService {
     }
   }
 
+  // @spec IAC-RUN-RBK-002, IAC-RUN-RBK-004
   /**
    * Resolves the configuration-object version that was live immediately
    * before the given `apply` run — the target {@link confirmRollback} would
@@ -3450,6 +3471,7 @@ export class PulumiService {
     return normalizeDeploymentConfigGames(parsed as DeploymentConfig);
   }
 
+  // @spec IAC-RUN-RBK-003
   /**
    * Best-effort computation of how `targetVersionId` (a rollback target
    * identified by {@link resolveRollbackTarget}) differs from the current
@@ -3520,6 +3542,8 @@ export class PulumiService {
     }
   }
 
+  // @spec IAC-RUN-RBK-004, IAC-RUN-RBK-005, IAC-RUN-RBK-006, IAC-RUN-RBK-007, IAC-RUN-LOCK-007
+  // @spec IAC-ENGINE-LOCK-009
   /**
    * Confirms a rollback of `applyRunId`: re-resolves the rollback target
    * (catching a late expiry before any write), restores its exact historic
@@ -3649,6 +3673,8 @@ export class PulumiService {
     }
   }
 
+  // @spec IAC-ENGINE-LOCK-005
+  // @spec IAC-RUN-LCLR-010, IAC-RUN-LCLR-011, IAC-RUN-LCLR-012
   /**
    * Clears an UNRECOGNIZED Pulumi backend lock after an operator has
    * explicitly confirmed they believe it's genuinely stale — the

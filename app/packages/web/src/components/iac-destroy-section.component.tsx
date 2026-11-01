@@ -17,6 +17,7 @@ import { SubmissionBanners } from './submission-banners.component.js';
  */
 const DESTROY_CONFIRM_PHRASE = 'destroy infrastructure';
 
+// @spec IAC-RUN-DSTR-001, IAC-RUN-DSTR-002
 /**
  * "Destroy infrastructure" section of the Plan/Apply page (`/iac`) — its own heading, warning copy,
  * type-to-confirm dialog, and run/log/status block, all driven by an independent `useIacRun('destroy')`

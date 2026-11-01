@@ -41,6 +41,7 @@ function buildLock(overrides: Partial<RunLock> = {}): RunLock {
   };
 }
 
+// @spec IAC-RUN-REC-004
 describe('buildRunSk', () => {
   it('should join startedAt and runId with a hash separator', () => {
     const sk = buildRunSk('2026-07-17T12:34:56.789Z', 'run-123');
@@ -71,6 +72,7 @@ describe('buildRunSk', () => {
   });
 });
 
+// @spec IAC-RUN-REC-002
 describe('deriveRunStatus', () => {
   it('should return success when exitCode is 0', () => {
     expect(deriveRunStatus(0)).toBe('success');
@@ -85,6 +87,7 @@ describe('deriveRunStatus', () => {
   });
 });
 
+// @spec IAC-RUN-LOCK-005
 describe('isRunLockExpired', () => {
   it('should return false when now is before expiresAt', () => {
     const lock = buildLock({ expiresAt: '2026-07-20T12:30:00.000Z' });
@@ -116,6 +119,7 @@ describe('isRunLockExpired', () => {
   });
 });
 
+// @spec IAC-RUN-APPR-005
 describe('isApprovalExpired', () => {
   const approvedAt = '2026-07-20T12:00:00.000Z';
 
@@ -146,6 +150,7 @@ describe('isApprovalExpired', () => {
   });
 });
 
+// @spec IAC-RUN-IPC-009
 describe('computeRunDetailStatus', () => {
   it('should return running when isInFlight is true regardless of the other fields', () => {
     const input = buildStatusInput({

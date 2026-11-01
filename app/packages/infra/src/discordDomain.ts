@@ -88,6 +88,7 @@ export interface DefineDiscordDomainArgs {
   usEast1Provider: aws.Provider;
 }
 
+// @spec IAC-PROGRAM-COMP-003, IAC-PROGRAM-DNS-002, IAC-PROGRAM-DNS-003, IAC-PROGRAM-TLS-009
 /**
  * Declares the Discord custom-domain resource set — see this file's doc for
  * the certificate/validation rationale and the us-east-1 provider split.

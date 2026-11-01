@@ -273,6 +273,7 @@ beforeEach(() => {
   loggerMock.warn.mockReset();
 });
 
+// @spec IAC-RUN-GATE-002
 describe('PulumiService.preview spawning and artifact persistence', () => {
   it('should mint a runId, create its run directory, and call stack.preview with the plan artifact path', async () => {
     const workspace = makeWorkspace(makeHappyPathPreview());
@@ -372,6 +373,7 @@ describe('PulumiService.preview spawning and artifact persistence', () => {
     expect(workspace.getOrCreateStack).toHaveBeenCalledTimes(1);
   });
 
+  // @spec IAC-ENGINE-LOCK-009
   it('should throw synchronously when preview() is called while another operation is already in flight', async () => {
     const workspace = makeWorkspace(
       () =>
@@ -461,6 +463,7 @@ describe('PulumiService.preview streaming', () => {
   });
 });
 
+// @spec IAC-ENGINE-REDACT-001
 describe('PulumiService.preview environment redaction', () => {
   /** Distinctive operator-set environment value that must never survive into streamed or persisted output verbatim. */
   const SECRET_VALUE = 'sup3rSecretValue';
@@ -675,6 +678,7 @@ describe('PulumiService.preview structured changeSummary', () => {
 });
 
 describe('PulumiService.preview plan hash and engine version', () => {
+  // @spec IAC-RUN-GATE-002
   it('should compute planHash as sha256(artifactBytes ++ utf8(configVersionId))', async () => {
     const artifactBytes = Buffer.from(JSON.stringify({ manifest: { version: 'v3.255.0' } }));
     readFileSyncMock.mockReturnValue(artifactBytes);

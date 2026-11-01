@@ -1,5 +1,6 @@
 import type { DeploymentConfigDiff } from '@hyveon/shared';
 
+// @spec IAC-RUN-RBK-003
 /**
  * Formats a {@link DeploymentConfigDiff} into a single readable sentence
  * appended to the rollback confirmation dialog's description —

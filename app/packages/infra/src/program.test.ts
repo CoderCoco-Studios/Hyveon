@@ -83,6 +83,7 @@ async function runDefineAll(config: Parameters<typeof defineAll>[0]): Promise<Re
 }
 
 describe('createInfraProgram', () => {
+  // @spec IAC-PROGRAM-WS-004
   it('should return a zero-argument PulumiFn', () => {
     // No mocks needed: constructing the closure does not construct any
     // resource, so there is nothing for `installPulumiMocks` to intercept.
@@ -91,6 +92,7 @@ describe('createInfraProgram', () => {
     expect(programFn.length).toBe(0);
   });
 
+  // @spec IAC-PROGRAM-OUT-001, IAC-PROGRAM-WS-004
   it('should resolve to the stack-outputs object when invoked', async () => {
     // Deliberately does not inspect individual resources or await any
     // returned Output field to its underlying value: `buildStackOutputs`
@@ -320,6 +322,7 @@ describe('defineAll', () => {
     expect(invocation?.inputs.functionName).toBe(await promiseOf(result.lambdas.efsSeederFunctions.echo.name));
   });
 
+  // @spec IAC-PROGRAM-COMP-002
   it('should construct the AWS provider with the region from config.awsRegion', async () => {
     await runDefineAll(buildTestDeploymentConfig({ awsRegion: 'eu-west-1' }));
 
@@ -327,6 +330,7 @@ describe('defineAll', () => {
     expect(provider?.inputs.region).toBe('eu-west-1');
   });
 
+  // @spec IAC-PROGRAM-COMP-004
   it('should apply the fixed Project=hyveon default tag via the provider regardless of projectName', async () => {
     await runDefineAll(buildTestDeploymentConfig({ projectName: 'renamed-project' }));
 
@@ -390,6 +394,7 @@ describe('buildStackOutputs', () => {
     installPulumiMocks();
   });
 
+  // @spec IAC-PROGRAM-OUT-001, IAC-PROGRAM-OUT-005
   it('should populate every StackOutputs field from its documented source resource', async () => {
     const config = buildTestDeploymentConfig({ projectName: 'hyveon', hostedZoneName: 'example.com', awsRegion: 'us-east-1' });
     const resources = await runDefineAll(config);
@@ -435,6 +440,7 @@ describe('buildStackOutputs', () => {
     expect(outputs.appliedGameServers).toEqual(config.gameServers);
   });
 
+  // @spec IAC-PROGRAM-OUT-003
   it('should resolve interactionsInvokeUrl and discordInteractionsUrl to the discord custom domain, not the raw Lambda Function URL', async () => {
     const config = buildTestDeploymentConfig({ hostedZoneName: 'example.com' });
     const resources = await runDefineAll(config);
@@ -450,6 +456,7 @@ describe('buildStackOutputs', () => {
     expect(interactionsUrl).not.toBe(rawFunctionUrl);
   });
 
+  // @spec IAC-PROGRAM-OUT-004
   it('should resolve auditTableName and runsTableName to the resolved (project-prefixed) name, not the raw config override', async () => {
     const config = buildTestDeploymentConfig({ projectName: 'hyveon', auditTableName: '', runsTableName: '' });
     const resources = await runDefineAll(config);
@@ -459,6 +466,7 @@ describe('buildStackOutputs', () => {
     expect(outputs.runsTableName).toBe('hyveon-runs');
   });
 
+  // @spec IAC-PROGRAM-OUT-004
   it('should resolve runsTableName to the configured override, not the project-prefixed default, when one is set', async () => {
     const config = buildTestDeploymentConfig({ projectName: 'hyveon', runsTableName: 'custom-runs-table' });
     const resources = await runDefineAll(config);
@@ -467,6 +475,7 @@ describe('buildStackOutputs', () => {
     expect(outputs.runsTableName).toBe('custom-runs-table');
   });
 
+  // @spec IAC-PROGRAM-OUT-007
   it("should export every volume's access point per game", async () => {
     const config = buildTestDeploymentConfig({
       gameServers: {
@@ -491,6 +500,7 @@ describe('buildStackOutputs', () => {
     expect((await promiseOf(outputs.efsAccessPoints)).alpha).toBe(configId);
   });
 
+  // @spec IAC-PROGRAM-OUT-006
   it('should throw when a game name in config.gameServers has no matching efs.gameAccessPoints entry', async () => {
     const config = buildTestDeploymentConfig({
       gameServers: { orphan: { image: 'x', cpu: 512, memory: 512, ports: [], volumes: [{ name: 'saves', container_path: '/data' }] } },

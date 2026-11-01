@@ -27,6 +27,7 @@ function buildLock(): RunLock {
   };
 }
 
+// @spec IAC-RUN-ITEST-004
 /**
  * Verifies the `orchestrator-integration-coverage` delta spec's "Apply
  * rejects stale and unapproved plans" requirement. `PulumiService.apply`'s
@@ -164,6 +165,7 @@ test.describe('IacController.apply — gate rejection ack-shaping', () => {
     expect(fakeCtx.sentMessages.some((m) => m.channel === 'iac.apply.chunk')).toBe(false);
   });
 
+  // @spec IAC-RUN-GATE-012
   test('should refuse a losing competing apply with conflict "up" when the durable lock is already held', async ({
     ipc,
     serverMocks: _reset,

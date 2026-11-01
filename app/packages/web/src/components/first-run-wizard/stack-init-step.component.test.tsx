@@ -38,6 +38,7 @@ async function* successfulRun(): AsyncGenerator<StackInitPhaseEvent> {
   yield { phase: 'operation', status: 'end' };
 }
 
+// @spec IAC-ENGINE-INIT-006
 describe('StackInitializationStep', () => {
   it('should render all three phases as pending before any event arrives', () => {
     hyveonMock.iac.stack.initialize.mockImplementation(
@@ -64,6 +65,7 @@ describe('StackInitializationStep', () => {
     await waitFor(() => expect(hyveonMock.iac.stack.initialize).toHaveBeenCalledWith());
   });
 
+  // @spec IAC-ENGINE-INIT-007
   it('should call initialize exactly once even when StrictMode double-invokes the mount effect', async () => {
     hyveonMock.iac.stack.initialize.mockImplementation(toStreamHandleMock(successfulRun));
 
@@ -129,6 +131,7 @@ describe('StackInitializationStep', () => {
     expect(screen.getByRole('button', { name: /finish setup/i })).toBeDisabled();
   });
 
+  // @spec IAC-ENGINE-PFAIL-005
   it('should show a specific error and a retry affordance, attributed to the failed phase, when the run fails', async () => {
     hyveonMock.iac.stack.initialize.mockImplementation(
       toStreamHandleMock(async function* () {

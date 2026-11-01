@@ -53,6 +53,7 @@ describe('defineSecrets', () => {
     mocks = installPulumiMocks();
   });
 
+  // @spec IAC-PROGRAM-SECRET-002
   it('should declare the bot-token secret at ${projectName}/discord/bot-token with a 0-day recovery window', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineSecrets({ projectName: 'hyveon', provider });
@@ -64,6 +65,7 @@ describe('defineSecrets', () => {
     expect(secret.inputs.description).toBe('Discord bot token — used by the management app to register guild slash commands');
   });
 
+  // @spec IAC-PROGRAM-SECRET-002
   it('should declare the public-key secret at ${projectName}/discord/public-key with a 0-day recovery window', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineSecrets({ projectName: 'hyveon', provider });
@@ -77,6 +79,7 @@ describe('defineSecrets', () => {
     );
   });
 
+  // @spec IAC-PROGRAM-SECRET-002, IAC-PROGRAM-SECRET-004
   it('should create every secret version with the literal placeholder string, never a real credential', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineSecrets({ projectName: 'hyveon', provider });
@@ -95,6 +98,7 @@ describe('defineSecrets', () => {
     expect(fileBrowserCredentialVersion.inputs.secretId).toBe(await promiseOf(result.fileBrowserCredentialSecret.id));
   });
 
+  // @spec IAC-PROGRAM-SECRET-002
   it('should declare the FileBrowser credential secret at ${projectName}/filebrowser/credential with a 0-day recovery window', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineSecrets({ projectName: 'hyveon', provider });
@@ -105,6 +109,7 @@ describe('defineSecrets', () => {
     expect(secret.inputs.recoveryWindowInDays).toBe(0);
   });
 
+  // @spec IAC-PROGRAM-SECRET-001
   it('should accept no field anywhere in its arguments capable of carrying a real secret value', () => {
     // Type-level guard: `DefineSecretsArgs` only has `projectName`/`provider`.
     // If a future edit adds a secret-value field to this type, this object
@@ -122,6 +127,7 @@ describe('defineSecrets', () => {
     expect(keysAreExactlyAllowed).toBe(true);
   });
 
+  // @spec IAC-PROGRAM-SECRET-003
   it('should declare both SecretVersion resources via secretResourceOptions.forVersion, not an equivalent-but-uninspected options object', async () => {
     // Call-site coverage, not just factory-output coverage: spies the exact
     // function object `defineSecrets` calls, so a future edit that quietly
@@ -149,6 +155,7 @@ describe('defineSecrets', () => {
 });
 
 describe('secretResourceOptions.forVersion', () => {
+  // @spec IAC-PROGRAM-SECRET-003
   it('should carry ignoreChanges: ["secretString"] so a re-deploy never resets a configured secret back to its placeholder', () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const opts = secretResourceOptions.forVersion(provider);

@@ -72,6 +72,7 @@ function parseStartedAtFromSk(sk: string): string {
   return sk.slice(0, sk.indexOf('#'));
 }
 
+// @spec IAC-RUN-REC-009
 /**
  * AWS implementation of the cloud-agnostic {@link RunRecordStore} contract,
  * backed by the DynamoDB run-history table created by
@@ -177,6 +178,7 @@ export class AwsRunRecordStore implements RunRecordStore {
     return this.getCachedS3Client({ region, credentials: config?.credentials, credentialsSignature: config?.credentialsSignature });
   }
 
+  // @spec IAC-RUN-REC-004, IAC-RUN-REC-005
   /**
    * Creates or overwrites a run record, keyed on `pk = RUN` + {@link RunRecord.sk}.
    *
@@ -251,6 +253,7 @@ export class AwsRunRecordStore implements RunRecordStore {
     return undefined;
   }
 
+  // @spec IAC-RUN-HIST-001, IAC-RUN-HIST-003
   /**
    * Lists run records newest-first, optionally paginated and/or filtered to
    * a single {@link RunStatus}.
@@ -373,6 +376,7 @@ export class AwsRunRecordStore implements RunRecordStore {
     return record;
   }
 
+  // @spec IAC-RUN-STORE-002
   /**
    * Writes a run's captured log to S3 under {@link buildLogKey}'s
    * `runs/<runId>.log` key.
@@ -389,6 +393,7 @@ export class AwsRunRecordStore implements RunRecordStore {
     return key;
   }
 
+  // @spec IAC-RUN-STORE-006
   /**
    * Resolves a presigned, temporary `GetObject` URL for a previously stored
    * log.
@@ -406,6 +411,7 @@ export class AwsRunRecordStore implements RunRecordStore {
     return getSignedUrl(await this.getS3Client(), command, { expiresIn: expiresInSeconds });
   }
 
+  // @spec IAC-RUN-LOCK-003, IAC-RUN-LOCK-004, IAC-RUN-LOCK-008
   /**
    * Attempts to atomically acquire the apply lock item (`pk = LOCK`,
    * `sk = CURRENT`) via a conditional `PutItem`: the write succeeds when no
@@ -473,6 +479,7 @@ export class AwsRunRecordStore implements RunRecordStore {
     };
   }
 
+  // @spec IAC-RUN-LOCK-006
   /**
    * Releases the apply lock item, scoped to `runId` via a conditional
    * `DeleteItem` so a caller can never release a lock it doesn't itself

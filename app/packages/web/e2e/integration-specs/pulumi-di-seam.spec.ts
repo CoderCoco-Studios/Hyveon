@@ -2,6 +2,8 @@ import { IacController } from '@hyveon/desktop-main/dist/controllers/iac.control
 import { PulumiService } from '@hyveon/desktop-main/dist/services/PulumiService.js';
 import { test, expect } from './index.js';
 
+// @spec IAC-RUN-ITEST-001, IAC-RUN-ITEST-002
+// @spec IAC-ENGINE-RT-002
 /**
  * Verifies the "In-process engine stub injected via DI" requirement's two
  * DI-seam scenarios — distinct from (and narrower than) the Plan/Apply/

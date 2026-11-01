@@ -4,6 +4,7 @@ import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
 import { firstValueFrom, isObservable } from 'rxjs';
 import { logger } from './logger.js';
 
+// @spec IAC-RUN-IPC-005
 /**
  * IPC channels that manage their own `ipcMain.handle` registration and must
  * be skipped by the generic bridge to avoid a double registration.

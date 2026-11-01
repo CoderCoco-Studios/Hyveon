@@ -56,6 +56,7 @@ function pendingPhases(): Record<StackInitPhase, StackInitPhaseState> {
   return { engine: 'pending', plugins: 'pending', operation: 'pending' };
 }
 
+// @spec IAC-ENGINE-INIT-006, IAC-ENGINE-INIT-007, IAC-ENGINE-PFAIL-005
 /**
  * Final step of the first-run wizard: initializes the one Pulumi stack this
  * app manages via `hyveon.iac.stack.initialize()`, rendering a

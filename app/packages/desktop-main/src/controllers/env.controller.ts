@@ -11,6 +11,7 @@ import { logger } from '../logger.js';
 export class EnvController {
   constructor(private readonly config: ConfigService) {}
 
+  // @spec IAC-ENGINE-OUT-007
   /**
    * Returns environment context derived from the deployed stack's outputs.
    * The UI uses this to show the active region + environment label in the

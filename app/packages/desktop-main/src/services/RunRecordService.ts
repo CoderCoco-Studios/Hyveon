@@ -240,6 +240,7 @@ export class RunRecordService {
     @Inject(REMOTE_FILE_STORE) private readonly remoteFileStore: RemoteFileStore,
   ) {}
 
+  // @spec IAC-RUN-STORE-001
   /**
    * Resolves the run-history table's name, preferring
    * `ConfigService.getStackOutputs()`'s `runsTableName` (the deployed
@@ -270,6 +271,8 @@ export class RunRecordService {
     return resolvePreApplyRunsTableName(this.remoteFileStore);
   }
 
+  // @spec IAC-RUN-REC-002, IAC-RUN-REC-003, IAC-RUN-REC-004, IAC-RUN-REC-005, IAC-RUN-STORE-002, IAC-RUN-STORE-003
+  // @spec IAC-RUN-STORE-004, IAC-RUN-STORE-005
   /**
    * Builds a {@link RunRecord} from `params` (`status` derived via
    * {@link deriveRunStatus}, `sk` via {@link buildRunSk}) and persists it via
@@ -389,6 +392,7 @@ export class RunRecordService {
     }
   }
 
+  // @spec IAC-RUN-REC-003, IAC-RUN-PART-002, IAC-RUN-STORE-005
   /**
    * Writes a durable, in-doubt placeholder {@link RunRecord} for an `apply`
    * attempt via a direct `store.putRecord` call — BEFORE `PulumiService.apply`
@@ -474,6 +478,7 @@ export class RunRecordService {
     }
   }
 
+  // @spec IAC-RUN-STORE-006
   /**
    * Resolves a temporary, fetchable URL for a previously stored run log,
    * delegating directly to `store.getLogUrl` — `logKey` is expected to be a
@@ -500,6 +505,7 @@ export class RunRecordService {
     }
   }
 
+  // @spec IAC-RUN-STORE-005
   /**
    * Looks up a previously persisted run record by its `runId`, delegating
    * directly to `store.getRecordByRunId` — exposed on the service (rather
@@ -539,6 +545,7 @@ export class RunRecordService {
     }
   }
 
+  // @spec IAC-RUN-HIST-001, IAC-RUN-HIST-002, IAC-RUN-STORE-005
   /**
    * Lists run records newest-first, delegating to `store.listRuns` after
    * clamping `opts.limit` via {@link clampLimit}.
@@ -575,6 +582,7 @@ export class RunRecordService {
     }
   }
 
+  // @spec IAC-RUN-APPR-003, IAC-RUN-STORE-005
   /**
    * Approves a successful `plan` run for apply: stamps `approvedBy` and an
    * `approvedAt` timestamp onto its persisted {@link RunRecord} and writes it

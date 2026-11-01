@@ -1,5 +1,6 @@
 import { parseJsonEnv } from './envJson.js';
 
+// @spec IAC-PROGRAM-ENV-004
 /**
  * Reads a required Lambda environment variable, throwing when it's absent or empty.
  *
@@ -19,6 +20,7 @@ export function requireEnv(name: string): string {
   return v;
 }
 
+// @spec IAC-PROGRAM-ENV-005
 /**
  * Parses the comma-separated `GAME_NAMES` environment variable into a trimmed,
  * non-empty list of game names.
@@ -48,6 +50,7 @@ export function parseGameMapEnv<T>(name: string): Record<string, T> {
   return parseJsonEnv(name, process.env[name], {});
 }
 
+// @spec IAC-PROGRAM-ENV-007
 /**
  * Builds an ECS task-definition family → game name lookup from a game name list, matching
  * the `{game}-server` family naming convention used across the infra program's task

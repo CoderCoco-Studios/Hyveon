@@ -346,6 +346,8 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+// @spec IAC-RUN-GATE-003, IAC-RUN-GATE-004, IAC-RUN-GATE-005, IAC-RUN-GATE-006, IAC-RUN-GATE-007, IAC-RUN-GATE-008
+// @spec IAC-RUN-GATE-009, IAC-RUN-GATE-010
 describe('PulumiService.apply gate', () => {
   it('should reject with PulumiPlanRunNotFoundError when no plan record exists for planRunId', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
@@ -447,6 +449,7 @@ describe('PulumiService.apply gate', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-GATE-011
   it('should acquire the durable apply lock as the LAST gate step, after every read-only check has passed', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
     const remoteFileStore = makeRemoteFileStore();
@@ -465,6 +468,7 @@ describe('PulumiService.apply gate', () => {
     expect(workspace.getOrCreateStack.mock.invocationCallOrder[0]!).toBeGreaterThan(createRunOrder);
   });
 
+  // @spec IAC-RUN-GATE-012
   it('should propagate RunLockHeldError unwrapped, and never call getOrCreateStack, when the atomic lock acquisition loses the race', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
     const runLockService = makeRunLockService();
@@ -486,6 +490,7 @@ describe('PulumiService.apply gate', () => {
   });
 });
 
+// @spec IAC-RUN-PART-002
 describe('PulumiService.apply pre-flight marker (issue #399)', () => {
   it('should write the pre-flight marker AFTER the durable lock is acquired but BEFORE stack.up() is called, carrying the gate-validated configVersionId/planHash/engineVersion', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
@@ -596,6 +601,7 @@ describe('PulumiService.apply spawning', () => {
 });
 
 describe('PulumiService.apply streaming and structured changeSummary', () => {
+  // @spec IAC-RUN-REC-007
   it('should yield stdout chunks and return the changeSummary captured from onEvent', async () => {
     const workspace = makeWorkspace(makeHappyPathUp({ create: 3, same: 5 }));
     const service = makeService({ workspace });
@@ -646,6 +652,7 @@ describe('PulumiService.apply streaming and structured changeSummary', () => {
   });
 });
 
+// @spec IAC-ENGINE-REDACT-001
 describe('PulumiService.apply environment redaction', () => {
   /** Distinctive operator-set environment value that must never survive into streamed or persisted output verbatim. */
   const SECRET_VALUE = 'sup3rSecretValue';
@@ -753,6 +760,7 @@ describe('PulumiService.apply environment redaction', () => {
   });
 });
 
+// @spec IAC-RUN-PART-001
 describe('PulumiService.apply partial-apply detection', () => {
   it('should throw PulumiUpError (not PulumiPartialApplyError) when stack.up() fails before any mutating resource step completes', async () => {
     const workspace = makeWorkspace(async (opts) => {
@@ -872,6 +880,7 @@ describe('PulumiService.apply run persistence', () => {
   });
 });
 
+// @spec IAC-ENGINE-OUT-006
 describe('PulumiService.apply cache invalidation', () => {
   it('should invalidate the stack-outputs cache on a successful apply', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
@@ -955,6 +964,7 @@ describe('PulumiService.apply lock-recovery', () => {
     return header + lines.join('');
   }
 
+  // @spec IAC-ENGINE-LOCK-004
   it('should clear a provably-own-orphan lock via stack.cancel() and retry stack.up() once, succeeding on the retry', async () => {
     vi.spyOn(process, 'kill').mockImplementation(() => {
       const err = new Error('no such process') as NodeJS.ErrnoException;
@@ -988,6 +998,7 @@ describe('PulumiService.apply lock-recovery', () => {
     expect(result).toEqual({ runId: PLAN_RUN_ID, changeSummary: {} });
   });
 
+  // @spec IAC-ENGINE-LOCK-005
   it('should reject with PulumiUnrecognizedLockError, and never call stack.cancel(), when the lock cannot be proven this installation\'s own orphan', async () => {
     // A live process (mockPidAlive) and/or an identity mismatch both fail
     // the "provable own orphan" test — mismatched identity is used here.
@@ -1166,6 +1177,7 @@ describe('PulumiService.apply abort handling', () => {
     expect(controller.signal.aborted).toBe(false);
   });
 
+  // @spec IAC-ENGINE-LOCK-002, IAC-ENGINE-LIFE-005
   it('should end the generator cleanly and clear the lock-ownership record when the signal aborts mid-flight', async () => {
     let rejectUp!: (err: unknown) => void;
     const upMock = vi.fn().mockImplementation(
@@ -1314,6 +1326,7 @@ describe('PulumiService.apply concurrency guard', () => {
     void initPromise.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.
   });
 
+  // @spec IAC-RUN-GATE-013
   /**
    * Regression test for Finding 2 (final whole-branch review): the
    * post-`createRun` re-check only looked at `operationInFlight`, never
@@ -1384,6 +1397,7 @@ describe('PulumiService.apply concurrency guard', () => {
     await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).resolves.toBeDefined();
   });
 
+  // @spec IAC-ENGINE-LOCK-009
   it('should throw when apply() is called while a PRIOR apply has already won the durable lock and is actively running the engine', async () => {
     // `operationInFlight` is not set at the very top of apply() (an early
     // observation there is forbidden — see the next test), so this must
@@ -1409,6 +1423,7 @@ describe('PulumiService.apply concurrency guard', () => {
     await expect(second.next()).rejects.toThrow(/already.*running/i);
   });
 
+  // @spec IAC-RUN-GATE-011, IAC-RUN-GATE-012
   it('should let two concurrent apply() calls for the SAME plan race through the entire gate and resolve the race via the atomic createRun lock, not an early observation', async () => {
     // This is a scenario an earlier version of apply() could never actually
     // exercise: `operationInFlight` used to be set at the very top of the
@@ -1451,6 +1466,7 @@ describe('PulumiService.apply concurrency guard', () => {
     expect(createRunCalls).toBe(2);
   });
 
+  // @spec IAC-RUN-GATE-013
   it('should release the just-won durable lock and refuse when a concurrent preview() starts running against the shared workspace DURING the apply gate phase', async () => {
     // Tests the post-createRun re-check that closes the apply-vs-preview()
     // local-workspace race that opens up from not setting `operationInFlight`

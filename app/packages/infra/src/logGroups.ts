@@ -11,6 +11,7 @@ import * as pulumi from '@pulumi/pulumi';
 /** Retention every CloudWatch log group in this program declares. */
 export const LOG_RETENTION_DAYS = 7;
 
+// @spec IAC-PROGRAM-LAMBDA-015
 /**
  * Declares one `/aws/lambda/${projectName}-${suffix}` log group with
  * {@link LOG_RETENTION_DAYS} retention — the shape every Lambda function's

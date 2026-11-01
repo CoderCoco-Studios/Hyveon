@@ -19,6 +19,7 @@ describe('shellSingleQuote', () => {
 describe('buildIpv4WrapperScript', () => {
   const tokenVar = { name: 'SERVER_IP', value: 'host=${hyveon.network.public-ipv4}:8211' };
 
+  // @spec IAC-PROGRAM-TOKEN-005
   it('should export only token-bearing variables with the IP spliced in', () => {
     const script = buildIpv4WrapperScript({
       environment: [tokenVar, { name: 'EULA', value: 'TRUE' }],
@@ -28,6 +29,7 @@ describe('buildIpv4WrapperScript', () => {
     expect(script).not.toContain('EULA');
   });
 
+  // @spec IAC-PROGRAM-TOKEN-005
   it('should exec the command with each argument single-quoted', () => {
     const script = buildIpv4WrapperScript({ environment: [tokenVar], command: ['/start.sh', '--port', '8211'] });
     expect(script).toContain(`exec '/start.sh' '--port' '8211'`);
@@ -41,6 +43,7 @@ describe('buildIpv4WrapperScript', () => {
     expect(script).toContain(`export SERVER_IP=''\\''; rm -rf / #'"$HYVEON_PUBLIC_IPV4"''`);
   });
 
+  // @spec IAC-PROGRAM-TOKEN-006
   it('should throw when command is empty', () => {
     expect(() => buildIpv4WrapperScript({ environment: [tokenVar], command: [] })).toThrow(/command/);
   });
@@ -49,6 +52,7 @@ describe('buildIpv4WrapperScript', () => {
     expect(() => buildIpv4WrapperScript({ environment: [{ name: 'EULA', value: 'TRUE' }], command: ['/s'] })).toThrow(/token/);
   });
 
+  // @spec IAC-PROGRAM-TOKEN-006
   it('should throw on a non-identifier variable name', () => {
     expect(() =>
       buildIpv4WrapperScript({ environment: [{ name: 'BAD NAME;', value: '${hyveon.network.public-ipv4}' }], command: ['/s'] }),
@@ -114,6 +118,7 @@ describe('buildIpv4WrapperScript rejects a non-IP echoed response', () => {
 
   afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
+  // @spec IAC-PROGRAM-TOKEN-005
   it('should reject a garbage first response and export the valid IP from the retry', async () => {
     const script = buildIpv4WrapperScript({
       environment: [{ name: 'SERVER_IP', value: 'host=${hyveon.network.public-ipv4}:8211' }],
@@ -149,6 +154,7 @@ describe('buildIpv4WrapperScript rejects an out-of-range octet', () => {
 
   afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
+  // @spec IAC-PROGRAM-TOKEN-005
   it('should reject a digits-and-dots response with an out-of-range octet and retry', async () => {
     const script = buildIpv4WrapperScript({
       environment: [{ name: 'SERVER_IP', value: 'host=${hyveon.network.public-ipv4}:8211' }],

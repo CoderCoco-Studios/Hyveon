@@ -7,6 +7,7 @@ import type { PulumiPreviewResult } from '@hyveon/desktop-main/dist/services/Pul
 import { test, expect } from './index.js';
 import { makeFakeIacCtx, waitForIacMessage } from './support/iac-ctx.js';
 
+// @spec IAC-RUN-ITEST-003
 /**
  * Verifies the `orchestrator-integration-coverage` delta spec's "Plan
  * integration coverage" requirement — `IacController.plan`, dispatched

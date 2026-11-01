@@ -30,6 +30,7 @@
 
 import type { GameServerConfig } from './gameServerConfig.js';
 
+// @spec IAC-PROGRAM-OUT-001, IAC-PROGRAM-OUT-007
 /**
  * Every value the app reads off a deployed Pulumi stack. `PulumiService`
  * returns this shape (or `null` for a never-deployed stack, mirroring

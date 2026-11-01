@@ -165,6 +165,7 @@ afterEach(() => {
 
 describe('RunRecordService', () => {
   describe('persist', () => {
+    // @spec IAC-RUN-STORE-002
     it('should embed a small log directly on the record and never call store.putLog', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
@@ -178,6 +179,7 @@ describe('RunRecordService', () => {
       expect(record.logInline).toBe(smallLog);
     });
 
+    // @spec IAC-RUN-STORE-002
     it('should offload a log larger than the inline threshold to the store and record the returned key on logS3Key, not log', async () => {
       putRecordMock.mockResolvedValue(undefined);
       putLogMock.mockResolvedValue('runs/run-123.log');
@@ -233,6 +235,7 @@ describe('RunRecordService', () => {
       expect(record).not.toHaveProperty('logS3Key');
     });
 
+    // @spec IAC-RUN-REC-005
     it('should carry changeSummary, engineVersion, and partialApply onto the record when provided', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
@@ -249,6 +252,7 @@ describe('RunRecordService', () => {
       expect(record.partialApply).toBe(true);
     });
 
+    // @spec IAC-RUN-REC-002, IAC-RUN-REC-004
     it('should build the record sk from startedAt and runId, and derive status from exitCode', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
@@ -260,6 +264,7 @@ describe('RunRecordService', () => {
       expect(record.status).toBe('failed');
     });
 
+    // @spec IAC-RUN-REC-002
     it('should derive an aborted status when exitCode is null', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
@@ -320,6 +325,7 @@ describe('RunRecordService', () => {
       expect(record).not.toHaveProperty('rolledBackFrom');
     });
 
+    // @spec IAC-RUN-STORE-003
     it('should swallow a store.putRecord failure and log a warning instead of throwing', async () => {
       putRecordMock.mockRejectedValue(new Error('DynamoDB is down'));
       const service = makeService();
@@ -359,6 +365,7 @@ describe('RunRecordService', () => {
       expect(record).not.toHaveProperty('logS3Key');
     });
 
+    // @spec IAC-RUN-STORE-005
     it('should skip persistence entirely and log a warning when runs_table_name is not configured', async () => {
       const service = makeService(null);
 
@@ -368,6 +375,7 @@ describe('RunRecordService', () => {
       expect(putLogMock).not.toHaveBeenCalled();
     });
 
+    // @spec IAC-RUN-STORE-004
     it('should release the apply lock for the run after a successful persist', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
@@ -388,6 +396,7 @@ describe('RunRecordService', () => {
       expect(releaseRunMock).toHaveBeenCalledWith('run-no-table');
     });
 
+    // @spec IAC-RUN-STORE-004
     it('should release the apply lock even when store.putRecord fails', async () => {
       putRecordMock.mockRejectedValue(new Error('DynamoDB is down'));
       const service = makeService();
@@ -411,6 +420,7 @@ describe('RunRecordService', () => {
     });
   });
 
+  // @spec IAC-RUN-REC-003, IAC-RUN-PART-002
   describe('writePreflightMarker', () => {
     it('should write a durable kind:"apply", partialApply:true, status:"aborted" marker via store.putRecord', async () => {
       putRecordMock.mockResolvedValue(undefined);
@@ -491,6 +501,7 @@ describe('RunRecordService', () => {
       );
     });
 
+    // @spec IAC-RUN-STORE-005
     it('should throw, rather than silently no-op, when runs_table_name is not configured', async () => {
       const service = makeService(null, undefined, undefined, makeRemoteFileStore(undefined));
 
@@ -510,6 +521,7 @@ describe('RunRecordService', () => {
     });
   });
 
+  // @spec IAC-RUN-STORE-006
   describe('getLogUrl', () => {
     it("should return the store's presigned URL for a given log key", async () => {
       getLogUrlMock.mockResolvedValue('https://example.com/signed');
@@ -564,6 +576,7 @@ describe('RunRecordService', () => {
       expect(result).toBeUndefined();
     });
 
+    // @spec IAC-RUN-STORE-005
     it('should return undefined and not call store.getRecordByRunId when runs_table_name is not configured', async () => {
       const service = makeService(null);
 
@@ -586,6 +599,7 @@ describe('RunRecordService', () => {
     });
   });
 
+  // @spec IAC-RUN-HIST-001
   describe('listRuns', () => {
     it("should delegate to the store's listRuns with a default-clamped limit when opts is omitted", async () => {
       listRunsMock.mockResolvedValue({ records: [] });
@@ -610,6 +624,7 @@ describe('RunRecordService', () => {
       });
     });
 
+    // @spec IAC-RUN-HIST-002
     it('should clamp a requested limit above the maximum down to 100', async () => {
       listRunsMock.mockResolvedValue({ records: [] });
       const service = makeService();
@@ -619,6 +634,7 @@ describe('RunRecordService', () => {
       expect(listRunsMock).toHaveBeenCalledWith({ limit: 100 });
     });
 
+    // @spec IAC-RUN-HIST-002
     it('should fall back to the default limit for a non-positive limit', async () => {
       listRunsMock.mockResolvedValue({ records: [] });
       const service = makeService();
@@ -638,6 +654,7 @@ describe('RunRecordService', () => {
       expect(result).toEqual({ records: [record], nextBefore: record.sk });
     });
 
+    // @spec IAC-RUN-STORE-005
     it('should return an empty page and not call store.listRuns when runs_table_name is not configured', async () => {
       const service = makeService(null);
 
@@ -660,6 +677,7 @@ describe('RunRecordService', () => {
     });
   });
 
+  // @spec IAC-RUN-APPR-003
   describe('approveRun', () => {
     it('should persist approvedBy/approvedAt via putRecord and return the updated record for a successful plan run', async () => {
       const record = makeRecord();
@@ -736,6 +754,7 @@ describe('RunRecordService', () => {
     });
   });
 
+  // @spec IAC-RUN-STORE-001
   /**
    * Proves the service-layer gates (`persist`/`getByRunId`/`listRuns`/
    * `approveRun`) resolve a runs table name from a persisted

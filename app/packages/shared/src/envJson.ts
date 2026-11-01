@@ -1,3 +1,4 @@
+// @spec IAC-PROGRAM-ENV-006
 /**
  * Parses a JSON-shaped Lambda environment variable, falling back to
  * `fallback` (and logging a warning) when the value is absent or malformed.

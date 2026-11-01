@@ -170,6 +170,7 @@ describe('EditGameForm', () => {
     );
   });
 
+  // @spec IAC-RUN-PLAN-010
   it('should show a hint linking to the Infrastructure page to apply the change', async () => {
     renderForm(<EditGameForm game={sampleGame()} />);
 

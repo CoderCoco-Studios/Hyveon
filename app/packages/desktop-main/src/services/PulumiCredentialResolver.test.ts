@@ -45,6 +45,7 @@ function makeStore(
   } as Partial<ElectronStoreService> as ElectronStoreService;
 }
 
+// @spec IAC-ENGINE-CRED-002
 describe('resolveCredentialEnvVars — named profile is honored', () => {
   it('should return AWS_PROFILE set to the selected profile', () => {
     const store = makeStore('personal', undefined);
@@ -55,6 +56,7 @@ describe('resolveCredentialEnvVars — named profile is honored', () => {
   });
 });
 
+// @spec IAC-ENGINE-CRED-003
 describe('resolveCredentialEnvVars — pasted keys are honored', () => {
   it('should return the decrypted access key id and secret access key', () => {
     const store = makeStore('hyveon-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
@@ -117,6 +119,7 @@ describe('resolveCredentialEnvVars — ambient profile cannot override pasted ke
   });
 });
 
+// @spec IAC-ENGINE-CRED-004
 describe('resolveCredentialEnvVars — no credential source configured', () => {
   it('should throw PulumiCredentialsNotConfiguredError rather than returning an empty object', () => {
     const store = makeStore(undefined);
@@ -166,6 +169,7 @@ describe('resolveCredentialEnvVars — the underlying credential-source resoluti
   });
 });
 
+// @spec IAC-ENGINE-CRED-006
 describe('resolveCredentialEnvVars — credential source is logged without secret values', () => {
   /**
    * Filters `loggerMock` calls down to the ones `resolveCredentialEnvVars`

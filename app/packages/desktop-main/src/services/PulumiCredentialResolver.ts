@@ -46,6 +46,7 @@ function clearedEnvVars(keys: readonly string[]): Record<string, string> {
   return Object.fromEntries(keys.map((key) => [key, '']));
 }
 
+// @spec IAC-ENGINE-CRED-002, IAC-ENGINE-CRED-003, IAC-ENGINE-CRED-004, IAC-ENGINE-CRED-006
 /**
  * Resolves the wizard-selected AWS credential source
  * ({@link resolveAwsCredentialSource}) into the exact `envVars` overlay

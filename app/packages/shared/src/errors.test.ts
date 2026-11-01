@@ -60,6 +60,7 @@ describe('OptimisticLockError', () => {
   });
 });
 
+// @spec IAC-RUN-LOCK-004
 describe('RunLockHeldError', () => {
   it('should be importable from @hyveon/shared and be an instance of Error', () => {
     const error = new RunLockHeldError(sampleLock);

@@ -63,6 +63,7 @@ export const PULUMI_PASSPHRASE_DERIVATION_SALT = 'hyveon:pulumi-stack-passphrase
  */
 const CHANGE_SECRETS_PROVIDER_TIMEOUT_MS = 30_000;
 
+// @spec IAC-ENGINE-PASS-002, IAC-ENGINE-PASS-003
 /**
  * Deterministically derives this install's Pulumi secrets passphrase from
  * the AWS account ID the current operation is authenticated against and the
@@ -98,6 +99,7 @@ export function deriveStackPassphrase(accountId: string, stackName: string): str
     .digest('hex');
 }
 
+// @spec IAC-ENGINE-PASS-002
 /**
  * Resolves the AWS account ID the currently-configured credential source
  * (the same one {@link resolveCredentialEnvVars} resolves for the Pulumi
@@ -337,6 +339,11 @@ export class PulumiWorkspaceService {
     private readonly store: ElectronStoreService,
   ) {}
 
+  // @spec IAC-ENGINE-WS-001, IAC-ENGINE-WS-002, IAC-ENGINE-WS-003, IAC-ENGINE-WS-004, IAC-ENGINE-WS-005,
+  // @spec IAC-ENGINE-WS-006, IAC-ENGINE-WS-007, IAC-ENGINE-WS-008, IAC-ENGINE-WS-009
+  // @spec IAC-ENGINE-PASS-001, IAC-ENGINE-PASS-002, IAC-ENGINE-PASS-003, IAC-ENGINE-PASS-004, IAC-ENGINE-PASS-005,
+  // @spec IAC-ENGINE-PASS-006, IAC-ENGINE-PASS-007
+  // @spec IAC-ENGINE-CRED-001, IAC-ENGINE-CRED-005
   /**
    * Resolves the engine, ensures the stable `pulumiHome`/`workDir`
    * directories exist, derives the secrets passphrase from the currently
@@ -772,6 +779,7 @@ export class PulumiWorkspaceService {
     return join(this.getWorkspaceRoot(), 'workspace', PULUMI_STACK_NAME);
   }
 
+  // @spec IAC-ENGINE-PROV-011
   /**
    * Resolves the root directory `pulumiHome`/`workDir` are namespaced under.
    * Mirrors `PulumiEngineService.getEngineCacheRoot()`'s resolution order and

@@ -147,6 +147,7 @@ describe('IacPage', () => {
     expect(screen.getByRole('link', { name: 'View history' })).toHaveAttribute('href', '/iac/history');
   });
 
+  // @spec IAC-RUN-PLAN-002, IAC-RUN-PLAN-004, IAC-RUN-PLAN-007
   it('should stream plan output and render the structured resource-change summary once the plan finishes', async () => {
     seedSuccessfulPlan();
     renderPage(<IacPage />);
@@ -160,6 +161,7 @@ describe('IacPage', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
   });
 
+  // @spec IAC-RUN-PLAN-008
   it('should render an explicit "summary unavailable" state when the plan record has no changeSummary', async () => {
     hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
     hyveonMock.iac.runs.streamLogs.mockImplementation(toStreamHandleMock(async function* () {}));
@@ -175,6 +177,7 @@ describe('IacPage', () => {
     expect(await screen.findByText('Change summary unavailable')).toBeInTheDocument();
   });
 
+  // @spec IAC-RUN-PLAN-008
   it('should render a distinct "no changes" state when the plan record reports only unchanged resources', async () => {
     hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
     hyveonMock.iac.runs.streamLogs.mockImplementation(toStreamHandleMock(async function* () {}));
@@ -199,6 +202,7 @@ describe('IacPage', () => {
     expect(screen.queryByText('Change summary unavailable')).not.toBeInTheDocument();
   });
 
+  // @spec IAC-RUN-PLAN-003, IAC-RUN-LCLR-002
   it('should render a BUSY banner when plan submission reports a workspace conflict', async () => {
     hyveonMock.iac.plan.mockResolvedValue({ started: false, error: 'workspace busy', conflict: 'up' });
     renderPage(<IacPage />);
@@ -210,6 +214,7 @@ describe('IacPage', () => {
   });
 
   describe('BusyBanner run-lock clear action', () => {
+    // @spec IAC-RUN-LCLR-002
     it('should show no clear action on BusyBanner when the busy ack has no runLock (workspace busy, not a durable lock)', async () => {
       // plan/preview never acquires the durable RunLock, so its only busy refusal is
       // PulumiOperationInFlightError — always conflict: 'preview', never a runLock.
@@ -221,6 +226,7 @@ describe('IacPage', () => {
       expect(screen.queryByRole('button', { name: /clear lock and retry/i })).not.toBeInTheDocument();
     });
 
+    // @spec IAC-RUN-LCLR-001, IAC-RUN-LCLR-003, IAC-RUN-LCLR-007
     it('should show a clear action on BusyBanner when the busy ack carries runLock, clear it on confirm, and return to ready state for manual resubmission', async () => {
       // Only apply/destroy can be refused with a durable RunLockHeldError (and thus
       // carry runLock) — plan/preview structurally cannot, see the test above.
@@ -432,6 +438,7 @@ describe('IacPage', () => {
     });
   });
 
+  // @spec IAC-RUN-APPR-001, IAC-RUN-APPR-004, IAC-RUN-GATE-001, IAC-RUN-GATE-015
   it('should enable Apply only after the plan is approved, then stream apply output to completion', async () => {
     seedSuccessfulPlan();
     hyveonMock.iac.approve.mockResolvedValue({
@@ -461,6 +468,7 @@ describe('IacPage', () => {
     expect(screen.getByRole('link', { name: 'View dashboard' })).toHaveAttribute('href', '/');
   });
 
+  // @spec IAC-RUN-PLAN-006
   it('should surface an explicit error, mirroring the plan path, when the apply run record is not found after it finished', async () => {
     seedSuccessfulPlan();
     hyveonMock.iac.approve.mockResolvedValue({
@@ -490,6 +498,7 @@ describe('IacPage', () => {
     expect(await screen.findByText(`Apply run "${APPLY_RUN_ID}" could not be found after it finished.`)).toBeInTheDocument();
   });
 
+  // @spec IAC-RUN-APPR-005, IAC-RUN-GATE-006
   it('should show an expired-approval message and disable Apply until re-approved', async () => {
     seedSuccessfulPlan();
     const staleApprovedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString(); // 20 minutes ago > 15-minute window
@@ -511,6 +520,7 @@ describe('IacPage', () => {
       expect(screen.getByRole('button', { name: /Destroy infrastructure/ })).toBeInTheDocument();
     });
 
+    // @spec IAC-RUN-DSTR-001, IAC-RUN-DSTR-002
     it('should open a confirmation dialog on click, without minting a token until the exact phrase is typed and confirmed', async () => {
       renderPage(<IacPage />);
 
@@ -528,6 +538,7 @@ describe('IacPage', () => {
       expect(hyveonMock.iac.mintDestroyToken).not.toHaveBeenCalled();
     });
 
+    // @spec IAC-RUN-DSTR-002
     it('should mint a token, submit destroy with it, and stream output through the log viewer once the exact phrase is confirmed', async () => {
       hyveonMock.iac.mintDestroyToken.mockResolvedValue({ token: 'destroy-token-1' });
       hyveonMock.iac.destroy.mockResolvedValue({ started: true, runId: DESTROY_RUN_ID });
@@ -565,6 +576,7 @@ describe('IacPage', () => {
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     });
 
+    // @spec IAC-RUN-LCLR-002
     it('should render a BUSY banner when destroy submission reports a workspace conflict, without opening the log view', async () => {
       hyveonMock.iac.mintDestroyToken.mockResolvedValue({ token: 'destroy-token-1' });
       hyveonMock.iac.destroy.mockResolvedValue({
@@ -628,6 +640,7 @@ describe('IacPage', () => {
     });
   });
 
+  // @spec IAC-RUN-PART-003
   describe('partial-apply flow', () => {
     /** Drives a plan through approval and into a submitted apply, seeded to end with the given terminal `applyStatus`/`partialApply` flag. */
     async function runApplyToPartialFailure(applyStatus: 'failed' | 'aborted') {

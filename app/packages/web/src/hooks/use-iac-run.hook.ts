@@ -159,6 +159,7 @@ export interface UseIacRunResult {
   reset: () => void;
 }
 
+// @spec IAC-RUN-PLAN-002, IAC-RUN-PLAN-004, IAC-RUN-PLAN-006, IAC-RUN-PLAN-009
 /**
  * Owns the plan/apply/destroy run-submission state machine shared by all three operations on `IacPage`:
  * the submitted run's id/terminal status/record, its live log (via `useIacRunLog`), and the

@@ -48,6 +48,7 @@ describe('useRunHistory', () => {
     expect(listMock).toHaveBeenCalledWith({ limit: 25, status: undefined });
   });
 
+  // @spec IAC-RUN-HIST-006
   it('should fetch the next, older page and append it when loadMore is called', async () => {
     listMock.mockResolvedValueOnce({ records: [makeRecord({ runId: 'run-1', sk: 'sk-1' })], nextBefore: 'sk-1' });
     const { result } = renderHook(() => useRunHistory('all'));
@@ -60,6 +61,7 @@ describe('useRunHistory', () => {
     expect(listMock).toHaveBeenLastCalledWith({ limit: 25, before: 'sk-1', status: undefined });
   });
 
+  // @spec IAC-RUN-HIST-007
   it('should re-fetch with the selected status filter', async () => {
     listMock.mockResolvedValue({ records: [makeRecord({ status: 'failed' })] });
     const { result, rerender } = renderHook(({ status }: { status: StatusFilter }) => useRunHistory(status), {

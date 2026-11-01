@@ -319,6 +319,7 @@ beforeEach(() => {
   loggerMock.warn.mockReset();
 });
 
+// @spec IAC-RUN-RBK-002, IAC-RUN-RBK-004
 describe('PulumiService.resolveRollbackTarget', () => {
   it('should resolve the configuration version immediately before the apply run', async () => {
     const service = makeService({});
@@ -360,6 +361,7 @@ describe('PulumiService.resolveRollbackTarget', () => {
   });
 });
 
+// @spec IAC-RUN-RBK-003
 describe('PulumiService.computeRollbackDiff', () => {
   /** A minimal, valid target/current pair with a few deliberate differences, for a happy-path assertion. */
   const TARGET_CONFIG = { hostedZoneName: 'example.com', dnsTtl: 30, gameServers: { minecraft: { image: 'a' } } };
@@ -451,6 +453,7 @@ describe('PulumiService.computeRollbackDiff', () => {
   });
 });
 
+// @spec IAC-RUN-RBK-005
 describe('PulumiService.confirmRollback happy path', () => {
   it('should restore the historic bytes byte-for-byte and queue a plan tagged rolledBackFrom', async () => {
     const runRecordPersister = makeRunRecordPersister();
@@ -510,7 +513,9 @@ describe('PulumiService.confirmRollback happy path', () => {
   });
 });
 
+// @spec IAC-RUN-RBK-006
 describe('PulumiService.confirmRollback concurrency guard', () => {
+  // @spec IAC-ENGINE-LOCK-009
   it('should refuse preview()/apply()/destroy() calls started while a rollback is mid-flight, naming rollback as the busy operation', async () => {
     // Mirrors PulumiService.preview.test.ts's identical "already in flight"
     // test pattern: a never-resolving getByRunId keeps confirmRollback
@@ -562,6 +567,7 @@ describe('PulumiService.confirmRollback concurrency guard', () => {
   });
 });
 
+// @spec IAC-RUN-RBK-004
 describe('PulumiService.confirmRollback: historic version expired', () => {
   it('should fail before any write when the rollback target expired between preview and confirm', async () => {
     const remoteFileStore = makeRemoteFileStore({
@@ -582,6 +588,7 @@ describe('PulumiService.confirmRollback: historic version expired', () => {
   });
 });
 
+// @spec IAC-RUN-RBK-007
 describe('PulumiService.confirmRollback: compensating semantics when the plan fails after the restore', () => {
   it('should record a durable orphaned-rollback marker and throw PulumiRollbackPlanFailedError', async () => {
     const workspace = makeWorkspace(async () => {

@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 
+// @spec IAC-ENGINE-RT-001
 /**
  * Returns the Electron `userData` directory when running inside an Electron
  * process, or `null` otherwise (plain Node/test contexts, or a lazy
@@ -25,6 +26,7 @@ export function resolveUserDataPath(): string | null {
   }
 }
 
+// @spec IAC-ENGINE-RT-001
 /**
  * Whether the app is running as a packaged Electron build. Guarded on
  * `process.versions['electron']` being truthy, then a lazy

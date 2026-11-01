@@ -29,6 +29,7 @@ import { ConfigService } from './ConfigService.js';
 import { RUN_RECORD_STORE } from '../modules/cloud-provider.tokens.js';
 import { LockClearConfirmationGate } from './LockClearConfirmationGate.js';
 
+// @spec IAC-RUN-LOCK-005
 /**
  * How long an acquired {@link RunLock} remains valid, in milliseconds, before
  * {@link isRunLockExpired} treats it as stale even if the run that acquired
@@ -128,6 +129,7 @@ export class RunService {
     @Inject(RUN_RECORD_STORE) private readonly store: RunRecordStore,
   ) {}
 
+  // @spec IAC-RUN-LOCK-001, IAC-RUN-LOCK-002, IAC-RUN-LOCK-003, IAC-RUN-LOCK-004
   /**
    * Attempts to acquire the apply lock on behalf of a new Pulumi
    * apply/destroy run (plans never call this) and returns the acquired {@link RunLock}
@@ -211,6 +213,7 @@ export class RunService {
     return undefined;
   }
 
+  // @spec IAC-RUN-LOCK-006
   /**
    * Releases the apply lock, scoped to `runId` so a caller can never release
    * a lock it doesn't itself hold. Clears the in-memory lock first (only if
@@ -280,6 +283,7 @@ export class RunService {
     return undefined;
   }
 
+  // @spec IAC-RUN-LCLR-003, IAC-RUN-LCLR-004
   /**
    * Mints a fresh, single-use confirmation token for a subsequent
    * {@link clearLock} call, bound to the `runId` of the lock currently held
@@ -355,6 +359,7 @@ export class RunService {
     return result.binding;
   }
 
+  // @spec IAC-RUN-LCLR-005
   /**
    * Clears the run lock currently held, gated behind a fresh confirmation
    * token minted via {@link mintLockClearConfirmationToken} — an operator

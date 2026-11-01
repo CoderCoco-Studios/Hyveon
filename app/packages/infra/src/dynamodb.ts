@@ -84,6 +84,7 @@ function resolveTableName(overrideName: string, projectName: string, suffix: str
   return overrideName !== '' ? overrideName : `${projectName}-${suffix}`;
 }
 
+// @spec IAC-PROGRAM-DATA-001, IAC-PROGRAM-DATA-002, IAC-PROGRAM-DATA-003
 /**
  * Declares the two DynamoDB tables this package manages (the runs table is
  * created outside Pulumi — see this file's doc) — see this file's doc for

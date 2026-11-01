@@ -211,6 +211,7 @@ describe('IacController', () => {
 
   // @MessagePattern channel name registration
 
+  // @spec IAC-RUN-IPC-001
   describe('@MessagePattern channel names', () => {
     it('should register every channel', () => {
       expectChannels(IacController.prototype, [
@@ -231,6 +232,7 @@ describe('IacController', () => {
 
   // onModuleInit — ipcMain.handle bridge for iac.plan/apply/destroy/stack.initialize
 
+  // @spec IAC-RUN-IPC-005
   describe('onModuleInit', () => {
     // onModuleInit only wires the bridge when running inside a real Electron
     // main process, detected via `process.versions.electron`. Vitest runs under
@@ -568,6 +570,7 @@ describe('IacController', () => {
 
   // plan
 
+  // @spec IAC-RUN-IPC-003, IAC-RUN-IPC-004
   describe('plan', () => {
     it('should return { started: true, runId } immediately without waiting for the run to settle', async () => {
       // PulumiService.preview never yields/returns on its own here, so if
@@ -678,6 +681,7 @@ describe('IacController', () => {
       expect(String(endCall?.[1]?.error)).toContain('preview failed: engine version mismatch');
     });
 
+    // @spec IAC-RUN-IPC-007
     it('should not send further chunks or an end message, and should finalize the generator via stream.return, once the WebContents is destroyed', async () => {
       let returnCalled = false;
       async function* twoLines(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
@@ -702,6 +706,7 @@ describe('IacController', () => {
       expect(returnCalled).toBe(true);
     });
 
+    // @spec IAC-RUN-PLAN-003, IAC-RUN-LCLR-002
     it('should return a conflict ack naming the in-flight op and never call PulumiService.preview or record an audit entry when the workspace is busy', async () => {
       const pulumi = makePulumi();
       vi.mocked(pulumi.getOperationInFlight).mockReturnValue('up');
@@ -793,6 +798,7 @@ describe('IacController', () => {
 
   // apply
 
+  // @spec IAC-RUN-IPC-003, IAC-RUN-GATE-014
   describe('apply', () => {
     const APPLY_PAYLOAD = { planRunId: 'plan-run-1', planHash: 'plan-hash-abc' };
 
@@ -854,6 +860,7 @@ describe('IacController', () => {
       expect(record).not.toHaveBeenCalled();
     });
 
+    // @spec IAC-RUN-GATE-012, IAC-RUN-LCLR-001
     it('should reject with { started: false, error, conflict: "up" } and never touch activeApplies or record an audit entry when the gate\'s first .next() rejects with RunLockHeldError', async () => {
       const heldLock: RunLock = {
         runId: 'other-run',
@@ -878,6 +885,7 @@ describe('IacController', () => {
       expect(record).not.toHaveBeenCalled();
     });
 
+    // @spec IAC-RUN-LCLR-002
     it('should reject with { started: false, error, conflict: "preview" } and never touch activeApplies or record an audit entry when the gate\'s top-of-function operationInFlight busy check rejects with PulumiOperationInFlightError', async () => {
       // PulumiService.apply's own in-process operationInFlight mutex (checked
       // before any of the 8 gate steps) is cheaper and earlier than the
@@ -1038,6 +1046,7 @@ describe('IacController', () => {
       expect(String(endCall?.[1]?.error)).toContain('stack.up() failed: resource creation error');
     });
 
+    // @spec IAC-RUN-IPC-007
     it('should not send further chunks or an end message, and should finalize the generator via stream.return, once the WebContents is destroyed', async () => {
       let returnCalled = false;
       async function* twoLines(): AsyncGenerator<PulumiRunChunk, PulumiUpResult | undefined> {
@@ -1079,6 +1088,7 @@ describe('IacController', () => {
 
   // destroy
 
+  // @spec IAC-RUN-IPC-003
   describe('destroy', () => {
     /** The `iac.destroy` payload matching {@link makePulumi}'s default `mintDestroyConfirmationToken` stub. */
     const DESTROY_PAYLOAD = { confirmationToken: 'token-abc' };
@@ -1120,6 +1130,7 @@ describe('IacController', () => {
       expect(record).not.toHaveBeenCalled();
     });
 
+    // @spec IAC-RUN-LCLR-001
     it('should reject with { started: false, error, conflict: "destroy" } and never touch activeDestroys or record an audit entry when the gate\'s first .next() rejects with RunLockHeldError', async () => {
       const heldLock: RunLock = {
         runId: 'other-run',
@@ -1144,6 +1155,7 @@ describe('IacController', () => {
       expect(record).not.toHaveBeenCalled();
     });
 
+    // @spec IAC-RUN-DSTR-008, IAC-RUN-LCLR-002
     it('should reject with { started: false, error, conflict: "up" } and never touch activeDestroys or record an audit entry when the gate\'s top-of-function operationInFlight busy check rejects with PulumiOperationInFlightError', async () => {
       // Mirrors the equivalent apply() test — see that test's comment for
       // why the in-process busy mutex needs the exact same `conflict`
@@ -1176,6 +1188,7 @@ describe('IacController', () => {
       expect(pulumi.destroy).toHaveBeenCalledWith('token-abc', expect.any(AbortSignal), result.runId);
     });
 
+    // @spec IAC-RUN-DSTR-009
     it('should record an audit entry with action "destroy" for an accepted destroy submission', async () => {
       const pulumi = makePulumi();
       const { audit, record } = makeAudit();
@@ -1189,6 +1202,7 @@ describe('IacController', () => {
       expect(recordedEntry).toMatchObject({ action: 'destroy' });
     });
 
+    // @spec IAC-RUN-DSTR-009
     it('should return { started: true, runId } once the gate\'s first .next() resolves, then continue streaming, tagged with that runId', async () => {
       const chunks: PulumiRunChunk[] = [
         { stream: 'stdout', line: 'aws:ecs:Cluster hyveon: deleting' },
@@ -1250,6 +1264,7 @@ describe('IacController', () => {
       expect(String(endCall?.[1]?.error)).toContain('stack.destroy() failed: dependency violation');
     });
 
+    // @spec IAC-RUN-IPC-007
     it('should not send further chunks or an end message, and should finalize the generator via stream.return, once the WebContents is destroyed', async () => {
       let returnCalled = false;
       async function* twoLines(): AsyncGenerator<PulumiRunChunk, PulumiDestroyResult | undefined> {
@@ -1389,6 +1404,7 @@ describe('IacController', () => {
   // approve
 
   describe('approve', () => {
+    // @spec IAC-RUN-APPR-002, IAC-RUN-APPR-007
     it('should write approvedBy/approvedAt to the run record, using the OS-resolved username, and return them on a successful plan run', async () => {
       const pulumi = makePulumi();
       const { runRecord, approveRun } = makeRunRecord();
@@ -1502,6 +1518,7 @@ describe('IacController', () => {
 
   // resolveRollback
 
+  // @spec IAC-RUN-RBK-002
   describe('resolveRollback', () => {
     it('should return resolved: true with the target versionId and lastModified on success', async () => {
       const pulumi = makePulumi();
@@ -1542,6 +1559,7 @@ describe('IacController', () => {
       expect(result).toEqual({ resolved: false, error: error.message });
     });
 
+    // @spec IAC-RUN-RBK-003
     it('should include diff when PulumiService.computeRollbackDiff resolves one, called with the resolved target versionId', async () => {
       const pulumi = makePulumi();
       const diff: DeploymentConfigDiff = {
@@ -1680,6 +1698,7 @@ describe('IacController', () => {
       expect(result.confirmed).toBe(true);
     });
 
+    // @spec IAC-RUN-RBK-009
     it('should record an audit entry with action "rollback" and the new head versionId on success', async () => {
       // eslint-disable-next-line require-yield -- generator settles immediately with no intermediate chunks
       async function* settles(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult> {
@@ -1784,6 +1803,7 @@ describe('IacController', () => {
       expect(record).not.toHaveBeenCalled();
     });
 
+    // @spec IAC-RUN-RBK-007
     it('should return { confirmed: false, versionId, error } — surfacing the version that WAS restored — when the restore-then-plan unit fails with PulumiRollbackPlanFailedError', async () => {
       // The restore write succeeded (the config version named by
       // restoredVersionId is now the new head) even though the follow-up

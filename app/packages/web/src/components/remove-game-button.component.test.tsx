@@ -92,6 +92,7 @@ describe('RemoveGameButton', () => {
     expect(toastMock.error).toHaveBeenCalledOnce();
   });
 
+  // @spec IAC-RUN-PLAN-010
   it('should show the deployment-config.json hint and a link to the Infrastructure page in the dialog', async () => {
     await openDialog('minecraft');
     const dialog = screen.getByRole('alertdialog');

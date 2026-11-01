@@ -38,6 +38,7 @@ function hostnameSeenByNode(hostname: string): string {
 }
 
 describe('buildHostnameShimSource', () => {
+  // @spec IAC-PROGRAM-HOST-002
   it('should make os.hostname return the value', () => {
     expect(hostnameSeenByNode('foundry')).toBe('foundry');
   });
@@ -50,6 +51,7 @@ describe('buildHostnameShimSource', () => {
 describe('buildHostnameShimContainer', () => {
   const logConfiguration = { logDriver: 'awslogs', options: { 'awslogs-stream-prefix': 'hostname-shim' } };
 
+  // @spec IAC-PROGRAM-HOST-002
   it('should decode to the shim and mount the game volume read-write as a non-essential container', () => {
     const container = buildHostnameShimContainer({ game: 'foundry', hostname: 'my_foundry_host', logConfiguration });
 
@@ -76,6 +78,7 @@ describe('hostnameShimVolumeName', () => {
 });
 
 describe('mergeNodeOptions', () => {
+  // @spec IAC-PROGRAM-HOST-006
   it('should append a shim-only NODE_OPTIONS when absent', () => {
     expect(mergeNodeOptions([{ name: 'EULA', value: 'TRUE' }])).toEqual([
       { name: 'EULA', value: 'TRUE' },
@@ -83,6 +86,7 @@ describe('mergeNodeOptions', () => {
     ]);
   });
 
+  // @spec IAC-PROGRAM-HOST-007
   it('should prefix the operator value at its original index', () => {
     const merged = mergeNodeOptions([
       { name: 'A', value: '1' },

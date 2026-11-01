@@ -6,6 +6,7 @@ import {
 import { test, expect } from './index.js';
 import { makeFakeIacCtx, waitForIacMessage } from './support/iac-ctx.js';
 
+// @spec IAC-RUN-ITEST-006
 /**
  * Verifies the `orchestrator-integration-coverage` delta spec's "Destroy
  * gated by fresh confirmation token" requirement. `PulumiService.destroy`'s

@@ -144,6 +144,7 @@ function buildDynamoRecord(overrides: Partial<RunRecord> = {}): RunRecord {
   };
 }
 
+// @spec IAC-RUN-IPC-001
 describe('@MessagePattern channel names', () => {
   it('should register every channel', () => {
     expectChannels(IacRunsController.prototype, [
@@ -157,6 +158,7 @@ describe('@MessagePattern channel names', () => {
   });
 });
 
+// @spec IAC-RUN-IPC-009
 describe('IacRunsController.get', () => {
   it('should return found: true, status: running for the runId currently holding the apply lock', async () => {
     const runService = makeRunService(buildLock({ runId: 'run-live' }));
@@ -247,6 +249,7 @@ describe('IacRunsController.get', () => {
   });
 });
 
+// @spec IAC-RUN-IPC-005
 describe('IacRunsController.onModuleInit', () => {
   // onModuleInit only wires the bridge when running inside a real Electron
   // main process, detected via `process.versions.electron`. Vitest runs under
@@ -291,6 +294,7 @@ describe('IacRunsController.onModuleInit', () => {
   });
 });
 
+// @spec IAC-RUN-PLAN-004
 describe('IacRunsController.logs', () => {
   it('should return a non-empty streamId string immediately', async () => {
     const { ctx } = makeCtx();
@@ -456,6 +460,7 @@ describe('IacRunsController.logs', () => {
   });
 });
 
+// @spec IAC-RUN-HIST-001
 describe('IacRunsController.list', () => {
   it("should delegate to RunRecordService.listRuns with the given opts", async () => {
     const runRecordService = makeRunRecordService();
@@ -496,6 +501,7 @@ describe('IacRunsController.list', () => {
   });
 });
 
+// @spec IAC-RUN-LCLR-003, IAC-RUN-LCLR-004
 describe('IacRunsController.mintLockClearToken', () => {
   it('should return a token when a run lock is currently held and expectedRunId matches it', async () => {
     const runService = makeRunService(buildLock());
@@ -542,6 +548,7 @@ describe('IacRunsController.mintLockClearToken', () => {
   });
 });
 
+// @spec IAC-RUN-LCLR-003, IAC-RUN-LCLR-005
 describe('IacRunsController.clearLock', () => {
   it('should resolve { cleared: true } on a valid token', async () => {
     const runService = makeRunService();
@@ -574,6 +581,7 @@ describe('IacRunsController.clearLock', () => {
   });
 });
 
+// @spec IAC-RUN-STORE-006
 describe('IacRunsController.logUrl', () => {
   it("should delegate to RunRecordService.getLogUrl and wrap the result in { url }", async () => {
     const runRecordService = makeRunRecordService(undefined, 'https://example.com/signed-log');

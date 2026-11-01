@@ -200,6 +200,7 @@ test.describe('iac page', () => {
     });
   });
 
+  // @spec IAC-RUN-PLAN-002, IAC-RUN-APPR-001
   test('should reach awaiting_approval and enable the Approve button once the plan run finishes', async () => {
     await applyHyveonMocks(win);
     await mockIac(win);
@@ -210,6 +211,7 @@ test.describe('iac page', () => {
     await expect(iac.approveButton()).toBeEnabled();
   });
 
+  // @spec IAC-RUN-PLAN-003, IAC-RUN-LCLR-002
   test('should render a BUSY banner when plan submission reports a workspace conflict', async () => {
     await applyHyveonMocks(win);
     await mockIac(win, { planAck: { started: false, error: 'workspace busy', conflict: 'up' } });
@@ -220,6 +222,7 @@ test.describe('iac page', () => {
     await expect(iac.alerts().filter({ hasText: 'an apply run is already in progress' })).toBeVisible();
   });
 
+  // @spec IAC-RUN-APPR-001, IAC-RUN-GATE-001, IAC-RUN-GATE-015
   test('should approve the plan, then apply and reach the success banner', async () => {
     await applyHyveonMocks(win);
     await mockIac(win);
@@ -238,6 +241,7 @@ test.describe('iac page', () => {
     await expect(iac.dashboardLink()).toBeVisible();
   });
 
+  // @spec IAC-RUN-APPR-005
   test('should show an expired-approval hint and keep Apply disabled until re-approved', async () => {
     const staleApprovedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString();
     await applyHyveonMocks(win);
@@ -255,6 +259,7 @@ test.describe('iac page', () => {
     await expect(iac.reapproveButton()).toBeVisible();
   });
 
+  // @spec IAC-RUN-PLAN-007
   test('should render the structured change-summary badges once the plan run finishes', async () => {
     await applyHyveonMocks(win);
     await mockIac(win, { planChangeSummary: { create: 3, update: 1 } });
@@ -266,6 +271,7 @@ test.describe('iac page', () => {
     await expect(iac.summaryBadge('1 to update')).toBeVisible();
   });
 
+  // @spec IAC-RUN-PART-003
   test('should render the partial-apply banner instead of the generic error banner when the apply run reports partialApply', async () => {
     await applyHyveonMocks(win);
     await mockIac(win, { applyStatus: 'failed', applyPartialApply: true });
@@ -312,6 +318,7 @@ test.describe('iac page', () => {
     await expect(banner).toContainText('pid 4321');
   });
 
+  // @spec IAC-RUN-LCLR-003, IAC-RUN-LCLR-007
   test('should clear a stuck run lock and allow manual resubmission', async () => {
     const runLock: RunLock = {
       runId: 'r1',

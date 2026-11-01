@@ -65,6 +65,7 @@ describe('defineDiscordTableItems', () => {
     expect(result.discordBaseConfigItem).toBeUndefined();
   });
 
+  // @spec IAC-PROGRAM-DATA-004
   it('should declare discordBaseConfigItem when only baseAdminRoleIds is non-empty, with the BASE#discord row content', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const discordTable = await arrangeDiscordTable(provider);
@@ -99,6 +100,7 @@ describe('defineDiscordTableItems', () => {
     });
   });
 
+  // @spec IAC-PROGRAM-DATA-004
   it('should declare discordBaseConfigItem with the full allowedGuilds/admins lists when every base field is populated', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const discordTable = await arrangeDiscordTable(provider);
@@ -150,6 +152,7 @@ describe('defineDiscordTableItems', () => {
     expect(result.discordConfigSeedItem).toBeUndefined();
   });
 
+  // @spec IAC-PROGRAM-DATA-005
   it('should declare discordConfigSeedItem with the CONFIG#discord row content when discordApplicationId is set', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const discordTable = await arrangeDiscordTable(provider);
@@ -183,6 +186,7 @@ describe('defineDiscordTableItems', () => {
     });
   });
 
+  // @spec IAC-PROGRAM-DATA-005
   it('should declare discordConfigSeedItem via escapeResourceOptions.forDiscordConfigSeedItem, not an equivalent-but-uninspected options object', async () => {
     // Call-site coverage, not just factory-output coverage — see
     // `escapes.ts`'s file doc, the paragraph on `escapeResourceOptions`, for
@@ -229,6 +233,7 @@ describe('defineDiscordTableItems', () => {
 });
 
 describe('escapeResourceOptions.forDiscordConfigSeedItem', () => {
+  // @spec IAC-PROGRAM-DATA-005
   it('should carry ignoreChanges: ["item"] so a re-deploy never reverts an operator-edited CONFIG#discord row', () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const opts = escapeResourceOptions.forDiscordConfigSeedItem(provider);
@@ -269,6 +274,7 @@ describe('defineEfsSeederInvocations', () => {
     expect(result).toEqual({});
   });
 
+  // @spec IAC-PROGRAM-SEED-005
   it('should throw when efsSeederFunctions has a game absent from gameServers', () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const fn = new aws.lambda.Function('echo-fn', { role: 'arn:aws:iam::123456789012:role/mock' }, { provider });
@@ -285,6 +291,7 @@ describe('defineEfsSeederInvocations', () => {
     ).toThrow(/no gameServers entry for "echo"/);
   });
 
+  // @spec IAC-PROGRAM-SEED-005
   it('should throw when efsSeederFunctions has a game absent from efsSeederPolicies', () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const fn = new aws.lambda.Function('echo-fn', { role: 'arn:aws:iam::123456789012:role/mock' }, { provider });
@@ -300,6 +307,7 @@ describe('defineEfsSeederInvocations', () => {
     ).toThrow(/no efsSeederPolicies entry for "echo"/);
   });
 
+  // @spec IAC-PROGRAM-SEED-001
   it('should declare one invocation per game in efsSeederFunctions, with functionName/input/triggers derived from that game\'s config', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const fn = new aws.lambda.Function('hyveon-efs-seeder-echo', { role: 'arn:aws:iam::123456789012:role/mock', name: 'hyveon-efs-seeder-echo' }, { provider });
@@ -328,6 +336,7 @@ describe('defineEfsSeederInvocations', () => {
     expect(typeof (invocation.inputs.triggers as Record<string, string>).seedsHash).toBe('string');
   });
 
+  // @spec IAC-PROGRAM-SEED-002
   it('should change the seedsHash trigger when file_seeds content changes, and keep it stable when unchanged', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const fn = new aws.lambda.Function('hyveon-efs-seeder-echo', { role: 'arn:aws:iam::123456789012:role/mock' }, { provider });
@@ -378,6 +387,7 @@ describe('defineEfsSeederInvocations', () => {
     expect(thirdHash).toBe(firstHash);
   });
 
+  // @spec IAC-PROGRAM-SEED-001
   it('should declare each invocation via escapeResourceOptions.forEfsSeederInvocation, not an equivalent-but-uninspected options object', async () => {
     // Call-site coverage, not just factory-output coverage — see
     // `escapes.ts`'s file doc, the paragraph on `escapeResourceOptions`, for
@@ -406,6 +416,7 @@ describe('defineEfsSeederInvocations', () => {
 });
 
 describe('escapeResourceOptions.forEfsSeederInvocation', () => {
+  // @spec IAC-PROGRAM-SEED-001
   it('should carry dependsOn: [policy] so the invocation waits on the review-mandated IAM policy edge', () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const policy = new aws.iam.RolePolicy('mock-policy', { role: 'mock-role', policy: '{}' }, { provider });

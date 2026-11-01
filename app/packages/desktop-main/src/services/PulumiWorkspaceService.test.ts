@@ -336,7 +336,9 @@ beforeEach(() => {
   createOrSelectMock.mockResolvedValue(FAKE_STACK);
 });
 
+// @spec IAC-ENGINE-WS-005
 describe('PulumiWorkspaceService.getOrCreateStack — workDir/pulumiHome stability', () => {
+  // @spec IAC-ENGINE-PROV-011
   it('should use a stable pulumiHome/workDir under userData, not a tmpdir', async () => {
     const { service } = makeService();
 
@@ -414,6 +416,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — workDir/pulumiHome stabili
   });
 });
 
+// @spec IAC-ENGINE-WS-006
 describe('PulumiWorkspaceService.getOrCreateStack — bare stack name', () => {
   it('should pass the bare stack name to Stack.createOrSelect, never an organization/-qualified name', async () => {
     const { service } = makeService();
@@ -447,6 +450,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — bare stack name', () => {
   });
 });
 
+// @spec IAC-ENGINE-WS-002
 describe('PulumiWorkspaceService.getOrCreateStack — PULUMI_BACKEND_URL and region', () => {
   it('should build the backend URL as s3://<stateBucket>?region=<region>', async () => {
     const { service } = makeService();
@@ -476,6 +480,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — PULUMI_BACKEND_URL and reg
     expect(opts.envVars['PULUMI_BACKEND_URL']).toBe('s3://my-bucket?region=us%20east%201');
   });
 
+  // @spec IAC-ENGINE-PASS-001
   it('should use the passphrase secrets provider', async () => {
     const { service } = makeService();
 
@@ -485,6 +490,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — PULUMI_BACKEND_URL and reg
     expect(opts.secretsProvider).toBe('passphrase');
   });
 
+  // @spec IAC-ENGINE-PROV-002
   it('should source pulumiCommand from PulumiEngineService.resolve(), never PATH', async () => {
     const { service, engine } = makeService();
 
@@ -497,6 +503,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — PULUMI_BACKEND_URL and reg
 });
 
 describe('PulumiWorkspaceService.getOrCreateStack — backend-not-bootstrapped', () => {
+  // @spec IAC-ENGINE-WS-003
   it('should throw PulumiBackendNotBootstrappedError without touching Pulumi when backendReady is false', async () => {
     const { service, engine } = makeService();
 
@@ -517,6 +524,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — backend-not-bootstrapped',
     ).rejects.toThrow(/my-missing-bucket/);
   });
 
+  // @spec IAC-ENGINE-WS-004
   it('should re-classify a missing-bucket-shaped failure from LocalWorkspace.create into PulumiBackendNotBootstrappedError as a backstop', async () => {
     const { service } = makeService();
     createMock.mockRejectedValueOnce(new Error('unable to get metadata: NoSuchBucket: The specified bucket does not exist'));
@@ -553,7 +561,9 @@ describe('PulumiWorkspaceService.getOrCreateStack — backend-not-bootstrapped',
   });
 });
 
+// @spec IAC-ENGINE-PASS-002
 describe('PulumiWorkspaceService.getOrCreateStack — derived passphrase (portability fix)', () => {
+  // @spec IAC-ENGINE-PASS-001
   it('should derive and use a passphrase on first-ever stack creation, with no listStacks probe', async () => {
     const { service } = makeService();
     stsMock.on(GetCallerIdentityCommand).resolves({ Account: DEFAULT_TEST_ACCOUNT_ID });
@@ -581,6 +591,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — derived passphrase (portab
     expect(secondPassphrase).toBe(firstPassphrase);
   });
 
+  // @spec IAC-ENGINE-PASS-003
   it('should select an already-existing stack from a SECOND machine with no local passphrase record, deriving the identical passphrase without error', async () => {
     // "First machine": a store that has already interacted with this stack.
     const firstMachineSafeStorage = makeAvailableSafeStorage();
@@ -619,6 +630,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — derived passphrase (portab
     expect(secondMachinePassphrase).toBe(deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME));
   });
 
+  // @spec IAC-ENGINE-PASS-004
   it('should normalize and rethrow a plain Error when sts:GetCallerIdentity fails, and log it via logger.warn', async () => {
     const { service } = makeService();
     stsMock.on(GetCallerIdentityCommand).rejects(new Error('expired credentials'));
@@ -639,6 +651,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — derived passphrase (portab
 });
 
 describe('PulumiWorkspaceService.getOrCreateStack — pulumi.stackInitialized bookkeeping', () => {
+  // @spec IAC-ENGINE-WS-007, IAC-ENGINE-WS-009
   it('should set pulumi.stackInitialized after successfully creating/selecting a stack', async () => {
     const { service, store } = makeService();
 
@@ -647,6 +660,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — pulumi.stackInitialized bo
     expect(store.get('pulumi')?.stackInitialized).toBe(true);
   });
 
+  // @spec IAC-ENGINE-WS-008
   it('should not set pulumi.stackInitialized when createOrSelect fails', async () => {
     const { service, store } = makeService();
     createOrSelectMock.mockRejectedValueOnce(new Error('some unrelated CLI failure'));
@@ -667,6 +681,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — credentialEnvVars override
     expect(opts.envVars['AWS_PROFILE']).toBe('personal');
   });
 
+  // @spec IAC-ENGINE-CRED-005
   it('should never let credentialEnvVars override the backend URL, region, or passphrase this seam owns', async () => {
     const { service } = makeService();
 
@@ -698,6 +713,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — credentialEnvVars override
 });
 
 describe('PulumiWorkspaceService.getOrCreateStack — wired to the real credential resolver', () => {
+  // @spec IAC-ENGINE-CRED-002
   it('should pass a named-profile selection all the way through into the final envVars, including the exclusivity clear', async () => {
     const safeStorage = makeAvailableSafeStorage();
     const store = new ElectronStoreService(safeStorage);
@@ -715,6 +731,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — wired to the real credenti
     expect(opts.envVars['AWS_SESSION_TOKEN']).toBe('');
   });
 
+  // @spec IAC-ENGINE-CRED-003
   it('should pass a pasted-keys selection all the way through into the final envVars, including the exclusivity clear', async () => {
     const safeStorage = makeAvailableSafeStorage();
     const store = new ElectronStoreService(safeStorage);
@@ -732,6 +749,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — wired to the real credenti
   });
 });
 
+// @spec IAC-ENGINE-CRED-001
 describe('PulumiWorkspaceService.getOrCreateStack — credential resolution is unconditional, not opt-in', () => {
   /**
    * Regression tests for `resolveCredentialEnvVars` having no production call
@@ -791,6 +809,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — credential resolution is u
 });
 
 describe('PulumiWorkspaceService.getOrCreateStack — credentials are not logged (spec-critical)', () => {
+  // @spec IAC-ENGINE-CRED-006
   it('should never pass the resolved pasted-key values to any logger call', async () => {
     const safeStorage = makeAvailableSafeStorage();
     const store = new ElectronStoreService(safeStorage);
@@ -865,6 +884,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — legacy passphrase migratio
   /** The legacy plaintext passphrase seeded into the store for these tests. */
   const LEGACY_PASSPHRASE = 'legacy-random-value';
 
+  // @spec IAC-ENGINE-PASS-005
   it('should re-encrypt via the CLI and remove the legacy store entry when a legacy passphrase is present', async () => {
     const { service, store } = makeService();
     store.setPulumiPassphrase(LEGACY_PASSPHRASE);
@@ -911,6 +931,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — legacy passphrase migratio
     expect(serialized).not.toContain(deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME));
   });
 
+  // @spec IAC-ENGINE-PASS-006
   it('should leave the legacy passphrase in the store when re-encryption fails, so the next call retries with the same value', async () => {
     const { service, store } = makeService();
     store.setPulumiPassphrase(LEGACY_PASSPHRASE);
@@ -940,6 +961,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — legacy passphrase migratio
     expect(createOrSelectMock).toHaveBeenCalledOnce();
   });
 
+  // @spec IAC-ENGINE-PASS-007
   it('should fail with a clear keychain-unavailable error before attempting migration, when a legacy passphrase is stored but the keychain is unavailable', async () => {
     const safeStorage = makeAvailableSafeStorage();
     const store = makeStoreWithDefaultCredentials(safeStorage);

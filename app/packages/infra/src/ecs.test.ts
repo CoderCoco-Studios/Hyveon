@@ -57,6 +57,7 @@ describe('defineEcs', () => {
     mocks = installPulumiMocks();
   });
 
+  // @spec IAC-PROGRAM-ECS-001
   it('should declare the ECS cluster with containerInsights disabled and the project-prefixed name', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
@@ -77,6 +78,7 @@ describe('defineEcs', () => {
     expect(cluster.inputs.tags).toEqual({ Name: 'hyveon-cluster' });
   });
 
+  // @spec IAC-PROGRAM-ECS-004
   it('should declare exactly one log group per game, named /ecs/{game}-server with 7-day retention', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
@@ -99,6 +101,7 @@ describe('defineEcs', () => {
     expect(alphaLog.inputs.tags).toEqual({ Name: 'alpha-logs', Game: 'alpha' });
   });
 
+  // @spec IAC-PROGRAM-ECS-004
   it('should pre-create one /ecs/filebrowser-{game} log group per game with 7-day retention', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
@@ -120,6 +123,7 @@ describe('defineEcs', () => {
     expect(alphaLog.inputs.tags).toEqual({ Name: 'alpha-filebrowser-logs', Game: 'alpha' });
   });
 
+  // @spec IAC-PROGRAM-FANOUT-001
   it('should derive per-game task definitions purely from the game-server map, one per game', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
@@ -138,6 +142,7 @@ describe('defineEcs', () => {
     expect(taskDefs).toHaveLength(4);
   });
 
+  // @spec IAC-PROGRAM-ECS-003, IAC-PROGRAM-IAM-001
   it('should set family/networkMode/requiresCompatibilities/cpu/memory/executionRoleArn exactly per the HCL, cpu/memory as strings', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
@@ -162,6 +167,7 @@ describe('defineEcs', () => {
     expect(alphaTd.inputs.tags).toEqual({ Name: 'alpha-server', Game: 'alpha' });
   });
 
+  // @spec IAC-PROGRAM-ECS-005
   it('should embed the volume block referencing the matching game access point, transit encryption enabled, iam disabled', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
@@ -191,6 +197,7 @@ describe('defineEcs', () => {
     ]);
   });
 
+  // @spec IAC-PROGRAM-ECS-006, IAC-PROGRAM-ECS-007
   it('should embed the parsed container definitions with image, ports, environment, mount points, and log configuration for a non-https game', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
@@ -225,6 +232,7 @@ describe('defineEcs', () => {
     });
   });
 
+  // @spec IAC-PROGRAM-ECS-006
   it('should exclude icmp port entries from portMappings, keeping only tcp/udp entries', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -312,6 +320,7 @@ describe('defineEcs', () => {
     expect(containers[0].environment).toEqual([]);
   });
 
+  // @spec IAC-PROGRAM-TLS-001, IAC-PROGRAM-TLS-003
   it('should include the Caddy sidecar container and its cert volume only for an https: true game', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
@@ -368,6 +377,7 @@ describe('defineEcs', () => {
     );
   });
 
+  // @spec IAC-PROGRAM-ECS-006, IAC-PROGRAM-TLS-001
   it('should map webPort plus tcp/udp extras (not icmp) and proxy each https game to its own webPort', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const common = { image: 'example/game:latest', cpu: 1024, memory: 2048, https: true, volumes: [{ name: 'saves', container_path: '/data' }] };
@@ -399,6 +409,7 @@ describe('defineEcs', () => {
     expect(web2[1].command).toContain('localhost:30010');
   });
 
+  // @spec IAC-PROGRAM-TLS-004
   it('should declare no Caddy sidecar container or cert volume for a non-https game', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
@@ -419,6 +430,7 @@ describe('defineEcs', () => {
     expect(volumes.some((volume) => volume.name.includes('caddy'))).toBe(false);
   });
 
+  // @spec IAC-PROGRAM-ECS-002
   it('should never declare an aws.ecs.Service — task definitions only, per the no-persistent-service invariant', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const efs = await arrangeEfs(FIXTURE_GAME_SERVERS, provider);
@@ -436,6 +448,7 @@ describe('defineEcs', () => {
     expect(types).not.toContain('aws:ecs/service:Service');
   });
 
+  // @spec IAC-PROGRAM-TOKEN-001
   it('should substitute the public-address token with the game hostname at build time', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -461,6 +474,7 @@ describe('defineEcs', () => {
     expect(containers[0]).not.toHaveProperty('entryPoint');
   });
 
+  // @spec IAC-PROGRAM-TOKEN-003
   it('should inject the wrapper entryPoint and command for an ipv4-token game', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -489,6 +503,7 @@ describe('defineEcs', () => {
     expect(containers[0].environment).toEqual([{ name: 'SERVER_IP', value: '${hyveon.network.public-ipv4}' }]);
   });
 
+  // @spec IAC-PROGRAM-TOKEN-004, IAC-PROGRAM-TOKEN-007
   it('should pass command through without tokens and without a wrapper', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -534,6 +549,7 @@ describe('defineEcs', () => {
       return mocks.resources;
     }
 
+    // @spec IAC-PROGRAM-HOST-001, IAC-PROGRAM-HOST-002, IAC-PROGRAM-HOST-003
     it('should give an opted-in game the init container, dependsOn, read-only mount, and ephemeral volume', async () => {
       const resources = await arrangeDefineEcs({
         ...FIXTURE_GAME_SERVERS,
@@ -567,6 +583,7 @@ describe('defineEcs', () => {
       expect(shimVolume).toEqual({ name: 'alpha-hostname-shim' });
     });
 
+    // @spec IAC-PROGRAM-HOST-004
     it('should leave the caddy definition unchanged for an https game', async () => {
       const resources = await arrangeDefineEcs({
         ...FIXTURE_GAME_SERVERS,
@@ -580,6 +597,7 @@ describe('defineEcs', () => {
       );
     });
 
+    // @spec IAC-PROGRAM-HOST-005
     it('should not affect other games when one opts in', async () => {
       const resources = await arrangeDefineEcs({
         ...FIXTURE_GAME_SERVERS,
@@ -592,6 +610,7 @@ describe('defineEcs', () => {
       expect(JSON.stringify(bravoTd.inputs.volumes)).not.toContain('hostname-shim');
     });
 
+    // @spec IAC-PROGRAM-HOST-005
     it('should emit byte-identical container definitions and volumes when the field is absent', async () => {
       const resources = await arrangeDefineEcs(FIXTURE_GAME_SERVERS);
 
@@ -602,6 +621,7 @@ describe('defineEcs', () => {
       expect(findByName(resources, 'delta-server').inputs.volumes).toHaveLength(2);
     });
 
+    // @spec IAC-PROGRAM-HOST-008
     it('should coexist with the ipv4 boot wrapper and keep the token in the merged NODE_OPTIONS', async () => {
       const resources = await arrangeDefineEcs({
         ...FIXTURE_GAME_SERVERS,

@@ -53,6 +53,7 @@ function findByName(resources: RecordedResource[], name: string): RecordedResour
 }
 
 describe('dedupedDirectGamePorts', () => {
+  // @spec IAC-PROGRAM-SG-001
   it('should collapse two games sharing the same port and protocol into one entry', () => {
     expect(dedupedDirectGamePorts(FIXTURE_GAME_SERVERS)).toEqual([
       { port: 25565, protocol: 'tcp' },
@@ -74,6 +75,7 @@ describe('dedupedDirectGamePorts', () => {
     expect(dedupedDirectGamePorts(gameServers)).toEqual([{ port: 1234, protocol: 'tcp' }]);
   });
 
+  // @spec IAC-PROGRAM-SG-007
   it('should include an https game\'s extra ports but never its webPort', () => {
     const gameServers: Record<string, GameServerConfig> = {
       httpsGame: {
@@ -134,6 +136,7 @@ describe('dedupedDirectGamePorts', () => {
     expect(dedupedDirectGamePorts(gameServers)).toEqual([{ port: 1234, protocol: 'tcp' }]);
   });
 
+  // @spec IAC-PROGRAM-SG-003
   it('should exclude a port with an unrecognized visibility value (fails closed, not open to the internet)', () => {
     const gameServers: Record<string, GameServerConfig> = {
       typoGame: {
@@ -216,6 +219,7 @@ describe('defineSecurityGroups', () => {
     mocks = installPulumiMocks();
   });
 
+  // @spec IAC-PROGRAM-SG-001, IAC-PROGRAM-SG-005
   it('should declare the game-servers security group with a deduplicated ingress rule per distinct port and the 443/80 HTTPS rules', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineSecurityGroups({
@@ -256,6 +260,7 @@ describe('defineSecurityGroups', () => {
     expect(sg.inputs.egress).toEqual([{ fromPort: 0, toPort: 0, protocol: '-1', cidrBlocks: ['0.0.0.0/0'] }]);
   });
 
+  // @spec IAC-PROGRAM-SG-002
   it('should ingress a visibility: "internal" port from the VPC CIDR block instead of the open internet', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -279,6 +284,7 @@ describe('defineSecurityGroups', () => {
     expect(mocks.calls.some((call) => call.token === 'aws:ec2/getVpc:getVpc')).toBe(true);
   });
 
+  // @spec IAC-PROGRAM-SG-002
   it('should not look up the VPC CIDR block at all when no game declares an internal-visibility port', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineSecurityGroups({ projectName: 'hyveon', gameServers: FIXTURE_GAME_SERVERS, vpcId: 'vpc-mock', provider });
@@ -286,6 +292,7 @@ describe('defineSecurityGroups', () => {
     expect(mocks.calls.some((call) => call.token === 'aws:ec2/getVpc:getVpc')).toBe(false);
   });
 
+  // @spec IAC-PROGRAM-SG-006
   it('should declare no 443/80 HTTPS rules when no game has https: true', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const { delta: _delta, ...withoutHttpsGame } = FIXTURE_GAME_SERVERS;
@@ -301,6 +308,7 @@ describe('defineSecurityGroups', () => {
     expect(ingress.some((rule) => rule.description.includes('Caddy sidecar'))).toBe(false);
   });
 
+  // @spec IAC-PROGRAM-SG-009
   it('should declare the file-manager security group with no ingress rules', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     await runDefineSecurityGroups({
@@ -320,6 +328,7 @@ describe('defineSecurityGroups', () => {
     expect(sg.inputs.tags).toEqual({ Name: 'hyveon-filemgr-sg' });
   });
 
+  // @spec IAC-PROGRAM-SG-010
   it('should declare the efs security group with NFS ingress from the game-servers and file-manager groups only, and no efsSeeder group, when no game declares file_seeds', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineSecurityGroups({
@@ -352,6 +361,7 @@ describe('defineSecurityGroups', () => {
     expect(sg.inputs.egress).toEqual([{ fromPort: 0, toPort: 0, protocol: '-1', cidrBlocks: ['0.0.0.0/0'] }]);
   });
 
+  // @spec IAC-PROGRAM-SG-010, IAC-PROGRAM-SG-011
   it('should declare the shared efs_seeder security group and a second in-line efs ingress entry sourced from it when a game declares file_seeds', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -401,6 +411,7 @@ describe('defineSecurityGroups', () => {
     ]);
   });
 
+  // @spec IAC-PROGRAM-SG-011, IAC-PROGRAM-SG-013
   it('should scope the efs_seeder security group egress to NFS-only against the efs security group via a standalone rule, when a game declares file_seeds', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -460,6 +471,7 @@ describe('defineSecurityGroups', () => {
     expect(ingress.filter((rule) => rule.fromPort === 25565)).toHaveLength(1);
   });
 
+  // @spec IAC-PROGRAM-SG-004
   it('should declare an icmp ingress rule with toPort -1 and no separate host port, sourced from the open internet for a public entry', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
@@ -557,6 +569,7 @@ describe('defineSecurityGroups', () => {
     expect(mocks.resources.some((resource) => resource.name === 'hyveon-health-check-sg')).toBe(false);
   });
 
+  // @spec IAC-PROGRAM-SG-012, IAC-PROGRAM-SG-013
   it('should declare the health-check security group with no inline egress, and a matching ingress entry on the game-servers group, when a game declares healthCheck', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineSecurityGroups({
@@ -582,6 +595,7 @@ describe('defineSecurityGroups', () => {
     expect(healthCheckIngress?.securityGroups).toEqual([await promiseOf(result.healthCheck!.id)]);
   });
 
+  // @spec IAC-PROGRAM-SG-007, IAC-PROGRAM-SG-008
   it('should ingress https extras by visibility, give webPort none, and keep one 443/80 pair across two https games', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const common = { image: 'example/game:latest', cpu: 1024, memory: 2048, https: true, volumes: [{ name: 'saves', container_path: '/data' }] };
@@ -630,6 +644,7 @@ describe('defineSecurityGroups', () => {
     expect(rules[0].securityGroups).toEqual([await promiseOf(result.healthCheck!.id)]);
   });
 
+  // @spec IAC-PROGRAM-SG-012
   it('should scope the health-check security group egress to declared ports only, via a standalone rule per port', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineSecurityGroups({
