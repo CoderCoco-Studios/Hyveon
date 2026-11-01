@@ -131,7 +131,7 @@ EARS requirements for prefix `APP-WIZARD`; design in `wizard-and-bootstrap-desig
 
 ## One region per install
 
-- [ ] **APP-WIZARD-REGLOCK-001**: While a deployed stack exists, the wizard shall refuse to store an `aws.region` other than the region that stack was provisioned in, whether the region comes from the credentials step or the guided-IAM region screen, and shall tell the operator that moving to another region means destroying the stack and re-running the wizard. (gap: `wizard.state.save` merges any `aws.region`, `app/packages/desktop-main/src/controllers/wizard.controller.ts:202-205`; guided rotation stores `input.region`, `app/packages/desktop-main/src/services/GuidedIamService.ts:491`; neither checks for a deployed stack)
+- [ ] **APP-WIZARD-REGLOCK-001**: Once bootstrap has completed for the install (a `bootstrap` record is stored), the wizard shall refuse to store an `aws.region` other than the stored one, whether the region comes from the credentials step or the guided-IAM region screen, and shall tell the operator that moving to another region means destroying the stack, deleting the bootstrap resources and resetting the app. (gap: `wizard.state.save` merges any `aws.region`, `app/packages/desktop-main/src/controllers/wizard.controller.ts:202-205`; guided rotation stores `input.region`, `app/packages/desktop-main/src/services/GuidedIamService.ts:491`; neither checks for a completed bootstrap)
 
 ## AWS credentials step
 

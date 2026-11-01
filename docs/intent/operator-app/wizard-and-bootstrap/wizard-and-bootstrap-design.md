@@ -97,8 +97,8 @@ The guided path's region dropdown reads the committed, generated `shared/src/aws
 The data set includes `eusc-de-east-1`, "AWS European Sovereign Cloud (Germany)" (`awsRegions.ts:36`); the spec excludes only the `us-gov-` and `cn-` prefixes (`guided-region-selection/spec.md:13-24`), so this is spec-compliant but is a separate partition where commercial credentials do not authenticate.
 
 The region chosen on either path is the install's one AWS region (`docs/high-level-design.md`, decision 10): bootstrap creates the buckets and runs table in it, and every other leaf resolves its region from it through `ConfigService.getRegion()`.
-While a deployed stack exists, the wizard refuses to store a different region, from the credentials step or the guided-IAM region screen, and tells the operator that moving regions means destroying the stack and re-running the wizard (`APP-WIZARD-REGLOCK-001`).
-Today neither write path checks: `wizard.state.save` merges any `aws.region` (`wizard.controller.ts:202-205`) and guided rotation stores `input.region` (`GuidedIamService.ts:491`), so a Reconfigure can point the app at a region the deployed stack is not in.
+Once bootstrap has completed for the install, the wizard refuses to store a different region, from the credentials step or the guided-IAM region screen, and tells the operator that moving regions means destroying the stack, deleting the bootstrap resources and resetting the app (`APP-WIZARD-REGLOCK-001`).
+Today neither write path checks: `wizard.state.save` merges any `aws.region` (`wizard.controller.ts:202-205`) and guided rotation stores `input.region` (`GuidedIamService.ts:491`), so a Reconfigure can point the app at a region its bootstrap resources and stack are not in.
 
 ## Bootstrap Resources and IAM Check
 
@@ -180,7 +180,7 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 | Cloud Health placement | Always-visible Settings checklist | Silent self-heal in `EcsService.start()`; collapsed summary card | Archived `aws-cloud-health-checks/design.md` D1. |
 | Cloud Health module home | Provided by `WizardModule` | Own module | `[inferred]`: shares IAM/STS client helpers with `GuidedIamService` (`CloudHealthService.ts:193-212`). |
 | Region data source | Committed generated `awsRegions.ts` + manual entry | Fetch region feed at runtime | Archived `first-run-wizard-region-dropdown/design.md` D1, D2. |
-| Region change with a deployed stack | Refused; moving regions is destroy, then re-run the wizard | Accept the new region and let the next apply rebuild there; migrate resources across regions | Changing the region replaces the whole stack, EFS world saves included, so it must be a deliberate destroy-and-rebuild (`docs/high-level-design.md`, decision 10). |
+| Region change after bootstrap | Refused once a `bootstrap` record is stored; moving regions is destroy the stack, delete the bootstrap resources, reset the app | Lock only while the game stack has resources, so a destroy frees the region; accept the new region and let the next apply rebuild there; migrate resources across regions | The state bucket, config bucket and runs table are created by bootstrap in the wizard region and survive a stack destroy, so a stack-only lock would let games land in a new region while state stays in the old one, breaking one region per install. The bootstrap record is a local check with no AWS lookup. "Start over" clears only local settings and leaves those resources in place, which is why deleting them is a separate step. |
 | Unset `wizardCompleted` default | `HYVEON_TEST_MODE` value | Always `false` | `[inferred]`: lets e2e boots skip the wizard without seeding the store (`wizard.controller.ts:168`). |
 
 ## Open Questions & Future Decisions

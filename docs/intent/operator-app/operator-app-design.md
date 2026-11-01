@@ -248,7 +248,7 @@ Each decision below is load-bearing for more than one child.
 10. **The region the wizard stores is the install's only region, and every cloud binding resolves it through one resolver.**
     Spans `wizard-and-bootstrap` (the region pickers and the `aws.region` write paths) and `desktop-shell` (the store bindings in `cloud-provider.module.ts`) in this subtree, and `iac/engine`, `deployment-config` and `game-runtime/task-and-dns` outside it.
     Every store binding and AWS client takes its region from `ConfigService.getRegion()`, never from stack outputs (`IAC-ENGINE-REGION-002`; today the audit, Discord-config and run-record bindings prefer `outputs.awsRegion`, `cloud-provider.module.ts:109,131,180`).
-    The wizard refuses to store a different region while a deployed stack exists (`APP-WIZARD-REGLOCK-001`), and Settings shows the region read-only, owned by `deployment-config` (`CONFIG-FORM-007`).
+    The wizard refuses to store a different region once bootstrap has completed (`APP-WIZARD-REGLOCK-001`), and Settings shows the region read-only, owned by `deployment-config` (`CONFIG-FORM-007`).
     Rationale `[stated]`: one region per install, because moving regions replaces the whole stack, EFS world saves included (`docs/high-level-design.md`, decision 10).
     Alternative rejected `[stated]`: a control-plane region for the stores and a separate game region for the provider (`engine-design.md`, Decisions & Alternatives, "Install region").
 

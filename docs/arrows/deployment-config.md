@@ -129,7 +129,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/deployment-config/deplo
 
 ### Must Fix
 1. Stop drift from reporting every deployed game as `pending_delete` when the config read fails (finding 3): drift needs a rejecting read, or an explicit "declared state unknown" result. (specs: `CONFIG-DRIFT-007`)
-2. Make the Settings region field read-only: show the wizard region with the note that moving regions means destroying the stack and re-running the wizard, stop `draftToPatch` sending `awsRegion`, and reject a patch that carries it (finding 13). Lands with `iac/engine`'s Must Fix that sets the program's region from `ConfigService.getRegion()` (`IAC-ENGINE-REGION-001`). (specs: `CONFIG-FORM-007`, `CONFIG-FORM-003`, `CONFIG-SET-012`)
+2. Make the Settings region field read-only: show the wizard region with the note that moving regions means destroying the stack, deleting the bootstrap resources and resetting the app, stop `draftToPatch` sending `awsRegion`, and reject a patch that carries it (finding 13). Lands with `iac/engine`'s Must Fix that sets the program's region from `ConfigService.getRegion()` (`IAC-ENGINE-REGION-001`). (specs: `CONFIG-FORM-007`, `CONFIG-FORM-003`, `CONFIG-SET-012`)
 
 ### Should Fix
 3. Decide whether `restoreRawConfig` should be conditional on the etag it read for the rename guard (finding 6). (specs: `CONFIG-RESTORE-004`)
