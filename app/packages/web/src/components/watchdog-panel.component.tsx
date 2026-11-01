@@ -12,7 +12,7 @@ export function WatchdogPanel() {
         Watchdog Settings
       </p>
       <p className="text-sm text-[var(--color-foreground)]">
-        Check interval, idle checks, and the min-packets activity threshold are configured in the{' '}
+        Check interval, idle checks, and the minimum bytes-per-second activity threshold are configured in the{' '}
         <strong>General</strong> section below (&ldquo;Watchdog tuning&rdquo;) and take effect on the
         next apply from the Infrastructure page.
       </p>

@@ -58,7 +58,7 @@ export interface SettingsDraft {
   dnsTtl: string;
   watchdogIntervalMinutes: string;
   watchdogIdleChecks: string;
-  watchdogMinPackets: string;
+  watchdogMinBytesPerSecond: string;
   baseAllowedGuilds: string[];
   baseAdminUserIds: string[];
   baseAdminRoleIds: string[];
@@ -128,7 +128,7 @@ function draftFromSettings(settings: TopLevelDeploymentSettings): SettingsDraft 
       settings.watchdogIntervalMinutes ?? DEPLOYMENT_CONFIG_DEFAULTS.watchdogIntervalMinutes,
     ),
     watchdogIdleChecks: String(settings.watchdogIdleChecks ?? DEPLOYMENT_CONFIG_DEFAULTS.watchdogIdleChecks),
-    watchdogMinPackets: String(settings.watchdogMinPackets ?? DEPLOYMENT_CONFIG_DEFAULTS.watchdogMinPackets),
+    watchdogMinBytesPerSecond: String(settings.watchdogMinBytesPerSecond ?? DEPLOYMENT_CONFIG_DEFAULTS.watchdogMinBytesPerSecond),
     baseAllowedGuilds: settings.baseAllowedGuilds ?? [],
     baseAdminUserIds: settings.baseAdminUserIds ?? [],
     baseAdminRoleIds: settings.baseAdminRoleIds ?? [],
@@ -158,7 +158,7 @@ function draftToPatch(draft: SettingsDraft): Partial<TopLevelDeploymentSettings>
     dnsTtl: Number(draft.dnsTtl),
     watchdogIntervalMinutes: Number(draft.watchdogIntervalMinutes),
     watchdogIdleChecks: Number(draft.watchdogIdleChecks),
-    watchdogMinPackets: Number(draft.watchdogMinPackets),
+    watchdogMinBytesPerSecond: Number(draft.watchdogMinBytesPerSecond),
     baseAllowedGuilds: draft.baseAllowedGuilds,
     baseAdminUserIds: draft.baseAdminUserIds,
     baseAdminRoleIds: draft.baseAdminRoleIds,

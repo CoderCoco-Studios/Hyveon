@@ -12,7 +12,7 @@ function makeSettings(overrides: Partial<Omit<DeploymentConfig, 'gameServers'>> 
     dnsTtl: 60,
     watchdogIntervalMinutes: 5,
     watchdogIdleChecks: 3,
-    watchdogMinPackets: 10,
+    watchdogMinBytesPerSecond: 10,
     baseAllowedGuilds: ['guild-1'],
     baseAdminUserIds: ['user-1'],
     baseAdminRoleIds: ['role-1'],
@@ -48,7 +48,7 @@ describe('buildDiagnosticsConfigSummary', () => {
       dnsTtl: 60,
       watchdogIntervalMinutes: 5,
       watchdogIdleChecks: 3,
-      watchdogMinPackets: 10,
+      watchdogMinBytesPerSecond: 10,
       auditTableName: 'hyveon-audit',
       runsTableName: 'hyveon-runs',
     });

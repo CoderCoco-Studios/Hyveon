@@ -177,16 +177,16 @@ export function DeploymentSettingsForm() {
           )}
         </FormField>
         <FormField
-          id="settings-watchdog-min-packets"
-          label="Min packets (activity threshold)"
-          errors={messagesForField(issues, 'watchdogMinPackets')}
+          id="settings-watchdog-min-bytes-per-second"
+          label="Min bytes per second (activity threshold)"
+          errors={messagesForField(issues, 'watchdogMinBytesPerSecond')}
         >
           {(fieldProps) => (
             <Input
               {...fieldProps}
               type="number"
-              value={draft.watchdogMinPackets}
-              onChange={(e) => patchDraft({ watchdogMinPackets: e.target.value })}
+              value={draft.watchdogMinBytesPerSecond}
+              onChange={(e) => patchDraft({ watchdogMinBytesPerSecond: e.target.value })}
             />
           )}
         </FormField>

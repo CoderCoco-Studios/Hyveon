@@ -75,7 +75,7 @@ const FIXTURE_CONFIG: DeploymentConfig = {
   dnsTtl: 30,
   watchdogIntervalMinutes: 15,
   watchdogIdleChecks: 4,
-  watchdogMinPackets: 100,
+  watchdogMinBytesPerSecond: 1000,
   baseAllowedGuilds: [],
   baseAdminUserIds: [],
   baseAdminRoleIds: [],
@@ -715,7 +715,7 @@ describe('DeploymentConfigService write path', () => {
         expect(settings.dnsTtl).toBe(DEPLOYMENT_CONFIG_DEFAULTS.dnsTtl);
         expect(settings.watchdogIntervalMinutes).toBe(DEPLOYMENT_CONFIG_DEFAULTS.watchdogIntervalMinutes);
         expect(settings.watchdogIdleChecks).toBe(DEPLOYMENT_CONFIG_DEFAULTS.watchdogIdleChecks);
-        expect(settings.watchdogMinPackets).toBe(DEPLOYMENT_CONFIG_DEFAULTS.watchdogMinPackets);
+        expect(settings.watchdogMinBytesPerSecond).toBe(DEPLOYMENT_CONFIG_DEFAULTS.watchdogMinBytesPerSecond);
       });
 
       it('should give each call a fresh array reference for the three base-allowlist fields (never a shared mutable default)', async () => {
@@ -945,7 +945,7 @@ describe('DeploymentConfigService write path', () => {
         dnsTtl: 60,
         watchdogIntervalMinutes: 20,
         watchdogIdleChecks: 6,
-        watchdogMinPackets: 250,
+        watchdogMinBytesPerSecond: 250,
         baseAllowedGuilds: ['guild-a', 'guild-b'],
         baseAdminUserIds: ['user-a'],
         baseAdminRoleIds: ['role-a', 'role-b'],

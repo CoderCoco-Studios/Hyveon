@@ -282,7 +282,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     dnsTtl: config.dnsTtl,
     watchdogIntervalMinutes: config.watchdogIntervalMinutes,
     watchdogIdleChecks: config.watchdogIdleChecks,
-    watchdogMinPackets: config.watchdogMinPackets,
+    watchdogMinBytesPerSecond: config.watchdogMinBytesPerSecond,
     gameServers: config.gameServers,
     roles: iamRoles,
     publicSubnetIds: network.publicSubnets.map((subnet) => subnet.id),

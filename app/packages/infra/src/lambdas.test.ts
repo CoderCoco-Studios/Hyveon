@@ -111,7 +111,7 @@ function buildArgs(
     dnsTtl: 30,
     watchdogIntervalMinutes: 15,
     watchdogIdleChecks: 4,
-    watchdogMinPackets: 100,
+    watchdogMinBytesPerSecond: 1000,
     lambdaBundlesDir: LAMBDA_BUNDLES_DIR,
     efsSeederSecurityGroupId: undefined,
     healthCheckSecurityGroupId: undefined,
@@ -368,7 +368,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.tags).toEqual({ Name: 'hyveon-watchdog' });
     });
 
-    // @spec IAC-PROGRAM-LAMBDA-009
+    // @spec IAC-PROGRAM-LAMBDA-009, RT-WATCHDOG-SCHED-006
     // @spec RT-WATCHDOG-SCHED-003, RT-WATCHDOG-CFG-004
     it('should set every environment variable exactly per the HCL', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
@@ -380,7 +380,7 @@ describe('defineLambdas', () => {
         ECS_CLUSTER: MOCK_NETWORK_INPUTS.ecsClusterName,
         GAME_NAMES: 'alpha,bravo,charlie,delta',
         IDLE_CHECKS: '4',
-        MIN_PACKETS: '100',
+        MIN_BYTES_PER_SECOND: '1000',
         CHECK_WINDOW_MINUTES: '15',
         AWS_REGION_: 'us-east-1',
         HEALTH_CHECKS: '{}',

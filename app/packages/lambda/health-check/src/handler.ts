@@ -1,6 +1,6 @@
 /**
  * Health-check Lambda — invoked synchronously by the watchdog for a game
- * that declares a `healthCheck`, in place of the CloudWatch network-packet
+ * that declares a `healthCheck`, in place of the Container Insights network-traffic
  * heuristic. Resolves the checked task's private address from ECS
  * (`DescribeTasks`), never from the declared configuration, so no
  * configuration value can redirect a check at a different host. Fetches the

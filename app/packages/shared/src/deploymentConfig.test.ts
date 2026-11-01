@@ -91,7 +91,7 @@ const FULL_CONFIG = {
   dnsTtl: 45,
   watchdogIntervalMinutes: 10,
   watchdogIdleChecks: 6,
-  watchdogMinPackets: 250,
+  watchdogMinBytesPerSecond: 250,
   baseAllowedGuilds: ['111111111111111111'],
   baseAdminUserIds: ['222222222222222222'],
   baseAdminRoleIds: ['333333333333333333'],
@@ -130,7 +130,7 @@ describe('DeploymentConfig', () => {
     expect(roundTripped.dnsTtl).toBe(45);
     expect(roundTripped.watchdogIntervalMinutes).toBe(10);
     expect(roundTripped.watchdogIdleChecks).toBe(6);
-    expect(roundTripped.watchdogMinPackets).toBe(250);
+    expect(roundTripped.watchdogMinBytesPerSecond).toBe(250);
   });
 
   it('should preserve array fields (base allowlist/admin IDs) through a JSON round-trip', () => {
@@ -203,7 +203,7 @@ describe('DEPLOYMENT_CONFIG_DEFAULTS', () => {
       dnsTtl: 30,
       watchdogIntervalMinutes: 15,
       watchdogIdleChecks: 4,
-      watchdogMinPackets: 100,
+      watchdogMinBytesPerSecond: 1000,
       discordApplicationId: '',
       auditTableName: '',
       runsTableName: '',
@@ -239,7 +239,7 @@ describe('withDeploymentConfigDefaults', () => {
       dnsTtl: 60,
       watchdogIntervalMinutes: 5,
       watchdogIdleChecks: 2,
-      watchdogMinPackets: 50,
+      watchdogMinBytesPerSecond: 50,
       baseAllowedGuilds: ['999'],
       baseAdminUserIds: ['888'],
       baseAdminRoleIds: ['777'],
@@ -257,7 +257,7 @@ describe('withDeploymentConfigDefaults', () => {
       dnsTtl: 60,
       watchdogIntervalMinutes: 5,
       watchdogIdleChecks: 2,
-      watchdogMinPackets: 50,
+      watchdogMinBytesPerSecond: 50,
       baseAllowedGuilds: ['999'],
       baseAdminUserIds: ['888'],
       baseAdminRoleIds: ['777'],
@@ -328,7 +328,7 @@ describe('diffDeploymentConfig', () => {
       dnsTtl: 60,
       watchdogIntervalMinutes: 5,
       watchdogIdleChecks: 2,
-      watchdogMinPackets: 50,
+      watchdogMinBytesPerSecond: 50,
       baseAllowedGuilds: ['999999999999999999'],
       baseAdminUserIds: ['888888888888888888'],
       baseAdminRoleIds: ['777777777777777777'],
@@ -347,7 +347,7 @@ describe('diffDeploymentConfig', () => {
       'dnsTtl',
       'watchdogIntervalMinutes',
       'watchdogIdleChecks',
-      'watchdogMinPackets',
+      'watchdogMinBytesPerSecond',
       'baseAllowedGuilds',
       'baseAdminUserIds',
       'baseAdminRoleIds',
