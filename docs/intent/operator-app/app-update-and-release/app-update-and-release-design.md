@@ -155,11 +155,10 @@ The renderer's "Download manually" link points at `RELEASES_URL` (`settings.page
 9. Should the `@tailwindcss/oxide@4.3.0` reinstall (`build-package/action.yml:18`) read its version from the lockfile, which resolves `4.3.3`?
 10. Can the "no prior check" retry key off updater state rather than the literal `'Please check update first'` (`updater.ts:172`, `:217`)?
 11. Should the fallback lookup paginate or widen beyond `per_page=10` (`updater-fallback.ts:10`)?
-12. Should the `iac.settings.autoUpdate.download` chunk/end channel constants stop being declared in both the controller (`iac-settings.controller.ts:35-38`) and preload (`preload.ts:156-160`)?
-13. Should workspace manifests track the released version, or should the bump commit stop staging `package-lock.json` to match the spec's "only that change" wording (`release.yml:272-273`)?
-14. Can a script or test verify that `electron-builder.yml:20-216` covers the externalized packages' runtime closure?
-15. Should the plan-history wording at `electron-builder.yml:239-240` ("A later group's GuidedIamService") be dropped under the repo's comment rules?
-16. Is it intended that, with `enableAutoUpdate` on, `initUpdater`'s persistent `error` listener (`updater.ts:84-88`) also logs every later manual-check and download failure?
+12. Should workspace manifests track the released version, or should the bump commit stop staging `package-lock.json` to match the spec's "only that change" wording (`release.yml:272-273`)?
+13. Can a script or test verify that `electron-builder.yml:20-216` covers the externalized packages' runtime closure?
+14. Should the plan-history wording at `electron-builder.yml:239-240` ("A later group's GuidedIamService") be dropped under the repo's comment rules?
+15. Is it intended that, with `enableAutoUpdate` on, `initUpdater`'s persistent `error` listener (`updater.ts:84-88`) also logs every later manual-check and download failure?
 
 ## References
 

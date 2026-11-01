@@ -159,7 +159,7 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 | Wizard shell layout and sidebar | `APP-WIZARD-SHELL-001` to `APP-WIZARD-SHELL-008` | 8 | 0 | 0 |
 | Start over (first-run reset) | `APP-WIZARD-RESET-001` to `APP-WIZARD-RESET-003` | 3 | 0 | 0 |
 | Reconfigure | `APP-WIZARD-RECONF-001` to `APP-WIZARD-RECONF-009` | 6 | 0 | 3 |
-| Stack initialization step (code owned by iac/engine) | `APP-WIZARD-STACK-001` to `APP-WIZARD-STACK-005` | 5 | 0 | 0 |
+| Stack initialization step (code owned by iac/engine) | `APP-WIZARD-STACK-001` to `APP-WIZARD-STACK-004` | 4 | 0 | 0 |
 | Guided IAM step in the wizard | `APP-WIZARD-GSTEP-001` to `APP-WIZARD-GSTEP-006` | 5 | 0 | 1 |
 | Guided IAM CloudFormation template | `APP-WIZARD-TMPL-001` to `APP-WIZARD-TMPL-011` | 9 | 0 | 2 |
 | Guided IAM console handoff | `APP-WIZARD-CONSOLE-001` to `APP-WIZARD-CONSOLE-006` | 5 | 1 | 0 |
@@ -175,7 +175,7 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 | Cloud Health (Settings) | `APP-WIZARD-HEALTH-001` to `APP-WIZARD-HEALTH-011` | 9 | 0 | 2 |
 | Credential custody | `APP-WIZARD-CUSTODY-001` to `APP-WIZARD-CUSTODY-008` | 7 | 0 | 1 |
 
-**Summary:** 129 of 150 active specs implemented; 1 deferred; 21 gaps.
+**Summary:** 128 of 149 active specs implemented; 1 deferred; 21 gaps.
 
 ## Key Findings
 

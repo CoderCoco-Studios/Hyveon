@@ -113,7 +113,7 @@ EARS requirements for prefix `APP-SHELL`; design and rationale live in `docs/int
 
 - [x] **APP-SHELL-SET-001**: The Settings page shall render, in order, Watchdog Configuration, Cloud Health, Cloud Setup, Updates, General (deployment settings) and Diagnostics sections, each section's content owned by its own leaf (`settings.page.tsx:268-383`). (observed)
 - [x] **APP-SHELL-SET-002**: When the operator clicks Reconfigure on the Settings page, the page shall render only the first-run wizard in `reconfigure` mode until it completes or is cancelled (`settings.page.tsx:250-258,289`). (observed)
-- [x] **APP-SHELL-SET-003**: The Settings page's engine-version row shall show the pinned engine version with "Not yet provisioned" when no engine is resolved and "Unable to determine engine version" when the call rejects or `window.hyveon.iac.settings` is absent (`settings.page.tsx:29-42,145-155`). (observed)
+- [x] **APP-SHELL-SET-003**: The Settings page's engine-version row shall show the Pulumi engine version resolved via `iac.settings.engineVersion` alongside the pinned `PULUMI_ENGINE_VERSION`, with "Not yet provisioned" when no engine is resolved and "Unable to determine engine version" when the call rejects or `window.hyveon.iac.settings` is absent (`settings.page.tsx:29-42,145-155`). (observed; OpenSpec: wizard-flow / Resolved Pulumi engine version in Settings)
 
 ## UI Integrity and Design Tokens
 

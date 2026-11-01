@@ -62,7 +62,6 @@ EARS requirements for prefix `APP-WIZARD`; design in `wizard-and-bootstrap-desig
 - [x] **APP-WIZARD-STACK-002**: While stack initialization runs, the step shall render a three-row checklist with each phase `pending`, `in-progress`, `done` or `failed` as events arrive (`stack-init-step.component.tsx:9,149-152`). (OpenSpec: wizard-flow / Stack initialization step with phased progress)
 - [x] **APP-WIZARD-STACK-003**: If the stack-init stream throws after a phase's `start`, including when the shared Pulumi workspace is busy, then the step shall mark the last-started phase `failed`, show an inline error, keep "Finish setup" disabled, and offer a Retry that starts a fresh attempt (`stack-init-step.component.tsx:128-141,165,203,217`). (OpenSpec: wizard-flow / Stack initialization step with phased progress)
 - [x] **APP-WIZARD-STACK-004**: The stack-init step shall enable "Finish setup" only once every phase completed successfully (`stack-init-step.component.tsx:217`). (OpenSpec: wizard-flow / Stack initialization step with phased progress)
-- [x] **APP-WIZARD-STACK-005**: When the operator opens Settings after wizard completion, Settings shall show the Pulumi engine version resolved via `iac.settings.engineVersion` alongside the pinned `PULUMI_ENGINE_VERSION` (`settings.page.tsx:2,17-36`). (OpenSpec: wizard-flow / Resolved Pulumi engine version in Settings)
 
 ## Guided IAM step in the wizard
 
