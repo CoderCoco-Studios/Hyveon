@@ -36,8 +36,6 @@ Needs and acceptable cost per role are not stated: *(not yet specified)*.
 
 ## Goals
 
-> **DRAFT: needs owner review.** Drafted from `README.md` and `docs/docs/architecture.md`; not yet confirmed by the project owner. Edit or strike freely.
-
 1. **No idle compute cost.** When no one is playing, no game compute bills: no persistent ECS Service, no load balancer, no always-on bot host. Only storage and per-request services remain.
 2. **Blank AWS account to a running game server from inside the app.** One operator on one machine goes from first launch to a running server through the packaged app alone, with no host-installed CLI and no console work beyond the guided CloudFormation upload.
 3. **Players self-serve.** Allowlisted Discord users start, stop and check servers from slash commands without the operator present and without a 24/7 process.
@@ -236,13 +234,13 @@ Rationale is marked `[stated]` when the cited source gives it and `[inferred]` w
 
 ## Success Metrics
 
-> **DRAFT: needs owner review.** Metric shapes follow the Goals above; targets marked "suggested" are proposals awaiting the project owner's confirmation. The idle-stop metric is not met today: games without a health check are never auto-stopped until the watchdog's Container Insights traffic measurement ships (`RT-WATCHDOG-CW-007`).
+> The idle-stop metric is unmet until the watchdog's Container Insights traffic measurement ships: until then, games without a health check are never auto-stopped (`RT-WATCHDOG-CW-007`).
 
 | Metric | Measures goal | Target |
 |---|---|---|
-| Compute cost while no task runs | 1 | $0 (no hourly-billed compute); monthly storage-and-state baseline under $5 (suggested) |
-| Time from first launch to first running server, blank account | 2 | 30 minutes or less (suggested), in one session, zero CLI steps |
-| `/server-start` to joinable (task `RUNNING` and DNS record updated) | 3 | 3 minutes or less (suggested) |
+| Compute cost while no task runs | 1 | $0 (no hourly-billed compute); monthly storage-and-state baseline under $5 |
+| Time from first launch to first running server, blank account | 2 | 30 minutes or less, in one session, zero CLI steps |
+| `/server-start` to joinable (task `RUNNING` and DNS record updated) | 3 | 3 minutes or less |
 | Idle server stopped after the last player leaves | 1 | within the configured idle window (`idle_checks` x watchdog interval) |
 | Files touched to add a game | 4 | one `gameServers` entry, no infra code change |
 | Secret values reaching the renderer or the app log | invariant | zero |
