@@ -14,6 +14,7 @@ function collectOffenders(value: unknown, at: string, offenders: string[]): void
   }
 }
 
+// @spec APP-IPC-SEC-003
 /**
  * Lists every key and string value in `value` that looks like a credential, token, certificate, fingerprint, IP
  * address or URL.

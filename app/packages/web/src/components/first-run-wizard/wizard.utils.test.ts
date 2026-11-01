@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { defaultBootstrapResourceNames } from './wizard.utils.js';
 
 describe('defaultBootstrapResourceNames', () => {
+  // @spec APP-WIZARD-BOOT-013
   it('should derive resource names from the default project name when none is given', () => {
     expect(defaultBootstrapResourceNames()).toEqual({
       stateBucket: 'hyveon-tfstate',

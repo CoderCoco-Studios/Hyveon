@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { scrubSecrets } from './diagnosticsLogScrubber.js';
 
 describe('scrubSecrets', () => {
+  // @spec APP-DIAG-SCRUB-001
   it('should redact an AWS access-key-id-shaped token', () => {
     const line = '2026-08-14T00:00:00Z INFO using key AKIAABCDEFGHIJKLMNOP for this session';
 
@@ -11,6 +12,7 @@ describe('scrubSecrets', () => {
     expect(result).toContain('[REDACTED]');
   });
 
+  // @spec APP-DIAG-SCRUB-002
   it('should redact a long token/key/secret-labeled value', () => {
     const line = 'botToken: aG9yc2ViYXR0ZXJ5c3RhcGxlY29ycmVjdGhvcnNl1234567890';
 
@@ -20,6 +22,7 @@ describe('scrubSecrets', () => {
     expect(result).toContain('[REDACTED]');
   });
 
+  // @spec APP-DIAG-SCRUB-002
   it('should redact a secret= assignment', () => {
     const line = 'config secret=abcdef0123456789abcdef0123456789 loaded';
 
@@ -28,12 +31,14 @@ describe('scrubSecrets', () => {
     expect(result).not.toContain('abcdef0123456789abcdef0123456789');
   });
 
+  // @spec APP-DIAG-SCRUB-004
   it('should leave a normal log line untouched', () => {
     const line = '2026-08-14T00:00:00Z INFO Server started on port 25565';
 
     expect(scrubSecrets(line)).toBe(line);
   });
 
+  // @spec APP-DIAG-SCRUB-004
   it('should leave a line with a short, non-secret-shaped word untouched', () => {
     const line = 'the key thing to check is whether the door is locked';
 
@@ -50,6 +55,7 @@ describe('scrubSecrets', () => {
     expect(result.split('\n')).toHaveLength(3);
   });
 
+  // @spec APP-DIAG-SCRUB-001
   it('should redact an ASIA-prefixed temporary/STS session key', () => {
     const line = '2026-08-14T00:00:00Z INFO using key ASIAABCDEFGHIJKLMNOP for this session';
 

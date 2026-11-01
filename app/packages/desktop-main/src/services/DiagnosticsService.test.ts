@@ -43,6 +43,7 @@ function makeMockHandle(fullContent: string) {
 }
 
 describe('DiagnosticsService.getTodayLogPath', () => {
+  // @spec APP-DIAG-TAIL-001
   it('should return a date-stamped path matching main-YYYY-MM-DD.log in the configured logDir', () => {
     const service = makeService('/var/log/hyveon');
     const logPath = service.getTodayLogPath();
@@ -72,6 +73,7 @@ describe('DiagnosticsService.readTail', () => {
     service = makeService('/var/log/hyveon');
   });
 
+  // @spec APP-DIAG-TAIL-004
   it('should return an empty array when the log file does not yet exist', async () => {
     const err = Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
     mockOpen.mockRejectedValueOnce(err);
@@ -80,6 +82,7 @@ describe('DiagnosticsService.readTail', () => {
     expect(result).toEqual([]);
   });
 
+  // @spec APP-DIAG-TAIL-005
   it('should re-throw errors that are not ENOENT', async () => {
     const err = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
     mockOpen.mockRejectedValueOnce(err);
@@ -87,6 +90,7 @@ describe('DiagnosticsService.readTail', () => {
     await expect(service.readTail()).rejects.toThrow('EACCES');
   });
 
+  // @spec APP-DIAG-TAIL-005
   it('should log a warning before re-throwing an error that is not ENOENT', async () => {
     vi.mocked(logger.warn).mockClear();
     const err = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
@@ -108,6 +112,7 @@ describe('DiagnosticsService.readTail', () => {
     expect(result).toEqual(['line1', 'line2', 'line3']);
   });
 
+  // @spec APP-DIAG-TAIL-001
   it('should return only the last N lines when the file has more lines than maxLines', async () => {
     const allLines = Array.from({ length: 20 }, (_, i) => `line${i + 1}`);
     const handle = makeMockHandle(allLines.join('\n') + '\n');
@@ -136,6 +141,7 @@ describe('DiagnosticsService.readTail', () => {
     expect(result).toEqual(['alpha', 'beta']);
   });
 
+  // @spec APP-DIAG-TAIL-002
   it('should drop the first partial line when reading from a mid-file offset', async () => {
     // Construct content just over TAIL_READ_BYTES so the implementation seeks
     // past the beginning and the first line in the read window is incomplete.
@@ -152,6 +158,7 @@ describe('DiagnosticsService.readTail', () => {
     expect(result).toEqual(['first-full-line', 'second-full-line']);
   });
 
+  // @spec APP-DIAG-TAIL-002
   it('should not drop the first line when the offset lands exactly on a newline boundary', async () => {
     // Place the offset precisely at a newline so the peek-back byte is '\n'.
     // The first line after the boundary ('boundary-line') is complete and must not be dropped.
@@ -165,6 +172,7 @@ describe('DiagnosticsService.readTail', () => {
     expect(result).toContain('next-line');
   });
 
+  // @spec APP-DIAG-TAIL-003
   it('should merge pretty-printed metadata lines into the preceding entry as one string', async () => {
     const content =
       '18:04:02 [debug] SafeStorageService.decrypt: decrypting value\n{\n  "available": true\n}\n' +
@@ -179,6 +187,7 @@ describe('DiagnosticsService.readTail', () => {
     ]);
   });
 
+  // @spec APP-DIAG-TAIL-003
   it('should merge multiple metadata keys and nested indentation into one entry', async () => {
     const content =
       '18:04:02 [debug] resolveAwsClientCredentialsWithSignature: resolved\n{\n  "profile": "hyveon-pasted",\n  "nested": {\n    "region": "us-east-1"\n  }\n}\n';
@@ -205,6 +214,7 @@ describe('DiagnosticsService.readTail', () => {
     ]);
   });
 
+  // @spec APP-DIAG-TAIL-003
   it('should cap merged entries, not physical lines, at maxLines', async () => {
     const entries = Array.from(
       { length: 10 },
@@ -220,6 +230,7 @@ describe('DiagnosticsService.readTail', () => {
 });
 
 describe('DiagnosticsService.logRendererError', () => {
+  // @spec APP-DIAG-RERR-001
   it('should log the error at the error level with the source tag in the message', () => {
     const service = makeService('/var/log/hyveon');
 
@@ -245,6 +256,7 @@ describe('DiagnosticsService.logRendererConsoleBatch', () => {
     vi.mocked(logger.error).mockClear();
   });
 
+  // @spec APP-DIAG-CONS-003
   it('should log each entry at the winston level mapped from its console level', () => {
     const service = makeService('/var/log/hyveon');
 
@@ -269,6 +281,7 @@ describe('DiagnosticsService.logRendererConsoleBatch', () => {
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
+  // @spec APP-DIAG-CONS-008
   it('should log a dropped-entries warning when droppedCount is provided', () => {
     const service = makeService('/var/log/hyveon');
 
@@ -277,6 +290,7 @@ describe('DiagnosticsService.logRendererConsoleBatch', () => {
     expect(logger.warn).toHaveBeenCalledWith('renderer console: 4 entries dropped (queue capacity exceeded)');
   });
 
+  // @spec APP-DIAG-CONS-009
   it('should cap entries processed per batch and report the overflow as dropped', () => {
     const service = makeService('/var/log/hyveon');
     const entries = Array.from({ length: 250 }, (_, i) => ({ level: 'log' as const, message: `entry ${i}` }));
@@ -287,6 +301,7 @@ describe('DiagnosticsService.logRendererConsoleBatch', () => {
     expect(logger.warn).toHaveBeenCalledWith('renderer console: 50 entries dropped (queue capacity exceeded)');
   });
 
+  // @spec APP-DIAG-CONS-008, APP-DIAG-CONS-009
   it('should combine the batch-cap overflow with an already-reported droppedCount', () => {
     const service = makeService('/var/log/hyveon');
     const entries = Array.from({ length: 250 }, (_, i) => ({ level: 'log' as const, message: `entry ${i}` }));
@@ -302,6 +317,7 @@ describe('DiagnosticsService.logRendererConsoleBatch', () => {
     expect(() => service.logRendererConsoleBatch([])).not.toThrow();
   });
 
+  // @spec APP-DIAG-CONS-004
   it('should fall back to debug instead of throwing when entry.level is a prototype-polluting key', () => {
     const service = makeService('/var/log/hyveon');
 

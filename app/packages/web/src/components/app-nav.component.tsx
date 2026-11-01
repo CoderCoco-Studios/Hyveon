@@ -58,6 +58,8 @@ const configItems: NavItem[] = [
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
+// @spec APP-LOGS-NAV-001, APP-LOGS-NAV-002, APP-LOGS-NAV-003
+// @spec APP-SHELL-NAV-003, APP-SHELL-NAV-004, APP-SHELL-NAV-005, APP-SHELL-NAV-006, APP-SHELL-UI-001
 /**
  * Shared nav sections used by both the desktop sidebar and the mobile drawer.
  * Accepts an optional `onNavigate` callback that fires when a nav link is clicked,

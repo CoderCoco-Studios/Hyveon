@@ -5,6 +5,7 @@ import { AuditService } from '../services/AuditService.js';
 import type { ListAuditEntriesOpts } from '../services/AuditService.js';
 import { logger } from '../logger.js';
 
+// @spec APP-DIAG-SVC-005
 /**
  * IPC-only controller exposing the `game_servers` mutation audit log for the
  * Electron main-process host. The single handler is bound to an IPC channel
@@ -14,6 +15,7 @@ import { logger } from '../logger.js';
 export class AuditController {
   constructor(private readonly audit: AuditService) {}
 
+  // @spec APP-DIAG-AUDR-001, APP-DIAG-AUDR-002
   /**
    * Returns a page of audit entries, newest-first — see
    * `AuditService.list()`. `opts` mirrors {@link ListAuditEntriesOpts}

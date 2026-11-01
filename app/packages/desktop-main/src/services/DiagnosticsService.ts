@@ -79,6 +79,7 @@ export class DiagnosticsService {
     @Inject(DIAGNOSTICS_LOG_DIR) private readonly logDir: string,
   ) {}
 
+  // @spec APP-DIAG-TAIL-001
   /**
    * Returns the absolute path for today's log file using the
    * `main-YYYY-MM-DD.log` naming convention that DailyRotateFile applies.
@@ -92,6 +93,8 @@ export class DiagnosticsService {
     return path.join(this.logDir, `main-${datePart}.log`);
   }
 
+  // @spec APP-DIAG-TAIL-001, APP-DIAG-TAIL-002, APP-DIAG-TAIL-003, APP-DIAG-TAIL-004, APP-DIAG-TAIL-005
+  // @spec APP-DIAG-SVC-001
   /**
    * Reads the tail of today's log file, returning up to `maxLines` entries.
    * Returns an empty array when the file does not yet exist (e.g. on the
@@ -148,6 +151,7 @@ export class DiagnosticsService {
     }
   }
 
+  // @spec APP-DIAG-RERR-001
   /**
    * Logs a renderer-side JS error/unhandled-rejection into the same winston
    * log the operator already checks via `diagnostics.tail`/`diagnostics.path`.
@@ -161,6 +165,7 @@ export class DiagnosticsService {
     logger.error(`renderer error (${source}): ${message}`, { stack });
   }
 
+  // @spec APP-DIAG-CONS-003, APP-DIAG-CONS-004, APP-DIAG-CONS-008, APP-DIAG-CONS-009
   /**
    * Logs a batch of renderer-side `console.*` calls into the same winston
    * log `readTail`/`getTodayLogPath` already expose. Never throws — a

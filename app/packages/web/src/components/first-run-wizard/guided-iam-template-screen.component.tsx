@@ -23,6 +23,7 @@ export interface GuidedIamTemplateScreenProps {
   onContinueToIntake: () => void;
 }
 
+// @spec APP-WIZARD-CONSOLE-001, APP-WIZARD-CONSOLE-004
 /** `template` phase: renders `iam-bootstrap.yaml`, offers "Copy Path"/"Open AWS Console", then hands off to key entry. */
 export function GuidedIamTemplateScreen({
   preparingTemplate,

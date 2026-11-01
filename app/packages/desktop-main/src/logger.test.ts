@@ -11,6 +11,7 @@ import { createLogger, __testing, logger as initialLogger } from './logger.js';
 
 const { devPrintf } = __testing;
 
+// @spec APP-DIAG-LOG-002
 describe('createLogger', () => {
   it('should return a winston.Logger instance', () => {
     const result = createLogger('/tmp/test-logs');
@@ -52,6 +53,7 @@ describe('createLogger', () => {
   });
 });
 
+// @spec APP-DIAG-LOG-006
 describe('devPrintf multi-line formatting', () => {
   /** Runs `devPrintf` against a winston `info`-shaped object the way a real transport would. */
   function format(message: string, meta: Record<string, unknown>): string {
@@ -90,6 +92,7 @@ describe('devPrintf multi-line formatting', () => {
   });
 });
 
+// @spec APP-DIAG-LOG-002
 describe('logger singleton', () => {
   it('should reassign the exported logger binding when createLogger is called', async () => {
     // Capture the initial (console-only) reference.

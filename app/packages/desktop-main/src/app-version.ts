@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 
+// @spec APP-DIAG-BNDL-010
 /**
  * Returns the running app's version via Electron's `app.getVersion()`,
  * lazily requiring `electron` at call-time (mirrors

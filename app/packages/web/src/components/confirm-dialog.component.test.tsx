@@ -80,6 +80,7 @@ describe('ConfirmDialog', () => {
     expect(screen.getByRole('button', { name: 'Yes, stop it' })).toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-UI-007
   it('should disable Confirm and show the reason as its title when confirmDisabledReason is set', () => {
     open({ confirmDisabledReason: 'Not right now.' });
     const confirm = screen.getByRole('button', { name: 'Confirm' });

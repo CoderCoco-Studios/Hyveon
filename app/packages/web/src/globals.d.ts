@@ -1,3 +1,4 @@
+// @spec APP-IPC-NAME-006
 /**
  * Side-effect import that pulls the `Window.hyveon` global augmentation declared
  * in `@hyveon/desktop-preload` into the web compilation unit.

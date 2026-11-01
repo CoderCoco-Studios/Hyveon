@@ -1,3 +1,4 @@
+// @spec APP-IPC-NAME-004
 export type {
   HyveonApi,
   HyveonTestApi,
@@ -55,6 +56,7 @@ export type {
 
 export { GUIDED_PROFILE_NAME } from './hyveon-api.js';
 
+// @spec APP-IPC-NAME-005, APP-IPC-NAME-007
 declare global {
   interface Window {
     hyveon?: import('./hyveon-api.js').HyveonApi;

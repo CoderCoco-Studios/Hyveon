@@ -106,6 +106,7 @@ export interface IpcHarness {
 }
 
 // @spec IAC-RUN-ITEST-001, IAC-RUN-ITEST-002
+// @spec APP-IPC-HARN-002
 /**
  * Compiles the in-process IPC test harness.
  *

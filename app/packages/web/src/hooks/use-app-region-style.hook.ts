@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 
+// @spec APP-SHELL-CHROME-002, APP-SHELL-CHROME-013
 /**
  * Style for Electron's custom-title-bar drag regions — `-webkit-app-region`
  * only means anything inside a `window.hyveon.window` (Electron) context, so

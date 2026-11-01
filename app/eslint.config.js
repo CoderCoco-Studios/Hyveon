@@ -110,6 +110,7 @@ export default tseslint.config(
       },
     },
   },
+  // @spec APP-WIZARD-BOOT-002
   {
     // Ban direct @aws-sdk/* imports outside the cloud-aws implementation and
     // the Lambda packages (which run standalone, without a DI-injected

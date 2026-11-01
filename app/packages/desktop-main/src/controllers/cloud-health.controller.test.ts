@@ -26,6 +26,7 @@ describe('@MessagePattern channel names', () => {
 });
 
 describe('CloudHealthController.list', () => {
+  // @spec APP-WIZARD-HEALTH-001
   it('should return one summary per registered check', async () => {
     const check: CloudHealthCheck = {
       id: 'ecs-service-linked-role',

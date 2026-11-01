@@ -57,6 +57,7 @@ export const FG_COLOR_CLASS: Record<number, string> = {
   97: 'text-[var(--color-foreground)]',
 };
 
+// @spec APP-LOGS-RENDER-002
 /**
  * Parses a single line of terminal-style output into an ordered list of
  * styled segments.

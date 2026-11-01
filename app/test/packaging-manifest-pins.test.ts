@@ -58,6 +58,7 @@ function findPinDrift(root: Manifest, dependent: Manifest, depNames: string[]) {
     }));
 }
 
+// @spec APP-UPDATE-PKG-007
 describe('packaging manifest pins', () => {
   const root = manifest('package.json');
   const desktopMain = manifest('app/packages/desktop-main/package.json');

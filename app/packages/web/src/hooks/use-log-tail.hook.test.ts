@@ -46,6 +46,8 @@ afterEach(() => {
 });
 
 describe('useLogTail', () => {
+  // @spec APP-LOGS-ENGINE-001
+  // @spec APP-IPC-STREAM-005
   it('should seed lines from api.get and call api.stream on mount for a non-empty target', async () => {
     const api = makeApi({ get: vi.fn().mockResolvedValue({ lines: [line('line one', 1000), line('line two', 2000)] }) });
     const { result } = renderHook(() => useLogTail('watchdog', api));
@@ -62,6 +64,7 @@ describe('useLogTail', () => {
     expect(api.stream).not.toHaveBeenCalled();
   });
 
+  // @spec APP-LOGS-ENGINE-005, APP-LOGS-ENGINE-006
   it('should buffer incoming lines while paused and flush them into lines on resume', async () => {
     let push: ((chunk: string) => void) | undefined;
     const api = makeApi({
@@ -86,6 +89,7 @@ describe('useLogTail', () => {
     expect(result.current.bufferedCount).toBe(0);
   });
 
+  // @spec APP-LOGS-ENGINE-001, APP-LOGS-ENGINE-002
   it('should reset lines/paused/error and cancel the previous stream when target changes', async () => {
     const cancel1 = vi.fn();
     const handle1 = toStreamHandleMock(async function* () {})();
@@ -105,6 +109,7 @@ describe('useLogTail', () => {
     expect(api.get).toHaveBeenCalledWith('health-check');
   });
 
+  // @spec APP-LOGS-ENGINE-003
   it('should set error and still start the stream when api.get rejects', async () => {
     const api = makeApi({ get: vi.fn().mockRejectedValue(new Error('denied')) });
     const { result } = renderHook(() => useLogTail('watchdog', api));
@@ -140,6 +145,7 @@ describe('useLogTail', () => {
       expect(api.getOlder).not.toHaveBeenCalled();
     });
 
+    // @spec APP-LOGS-ENGINE-008
     it('should enter historical mode and prepend older lines when scrolling near the top', async () => {
       const api = makeApi({
         get: vi.fn().mockResolvedValue({ lines: [line('newer1', 1000), line('newer2', 1100)] }),
@@ -181,6 +187,7 @@ describe('useLogTail', () => {
       expect(api.getOlder).toHaveBeenCalledWith('watchdog', 12345, 300);
     });
 
+    // @spec APP-LOGS-ENGINE-008
     it('should evict lines from the bottom of the window once prepending older lines exceeds the cap', async () => {
       const api = makeApi({
         get: vi.fn().mockResolvedValue({ lines: Array.from({ length: 250 }, (_, i) => line(`live-${i}`, 10_000 + i)) }),
@@ -201,6 +208,7 @@ describe('useLogTail', () => {
       expect(result.current.lines[result.current.lines.length - 1]!.text).toBe('live-199');
     });
 
+    // @spec APP-LOGS-ENGINE-009
     it('should set atOldest and stop issuing further getOlder calls once a backward fetch reports atOldest', async () => {
       const api = makeApi({
         get: vi.fn().mockResolvedValue({ lines: [line('a', 1000)] }),
@@ -217,6 +225,7 @@ describe('useLogTail', () => {
       expect(api.getOlder).toHaveBeenCalledTimes(1);
     });
 
+    // @spec APP-LOGS-ENGINE-005, APP-LOGS-ENGINE-007
     it('should buffer incoming live lines instead of appending them to lines while in historical mode', async () => {
       let push: ((chunk: string) => void) | undefined;
       const api = makeApi({
@@ -242,6 +251,7 @@ describe('useLogTail', () => {
       expect(result.current.lines.map((l) => l.text)).not.toContain('live line while historical');
     });
 
+    // @spec APP-LOGS-ENGINE-010
     it('should page forward via getNewer, appending results, when scrolling back to the bottom while in historical mode', async () => {
       const aLine = line('a', 1000);
       const api = makeApi({
@@ -269,6 +279,7 @@ describe('useLogTail', () => {
       expect(result.current.mode).toBe('historical');
     });
 
+    // @spec APP-LOGS-ENGINE-010
     it("should page forward again from the window's current boundary line on a subsequent scroll-to-bottom", async () => {
       const aLine = line('a', 1000);
       const page1Line = line('page1', 2000);
@@ -302,6 +313,7 @@ describe('useLogTail', () => {
       expect(api.getNewer).toHaveBeenNthCalledWith(2, 'watchdog', page1Line.timestamp, 300, [page1Line.eventId]);
     });
 
+    // @spec APP-LOGS-ENGINE-013
     it('should re-fetch a fresh snapshot via api.get and discard the buffer on jumpToLatest', async () => {
       let push: ((chunk: string) => void) | undefined;
       const api = makeApi({
@@ -360,6 +372,7 @@ describe('useLogTail', () => {
       expect(result.current.atOldest).toBe(false);
     });
 
+    // @spec APP-LOGS-ENGINE-014
     it('should discard a stale getOlder result that resolves after the target has already changed', async () => {
       const older = deferred<{ lines: LogEventLine[]; atOldest: boolean }>();
       const api = makeApi({
@@ -392,6 +405,7 @@ describe('useLogTail', () => {
       expect(result.current.mode).toBe('live');
     });
 
+    // @spec APP-LOGS-ENGINE-014
     it('should discard a stale getOlder result that resolves after jumpToLatest already ran', async () => {
       const older = deferred<{ lines: LogEventLine[]; atOldest: boolean }>();
       const api = makeApi({
@@ -419,6 +433,7 @@ describe('useLogTail', () => {
       expect(result.current.mode).toBe('live');
     });
 
+    // @spec APP-LOGS-ENGINE-010
     it('should derive the next getNewer boundary from the backfilled window after eviction pushes the original live-tailed lines out, instead of jumping back to a stale live-entry timestamp (Bug 2 regression)', async () => {
       // Reproduces the exact reported gap: the initial snapshot has a couple
       // of live-tailed lines with real (but "close to now") timestamps.

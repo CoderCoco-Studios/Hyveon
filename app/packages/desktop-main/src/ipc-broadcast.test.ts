@@ -20,6 +20,7 @@ async function withElectron<T>(value: string | undefined, fn: () => Promise<T>):
   }
 }
 
+// @spec APP-IPC-CALL-012
 describe('forwardToWindows', () => {
   afterEach(() => {
     windows.list = [];

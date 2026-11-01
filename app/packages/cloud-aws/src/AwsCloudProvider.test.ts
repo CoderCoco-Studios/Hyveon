@@ -352,6 +352,7 @@ describe('AwsCloudProvider', () => {
   });
 
   describe('streamWorkloadLogs', () => {
+    // @spec APP-LOGS-TAIL-002
     it('should throw a WorkloadGuardError when no config is available', async () => {
       const provider = makeProvider(null);
       const ac = new AbortController();

@@ -27,6 +27,7 @@ export interface ShowInFolderInput {
   path: string;
 }
 
+// @spec APP-DIAG-SVC-005
 /**
  * IPC-only controller for local application log data.
  *
@@ -43,6 +44,7 @@ export class DiagnosticsController {
     private readonly dialogs: NativeDialogService,
   ) {}
 
+  // @spec APP-DIAG-TAIL-006
   /** Returns the last 500 lines from today's local log file. */
   @MessagePattern('diagnostics.tail')
   async getTail(): Promise<{ lines: string[] }> {
@@ -51,6 +53,7 @@ export class DiagnosticsController {
     return { lines };
   }
 
+  // @spec APP-DIAG-TAIL-006
   /** Returns the absolute path of today's local log file. */
   @MessagePattern('diagnostics.path')
   getPath(): { path: string } {
@@ -58,6 +61,7 @@ export class DiagnosticsController {
     return { path: this.diagnostics.getTodayLogPath() };
   }
 
+  // @spec APP-DIAG-RERR-001
   /** Forwards a renderer-side crash into the local winston log file. Never rejects. */
   @MessagePattern('diagnostics.reportError')
   reportError(@Payload() body: ReportRendererErrorInput): void {
@@ -65,6 +69,7 @@ export class DiagnosticsController {
     this.diagnostics.logRendererError(body.message, body.stack, body.source);
   }
 
+  // @spec APP-DIAG-CONS-003, APP-DIAG-CONS-004, APP-DIAG-CONS-008, APP-DIAG-CONS-009
   /** Forwards a batch of renderer-side `console.*` calls into the local winston log file. Never rejects. */
   @MessagePattern('diagnostics.reportLog')
   reportLog(@Payload() body: ReportRendererLogBatchInput): void {
@@ -72,6 +77,7 @@ export class DiagnosticsController {
     this.diagnostics.logRendererConsoleBatch(body.entries, body.droppedCount);
   }
 
+  // @spec APP-DIAG-BNDL-001, APP-DIAG-BNDL-002, APP-DIAG-BNDL-015
   /**
    * Prompts the operator for a save location via a native save dialog, then
    * writes the diagnostics bundle there via {@link DiagnosticsBundleService.writeBundle}.
@@ -99,6 +105,7 @@ export class DiagnosticsController {
     }
   }
 
+  // @spec APP-DIAG-BNDL-016, APP-DIAG-BNDL-017
   /**
    * Reveals the written bundle in the OS's file manager via Electron's
    * `shell.showItemInFolder`, backing the export success toast's "Show in

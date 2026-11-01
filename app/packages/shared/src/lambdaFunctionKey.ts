@@ -1,3 +1,4 @@
+// @spec APP-LOGS-GROUP-005
 /**
  * The 5 log-tailable Lambda functions of the 6 the app can provision
  * (`app/packages/infra/src/lambdas.ts`), identified by the exact suffix each

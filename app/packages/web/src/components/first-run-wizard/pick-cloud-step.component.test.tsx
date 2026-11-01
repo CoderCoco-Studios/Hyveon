@@ -8,6 +8,7 @@ afterEach(() => {
 });
 
 describe('PickCloudStep', () => {
+  // @spec APP-WIZARD-CLOUD-001
   it('should render the single AWS option', () => {
     render(<PickCloudStep selectedCloud="aws" onSelect={vi.fn()} />);
     expect(screen.getByRole('radio', { name: /Amazon Web Services \(AWS\)/i })).toBeInTheDocument();
@@ -18,6 +19,7 @@ describe('PickCloudStep', () => {
     expect(screen.getByRole('radio', { name: /Amazon Web Services/i })).toHaveAttribute('aria-checked', 'true');
   });
 
+  // @spec APP-WIZARD-CLOUD-001
   it('should render the "more clouds coming" footer', () => {
     render(<PickCloudStep selectedCloud="aws" onSelect={vi.fn()} />);
     expect(screen.getByText(/more clouds are coming/i)).toBeInTheDocument();

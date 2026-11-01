@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 
+// @spec APP-IPC-HARN-003
 /**
  * Browser-side test shim that installs `window.hyveon` as a thin HTTP forwarder.
  *

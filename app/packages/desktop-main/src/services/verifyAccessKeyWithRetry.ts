@@ -31,6 +31,7 @@ export interface VerifyAccessKeyWithRetryOptions {
   onAttemptFailed?: (attempt: number, totalAttempts: number, error: unknown) => void;
 }
 
+// @spec APP-WIZARD-ROTATE-002
 /**
  * Calls `verify` up to `delaysMs.length + 1` times, sleeping the
  * corresponding `delaysMs` entry between failed attempts, and returns as

@@ -61,6 +61,7 @@ interface UpdateDownloadEndMessage {
   error?: string;
 }
 
+// @spec APP-UPDATE-IPC-001
 /**
  * IPC-only controller for the deployment-settings editor — reads and writes
  * every top-level `DeploymentConfig` field EXCEPT `gameServers` (that map
@@ -101,6 +102,8 @@ export class IacSettingsController implements OnModuleInit {
     private readonly store?: ElectronStoreService,
   ) {}
 
+  // @spec APP-UPDATE-IPC-005
+  // @spec APP-IPC-CALL-009
   /**
    * Registers the `ipcMain.handle` bridge for `iac.settings.autoUpdate.download`. It pushes progress/end
    * messages to the calling renderer, so it needs the `IpcMainInvokeEvent` that the generic bridge in
@@ -214,6 +217,7 @@ export class IacSettingsController implements OnModuleInit {
     return { resolvedVersion: this.engine?.getResolvedVersion() ?? null };
   }
 
+  // @spec APP-UPDATE-FLAG-002, APP-UPDATE-FLAG-003, APP-UPDATE-FLAG-004, APP-UPDATE-IPC-002
   /**
    * Reads the `enableAutoUpdate` electron-store flag that gates
    * `desktop-main/src/updater.ts`'s update checks. An absent `store` (test
@@ -241,6 +245,7 @@ export class IacSettingsController implements OnModuleInit {
     }
   }
 
+  // @spec APP-UPDATE-FLAG-005, APP-UPDATE-FLAG-006, APP-UPDATE-FLAG-007, APP-UPDATE-IPC-002
   /**
    * Writes the `enableAutoUpdate` electron-store flag. Takes effect on the
    * next app start — `initUpdater` only runs once at Electron boot
@@ -266,6 +271,7 @@ export class IacSettingsController implements OnModuleInit {
     }
   }
 
+  // @spec APP-UPDATE-IPC-002, APP-UPDATE-IPC-003
   /**
    * Runs an on-demand update check via `checkForUpdatesNow()`
    * (`desktop-main/src/updater.ts`), independent of the `enableAutoUpdate`
@@ -280,6 +286,7 @@ export class IacSettingsController implements OnModuleInit {
     return checkForUpdatesNow();
   }
 
+  // @spec APP-UPDATE-IPC-002, APP-UPDATE-IPC-004, APP-UPDATE-IPC-006
   /**
    * Downloads the update found by the last manual check via `downloadUpdateNow()`
    * (`desktop-main/src/updater.ts`) — an explicit operator action; the automatic check never downloads. Resolves
@@ -310,6 +317,7 @@ export class IacSettingsController implements OnModuleInit {
     return { started: true, streamId };
   }
 
+  // @spec APP-UPDATE-IPC-002, APP-UPDATE-IPC-007
   /**
    * Quits the app and installs the update {@link downloadAutoUpdate} fetched, via `installDownloadedUpdate()`.
    * An explicit operator action ("Restart & Install").

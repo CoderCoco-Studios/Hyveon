@@ -61,6 +61,7 @@ export interface AuditPageResult {
   nextBefore?: string;
 }
 
+// @spec APP-DIAG-AUDIT-001
 /**
  * Builds a DynamoDB sort key for a new {@link AuditEntry}: the ISO-8601
  * timestamp of `now` followed by a `#`-separated ULID, e.g.

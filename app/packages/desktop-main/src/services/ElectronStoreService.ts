@@ -172,6 +172,7 @@ export interface StoredGameWizardDraft {
   savedAt: string;
 }
 
+// @spec APP-WIZARD-PROG-002
 /**
  * Typed schema for the application's persistent electron-store.
  *
@@ -192,6 +193,7 @@ export interface AppStoreSchema {
   wizardCompleted: boolean;
   /** Locked to `'aws'` for v1. */
   activeCloud: 'aws';
+  // @spec APP-UPDATE-FLAG-001
   /**
    * Gates `electron-updater` update checks (see `updater.ts`). Absent or
    * `false` means disabled — the default for v1, since unsigned builds would
@@ -450,6 +452,7 @@ export class ElectronStoreService {
     };
   }
 
+  // @spec APP-WIZARD-CREDS-004, APP-WIZARD-CREDS-005
   /**
    * Write a pasted-credentials profile to `creds.aws.<profileName>`,
    * encrypting `accessKeyId`/`secretAccessKey` via {@link SafeStorageService}

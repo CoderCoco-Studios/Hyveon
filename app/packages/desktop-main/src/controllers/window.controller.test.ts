@@ -21,6 +21,7 @@ function makeWindowService(): Partial<WindowService> {
 
 describe('WindowController', () => {
   describe('@MessagePattern channel names', () => {
+    // @spec APP-SHELL-WINIPC-001, APP-SHELL-WINIPC-002, APP-SHELL-WINIPC-004, APP-SHELL-WINIPC-005
     it('should register every channel', () => {
       expectChannels(WindowController.prototype, [
         ['minimize', 'window.minimize'],

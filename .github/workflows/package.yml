@@ -29,6 +29,7 @@ jobs:
               - '**'
               - '!**/*.md'
 
+  # @spec APP-UPDATE-PKG-003
   package:
     needs: changes
     if: ${{ needs.changes.outputs.code == 'true' }}

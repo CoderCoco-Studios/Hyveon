@@ -82,6 +82,8 @@ export class DiagnosticsBundleService {
     private readonly store: ElectronStoreService,
   ) {}
 
+  // @spec APP-DIAG-BNDL-003, APP-DIAG-BNDL-004, APP-DIAG-BNDL-005, APP-DIAG-BNDL-006, APP-DIAG-BNDL-015
+  // @spec APP-DIAG-SVC-001
   /**
    * Gathers all four sections and writes the resulting `.zip` to
    * `destinationPath`. Every section is best-effort: a failure gathering any
@@ -151,6 +153,7 @@ export class DiagnosticsBundleService {
     logger.warn('DiagnosticsBundleService.writeBundle: section failed', { section, message });
   }
 
+  // @spec APP-DIAG-BNDL-007
   private async gatherLogs(): Promise<string> {
     const lines = await this.diagnostics.readTail(BUNDLE_LOG_TAIL_LINES);
     return scrubSecrets(lines.join('\n'));
@@ -164,6 +167,7 @@ export class DiagnosticsBundleService {
     return buildDiagnosticsConfigSummary(settings, gameServers);
   }
 
+  // @spec APP-DIAG-BNDL-010
   private async gatherMetadata(): Promise<DiagnosticsBundleMetadata> {
     return {
       appVersion: this.readAppVersion(),
@@ -175,6 +179,7 @@ export class DiagnosticsBundleService {
     };
   }
 
+  // @spec APP-DIAG-BNDL-011, APP-DIAG-BNDL-012
   /**
    * Gathers stack outputs plus a per-game `EcsService.getStatus` snapshot.
    * Uses `Promise.allSettled` (not `Promise.all`) over the per-game calls so
@@ -218,6 +223,7 @@ export class DiagnosticsBundleService {
     return readAppVersion();
   }
 
+  // @spec APP-DIAG-BNDL-014, APP-DIAG-BNDL-015
   /**
    * Streams `sections` plus `errors` into a `.zip` at `destinationPath` via
    * `archiver`. Writes to a `${destinationPath}.<uuid>.tmp` sibling first

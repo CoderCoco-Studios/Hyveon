@@ -95,6 +95,7 @@ export interface UseGuidedIamResult {
   onRetryTemplate: () => void;
 }
 
+// @spec APP-WIZARD-GSTEP-004, APP-WIZARD-GSTEP-005, APP-WIZARD-RESET-002, APP-WIZARD-CONSOLE-001
 /**
  * Owns the guided-IAM step's phase machine: rendering `iam-bootstrap.yaml`,
  * intaking the resulting bootstrap access key, and driving the mandatory
@@ -286,6 +287,7 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     };
   }, [preparingTemplate, persistProgress]);
 
+  // @spec APP-WIZARD-REGION-005
   /** Validates the region input and moves from `region` to `template`, persisting `not-started` first per the plan's call-site list. */
   async function onChooseGuided() {
     const trimmed = region.trim();
@@ -300,6 +302,7 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     setPhase('template');
   }
 
+  // @spec APP-WIZARD-CONSOLE-002, APP-WIZARD-CONSOLE-004
   /** Opens the region-scoped CloudFormation console URL in the operator's browser, falling back to displaying the URL as selectable text. */
   async function onOpenConsole() {
     if (!window.hyveon) {
@@ -328,6 +331,7 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     setPhase('intake');
   }
 
+  // @spec APP-WIZARD-GSTEP-003, APP-WIZARD-ROTATE-004, APP-WIZARD-ROTATE-005, APP-WIZARD-ROTATE-007
   /**
    * Drives one `guidedIamRotate()` attempt against `key`/`rotationRegion` and
    * applies its outcome — called both right after a successful intake and
@@ -379,6 +383,8 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     [persistProgress, onComplete],
   );
 
+  // @spec APP-WIZARD-INTAKE-001, APP-WIZARD-INTAKE-003, APP-WIZARD-INTAKE-004, APP-WIZARD-INTAKE-005,
+  // @spec APP-WIZARD-ROTATE-001, APP-WIZARD-CONSOLE-005
   /** Validates the region + pasted bootstrap key pair, then immediately kicks off rotation with them. */
   async function onSubmitKey() {
     if (!window.hyveon) {
@@ -419,6 +425,7 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     }
   }
 
+  // @spec APP-WIZARD-ROTATE-004
   /** Retries rotation from `verification-failed` using the same in-memory bootstrap key and region — no re-intake needed. */
   function onRetryRotation() {
     if (!bootstrapKey) return;
@@ -427,6 +434,7 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     void runRotation(bootstrapKey, region);
   }
 
+  // @spec APP-WIZARD-ROTATE-006
   /** Manual-retry action for `delete-failed`: revokes the still-live bootstrap key without re-running mint/verify. On success this is treated as fully complete, since rotation already activated the new key. */
   async function onRevoke() {
     if (!bootstrapKey || !window.hyveon) return;

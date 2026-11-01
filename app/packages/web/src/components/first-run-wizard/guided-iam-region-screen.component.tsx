@@ -33,6 +33,7 @@ export interface GuidedIamRegionScreenProps {
   onSkipToManual: () => void;
 }
 
+// @spec APP-WIZARD-GSTEP-001, APP-WIZARD-REGION-003, APP-WIZARD-REGION-004, APP-WIZARD-REGION-005
 /** `region` phase: the AWS region input plus the guided-vs-manual choice. */
 export function GuidedIamRegionScreen({
   resumedWithoutRegion,

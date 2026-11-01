@@ -130,6 +130,7 @@ describe('SettingsPage', () => {
     expect(await screen.findByText(/^Updated\b/)).toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-SET-001
   it('should render the General section heading with the deployment-settings form loaded', async () => {
     renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
     expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
@@ -146,6 +147,7 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('diagnostics-panel')).toBeInTheDocument();
   });
 
+  // @spec APP-SHELL-SET-003
   describe('Cloud Setup — Pulumi engine version row', () => {
     it('should render the resolved engine version and the pinned version once the read resolves', async () => {
       hyveonMock.iac.settings.engineVersion.mockResolvedValue({ resolvedVersion: '3.255.0' });
@@ -177,6 +179,7 @@ describe('SettingsPage', () => {
   });
 
   describe('Updates — App Version row', () => {
+    // @spec APP-UPDATE-UI-001
     it('should render the running version prefixed with v', async () => {
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 
@@ -184,6 +187,7 @@ describe('SettingsPage', () => {
       expect(await screen.findByText('v0.8.0')).toBeInTheDocument();
     });
 
+    // @spec APP-UPDATE-UI-001
     it("should render Unknown when the version is 'unknown'", async () => {
       hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({
         ok: true,
@@ -202,6 +206,7 @@ describe('SettingsPage', () => {
       expect(await screen.findByText('Unavailable')).toBeInTheDocument();
     });
 
+    // @spec APP-UPDATE-UI-003
     it('should include the version in the up-to-date message', async () => {
       hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: true, updateAvailable: false });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
@@ -214,6 +219,7 @@ describe('SettingsPage', () => {
   });
 
   describe('Updates — Automatic Updates toggle', () => {
+    // @spec APP-UPDATE-UI-001
     it('should render unchecked once the read resolves false', async () => {
       hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
@@ -222,6 +228,7 @@ describe('SettingsPage', () => {
       expect(toggle).not.toBeChecked();
     });
 
+    // @spec APP-UPDATE-UI-001
     it('should render checked once the read resolves true', async () => {
       hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: true, appVersion: '0.8.0' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
@@ -250,6 +257,7 @@ describe('SettingsPage', () => {
       expect(hyveonMock.iac.settings.autoUpdateUpdate).not.toHaveBeenCalled();
     });
 
+    // @spec APP-UPDATE-UI-002
     it('should call autoUpdateUpdate with true and reflect the new checked state on toggle', async () => {
       hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false, appVersion: '0.8.0' });
       hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValue({ ok: true, enableAutoUpdate: true });
@@ -263,6 +271,7 @@ describe('SettingsPage', () => {
       await waitFor(() => expect(toggle).toBeChecked());
     });
 
+    // @spec APP-UPDATE-UI-002
     it('should keep the checkbox reflecting the last confirmed value when the write fails, not drop to the no-value error state', async () => {
       hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: true, appVersion: '0.8.0' });
       hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValue({ ok: false, code: 'error', message: 'nope' });
@@ -304,6 +313,7 @@ describe('SettingsPage', () => {
   }
 
   describe('Updates — Check for Updates button', () => {
+    // @spec APP-UPDATE-UI-003
     it('should show a loading message while the check is in flight', async () => {
       let resolveCheck!: (result: { ok: true; updateAvailable: false }) => void;
       hyveonMock.iac.settings.autoUpdateCheck.mockReturnValue(new Promise((resolve) => (resolveCheck = resolve)));
@@ -315,6 +325,7 @@ describe('SettingsPage', () => {
       resolveCheck({ ok: true, updateAvailable: false });
     });
 
+    // @spec APP-UPDATE-UI-003, APP-UPDATE-UI-009
     it('should report up to date when no update is available', async () => {
       hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: true, updateAvailable: false });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
@@ -325,6 +336,7 @@ describe('SettingsPage', () => {
       expect(screen.queryByRole('link', { name: /download manually/i })).not.toBeInTheDocument();
     });
 
+    // @spec APP-UPDATE-UI-003
     it('should report the version when an update is available', async () => {
       hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: true, updateAvailable: true, version: '1.2.3' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
@@ -334,6 +346,7 @@ describe('SettingsPage', () => {
       expect(await screen.findByText('Update available: v1.2.3')).toBeInTheDocument();
     });
 
+    // @spec APP-UPDATE-UI-003, APP-UPDATE-UI-008
     it('should render the error message when the check fails', async () => {
       hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: false, message: 'feed unreachable' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
@@ -344,6 +357,7 @@ describe('SettingsPage', () => {
       expectManualDownloadLink();
     });
 
+    // @spec APP-UPDATE-UI-004, APP-UPDATE-UI-008
     it('should render a fallback message when the IPC call rejects', async () => {
       hyveonMock.iac.settings.autoUpdateCheck.mockRejectedValue(new Error('IPC unavailable'));
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
@@ -380,6 +394,7 @@ describe('SettingsPage', () => {
       await screen.findByText('Update available: v1.2.3');
     }
 
+    // @spec APP-UPDATE-UI-005
     it('should not show Download & Install before a check or when no update is available', async () => {
       hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: true, updateAvailable: false });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
@@ -391,6 +406,7 @@ describe('SettingsPage', () => {
       expect(screen.queryByRole('button', { name: /download & install/i })).not.toBeInTheDocument();
     });
 
+    // @spec APP-UPDATE-UI-005
     it('should show Download & Install alongside the check button when an update is available', async () => {
       await checkForAvailableUpdate();
 
@@ -398,6 +414,7 @@ describe('SettingsPage', () => {
       expect(screen.getByRole('button', { name: /check for updates/i })).toBeInTheDocument();
     });
 
+    // @spec APP-UPDATE-UI-006
     it('should update the description with progress while downloading', async () => {
       let release!: () => void;
       const gate = new Promise<void>((resolve) => (release = resolve));
@@ -418,6 +435,7 @@ describe('SettingsPage', () => {
       release();
     });
 
+    // @spec APP-UPDATE-UI-007
     it('should offer Restart & Install once downloaded, and invoke autoUpdateInstall on click', async () => {
       hyveonMock.iac.settings.autoUpdateDownload.mockImplementation(
         toStreamHandleMock(async function* () {
@@ -435,6 +453,7 @@ describe('SettingsPage', () => {
       expect(hyveonMock.iac.settings.autoUpdateInstall).toHaveBeenCalledOnce();
     });
 
+    // @spec APP-UPDATE-UI-008
     it('should show the error and the manual link when the download fails, and allow a retry', async () => {
       hyveonMock.iac.settings.autoUpdateDownload.mockImplementation(
         toStreamHandleMock(async function* () {
@@ -451,6 +470,7 @@ describe('SettingsPage', () => {
       expect(screen.getByRole('button', { name: /download & install/i })).toBeEnabled();
     });
 
+    // @spec APP-UPDATE-UI-008
     it('should show the error and the manual link when the install step fails', async () => {
       hyveonMock.iac.settings.autoUpdateDownload.mockImplementation(
         toStreamHandleMock(async function* () {
@@ -474,6 +494,8 @@ describe('SettingsPage', () => {
       expect(screen.getByRole('button', { name: /^reconfigure$/i })).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-RECONF-001, APP-WIZARD-RECONF-002
+    // @spec APP-SHELL-SET-002
     it('should open the wizard on pick-cloud (skipping prerequisites) with completed steps showing an Edit affordance', async () => {
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 
@@ -484,6 +506,7 @@ describe('SettingsPage', () => {
       expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-RECONF-006
     it('should preserve every other stored setting when only the credentials-step region is edited', async () => {
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
@@ -524,6 +547,7 @@ describe('SettingsPage', () => {
       expect(hyveonMock.wizard.saveState).toHaveBeenCalledTimes(1);
     });
 
+    // @spec APP-WIZARD-RECONF-006
     it('should commit only the edited step, and initialize the stack with no renderer-supplied config, when the bootstrap step is left collapsed', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: true,

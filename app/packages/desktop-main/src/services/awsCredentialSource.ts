@@ -67,6 +67,7 @@ export type AwsCredentialSource =
   /** `profile` did not resolve to a pasted entry — treated as a real `~/.aws` CLI profile name. */
   | { readonly kind: 'profile'; readonly profile: string };
 
+// @spec APP-WIZARD-CUSTODY-001, APP-WIZARD-CUSTODY-002
 /**
  * Resolves which AWS credential source the wizard's credentials step
  * selected, without shaping the result for any particular consumer.
@@ -155,6 +156,7 @@ export interface ResolvedAwsClientCredentials {
   readonly signature: string;
 }
 
+// @spec APP-WIZARD-CUSTODY-003
 /**
  * Same resolution as {@link resolveAwsClientCredentials}, plus a comparable
  * `signature` string callers can cache alongside a lazily-constructed AWS SDK

@@ -1566,6 +1566,7 @@ export interface HyveonFolderUploadApi {
   onProgress: (cb: (progress: FolderUploadProgress) => void) => () => void;
 }
 
+// @spec APP-IPC-SEC-002
 /** In-app browsing and editing of a game's volumes through a short-lived file-browser helper session. */
 export interface HyveonVolumeFilesApi {
   /**
@@ -1965,6 +1966,7 @@ export interface RevokeBootstrapKeyResult {
   message?: string;
 }
 
+// @spec APP-WIZARD-BOOT-015, APP-WIZARD-CREDS-003
 /** First-run wizard endpoints (see `openspec/changes/add-first-run-wizard`). */
 export interface HyveonWizardApi {
   /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
@@ -2635,6 +2637,7 @@ export interface HyveonTestApi {
 
 // Top-level interface
 
+// @spec APP-IPC-CONTRACT-001
 /**
  * Typed shape of `window.hyveon` as exposed by the Electron preload script.
  *

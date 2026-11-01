@@ -98,6 +98,7 @@ export interface SaveWizardStateInput {
   bootstrap?: WizardBootstrapNames;
 }
 
+// @spec APP-WIZARD-BOOT-015
 /**
  * IPC-only controller for the first-run wizard (see
  * `openspec/changes/add-first-run-wizard`). Every handler is a plain
@@ -129,6 +130,7 @@ export class WizardController {
     private readonly guidedIam: GuidedIamService,
   ) {}
 
+  // @spec APP-WIZARD-GATE-001, APP-WIZARD-GATE-002
   /**
    * Returns the wizard's completion flag so the renderer can gate the app
    * router. Defaults to `false` (unset in a fresh `electron-store`, meaning
@@ -174,6 +176,7 @@ export class WizardController {
     };
   }
 
+  // @spec APP-WIZARD-GATE-006, APP-WIZARD-CLOUD-003, APP-WIZARD-CREDS-008, APP-WIZARD-RECONF-006
   /**
    * Persists wizard-flow answers into `ElectronStoreService`. `activeCloud`
    * (pick-cloud step), `aws` (credentials step, #192 — the chosen
@@ -218,6 +221,7 @@ export class WizardController {
     return process.env['HYVEON_TEST_MODE'] === '1';
   }
 
+  // @spec APP-WIZARD-CREDS-003
   /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
   @MessagePattern('wizard.aws.listProfiles')
   listAwsProfiles(): Promise<AwsProfileSummary[]> {
@@ -328,6 +332,7 @@ export class WizardController {
     return this.firstRunWizard.getProgress();
   }
 
+  // @spec APP-WIZARD-PROG-001
   /**
    * Persists the current step — and, once the guided-IAM step has made
    * progress, its `guidedIam` sub-state — so the wizard resumes here if the
@@ -339,6 +344,7 @@ export class WizardController {
     return this.firstRunWizard.recordStep(body.step, body.guidedIam);
   }
 
+  // @spec APP-WIZARD-GATE-005
   /**
    * Marks the wizard complete (`wizardCompleted: true`), which is what
    * actually gates the app router past the wizard. Returns the same shape as
@@ -377,6 +383,7 @@ export class WizardController {
     return this.guidedIam.renderTemplate();
   }
 
+  // @spec APP-WIZARD-CONSOLE-002
   /**
    * Builds the region-scoped CloudFormation "Create stack" console URL and
    * then attempts to open it in the operator's default browser — the one

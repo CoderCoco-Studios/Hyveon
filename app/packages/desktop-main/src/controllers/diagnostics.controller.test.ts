@@ -56,12 +56,14 @@ describe('DiagnosticsController', () => {
   });
 
   describe('getTail', () => {
+    // @spec APP-DIAG-TAIL-006
     it('should return lines from DiagnosticsService', async () => {
       const svc = makeDiagnostics();
       const result = await new DiagnosticsController(svc, makeBundle(), makeDialogs()).getTail();
       expect(result).toEqual({ lines: ['line1', 'line2', 'line3'] });
     });
 
+    // @spec APP-DIAG-TAIL-006
     it('should call DiagnosticsService.readTail with 500 lines', async () => {
       const svc = makeDiagnostics();
       await new DiagnosticsController(svc, makeBundle(), makeDialogs()).getTail();
@@ -70,6 +72,7 @@ describe('DiagnosticsController', () => {
   });
 
   describe('getPath', () => {
+    // @spec APP-DIAG-TAIL-006
     it('should return the current log path from DiagnosticsService', () => {
       const svc = makeDiagnostics();
       const result = new DiagnosticsController(svc, makeBundle(), makeDialogs()).getPath();
@@ -84,6 +87,7 @@ describe('DiagnosticsController', () => {
   });
 
   describe('reportError', () => {
+    // @spec APP-DIAG-RERR-001
     it('should call DiagnosticsService.logRendererError with the payload fields', () => {
       const svc = makeDiagnostics();
       new DiagnosticsController(svc, makeBundle(), makeDialogs()).reportError({
@@ -117,6 +121,7 @@ describe('DiagnosticsController', () => {
   });
 
   describe('reportLog', () => {
+    // @spec APP-DIAG-CONS-003
     it('should call DiagnosticsService.logRendererConsoleBatch with the entries and dropped count', () => {
       const svc = makeDiagnostics();
       const entries = [
@@ -147,6 +152,7 @@ describe('DiagnosticsController', () => {
   });
 
   describe('exportBundle', () => {
+    // @spec APP-DIAG-BNDL-001
     it('should write the bundle and return the written path when the operator picks a save location', async () => {
       const bundle = makeBundle();
       const dialogs = makeDialogs('/tmp/hyveon-diagnostics.zip');
@@ -162,6 +168,7 @@ describe('DiagnosticsController', () => {
       expect(result).toEqual({ status: 'written', path: '/tmp/hyveon-diagnostics.zip' });
     });
 
+    // @spec APP-DIAG-BNDL-002
     it('should return a cancelled result without calling writeBundle when the operator cancels the dialog', async () => {
       const bundle = makeBundle();
       const controller = new TestableDiagnosticsController(makeDiagnostics(), bundle, makeDialogs(null));
@@ -172,6 +179,7 @@ describe('DiagnosticsController', () => {
       expect(result).toEqual({ status: 'cancelled' });
     });
 
+    // @spec APP-DIAG-BNDL-015
     it('should return an error result with a message, not a thrown error, when writeBundle rejects', async () => {
       const bundle = makeBundle();
       vi.mocked(bundle.writeBundle).mockRejectedValue(new Error('disk full'));
@@ -184,6 +192,7 @@ describe('DiagnosticsController', () => {
   });
 
   describe('showInFolder', () => {
+    // @spec APP-DIAG-BNDL-016
     it('should delegate to revealInFolder with the given path', () => {
       const controller = new TestableDiagnosticsController(makeDiagnostics(), makeBundle(), makeDialogs());
       const spy = vi.spyOn(controller, 'revealInFolder').mockImplementation(() => {});
@@ -193,6 +202,7 @@ describe('DiagnosticsController', () => {
       expect(spy).toHaveBeenCalledWith('/tmp/hyveon-diagnostics.zip');
     });
 
+    // @spec APP-DIAG-BNDL-017
     it('should never throw when revealInFolder fails', () => {
       const controller = new TestableDiagnosticsController(makeDiagnostics(), makeBundle(), makeDialogs());
       vi.spyOn(controller, 'revealInFolder').mockImplementation(() => {

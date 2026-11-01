@@ -146,6 +146,7 @@ describe('GuidedIamService', () => {
     delete (process.versions as Record<string, string | undefined>)['electron'];
   });
 
+  // @spec APP-WIZARD-CONSOLE-002
   describe('buildCloudFormationConsoleUrl', () => {
     it('should construct the exact AWS CloudFormation console URL for us-east-1', () => {
       const url = service.buildCloudFormationConsoleUrl('us-east-1');
@@ -175,6 +176,7 @@ describe('GuidedIamService', () => {
   });
 
   describe('renderTemplate', () => {
+    // @spec APP-WIZARD-TMPL-010
     it('should throw a clear error when the template cannot be located', () => {
       mockResolveTemplatePath.mockReturnValue(undefined);
 
@@ -182,6 +184,7 @@ describe('GuidedIamService', () => {
       expect(mockWrite).not.toHaveBeenCalled();
     });
 
+    // @spec APP-WIZARD-TMPL-003
     it('should substitute both placeholder tokens with single-line JSON and leave UserName untouched', () => {
       mockResolveTemplatePath.mockReturnValue('/fake/iam-bootstrap.yaml');
       mockRead.mockReturnValue(FIXTURE_TEMPLATE);
@@ -207,6 +210,7 @@ describe('GuidedIamService', () => {
     });
   });
 
+  // @spec APP-WIZARD-CONSOLE-004
   describe('openConsole', () => {
     const CONSOLE_URL = 'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create';
 
@@ -248,6 +252,7 @@ describe('GuidedIamService', () => {
     });
   });
 
+  // @spec APP-WIZARD-TMPL-011
   describe('getRenderedTemplatePath', () => {
     it('should return <userData>/iam-bootstrap-rendered.yaml when packaged', () => {
       vi.spyOn(service, 'readIsPackaged').mockReturnValue(true);
@@ -303,6 +308,7 @@ describe('GuidedIamService', () => {
       region: 'us-west-2',
     };
 
+    // @spec APP-WIZARD-INTAKE-001
     it('should return the resolved account ID for a valid bootstrap key pair', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({
         Account: '123456789012',
@@ -325,6 +331,7 @@ describe('GuidedIamService', () => {
       expect(createStsClientSpy).toHaveBeenCalledWith(BOOTSTRAP_INPUT);
     });
 
+    // @spec APP-WIZARD-INTAKE-003
     it('should propagate the original AWS error unchanged when the bootstrap key is invalid', async () => {
       const awsError = new Error('The security token included in the request is invalid');
       awsError.name = 'InvalidClientTokenId';
@@ -336,6 +343,7 @@ describe('GuidedIamService', () => {
       });
     });
 
+    // @spec APP-WIZARD-INTAKE-006
     it('should log a warning (never the secret access key) when the bootstrap key is invalid', async () => {
       const awsError = new Error('The security token included in the request is invalid');
       awsError.name = 'InvalidClientTokenId';
@@ -384,6 +392,7 @@ describe('GuidedIamService', () => {
       });
     }
 
+    // @spec APP-WIZARD-KEYCH-001, APP-WIZARD-CUSTODY-008
     it('should throw SafeStorageUnavailableError and never call iam:CreateAccessKey when the keychain is unavailable', async () => {
       safeStorage = makeSafeStorage(false);
       service = new TestableGuidedIamService(store, safeStorage);
@@ -410,6 +419,7 @@ describe('GuidedIamService', () => {
       expect(JSON.stringify(loggedPayload)).not.toContain(BOOTSTRAP_SECRET);
     });
 
+    // @spec APP-WIZARD-ROTATE-001, APP-WIZARD-ROTATE-002, APP-WIZARD-ROTATE-003
     it('should perform CreateAccessKey -> setPastedCredentials -> GetCallerIdentity(new key) -> store.set(aws) -> DeleteAccessKey(bootstrap key, new client) in exact order on success', async () => {
       const order: string[] = [];
       iamMock.on(CreateAccessKeyCommand).callsFake(() => {
@@ -503,6 +513,7 @@ describe('GuidedIamService', () => {
       });
     });
 
+    // @spec APP-WIZARD-ROTATE-004
     it('should return verification-failed and leave nothing active or the bootstrap key deleted when GetCallerIdentity fails for the new key', async () => {
       stubCreateAccessKeySuccess();
       const verifyError = new Error('The security token included in the request is invalid');
@@ -538,6 +549,7 @@ describe('GuidedIamService', () => {
       });
     });
 
+    // @spec APP-WIZARD-ROTATE-002
     it('should attempt verification up to 6 times total before returning verification-failed when GetCallerIdentity fails every time', async () => {
       stubCreateAccessKeySuccess();
       const verifyError = new Error('The security token included in the request is invalid');
@@ -551,6 +563,7 @@ describe('GuidedIamService', () => {
       expect(stsMock.commandCalls(GetCallerIdentityCommand)).toHaveLength(6);
     });
 
+    // @spec APP-WIZARD-ROTATE-002
     it('should sleep with the exact backoff schedule between failed verification attempts', async () => {
       stubCreateAccessKeySuccess();
       const verifyError = new Error('The security token included in the request is invalid');
@@ -593,6 +606,7 @@ describe('GuidedIamService', () => {
       expect(exhaustedErrors).toHaveLength(1);
     });
 
+    // @spec APP-WIZARD-ROTATE-004
     it('should clean up the orphaned new key (not the bootstrap key) using the bootstrap key client when verification fails', async () => {
       stubCreateAccessKeySuccess();
       const verifyError = new Error('The security token included in the request is invalid');
@@ -646,6 +660,7 @@ describe('GuidedIamService', () => {
       expect(store.deletePastedCredentials).not.toHaveBeenCalled();
     });
 
+    // @spec APP-WIZARD-ROTATE-005
     it('should return delete-failed with a console URL and leave the new key active when DeleteAccessKey fails', async () => {
       stubCreateAccessKeySuccess();
       stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
@@ -671,6 +686,7 @@ describe('GuidedIamService', () => {
       expect(store.setPastedCredentials).not.toHaveBeenCalled();
     });
 
+    // @spec APP-WIZARD-INTAKE-006
     it('should never log the bootstrap or newly minted secret access key across a full successful rotation', async () => {
       stubCreateAccessKeySuccess();
       stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
@@ -788,6 +804,7 @@ describe('GuidedIamService', () => {
       expect(iamMock.commandCalls(DeleteAccessKeyCommand)).toHaveLength(0);
     });
 
+    // @spec APP-WIZARD-ROTATE-006
     it('should refuse without throwing when the active source is a pasted profile other than the guided one, and never call any IAM command', async () => {
       store = {
         get: vi
@@ -833,6 +850,7 @@ describe('GuidedIamService', () => {
       expect(iamMock.commandCalls(DeleteAccessKeyCommand)).toHaveLength(0);
     });
 
+    // @spec APP-WIZARD-ROTATE-006
     it('should return revoked: true after calling iam:DeleteAccessKey with the bootstrap key ID, using an IAM client built from the active (rotated) credentials', async () => {
       store = makePastedStore();
       service = new TestableGuidedIamService(store, safeStorage);

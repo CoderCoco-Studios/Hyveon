@@ -439,6 +439,7 @@ describe('IacPage', () => {
   });
 
   // @spec IAC-RUN-APPR-001, IAC-RUN-APPR-004, IAC-RUN-GATE-001, IAC-RUN-GATE-015
+  // @spec APP-IPC-STREAM-007
   it('should enable Apply only after the plan is approved, then stream apply output to completion', async () => {
     seedSuccessfulPlan();
     hyveonMock.iac.approve.mockResolvedValue({

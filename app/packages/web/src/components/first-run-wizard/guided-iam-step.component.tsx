@@ -8,6 +8,7 @@ import { GuidedIamVerificationFailedScreen } from '@/components/first-run-wizard
 import { GuidedIamDeleteFailedScreen } from '@/components/first-run-wizard/guided-iam-delete-failed-screen.component';
 import { useGuidedIam } from './use-guided-iam.hook.js';
 
+// @spec APP-WIZARD-REGION-003
 /** {@link AWS_REGIONS} grouped by continent, preserving the generated file's continent-then-name sort order. Computed once at module load since the source data is static. */
 const REGIONS_BY_CONTINENT: Array<[string, AwsRegionInfo[]]> = (() => {
   const groups = new Map<string, AwsRegionInfo[]>();
@@ -60,6 +61,7 @@ export interface GuidedIamStepProps {
   onBusyChange?: (busy: boolean) => void;
 }
 
+// @spec APP-WIZARD-GSTEP-001
 /**
  * Guided IAM bootstrap step of the first-run wizard
  * (`openspec/changes/add-one-click-aws-bootstrap`). Self-contained and

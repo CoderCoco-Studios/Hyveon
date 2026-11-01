@@ -144,6 +144,10 @@ function formatAge(ms: number): string {
   return `${h}h ago`;
 }
 
+// @spec APP-LOGS-ENGINE-001, APP-LOGS-ENGINE-002, APP-LOGS-ENGINE-003, APP-LOGS-ENGINE-004, APP-LOGS-ENGINE-005
+// @spec APP-LOGS-ENGINE-006, APP-LOGS-ENGINE-007, APP-LOGS-ENGINE-008, APP-LOGS-ENGINE-009, APP-LOGS-ENGINE-010
+// @spec APP-LOGS-ENGINE-011, APP-LOGS-ENGINE-012, APP-LOGS-ENGINE-013, APP-LOGS-ENGINE-014, APP-LOGS-ENGINE-015
+// @spec APP-IPC-STREAM-005
 /**
  * Shared live-tail engine behind both `/logs` (game servers) and
  * `/logs/infrastructure` (Lambda functions) — see design.md D6. Owns the

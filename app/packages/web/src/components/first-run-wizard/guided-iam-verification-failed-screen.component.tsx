@@ -9,6 +9,7 @@ export interface GuidedIamVerificationFailedScreenProps {
   onRetryRotation: () => void;
 }
 
+// @spec APP-WIZARD-ROTATE-004, APP-WIZARD-ROTATE-007
 /** `verification-failed` phase: the newly minted key could not be verified; offers a retry. */
 export function GuidedIamVerificationFailedScreen({
   rotationError,

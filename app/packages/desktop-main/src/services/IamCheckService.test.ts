@@ -73,6 +73,7 @@ beforeEach(() => {
 
 describe('IamCheckService', () => {
   describe('checkPermissions', () => {
+    // @spec APP-WIZARD-IAMCHK-002
     it('should return passed when every simulated action is allowed', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
       iamMock.on(SimulatePrincipalPolicyCommand).resolves({
@@ -88,6 +89,7 @@ describe('IamCheckService', () => {
       expect(result).toEqual({ status: 'passed', origin: 'none', blocking: false });
     });
 
+    // @spec APP-WIZARD-IAMCHK-003
     it('should return missing with a minimal pasteable policy JSON when some actions are denied', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
       iamMock.on(SimulatePrincipalPolicyCommand).resolves({
@@ -109,6 +111,7 @@ describe('IamCheckService', () => {
       });
     });
 
+    // @spec APP-WIZARD-IAMCHK-001
     it('should batch SimulatePrincipalPolicy calls at 50 actions per request', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
       iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
@@ -158,6 +161,7 @@ describe('IamCheckService', () => {
       expect(wildcardCall!.args[0].input.ResourceArns).toBeUndefined();
     });
 
+    // @spec APP-WIZARD-IAMCHK-001
     it('should pass the caller ARN from GetCallerIdentity as the PolicySourceArn', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:role/hyveon-role' });
       iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
@@ -198,6 +202,7 @@ describe('IamCheckService', () => {
       );
     });
 
+    // @spec APP-WIZARD-IAMCHK-004
     it('should degrade to a warning when GetCallerIdentity fails', async () => {
       stsMock.on(GetCallerIdentityCommand).rejects(new Error('access denied'));
       const service = new IamCheckService(makeStore({ region: 'us-west-2' }));
@@ -220,6 +225,7 @@ describe('IamCheckService', () => {
       );
     });
 
+    // @spec APP-WIZARD-IAMCHK-004
     it('should degrade to a warning when SimulatePrincipalPolicy itself is not permitted', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
       iamMock.on(SimulatePrincipalPolicyCommand).rejects(new Error('User is not authorized to perform iam:SimulatePrincipalPolicy'));
@@ -305,6 +311,7 @@ describe('IamCheckService', () => {
     });
   });
 
+  // @spec APP-WIZARD-IAMCHK-005
   describe('origin and blocking', () => {
     it('should resolve origin as none and blocking as false when no credential source is configured', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });

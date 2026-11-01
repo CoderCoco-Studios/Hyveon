@@ -264,6 +264,7 @@ function hyveon() {
   return bridge;
 }
 
+// @spec APP-IPC-ERR-008
 // The Discord `actions` field is typed as the narrower `DiscordAction[]` in this
 // module but as the wider `string[]` in the preload bridge. The runtime values
 // are identical, so the single-step narrowings below (never `as unknown as`) are

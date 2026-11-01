@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseAnsiLine, stripAnsi } from './ansi.utils.js';
 
+// @spec APP-LOGS-RENDER-002
 describe('parseAnsiLine', () => {
   it('should return a single unstyled segment for plain text', () => {
     expect(parseAnsiLine('hello world')).toEqual([{ text: 'hello world', bold: false, colorClass: null }]);

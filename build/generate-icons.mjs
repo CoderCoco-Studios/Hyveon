@@ -15,6 +15,7 @@
  * Sizes at or below 24px are rendered from icon-small.svg: below that the
  * master's seven cells stop resolving and blur into a single smudge.
  */
+// @spec APP-SHELL-ICON-001, APP-SHELL-ICON-002
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

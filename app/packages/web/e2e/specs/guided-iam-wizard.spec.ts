@@ -194,6 +194,7 @@ async function seedGuidedIamRotationPendingResumeMocks(
 // ── Specs ──────────────────────────────────────────────────────────────────────
 
 test.describe('guided-IAM wizard step', () => {
+  // @spec APP-WIZARD-GSTEP-001, APP-WIZARD-GSTEP-003, APP-WIZARD-ROTATE-001, APP-WIZARD-CONSOLE-001
   test('should complete the guided-setup happy path and hand off to the satisfied credentials step', async () => {
     await seedGuidedIamHappyPathMocks(win, {
       region: TEST_REGION,
@@ -234,6 +235,7 @@ test.describe('guided-IAM wizard step', () => {
     await expect(wizard.stepProgressText('AWS credentials')).toBeVisible();
   });
 
+  // @spec APP-WIZARD-GSTEP-005
   test('should resume directly onto the key-intake screen for a persisted rotation-pending session', async () => {
     await seedGuidedIamRotationPendingResumeMocks(win, {
       region: RESUMED_REGION,

@@ -9,6 +9,7 @@ import type { ElectronStoreService } from './services/ElectronStoreService.js';
 import { errMessage } from '@hyveon/shared';
 import { PRIMARY_FEED, resolveFallbackFeedUrl } from './updater-fallback.js';
 
+// @spec APP-UPDATE-BOOT-006
 /**
  * Loads `electron-updater`'s `autoUpdater` and applies the settings shared by every check.
  *
@@ -29,6 +30,7 @@ async function loadAutoUpdater() {
 
 type AutoUpdater = Awaited<ReturnType<typeof loadAutoUpdater>>;
 
+// @spec APP-UPDATE-FALL-001, APP-UPDATE-FALL-003, APP-UPDATE-FALL-004, APP-UPDATE-FALL-005
 /**
  * Runs `checkForUpdates()`, retrying once against the newest release that has a feed file if the primary check
  * fails (e.g. the latest release shipped without `latest.yml`).
@@ -60,6 +62,8 @@ async function checkWithFallback(autoUpdater: AutoUpdater): ReturnType<AutoUpdat
   }
 }
 
+// @spec APP-UPDATE-BOOT-001, APP-UPDATE-BOOT-002, APP-UPDATE-BOOT-003, APP-UPDATE-BOOT-004, APP-UPDATE-BOOT-005
+// @spec APP-UPDATE-FLAG-002, APP-UPDATE-DL-001
 /**
  * Initializes the `electron-updater` integration for the main process.
  *
@@ -103,6 +107,8 @@ export async function initUpdater(store: ElectronStoreService): Promise<void> {
   }
 }
 
+// @spec APP-UPDATE-CHECK-001, APP-UPDATE-CHECK-002, APP-UPDATE-CHECK-003, APP-UPDATE-CHECK-004
+// @spec APP-UPDATE-CHECK-005, APP-UPDATE-CHECK-006, APP-UPDATE-CHECK-007, APP-UPDATE-FALL-006
 /**
  * Runs a single update check on demand, independent of the `enableAutoUpdate`
  * flag — the flag gates only {@link initUpdater}'s automatic boot-time check.
@@ -171,6 +177,8 @@ export async function checkForUpdatesNow(): Promise<ManualUpdateCheckResult> {
 /** Message `electron-updater` rejects `downloadUpdate()` with when no `checkForUpdates()` has populated its cache. */
 const NO_PRIOR_CHECK_MESSAGE = 'Please check update first';
 
+// @spec APP-UPDATE-DL-001, APP-UPDATE-DL-002, APP-UPDATE-DL-003, APP-UPDATE-DL-004, APP-UPDATE-DL-006
+// @spec APP-UPDATE-DL-007
 /**
  * Downloads the update found by the last check — an explicit, user-initiated action; nothing else in the app ever
  * downloads. `autoDownload`/`autoInstallOnAppQuit` stay `false`, so the downloaded installer is applied only when
@@ -233,6 +241,7 @@ export async function downloadUpdateNow(onProgress: (progress: UpdateDownloadPro
   }
 }
 
+// @spec APP-UPDATE-DL-001, APP-UPDATE-DL-007, APP-UPDATE-DL-008
 /**
  * Quits the app and runs the installer for the update {@link downloadUpdateNow} fetched — an explicit,
  * user-initiated action. Passes `isForceRunAfter = true` so the app relaunches after installing.

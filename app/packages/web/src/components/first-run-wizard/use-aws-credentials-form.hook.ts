@@ -63,6 +63,7 @@ export interface UseAwsCredentialsFormResult {
   toStatePayload: () => { profile?: string; region?: string };
 }
 
+// @spec APP-WIZARD-CREDS-006
 /**
  * Owns the credentials step's form state: the discovered-profile fetch, the
  * profile/paste mode toggle, and the paste-flow's safeStorage save.
@@ -101,6 +102,7 @@ export function useAwsCredentialsForm(): UseAwsCredentialsFormResult {
     void fetchProfiles();
   }, []);
 
+  // @spec APP-WIZARD-CREDS-007
   /** Selecting a profile defaults `region` from that profile's own configured region. */
   function selectProfile(profileName: string) {
     setSelectedProfileName(profileName);
@@ -115,6 +117,7 @@ export function useAwsCredentialsForm(): UseAwsCredentialsFormResult {
     setPastedProfileName(null);
   }
 
+  // @spec APP-WIZARD-KEYCH-003
   /** Runs the safeStorage paste-flow immediately (not deferred to Next), per the credentials-step spec. */
   async function submitPaste() {
     if (!window.hyveon) {
@@ -137,12 +140,14 @@ export function useAwsCredentialsForm(): UseAwsCredentialsFormResult {
     }
   }
 
+  // @spec APP-WIZARD-CREDS-008
   function toStatePayload(): { profile?: string; region?: string } {
     const profile = credentialMode === 'profile' ? selectedProfileName : (pastedProfileName ?? undefined);
     const chosenRegion = credentialMode === 'profile' ? region : pasteRegion;
     return { profile, region: chosenRegion || undefined };
   }
 
+  // @spec APP-WIZARD-SHELL-007
   const isFormComplete =
     credentialMode === 'profile'
       ? selectedProfileName !== '' && region !== ''

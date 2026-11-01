@@ -21,6 +21,7 @@ runs:
 
     # The release only comes into existence here, after every platform
     # build succeeded, so a draft that exists always has all its assets.
+    # @spec APP-UPDATE-DRAFT-001
     - name: Create GitHub Release and attach artifacts
       id: release
       uses: softprops/action-gh-release@v3
@@ -34,6 +35,7 @@ runs:
     # electron-updater needs the latest*.yml feeds, and users need installers.
     # Fail the run (leaving the draft unpublished) if any are missing.
     # Looked up by release id because `gh release view <tag>` does not resolve drafts.
+    # @spec APP-UPDATE-DRAFT-003
     - name: Verify feed and installer assets
       shell: bash
       env:

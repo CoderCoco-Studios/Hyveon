@@ -52,6 +52,7 @@ export interface CloudHealthCheck {
   fix(): Promise<CloudHealthFixResult>;
 }
 
+// @spec APP-WIZARD-HEALTH-010
 /**
  * Backs the Settings page's Cloud Health checklist — a small, extensible set
  * of account-level prerequisite checks. Ships with one check: whether the
@@ -67,6 +68,7 @@ export class CloudHealthService {
     private readonly deploymentConfig: DeploymentConfigService,
   ) {}
 
+  // @spec APP-WIZARD-HEALTH-004, APP-WIZARD-HEALTH-005
   /** Returns every registered {@link CloudHealthCheck}. Add future checks here. */
   getChecks(): CloudHealthCheck[] {
     return [
@@ -130,6 +132,7 @@ export class CloudHealthService {
     }
   }
 
+  // @spec APP-WIZARD-HEALTH-006, APP-WIZARD-HEALTH-007, APP-WIZARD-HEALTH-009
   private async fixEcsServiceLinkedRole(): Promise<CloudHealthFixResult> {
     logger.debug('CloudHealthService.fixEcsServiceLinkedRole: attempting fix');
     try {

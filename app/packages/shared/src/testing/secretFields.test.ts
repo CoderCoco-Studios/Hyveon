@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { findSecretFields } from './secretFields.js';
 
+// @spec APP-IPC-SEC-003
 describe('findSecretFields', () => {
   it('should return nothing for a payload of plain names and numbers', () => {
     expect(findSecretFields({ game: 'mc', state: 'running', uploadHolders: 0, volumes: [{ name: 'data', mounted: true }] })).toEqual([]);

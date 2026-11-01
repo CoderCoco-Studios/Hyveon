@@ -21,6 +21,7 @@ beforeEach(() => {
 });
 
 describe('CloudHealthSection', () => {
+  // @spec APP-WIZARD-HEALTH-001, APP-WIZARD-HEALTH-003
   it('should render an ok row with no Fix button', async () => {
     apiMock.cloudHealthList.mockResolvedValue([
       { id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'ok' },
@@ -31,6 +32,7 @@ describe('CloudHealthSection', () => {
     expect(screen.queryByRole('button', { name: /fix/i })).not.toBeInTheDocument();
   });
 
+  // @spec APP-WIZARD-HEALTH-003
   it('should render a missing row with a Fix button', async () => {
     apiMock.cloudHealthList.mockResolvedValue([
       { id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'missing', message: 'not found' },
@@ -41,6 +43,7 @@ describe('CloudHealthSection', () => {
     expect(screen.getByText('not found')).toBeInTheDocument();
   });
 
+  // @spec APP-WIZARD-HEALTH-006
   it('should re-render green after a successful Fix', async () => {
     apiMock.cloudHealthList
       .mockResolvedValueOnce([{ id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'missing' }])
@@ -54,6 +57,7 @@ describe('CloudHealthSection', () => {
     expect(apiMock.cloudHealthList).toHaveBeenCalledTimes(2);
   });
 
+  // @spec APP-WIZARD-HEALTH-007
   it('should show the copyable policy JSON on needsPolicyUpdate, without any CloudFormation instruction', async () => {
     apiMock.cloudHealthList.mockResolvedValue([
       { id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'missing' },
@@ -105,6 +109,7 @@ describe('CloudHealthSection', () => {
     expect(await screen.findByDisplayValue(consoleUrl)).toBeInTheDocument();
   });
 
+  // @spec APP-WIZARD-HEALTH-007
   it('should download the policy JSON and show the saved path', async () => {
     apiMock.cloudHealthList.mockResolvedValue([
       { id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'missing' },
@@ -120,6 +125,7 @@ describe('CloudHealthSection', () => {
     expect(await screen.findByText(/hyveon-deploy-all-policy\.json/)).toBeInTheDocument();
   });
 
+  // @spec APP-WIZARD-HEALTH-009
   it('should show an inline error and keep Fix available on an unexpected failure', async () => {
     apiMock.cloudHealthList.mockResolvedValue([
       { id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'missing' },

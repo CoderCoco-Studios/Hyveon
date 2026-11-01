@@ -30,6 +30,7 @@ export const electronEnv: Record<string, string> = {
   HYVEON_TEST_MODE: '1',
 };
 
+// @spec APP-IPC-HARN-003
 /**
  * Two e2e projects run side by side: `electron` drives the packaged main
  * bundle via `_electron.launch()`; `chromium` runs the remaining stub-based

@@ -16,6 +16,7 @@ const CLOUD_OPTIONS: { id: CloudOption; label: string; description: string }[] =
   { id: 'aws', label: 'Amazon Web Services (AWS)', description: 'ECS Fargate, EFS, Route 53, DynamoDB, Secrets Manager.' },
 ];
 
+// @spec APP-WIZARD-CLOUD-001
 /**
  * Second step of the first-run wizard: the operator picks which
  * cloud to deploy to. AWS is the only option in v1 — the list-driven

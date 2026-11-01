@@ -5,6 +5,7 @@ import { isStale, usePollingActions, usePollingState } from '../polling/polling-
 import { useAppRegionStyle } from '../hooks/use-app-region-style.hook.js';
 import { TrafficLightSpacer, TitlebarOverlaySpacer, WindowControls } from './window-chrome.component.js';
 
+// @spec APP-SHELL-TOP-003
 /**
  * Top-bar Refresh button — triggers every active poller in the registry. The
  * icon spins while at least one poll is in flight so the operator gets a brief
@@ -31,6 +32,7 @@ export function RefreshAllButton() {
   );
 }
 
+// @spec APP-SHELL-TOP-004
 /**
  * Top-bar LIVE indicator — pulses cyan while at least one poller has a fresh
  * success, dims gray when every poller is past 2× its interval, and goes
@@ -67,6 +69,7 @@ export function LiveIndicator() {
   );
 }
 
+// @spec APP-SHELL-CHROME-002, APP-SHELL-CHROME-003, APP-SHELL-UI-002, APP-SHELL-UI-003
 /**
  * Persistent top bar — env pill, mobile hamburger, refresh/live status, and
  * (in Electron) the window's drag region plus title-bar chrome. Sits above

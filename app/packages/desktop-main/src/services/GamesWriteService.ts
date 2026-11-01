@@ -293,6 +293,7 @@ export class GamesWriteService {
     return this.successResult('delete', payload.name, undefined, { before, after: null, versionId: write.versionId });
   }
 
+  // @spec APP-DIAG-AUDIT-005
   /**
    * Shared success path for all three operations: invalidates both the
    * `DeploymentConfigService` and `ConfigService` caches so the next read reflects the

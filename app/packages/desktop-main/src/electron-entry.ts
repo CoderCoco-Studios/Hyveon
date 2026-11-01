@@ -14,6 +14,7 @@ import { WindowService } from './services/WindowService.js';
 // compute it explicitly via import.meta.url so the file is valid plain ESM.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// @spec APP-SHELL-ICON-004
 /**
  * Resolves the PNG shown in the window title bar, the Linux taskbar and the
  * dev-run dock entry.
@@ -36,6 +37,7 @@ export function resolveWindowIcon(): string | undefined {
   return candidates.find((candidate) => candidate !== undefined && existsSync(candidate));
 }
 
+// @spec APP-SHELL-BOOT-010
 /**
  * Routes the renderer's `target="_blank"` links (e.g. the "Open AWS Cost
  * Explorer" link on the costs page) to the operator's default OS browser
@@ -69,6 +71,7 @@ const SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 252, y: 20 };
  */
 const NO_SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 12, y: 20 };
 
+// @spec APP-SHELL-CHROME-001, APP-SHELL-CHROME-005, APP-SHELL-CHROME-008
 /**
  * Builds the platform-conditional `BrowserWindow` chrome options for the
  * custom title bar. `titleBarStyle: 'hidden'` on every platform hides the OS
@@ -116,6 +119,7 @@ function platformWindowChromeOptions(): Partial<Electron.BrowserWindowConstructo
   return base;
 }
 
+// @spec APP-SHELL-CHROME-006
 /**
  * Keeps macOS's traffic-light cluster aligned with the header as the window
  * is resized across the sidebar's responsive breakpoint. `trafficLightPosition`
@@ -157,6 +161,7 @@ function wireTrafficLightResizeHandling(win: BrowserWindow): void {
   win.webContents.on('zoom-changed', applyPositionForCurrentBounds);
 }
 
+// @spec APP-SHELL-BOOT-007, APP-SHELL-BOOT-009
 /**
  * Creates the main application window with the preload script wired in and
  * loads either the dev server URL or the production renderer bundle.
@@ -203,10 +208,12 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
+// @spec APP-SHELL-BOOT-004
 // This is a single-purpose operator console, not a document editor — the
 // default File/Edit/View/Window menu bar exposes no actions the app uses.
 Menu.setApplicationMenu(null);
 
+// @spec APP-SHELL-BOOT-005, APP-SHELL-BOOT-006, APP-SHELL-BOOT-011, APP-SHELL-BOOT-015
 app.whenReady().then(() => {
   bootstrap()
     .then((nestApp) => {
@@ -245,6 +252,7 @@ app.whenReady().then(() => {
     });
 });
 
+// @spec APP-SHELL-BOOT-012
 // Quit the app when all windows are closed, except on macOS where the app and
 // its menu bar conventionally stay active until the user explicitly quits.
 app.on('window-all-closed', () => {

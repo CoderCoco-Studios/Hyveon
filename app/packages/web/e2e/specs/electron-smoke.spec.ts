@@ -23,6 +23,7 @@ test.describe('electron smoke', () => {
     }
   });
 
+  // @spec APP-IPC-NAME-001
   test('should expose window.hyveon from the preload script', async () => {
     const { app, win } = await launchElectron();
 

@@ -86,6 +86,7 @@ class FailingParseAwsProfileService extends AwsProfileService {
 }
 
 describe('AwsProfileService.listProfiles', () => {
+  // @spec APP-WIZARD-CREDS-001
   it('should list profiles merged from both credentials and config files, sorted by name', async () => {
     const profiles = await makeService(FIXTURE_HOME).listProfiles();
     expect(profiles.map((p) => p.profileName)).toEqual(['default', 'dev', 'noregion', 'prod']);
@@ -98,6 +99,7 @@ describe('AwsProfileService.listProfiles', () => {
     expect(byName['dev']?.region).toBe('us-west-2');
   });
 
+  // @spec APP-WIZARD-CREDS-001
   it('should normalize a config-file "[profile <name>]" section to just "<name>"', async () => {
     const profiles = await makeService(FIXTURE_HOME).listProfiles();
     const prod = profiles.find((p) => p.profileName === 'prod');
@@ -109,6 +111,7 @@ describe('AwsProfileService.listProfiles', () => {
     expect(profiles.some((p) => p.profileName === 'prod')).toBe(true);
   });
 
+  // @spec APP-WIZARD-CREDS-001
   it('should never expose aws_access_key_id/aws_secret_access_key or other non-region fields', async () => {
     const profiles = await makeService(FIXTURE_HOME).listProfiles();
     for (const profile of profiles) {
@@ -116,6 +119,7 @@ describe('AwsProfileService.listProfiles', () => {
     }
   });
 
+  // @spec APP-WIZARD-CREDS-002
   it('should return an empty array when neither credentials nor config files exist', async () => {
     const profiles = await makeService(EMPTY_HOME).listProfiles();
     expect(profiles).toEqual([]);
@@ -136,6 +140,7 @@ describe('AwsProfileService.listProfiles', () => {
     expect(debugSpy).toHaveBeenCalledWith('AwsProfileService.listProfiles: reading AWS CLI profiles from disk');
   });
 
+  // @spec APP-WIZARD-CREDS-002
   it('should log a warning and rethrow a plain Error (never the raw error object) when parsing the AWS CLI files fails', async () => {
     const service = new FailingParseAwsProfileService(stubSafeStorage(), stubStore());
     const warnSpy = vi.spyOn(logger, 'warn');
@@ -150,6 +155,7 @@ describe('AwsProfileService.listProfiles', () => {
 });
 
 describe('AwsProfileService.savePastedCredentials', () => {
+  // @spec APP-WIZARD-KEYCH-003, APP-WIZARD-CUSTODY-008
   it('should throw SafeStorageUnavailableError and write nothing when safeStorage is unavailable', () => {
     const safeStorage = stubSafeStorage(false);
     const store = stubStore();
@@ -161,6 +167,7 @@ describe('AwsProfileService.savePastedCredentials', () => {
     expect(store.setPastedCredentials).not.toHaveBeenCalled();
   });
 
+  // @spec APP-WIZARD-CREDS-004
   it('should default the profile name to hyveon-pasted when none is supplied', () => {
     const store = stubStore();
     const service = new AwsProfileService(stubSafeStorage(true), store);
@@ -210,6 +217,7 @@ describe('AwsProfileService.savePastedCredentials', () => {
     );
   });
 
+  // @spec APP-WIZARD-CREDS-004
   it('should throw InvalidPastedCredentialsError and write nothing when accessKeyId is blank', () => {
     const store = stubStore();
     const service = new AwsProfileService(stubSafeStorage(true), store);
@@ -334,6 +342,7 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     vi.restoreAllMocks();
   });
 
+  // @spec APP-WIZARD-ROTKEY-004, APP-WIZARD-CUSTODY-008
   it('should throw SafeStorageUnavailableError and never call any AWS API when the keychain is unavailable', async () => {
     service = new TestableAwsProfileService(stubSafeStorage(false), store);
 
@@ -342,6 +351,7 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     expect(store.setPastedCredentials).not.toHaveBeenCalled();
   });
 
+  // @spec APP-WIZARD-ROTKEY-004
   it('should throw UnsupportedCredentialSourceError and never call any AWS API when the active source is kind: profile', async () => {
     store = makeRotationStore({ aws: { profile: 'my-cli-profile', region: REGION } }); // getPastedCredentials -> undefined
     service = new TestableAwsProfileService(stubSafeStorage(true), store);
@@ -360,6 +370,7 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     expect(store.setPastedCredentials).not.toHaveBeenCalled();
   });
 
+  // @spec APP-WIZARD-ROTKEY-004
   it('should throw and never call any AWS API when neither aws.region nor the pasted entry has a region', async () => {
     store = makeRotationStore({
       aws: { profile: PROFILE },
@@ -414,6 +425,7 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     });
   });
 
+  // @spec APP-WIZARD-ROTKEY-001
   it('should perform CreateAccessKey(current client) -> GetCallerIdentity(new client) -> setPastedCredentials -> DeleteAccessKey(old key, new client) in exact order on success', async () => {
     const order: string[] = [];
     iamMock.on(CreateAccessKeyCommand).callsFake(() => {
@@ -478,6 +490,7 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     expect(deleteCalls[0]!.args[0].input).toEqual({ AccessKeyId: CURRENT_ACCESS_KEY_ID });
   });
 
+  // @spec APP-WIZARD-ROTKEY-002
   it('should return verification-failed and leave the stored credentials untouched when GetCallerIdentity fails for the new key', async () => {
     stubCreateAccessKeySuccess();
     const verifyError = new Error('The security token included in the request is invalid');
@@ -513,6 +526,7 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     });
   });
 
+  // @spec APP-WIZARD-ROTKEY-001
   it('should attempt verification up to 6 times total before returning verification-failed when GetCallerIdentity fails every time', async () => {
     stubCreateAccessKeySuccess();
     const verifyError = new Error('The security token included in the request is invalid');
@@ -610,6 +624,7 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     expect(store.setPastedCredentials).not.toHaveBeenCalled();
   });
 
+  // @spec APP-WIZARD-ROTKEY-003
   it('should return delete-failed with a console URL and leave the new key stored/active when DeleteAccessKey fails for the old key', async () => {
     stubCreateAccessKeySuccess();
     stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });

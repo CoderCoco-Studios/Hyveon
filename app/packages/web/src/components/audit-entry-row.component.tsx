@@ -7,6 +7,7 @@ import { TableCell, TableRow } from '@/components/ui/table.component';
 import { cn } from '@/lib/utils.utils';
 import { formatTimestamp } from '@/lib/format.utils';
 
+// @spec APP-DIAG-AUDUI-006
 /**
  * Maps an {@link AuditAction} to the badge color variant used in the audit log.
  *
@@ -33,6 +34,7 @@ function formatDiffValue(value: unknown): string {
   return value === null || value === undefined ? 'null' : JSON.stringify(value, null, 2);
 }
 
+// @spec APP-DIAG-AUDUI-005, APP-DIAG-AUDUI-007
 /**
  * One row in the `/audit` table. Always shows the summary columns
  * (timestamp, actor, action, game, version id); clicking the chevron button

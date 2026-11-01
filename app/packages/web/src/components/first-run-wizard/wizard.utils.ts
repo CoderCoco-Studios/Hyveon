@@ -33,6 +33,7 @@ export type BootstrapResourceKey = 'stateBucket' | 'configurationBucket';
  */
 export type BootstrapResourceState = 'pending' | 'creating' | 'created' | 'exists' | 'failed';
 
+// @spec APP-WIZARD-BOOT-013
 /**
  * Sensible default resource names for the bootstrap step's editable name
  * fields, derived from the operator's project name (defaults to `hyveon`,

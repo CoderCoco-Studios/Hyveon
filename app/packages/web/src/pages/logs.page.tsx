@@ -23,6 +23,7 @@ function gameFromLocationState(state: unknown): string | null {
   return typeof game === 'string' ? game : null;
 }
 
+// @spec APP-LOGS-UI-001, APP-LOGS-UI-003, APP-LOGS-UI-004
 /**
  * Logs route (`/logs`) — full-page tailing of CloudWatch logs for a single
  * game. Owns game selection (list load, `GameCombobox`, navigation-state

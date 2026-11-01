@@ -33,6 +33,7 @@ function stubSaveDialog(dialogs: NativeDialogService, result: string | null): vo
   dialogs.pickSavePath = () => Promise.resolve(result);
 }
 
+// @spec APP-DIAG-BNDL-004
 test('should write a real .zip to disk with the expected entries when the operator picks a save location', async ({ ipc }) => {
   const dir = mkdtempSync(join(tmpdir(), 'diagnostics-export-'));
   const destinationPath = join(dir, 'bundle.zip');
@@ -68,6 +69,7 @@ test('should write a real .zip to disk with the expected entries when the operat
   }
 });
 
+// @spec APP-DIAG-BNDL-005
 test('should still write a bundle with the other sections when the config-summary section fails (no configuration bucket configured)', async ({
   ipc,
 }) => {
@@ -84,6 +86,7 @@ test('should still write a bundle with the other sections when the config-summar
   expect(entryNames).not.toContain('config-summary.json');
 });
 
+// @spec APP-DIAG-BNDL-002
 test('should return a cancelled result and write no file when the operator cancels the save dialog', async ({ ipc }) => {
   const dir = mkdtempSync(join(tmpdir(), 'diagnostics-export-'));
   const destinationPath = join(dir, 'bundle.zip');

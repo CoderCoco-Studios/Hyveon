@@ -19,6 +19,7 @@ import { GameStatusProvider } from './polling/game-status-provider.component.js'
 import { Toaster } from './components/ui/sonner.component.js';
 import { FirstRunWizard } from './components/first-run-wizard/first-run-wizard.component.js';
 
+// @spec APP-SHELL-GATE-001, APP-SHELL-GATE-004, APP-SHELL-GATE-005
 /**
  * Fetches the wizard's completion flag once on mount. Defaults to `true`
  * (i.e. skip the wizard) on any failure — a missing `window.hyveon` bridge or a
@@ -61,6 +62,8 @@ function useWizardCompleted(): boolean | null {
 }
 
 // @spec IAC-RUN-PLAN-001
+// @spec APP-WIZARD-GATE-001, APP-WIZARD-GATE-002, APP-WIZARD-GATE-005
+// @spec APP-SHELL-GATE-002, APP-SHELL-GATE-003, APP-SHELL-NAV-001, APP-SHELL-NAV-002
 /**
  * Root component.
  *

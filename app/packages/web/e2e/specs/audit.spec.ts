@@ -85,6 +85,7 @@ const PAGE_TWO: AuditPageResult = {
 };
 
 test.describe('audit log page', () => {
+  // @spec APP-DIAG-AUDUI-004
   test('should render the Audit Log heading and an empty state when there are no entries', async ({ audit }) => {
     await stubApis(audit.page, { audit: { entries: [] } });
     await audit.goto();
@@ -93,6 +94,7 @@ test.describe('audit log page', () => {
     await expect(audit.emptyStateMessage()).toBeVisible();
   });
 
+  // @spec APP-DIAG-AUDUI-001
   test('should list stubbed entries showing the timestamp, actor, action, game, and version for each row', async ({ audit }) => {
     await stubApis(audit.page, { audit: PAGE_ONE });
     await audit.goto();
@@ -108,6 +110,7 @@ test.describe('audit log page', () => {
     await expect(audit.entryRow(1)).toContainText('v-1');
   });
 
+  // @spec APP-DIAG-AUDUI-005
   test('should expand a row to reveal the before/after JSON diff', async ({ audit }) => {
     await stubApis(audit.page, { audit: PAGE_ONE });
     await audit.goto();
@@ -127,6 +130,7 @@ test.describe('audit log page', () => {
     await expect(audit.loadMoreButton()).toHaveCount(0);
   });
 
+  // @spec APP-DIAG-AUDUI-002
   test('should append a second page of entries when "Load more" is clicked against a stubbed cursor response', async ({ audit }) => {
     await stubApis(audit.page, {
       // The stub route always passes the parsed `before` query param through —

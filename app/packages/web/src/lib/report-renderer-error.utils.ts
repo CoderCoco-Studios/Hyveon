@@ -57,6 +57,7 @@ function formatConsoleArgs(args: unknown[]): string {
     .join(' ');
 }
 
+// @spec APP-DIAG-CONS-007, APP-DIAG-CONS-008
 /**
  * Queues a console call, dropping (and counting) it once the queue plus
  * whatever is currently {@link inFlightCount} would reach {@link MAX_QUEUE_SIZE}
@@ -84,6 +85,7 @@ function requeueAfterFailedFlush(entries: RendererLogEntry[], droppedCount: numb
   droppedSinceLastFlush += droppedCount;
 }
 
+// @spec APP-DIAG-CONS-006, APP-DIAG-CONS-008, APP-DIAG-CONS-010, APP-DIAG-CONS-011
 /**
  * Sends up to {@link MAX_BATCH_ENTRIES} queued entries to the main process.
  * Anything beyond that per-flush cap stays queued for the next flush rather
@@ -137,6 +139,7 @@ function flush(): void {
   );
 }
 
+// @spec APP-DIAG-RERR-001, APP-DIAG-RERR-005
 /**
  * Best-effort forward of a renderer-side error to the main process log.
  * Swallows its own failure (e.g. no `window.hyveon` bridge in a plain
@@ -158,6 +161,7 @@ export function reportRendererError(
   void window.hyveon.diagnostics.reportError(message, stack, source)?.catch(() => undefined);
 }
 
+// @spec APP-DIAG-RERR-002
 /**
  * Installs `window.onerror`/`unhandledrejection` listeners that forward to
  * {@link reportRendererError}. Call once, before `createRoot(...).render(...)`.
@@ -176,6 +180,8 @@ export function installGlobalErrorReporting(): void {
 /** Whether {@link installConsoleForwarding} has already wrapped `console.*` in this session. */
 let consoleForwardingInstalled = false;
 
+// @spec APP-DIAG-CONS-001, APP-DIAG-CONS-002, APP-DIAG-CONS-005
+// @spec APP-DIAG-CONS-013, APP-DIAG-CONS-014, APP-DIAG-CONS-015
 /**
  * Overrides `console.log`/`info`/`warn`/`error` to also forward each call,
  * batched and rate-limited, to the main process log via

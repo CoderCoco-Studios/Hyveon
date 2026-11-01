@@ -40,6 +40,7 @@ async function* successfulRun(): AsyncGenerator<StackInitPhaseEvent> {
 
 // @spec IAC-ENGINE-INIT-006
 describe('StackInitializationStep', () => {
+  // @spec APP-WIZARD-STACK-002
   it('should render all three phases as pending before any event arrives', () => {
     hyveonMock.iac.stack.initialize.mockImplementation(
       toStreamHandleMock(
@@ -57,6 +58,7 @@ describe('StackInitializationStep', () => {
     expect(screen.getByText('Creating the stack')).toBeInTheDocument();
   });
 
+  // @spec APP-WIZARD-STACK-001
   it('should call hyveon.iac.stack.initialize with no arguments', async () => {
     hyveonMock.iac.stack.initialize.mockImplementation(toStreamHandleMock(successfulRun));
 
@@ -81,6 +83,8 @@ describe('StackInitializationStep', () => {
     expect(hyveonMock.iac.stack.initialize).toHaveBeenCalledTimes(1);
   });
 
+  // @spec APP-WIZARD-STACK-002
+  // @spec APP-IPC-STREAM-006
   it('should show each phase as in progress and then done as start/end events stream in', async () => {
     let resolvePluginsEnd!: () => void;
     hyveonMock.iac.stack.initialize.mockImplementation(
@@ -107,6 +111,7 @@ describe('StackInitializationStep', () => {
     await waitFor(() => expect(screen.getByText('Creating the stack')).toBeInTheDocument());
   });
 
+  // @spec APP-WIZARD-STACK-004
   it('should enable Finish setup only once every phase completes successfully', async () => {
     hyveonMock.iac.stack.initialize.mockImplementation(toStreamHandleMock(successfulRun));
 
@@ -132,6 +137,7 @@ describe('StackInitializationStep', () => {
   });
 
   // @spec IAC-ENGINE-PFAIL-005
+  // @spec APP-WIZARD-STACK-003
   it('should show a specific error and a retry affordance, attributed to the failed phase, when the run fails', async () => {
     hyveonMock.iac.stack.initialize.mockImplementation(
       toStreamHandleMock(async function* () {
@@ -153,6 +159,7 @@ describe('StackInitializationStep', () => {
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 
+  // @spec APP-WIZARD-STACK-003
   it('should re-invoke hyveon.iac.stack.initialize when Retry is clicked after a failure', async () => {
     hyveonMock.iac.stack.initialize
       .mockImplementationOnce(
@@ -174,6 +181,7 @@ describe('StackInitializationStep', () => {
     expect(hyveonMock.iac.stack.initialize).toHaveBeenCalledTimes(2);
   });
 
+  // @spec APP-WIZARD-GATE-005
   it('should call wizard.complete and onFinished when Finish setup is clicked', async () => {
     hyveonMock.iac.stack.initialize.mockImplementation(toStreamHandleMock(successfulRun));
     hyveonMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });

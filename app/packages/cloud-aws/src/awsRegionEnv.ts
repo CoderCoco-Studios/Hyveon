@@ -1,3 +1,4 @@
+// @spec APP-WIZARD-CUSTODY-005
 /**
  * Dedicated environment accessor for the AWS region fallback chain.
  *

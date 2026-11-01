@@ -35,6 +35,7 @@ describe('WindowService', () => {
     service = new WindowService();
   });
 
+  // @spec APP-SHELL-WINIPC-007
   describe('before attach', () => {
     it('should report isMaximized as false when no window is attached', () => {
       expect(service.isMaximized()).toBe(false);
@@ -48,6 +49,7 @@ describe('WindowService', () => {
   });
 
   describe('after attach', () => {
+    // @spec APP-SHELL-WINIPC-001
     it('should delegate minimize() to win.minimize()', () => {
       const win = makeWin();
       service.attach(win);
@@ -55,6 +57,7 @@ describe('WindowService', () => {
       expect(win.minimize).toHaveBeenCalledOnce();
     });
 
+    // @spec APP-SHELL-WINIPC-002
     it('should call win.maximize() when toggleMaximize() is called on an unmaximized window', () => {
       const win = makeWin();
       vi.mocked(win.isMaximized).mockReturnValue(false);
@@ -64,6 +67,7 @@ describe('WindowService', () => {
       expect(win.unmaximize).not.toHaveBeenCalled();
     });
 
+    // @spec APP-SHELL-WINIPC-003
     it('should call win.unmaximize() when toggleMaximize() is called on a maximized window', () => {
       const win = makeWin();
       vi.mocked(win.isMaximized).mockReturnValue(true);
@@ -73,6 +77,7 @@ describe('WindowService', () => {
       expect(win.maximize).not.toHaveBeenCalled();
     });
 
+    // @spec APP-SHELL-WINIPC-004
     it('should delegate close() to win.close()', () => {
       const win = makeWin();
       service.attach(win);
@@ -80,6 +85,7 @@ describe('WindowService', () => {
       expect(win.close).toHaveBeenCalledOnce();
     });
 
+    // @spec APP-SHELL-WINIPC-005
     it('should return the attached window\'s isMaximized() result', () => {
       const win = makeWin();
       vi.mocked(win.isMaximized).mockReturnValue(true);
@@ -87,6 +93,7 @@ describe('WindowService', () => {
       expect(service.isMaximized()).toBe(true);
     });
 
+    // @spec APP-SHELL-WINIPC-006
     it('should push window.maximizedChange with true when the window fires its native maximize event', () => {
       const win = makeWin();
       service.attach(win as BrowserWindow);
@@ -94,6 +101,7 @@ describe('WindowService', () => {
       expect(win.webContents.send).toHaveBeenCalledWith('window.maximizedChange', true);
     });
 
+    // @spec APP-SHELL-WINIPC-006
     it('should push window.maximizedChange with false when the window fires its native unmaximize event', () => {
       const win = makeWin();
       service.attach(win as BrowserWindow);
@@ -123,6 +131,7 @@ describe('WindowService', () => {
       expect(win.minimize).not.toHaveBeenCalled();
     });
 
+    // @spec APP-SHELL-WINIPC-008
     it("should not detach the newly attached window when an earlier window's stale closed listener fires late", () => {
       const winA = makeWin();
       const winB = makeWin();

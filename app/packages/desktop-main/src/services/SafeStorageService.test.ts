@@ -26,6 +26,7 @@ describe('SafeStorageService', () => {
 
   // isAvailable()
 
+  // @spec APP-WIZARD-CUSTODY-006
   describe('isAvailable()', () => {
     it('should return false when not running in Electron', () => {
       vi.spyOn(service as unknown as { readIsElectron(): boolean }, 'readIsElectron').mockReturnValue(false);
@@ -96,6 +97,7 @@ describe('SafeStorageService', () => {
       expect(logger.warn).toHaveBeenCalled();
     });
 
+    // @spec APP-WIZARD-CREDS-005
     it('should return a base64-encoded string when Electron is available', () => {
       stubElectron();
       vi.spyOn(service as unknown as { encryptString(p: string): Buffer }, 'encryptString').mockReturnValue(
@@ -195,6 +197,7 @@ describe('SafeStorageService', () => {
       expect(service.decrypt(ciphertext)).toBe(ciphertext);
     });
 
+    // @spec APP-WIZARD-CREDS-005
     it('should decrypt base64 ciphertext back to plaintext', () => {
       stubElectron();
       vi.spyOn(service as unknown as { decryptString(b: Buffer): string }, 'decryptString').mockReturnValue('hello');
@@ -270,6 +273,7 @@ describe('SafeStorageService', () => {
   // Round-trip
 
   describe('round-trip', () => {
+    // @spec APP-WIZARD-CREDS-005
     it('should encrypt and decrypt back to the original value', () => {
       vi.spyOn(service as unknown as { readIsElectron(): boolean }, 'readIsElectron').mockReturnValue(true);
       vi.spyOn(service as unknown as { readIsAvailable(): boolean }, 'readIsAvailable').mockReturnValue(true);

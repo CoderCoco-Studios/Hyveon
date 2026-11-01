@@ -41,6 +41,7 @@ describe('InfrastructureLogsPage', () => {
     hyveonMock.logs.lambda.stream.mockImplementation(toStreamHandleMock(async function* () {}));
   });
 
+  // @spec APP-LOGS-UI-002
   it('should render a heading and all 5 function options in the picker', async () => {
     renderPage(<InfrastructureLogsPage />);
 
@@ -50,6 +51,7 @@ describe('InfrastructureLogsPage', () => {
     }
   });
 
+  // @spec APP-LOGS-UI-002
   it('should default to watchdog and call logs.lambda.get on mount', async () => {
     renderPage(<InfrastructureLogsPage />);
 

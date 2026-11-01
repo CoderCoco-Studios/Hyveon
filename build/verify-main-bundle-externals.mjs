@@ -39,6 +39,7 @@
  * check silently vacuous forever.
  */
 
+// @spec APP-SHELL-BOOT-014
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';

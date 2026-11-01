@@ -253,6 +253,7 @@ export class DiscordConfigService {
     }
   }
 
+  // @spec APP-IPC-SEC-001
   /** Redacted view safe to return to the web client. Includes `*Set` flags for both secrets and the Pulumi-managed base lists. */
   async getRedacted(): Promise<RedactedDiscordConfig> {
     const [cfg, base, botToken, publicKey] = await Promise.all([

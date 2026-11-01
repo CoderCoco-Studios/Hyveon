@@ -18,6 +18,7 @@ import { Button } from './ui/button.component.js';
  */
 type ExportBundleState = 'idle' | 'loading' | { status: 'success'; path: string } | { status: 'error'; message: string };
 
+// @spec APP-DIAG-BNDL-001, APP-DIAG-BNDL-002, APP-DIAG-BNDL-015, APP-DIAG-BNDL-016, APP-DIAG-BNDL-018
 /**
  * "Export diagnostics bundle" button plus its two result banners (a success
  * banner with a "Show in folder" action, or an error banner) — owns the

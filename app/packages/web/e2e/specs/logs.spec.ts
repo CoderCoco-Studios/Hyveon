@@ -95,6 +95,7 @@ test.describe('logs page', () => {
     await expect(win.getByText('Server started on port 25565')).toBeVisible();
   });
 
+  // @spec APP-LOGS-UI-005
   test('should toggle to Paused badge and back via the Pause/Resume button', async () => {
     await setupLogsPage(win, ['minecraft'], { minecraft: SAMPLE_LOG_LINES });
     await logs.gotoViaSidebar();
@@ -107,6 +108,7 @@ test.describe('logs page', () => {
     await expect(logs.liveBadge()).toBeVisible();
   });
 
+  // @spec APP-LOGS-RENDER-001
   test('should highlight matches via <mark> when typing into the search box without filtering lines out', async () => {
     await setupLogsPage(win, ['minecraft'], { minecraft: SAMPLE_LOG_LINES });
     await logs.gotoViaSidebar();

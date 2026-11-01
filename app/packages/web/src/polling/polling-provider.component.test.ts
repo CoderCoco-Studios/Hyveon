@@ -14,6 +14,7 @@ function makeState(overrides: Partial<PollerState> = {}): PollerState {
   };
 }
 
+// @spec APP-SHELL-POLL-007
 describe('isStale', () => {
   it('should return false when the poller state is undefined', () => {
     expect(isStale(undefined, 0)).toBe(false);

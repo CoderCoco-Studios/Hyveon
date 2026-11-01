@@ -85,6 +85,7 @@ function AutoscrollToggle({
   );
 }
 
+// @spec APP-LOGS-UI-005, APP-LOGS-UI-006, APP-LOGS-UI-007
 /**
  * Shared page shell for `/logs` (`LogsPage`) and `/logs/infrastructure`
  * (`InfrastructureLogsPage`) — the header, controls row (search, autoscroll,

@@ -1,5 +1,6 @@
 import fixPath from 'fix-path';
 
+// @spec APP-SHELL-BOOT-001
 /**
  * Applies the fix-path workaround for GUI applications on macOS and Linux.
  *

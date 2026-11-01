@@ -80,6 +80,7 @@ afterEach(() => {
 
 describe('BootstrapService', () => {
   describe('ensureStateBucket', () => {
+    // @spec APP-WIZARD-BOOT-005
     it('should create the bucket and enable versioning + encryption + public-access-block on a fresh bucket', async () => {
       s3Mock.on(CreateBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).resolves({});
@@ -145,6 +146,7 @@ describe('BootstrapService', () => {
       expect(s3Mock.commandCalls(PutPublicAccessBlockCommand)).toHaveLength(1);
     });
 
+    // @spec APP-WIZARD-BOOT-006
     it('should treat BucketAlreadyOwnedByYou as a success no-op and still ensure versioning/encryption/public-access-block', async () => {
       s3Mock.on(CreateBucketCommand).rejects(awsError('BucketAlreadyOwnedByYou'));
       s3Mock.on(PutBucketVersioningCommand).resolves({});
@@ -160,6 +162,7 @@ describe('BootstrapService', () => {
       expect(s3Mock.commandCalls(PutPublicAccessBlockCommand)).toHaveLength(1);
     });
 
+    // @spec APP-WIZARD-BOOT-009
     it('should report failure when the bucket already exists but public-access-block cannot be applied', async () => {
       s3Mock.on(HeadBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).resolves({});
@@ -172,6 +175,7 @@ describe('BootstrapService', () => {
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });
 
+    // @spec APP-WIZARD-BOOT-007
     it('should report a clear failure when the bucket name is owned by another account', async () => {
       s3Mock.on(CreateBucketCommand).rejects(awsError('BucketAlreadyExists'));
       const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
@@ -192,6 +196,7 @@ describe('BootstrapService', () => {
       expect(result).toEqual({ status: 'failed', message: 'network timeout' });
     });
 
+    // @spec APP-WIZARD-BOOT-009
     it('should report failure when versioning/encryption cannot be applied after a successful create', async () => {
       s3Mock.on(CreateBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).rejects(new Error('access denied'));
@@ -210,6 +215,7 @@ describe('BootstrapService', () => {
       );
     });
 
+    // @spec APP-WIZARD-BOOT-003
     it('should build the S3 client with static credentials when the profile resolves to pasted credentials', async () => {
       s3Mock.on(CreateBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).resolves({});
@@ -227,6 +233,7 @@ describe('BootstrapService', () => {
       expect(store.getPastedCredentials).toHaveBeenCalledWith('hyveon-pasted');
     });
 
+    // @spec APP-WIZARD-BOOT-003
     it('should fall back to a real ~/.aws CLI profile when the profile has no pasted-credentials entry', async () => {
       s3Mock.on(CreateBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).resolves({});
@@ -256,6 +263,7 @@ describe('BootstrapService', () => {
   });
 
   describe('ensureConfigurationBucket', () => {
+    // @spec APP-WIZARD-BOOT-008
     it('should create the bucket with versioning, a 90-day noncurrent-version lifecycle rule, encryption, and public-access-block on a fresh bucket', async () => {
       s3Mock.on(CreateBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).resolves({});
@@ -305,6 +313,7 @@ describe('BootstrapService', () => {
       });
     });
 
+    // @spec APP-WIZARD-BOOT-006
     it('should treat BucketAlreadyOwnedByYou as a success no-op and still ensure versioning/lifecycle/encryption/public-access-block', async () => {
       s3Mock.on(CreateBucketCommand).rejects(awsError('BucketAlreadyOwnedByYou'));
       s3Mock.on(PutBucketVersioningCommand).resolves({});
@@ -348,6 +357,7 @@ describe('BootstrapService', () => {
       expect(s3Mock.commandCalls(PutBucketVersioningCommand)).toHaveLength(0);
     });
 
+    // @spec APP-WIZARD-BOOT-009
     it('should report failure with the error message when the lifecycle rule cannot be applied after a successful create', async () => {
       s3Mock.on(CreateBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).resolves({});
@@ -406,6 +416,7 @@ describe('BootstrapService', () => {
    * `updateTopLevelSettings`/`addGameServer` succeed afterward.
    */
   describe('ensureDeploymentConfig', () => {
+    // @spec APP-WIZARD-BOOT-010
     it('should seed a minimal valid deployment-config document when none exists yet', async () => {
       s3Mock.on(HeadObjectCommand).rejects(awsError('NotFound'));
       s3Mock.on(PutObjectCommand).resolves({ ETag: '"etag-1"' });
@@ -425,6 +436,7 @@ describe('BootstrapService', () => {
       expect(written).toEqual(withDeploymentConfigDefaults({ hostedZoneName: '', gameServers: {} }));
     });
 
+    // @spec APP-WIZARD-BOOT-010
     it('should report exists (not an error) and skip PutObject when HeadObject confirms the document already exists', async () => {
       s3Mock.on(HeadObjectCommand).resolves({});
       const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
@@ -464,6 +476,7 @@ describe('BootstrapService', () => {
     });
   });
 
+  // @spec APP-WIZARD-BOOT-014
   describe('cross-resource failure isolation', () => {
     it('should report the configuration bucket as failed and the state bucket as created independently, when only the configuration bucket\'s public-access-block call fails', async () => {
       s3Mock.on(CreateBucketCommand).resolves({});
@@ -531,6 +544,7 @@ describe('BootstrapService', () => {
    * half of this fix.
    */
   describe('ensureRunsTable', () => {
+    // @spec APP-WIZARD-BOOT-011
     it('should create the table with the exact schema dynamodb.ts documents (pk/sk keys, status-index GSI, PAY_PER_REQUEST billing) and enable point-in-time recovery', async () => {
       dynamoMock
         .on(DescribeTableCommand)
@@ -591,6 +605,7 @@ describe('BootstrapService', () => {
       expect(dynamoMock.commandCalls(UpdateContinuousBackupsCommand)).toHaveLength(1);
     });
 
+    // @spec APP-WIZARD-BOOT-011
     it('should treat a ResourceInUseException race from CreateTable as exists, not a failure', async () => {
       dynamoMock
         .on(DescribeTableCommand)
@@ -629,6 +644,7 @@ describe('BootstrapService', () => {
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });
 
+    // @spec APP-WIZARD-BOOT-011
     it('should retry UpdateContinuousBackupsCommand and succeed when AWS reports backups are still being enabled', async () => {
       dynamoMock
         .on(DescribeTableCommand)

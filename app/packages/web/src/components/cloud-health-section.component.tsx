@@ -23,6 +23,7 @@ function HealthBadge({ status }: { status: CloudHealthCheckSummary['status'] }) 
   }
 }
 
+// @spec APP-WIZARD-HEALTH-007
 /**
  * Remediation panel shown when a Cloud Health fix reports `outcome: 'needsPolicyUpdate'`.
  *
@@ -148,6 +149,7 @@ function PolicyUpdatePanel({ policyJson, policyConsoleUrl }: { policyJson: strin
   );
 }
 
+// @spec APP-WIZARD-HEALTH-003, APP-WIZARD-HEALTH-006, APP-WIZARD-HEALTH-009
 /**
  * One row of the Cloud Health checklist, with its own Fix state.
  *
@@ -207,6 +209,7 @@ function HealthRow({ check, onFixed }: { check: CloudHealthCheckSummary; onFixed
   );
 }
 
+// @spec APP-WIZARD-HEALTH-001, APP-WIZARD-HEALTH-002
 /**
  * Always-visible AWS account-prerequisite checklist for the Settings page.
  *

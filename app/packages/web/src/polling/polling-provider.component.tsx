@@ -66,6 +66,8 @@ const StateCtx = createContext<PollingStateContextValue | null>(null);
 /** A poller is considered stale once it has missed two intervals without success. */
 export const STALE_MULTIPLIER = 2;
 
+// @spec APP-SHELL-POLL-001, APP-SHELL-POLL-002, APP-SHELL-POLL-003, APP-SHELL-POLL-004, APP-SHELL-POLL-005,
+// @spec APP-SHELL-POLL-006, APP-SHELL-POLL-008
 /**
  * Provides a registry of named pollers so any route can subscribe to the same
  * polling state. Keeps timers in a ref keyed by name; `pollers` is React state
@@ -263,6 +265,7 @@ export function usePollingState(): PollingStateContextValue {
   return v;
 }
 
+// @spec APP-SHELL-POLL-009
 /**
  * Subscribe a function to the shared polling registry. Only subscribes to the
  * actions context — registering or refreshing a poller does **not** trigger
@@ -300,6 +303,7 @@ export function usePoller(
   return { refresh };
 }
 
+// @spec APP-SHELL-POLL-007
 /** True iff `state` has gone longer than `STALE_MULTIPLIER × intervalMs` without a successful poll. */
 export function isStale(state: PollerState | undefined, now: number = Date.now()): boolean {
   if (!state) return false;

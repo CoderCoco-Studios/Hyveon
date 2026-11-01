@@ -9,6 +9,7 @@ import { expect } from 'vitest';
  */
 export const PATTERN_METADATA_KEY = 'microservices:pattern';
 
+// @spec APP-IPC-CONTRACT-002
 /**
  * Asserts that every `[method, channel]` pair in `rows` is the exact
  * `@MessagePattern` registered for that method on `proto`.

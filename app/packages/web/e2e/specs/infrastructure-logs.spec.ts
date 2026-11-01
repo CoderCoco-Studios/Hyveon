@@ -14,6 +14,7 @@ import { test, expect, stubApis } from '../fixtures/index.js';
  * `openspec/changes/add-infra-log-viewer/design.md` D3.
  */
 test.describe('infrastructure logs page', () => {
+  // @spec APP-LOGS-NAV-001
   test('should render Game Logs and Infra Logs links in the nested Logs sidebar group', async ({ page, layout }) => {
     await stubApis(page);
     await page.goto('/');
@@ -22,6 +23,7 @@ test.describe('infrastructure logs page', () => {
     await expect(layout.sidebarLink('Infra Logs')).toBeVisible();
   });
 
+  // @spec APP-LOGS-UI-002
   test('should show the function picker and seeded logs on navigation', async ({ page, infraLogs }) => {
     await stubApis(page, { lambdaLogLines: { watchdog: ['watchdog seeded line'] } });
     await infraLogs.goto();
@@ -30,6 +32,7 @@ test.describe('infrastructure logs page', () => {
     await expect(page.getByText('watchdog seeded line')).toBeVisible();
   });
 
+  // @spec APP-LOGS-UI-002
   test('should show a different function\'s seeded lines after switching', async ({ page, infraLogs }) => {
     await stubApis(page, {
       lambdaLogLines: { watchdog: ['watchdog line'], 'health-check': ['health-check line'] },

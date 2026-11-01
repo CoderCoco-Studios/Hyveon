@@ -86,6 +86,7 @@ describe('LogsService', () => {
     service = makeService(makeConfig());
   });
 
+  // @spec APP-LOGS-SNAP-002
   it('should return a "no streams" line when the log group has no streams', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [] });
     const page = await service.getRecentLogs('minecraft');
@@ -93,6 +94,7 @@ describe('LogsService', () => {
     expect(page.lines[0]!.message).toMatch(/no log streams/i);
   });
 
+  // @spec APP-LOGS-GROUP-001, APP-LOGS-SNAP-001
   it('should query the /ecs/{game}-server log group and fetch the newest stream', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({
       logStreams: [{ logStreamName: 'ecs/stream1' }],
@@ -148,6 +150,7 @@ describe('LogsService', () => {
     expect(page.lines.map((l) => l.message)).toEqual(['a', '']);
   });
 
+  // @spec APP-LOGS-SNAP-004
   it('should return an error line when the API throws', async () => {
     cwMock.on(DescribeLogStreamsCommand).rejects(new Error('denied'));
     const page = await service.getRecentLogs('minecraft');
@@ -190,6 +193,7 @@ describe('LogsService.getOlderLogs', () => {
     service = makeService(makeConfig());
   });
 
+  // @spec APP-LOGS-PAGE-001
   it('should fetch older events bounded by endTime from the newest log stream', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 'ecs/stream1' }] });
     cwMock.on(GetLogEventsCommand).resolves({
@@ -210,6 +214,7 @@ describe('LogsService.getOlderLogs', () => {
     expect(getInput.endTime).toBe(1000);
   });
 
+  // @spec APP-LOGS-PAGE-004
   it('should report atOldest true when no events come back before the boundary and every stream was scanned', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 's' }] });
     cwMock.on(GetLogEventsCommand).resolves({ events: [] });
@@ -226,6 +231,7 @@ describe('LogsService.getOlderLogs', () => {
     await expect(service.getOlderLogs('minecraft', 1000)).rejects.toThrow(/no log streams/i);
   });
 
+  // @spec APP-LOGS-PAGE-006
   it('should throw a plain Error and log a warning when the CloudWatch call fails', async () => {
     cwMock.on(DescribeLogStreamsCommand).rejects(new Error('denied'));
 
@@ -236,6 +242,7 @@ describe('LogsService.getOlderLogs', () => {
     );
   });
 
+  // @spec APP-LOGS-PAGE-001
   it('should accumulate events across multiple log streams when the newest stream alone does not fill the requested limit', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves(streamsResponse(['stream-new', 'stream-old']));
     cwMock
@@ -256,6 +263,7 @@ describe('LogsService.getOlderLogs', () => {
     expect(page.atOldest).toBe(false);
   });
 
+  // @spec APP-LOGS-PAGE-001
   it('should trim accumulated cross-stream events to the requested limit, keeping those closest to beforeTimestamp', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves(streamsResponse(['stream-a', 'stream-b']));
     cwMock
@@ -282,6 +290,7 @@ describe('LogsService.getOlderLogs', () => {
     expect(cwMock.commandCalls(GetLogEventsCommand, { logStreamName: 'stream-b' })).toHaveLength(0);
   });
 
+  // @spec APP-LOGS-PAGE-004
   it('should not report atOldest when the scan cap was hit before every stream was exhausted', async () => {
     // 50 streams fills the scan cap on the first DescribeLogStreams page, so
     // pagination's nextToken (if any) is never consulted — atOldest must not
@@ -322,6 +331,7 @@ describe('LogsService.getNewerLogs', () => {
     service = makeService(makeConfig());
   });
 
+  // @spec APP-LOGS-PAGE-002
   it('should fetch newer events bounded by startTime, oldest first', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 'ecs/stream1' }] });
     cwMock.on(GetLogEventsCommand).resolves({
@@ -354,6 +364,7 @@ describe('LogsService.getNewerLogs', () => {
     expect(page.lines.map((l) => l.message)).toEqual(['a1', 'b1']);
   });
 
+  // @spec APP-LOGS-PAGE-005
   it('should report hasMore true when the accumulated page came back full', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 's' }] });
     cwMock.on(GetLogEventsCommand).resolves({
@@ -387,6 +398,7 @@ describe('LogsService.getNewerLogs', () => {
     ]);
   });
 
+  // @spec APP-LOGS-PAGE-003
   it('should exclude previously-delivered boundary events when excludeEventIds is passed, since startTime is inclusive', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 's' }] });
     cwMock.on(GetLogEventsCommand).resolves({
@@ -404,6 +416,7 @@ describe('LogsService.getNewerLogs', () => {
     expect(page.lines.map((l) => l.message)).toEqual(['c']);
   });
 
+  // @spec APP-LOGS-PAGE-003
   it('should deliver both events when two different streams each have an event sharing the same synthesized eventId, instead of dropping the second as a false-positive duplicate', async () => {
     // Bug 1 regression: the synthesized `${timestamp}:${message}` eventId is
     // a global identity, not a per-stream one. Two different streams can
@@ -478,6 +491,7 @@ describe('LogsService.getNewerLogs', () => {
     await expect(service.getNewerLogs('minecraft', 1000)).rejects.toThrow(/no log streams/i);
   });
 
+  // @spec APP-LOGS-PAGE-006
   it('should throw a plain Error and log a warning when the CloudWatch call fails', async () => {
     cwMock.on(DescribeLogStreamsCommand).rejects(new Error('denied'));
 
@@ -512,6 +526,7 @@ describe('LogsService.streamLogs', () => {
     );
   });
 
+  // @spec APP-LOGS-TAIL-006
   it('should terminate immediately when signal is already aborted before the first poll', async () => {
     const ac = new AbortController();
     ac.abort();
@@ -525,6 +540,7 @@ describe('LogsService.streamLogs', () => {
     expect(cwMock.commandCalls(FilterLogEventsCommand)).toHaveLength(0);
   });
 
+  // @spec APP-LOGS-TAIL-001
   it('should yield log lines from the first poll and terminate on abort', async () => {
     cwMock.on(FilterLogEventsCommand).resolves({
       events: [
@@ -564,6 +580,7 @@ describe('LogsService.streamLogs', () => {
     expect(l2).toBe('second');
   });
 
+  // @spec APP-LOGS-TAIL-004
   it('should de-duplicate events with the same eventId across polls', async () => {
     cwMock
       .on(FilterLogEventsCommand)
@@ -587,6 +604,7 @@ describe('LogsService.streamLogs', () => {
     expect(l2).toBe('line2');
   });
 
+  // @spec APP-LOGS-GROUP-001
   it('should query the /ecs/{game}-server log group', async () => {
     cwMock.on(FilterLogEventsCommand).resolves({
       events: [{ eventId: 'e1', timestamp: 1000, message: 'hello' }],
@@ -603,6 +621,7 @@ describe('LogsService.streamLogs', () => {
     expect(calls[0]!.args[0].input.logGroupName).toBe('/ecs/valheim-server');
   });
 
+  // @spec APP-LOGS-TAIL-008
   it('should yield a stream-error sentinel and continue when a poll throws', async () => {
     cwMock
       .on(FilterLogEventsCommand)
@@ -648,6 +667,7 @@ describe('LogsService — Lambda log methods', () => {
     service = makeService(makeConfig());
   });
 
+  // @spec APP-LOGS-GROUP-002, APP-LOGS-GROUP-003
   it('should resolve the default project name to /aws/lambda/hyveon-watchdog for functionKey "watchdog"', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [] });
     await service.getRecentLambdaLogs('watchdog');
@@ -655,6 +675,7 @@ describe('LogsService — Lambda log methods', () => {
     expect(input.logGroupName).toBe('/aws/lambda/hyveon-watchdog');
   });
 
+  // @spec APP-LOGS-GROUP-004
   it('should resolve a custom project name to /aws/lambda/acme-health-check for functionKey "health-check"', async () => {
     const deploymentConfig = makeDeploymentConfig('acme');
     service = makeService(makeConfig(), deploymentConfig);
@@ -664,12 +685,14 @@ describe('LogsService — Lambda log methods', () => {
     expect(input.logGroupName).toBe('/aws/lambda/acme-health-check');
   });
 
+  // @spec APP-LOGS-SNAP-002
   it('should return a "no log streams" line when the Lambda log group has no streams', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [] });
     const page = await service.getRecentLambdaLogs('followup');
     expect(page.lines.map((l) => l.message)).toEqual(['No log streams found for followup.']);
   });
 
+  // @spec APP-LOGS-SNAP-004
   it('should return an error line and log via logger.error when the CloudWatch call throws', async () => {
     cwMock.on(DescribeLogStreamsCommand).rejects(new Error('denied'));
     const page = await service.getRecentLambdaLogs('interactions');
@@ -681,6 +704,7 @@ describe('LogsService — Lambda log methods', () => {
     );
   });
 
+  // @spec APP-LOGS-SNAP-003
   it('should return an informational line (not an error) and skip logger.error when the Lambda log group does not exist yet', async () => {
     const notFound = Object.assign(new Error('The specified log group does not exist.'), {
       name: 'ResourceNotFoundException',
@@ -705,6 +729,7 @@ describe('LogsService.getOlderLambdaLogs', () => {
     service = makeService(makeConfig());
   });
 
+  // @spec APP-LOGS-PAGE-001
   it('should fetch older events bounded by endTime from the newest Lambda log stream', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 'stream1' }] });
     cwMock.on(GetLogEventsCommand).resolves({ events: [{ message: 'older', timestamp: 500 }] });
@@ -733,6 +758,7 @@ describe('LogsService.getOlderLambdaLogs', () => {
     expect(page.lines.map((l) => l.message)).toEqual(['from-old', 'from-new']);
   });
 
+  // @spec APP-LOGS-PAGE-007
   it('should throw an informational error when the Lambda log group does not exist yet', async () => {
     const notFound = Object.assign(new Error('The specified log group does not exist.'), {
       name: 'ResourceNotFoundException',
@@ -764,6 +790,7 @@ describe('LogsService.getNewerLambdaLogs', () => {
     service = makeService(makeConfig());
   });
 
+  // @spec APP-LOGS-PAGE-002
   it('should fetch newer events bounded by startTime for the resolved Lambda log group', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 'stream1' }] });
     cwMock.on(GetLogEventsCommand).resolves({ events: [{ message: 'newer', timestamp: 1200 }] });
@@ -778,6 +805,7 @@ describe('LogsService.getNewerLambdaLogs', () => {
     expect(input.startFromHead).toBe(true);
   });
 
+  // @spec APP-LOGS-PAGE-007
   it('should throw an informational error when the Lambda log group does not exist yet', async () => {
     const notFound = Object.assign(new Error('The specified log group does not exist.'), {
       name: 'ResourceNotFoundException',
@@ -804,6 +832,7 @@ describe('LogsService.streamLambdaLogs', () => {
     service = makeService(makeConfig());
   });
 
+  // @spec APP-LOGS-TAIL-003, APP-LOGS-TAIL-004
   it('should yield new log lines for the resolved Lambda log group without duplicating events', async () => {
     cwMock
       .on(FilterLogEventsCommand)
@@ -825,6 +854,7 @@ describe('LogsService.streamLambdaLogs', () => {
     expect(cwMock.commandCalls(FilterLogEventsCommand)[0]!.args[0].input.logGroupName).toBe('/aws/lambda/hyveon-dns-updater');
   });
 
+  // @spec APP-LOGS-TAIL-006
   it('should exit cleanly with no further FilterLogEvents calls once the signal is aborted', async () => {
     cwMock.on(FilterLogEventsCommand).resolves({ events: [] });
     const ac = new AbortController();
@@ -835,6 +865,7 @@ describe('LogsService.streamLambdaLogs', () => {
     expect(cwMock.commandCalls(FilterLogEventsCommand)).toHaveLength(0);
   });
 
+  // @spec APP-LOGS-TAIL-010
   it('should yield a single informational message and stop polling when the Lambda log group does not exist yet', async () => {
     const notFound = Object.assign(new Error('The specified log group does not exist.'), {
       name: 'ResourceNotFoundException',

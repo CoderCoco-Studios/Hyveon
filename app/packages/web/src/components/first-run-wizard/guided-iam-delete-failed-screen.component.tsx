@@ -11,6 +11,7 @@ export interface GuidedIamDeleteFailedScreenProps {
   onRevoke: () => void;
 }
 
+// @spec APP-WIZARD-ROTATE-005, APP-WIZARD-ROTATE-006
 /** `delete-failed` phase: the new key is active but the bootstrap key is still live — offers manual revocation. */
 export function GuidedIamDeleteFailedScreen({
   deleteFailedConsoleUrl,

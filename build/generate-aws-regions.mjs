@@ -63,6 +63,7 @@ export interface AwsRegionInfo {
   continent: string;
 }
 
+// @spec APP-WIZARD-REGION-001, APP-WIZARD-REGION-002
 /** Commercial-partition AWS regions, sorted by continent then region name. */
 export const AWS_REGIONS: AwsRegionInfo[] = [
 ${entries}

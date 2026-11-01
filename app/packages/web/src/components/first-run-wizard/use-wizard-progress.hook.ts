@@ -31,6 +31,7 @@ export interface UseWizardProgressResult {
   clearGuidedIamProgress: () => void;
 }
 
+// @spec APP-WIZARD-PROG-001, APP-WIZARD-PROG-004, APP-WIZARD-PROG-008
 /**
  * Owns the first-run wizard's step index plus the resume-on-mount and
  * save-on-change effects that keep `userData/wizard-state.json` in sync with

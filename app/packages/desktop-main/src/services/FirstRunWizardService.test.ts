@@ -51,6 +51,7 @@ describe('FirstRunWizardService', () => {
   });
 
   describe('getProgress', () => {
+    // @spec APP-WIZARD-PROG-005
     it('should default to the pick-cloud step when the state file does not exist', async () => {
       const progress = await service.getProgress();
       expect(progress).toEqual({ step: 'pick-cloud' });
@@ -62,12 +63,14 @@ describe('FirstRunWizardService', () => {
       expect(progress).toEqual({ step: 'bootstrap' });
     });
 
+    // @spec APP-WIZARD-PROG-005
     it('should default to the pick-cloud step when the file contains invalid JSON', async () => {
       writeFileSync(statePath, 'not valid json{{{', 'utf-8');
       const progress = await service.getProgress();
       expect(progress).toEqual({ step: 'pick-cloud' });
     });
 
+    // @spec APP-WIZARD-PROG-005
     it('should default to the pick-cloud step when the file holds an unrecognized step name', async () => {
       writeFileSync(statePath, JSON.stringify({ step: 'some-future-step' }), 'utf-8');
       const progress = await service.getProgress();
@@ -84,6 +87,7 @@ describe('FirstRunWizardService', () => {
       expect(progress).toEqual({ step: 'guided-iam', guidedIam: { subState: 'rotation-pending', hasBootstrapKey: true } });
     });
 
+    // @spec APP-WIZARD-PROG-006
     it('should omit guidedIam entirely (not pass through garbage) when subState is not one of the five valid literals', async () => {
       writeFileSync(
         statePath,
@@ -95,6 +99,7 @@ describe('FirstRunWizardService', () => {
       expect(progress).not.toHaveProperty('guidedIam.subState', 'made-up-state');
     });
 
+    // @spec APP-WIZARD-PROG-006
     it('should omit guidedIam entirely when hasBootstrapKey is not a boolean', async () => {
       writeFileSync(
         statePath,
@@ -118,6 +123,7 @@ describe('FirstRunWizardService', () => {
   });
 
   describe('recordStep', () => {
+    // @spec APP-WIZARD-PROG-001
     it('should write the given step to the state file, creating parent directories as needed', async () => {
       expect(existsSync(statePath)).toBe(false);
 
@@ -126,6 +132,7 @@ describe('FirstRunWizardService', () => {
       expect(JSON.parse(readFileSync(statePath, 'utf-8'))).toEqual({ step: 'credentials' });
     });
 
+    // @spec APP-WIZARD-PROG-007
     it('should reject a step name outside WIZARD_STEPS rather than writing it', async () => {
       // The IPC boundary erases WizardStepName's compile-time guarantee, so a
       // malformed/unexpected value must be rejected explicitly at runtime.
@@ -149,6 +156,7 @@ describe('FirstRunWizardService', () => {
       expect(await service.getProgress()).toEqual({ step: 'bootstrap' });
     });
 
+    // @spec APP-WIZARD-GSTEP-004
     it('should round-trip a guidedIam sub-state through recordStep and getProgress', async () => {
       await service.recordStep('guided-iam', { subState: 'awaiting-key-intake', hasBootstrapKey: false });
 
@@ -162,6 +170,7 @@ describe('FirstRunWizardService', () => {
       });
     });
 
+    // @spec APP-WIZARD-GSTEP-004
     it('should round-trip hasBootstrapKey as a plain boolean, never the key material itself', async () => {
       await service.recordStep('guided-iam', { subState: 'rotation-pending', hasBootstrapKey: true });
 
@@ -215,6 +224,7 @@ describe('FirstRunWizardService', () => {
       );
     });
 
+    // @spec APP-WIZARD-PROG-007
     it('should reject a guidedIam sub-state outside GuidedIamSubState rather than writing it', async () => {
       await expect(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately bypassing the compile-time type to exercise the runtime guard
@@ -223,6 +233,7 @@ describe('FirstRunWizardService', () => {
       expect(existsSync(statePath)).toBe(false);
     });
 
+    // @spec APP-WIZARD-PROG-007
     it('should reject a non-boolean hasBootstrapKey rather than writing it, without echoing the value into the thrown error', async () => {
       await expect(
         service.recordStep('guided-iam', {
@@ -248,11 +259,13 @@ describe('FirstRunWizardService', () => {
   });
 
   describe('complete', () => {
+    // @spec APP-WIZARD-GATE-005
     it('should set wizardCompleted to true in ElectronStoreService', async () => {
       await service.complete();
       expect(store.set).toHaveBeenCalledWith('wizardCompleted', true);
     });
 
+    // @spec APP-WIZARD-GATE-005
     it('should clear the resume file, so a future re-entry (e.g. Settings Reconfigure) starts clean', async () => {
       await service.recordStep('stack-init');
       expect(existsSync(statePath)).toBe(true);
@@ -291,6 +304,7 @@ describe('FirstRunWizardService', () => {
       expect(store.set).toHaveBeenCalledWith('wizardCompleted', false);
     });
 
+    // @spec APP-WIZARD-RESET-003
     it('should delete activeCloud, aws, bootstrap, and creds from the store', async () => {
       await service.reset();
 
@@ -300,6 +314,7 @@ describe('FirstRunWizardService', () => {
       expect(store.delete).toHaveBeenCalledWith('creds');
     });
 
+    // @spec APP-WIZARD-RESET-003
     it('should never touch pulumi state — passphrase and lock-ownership records belong to an already-provisioned stack, not wizard progress', async () => {
       await service.reset();
 
@@ -320,6 +335,7 @@ describe('FirstRunWizardService', () => {
       expect(unspiedService.stateFilePath()).toBe(join('/fake/userData', 'wizard-state.json'));
     });
 
+    // @spec APP-WIZARD-PROG-003
     it('should fall back to a hyveon-wizard-namespaced OS temp directory outside Electron', () => {
       const unspiedService = new TestableFirstRunWizardService(makeStore());
 

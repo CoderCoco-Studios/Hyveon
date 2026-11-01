@@ -39,6 +39,7 @@ import { GameWizardDraftService } from './services/GameWizardDraftService.js';
 import { AuditService } from './services/AuditService.js';
 import { WindowService } from './services/WindowService.js';
 
+// @spec APP-IPC-XPORT-003
 /**
  * Root Nest module. Wires the feature modules (`AwsModule`, `DiscordModule`,
  * `DeploymentConfigModule`, `RunRecordModule`, `PulumiEngineModule`,
@@ -99,6 +100,8 @@ import { WindowService } from './services/WindowService.js';
     WindowController,
   ],
   providers: [
+    // @spec APP-DIAG-LOG-007
+    // @spec APP-SHELL-BOOT-013
     {
       provide: DIAGNOSTICS_LOG_DIR,
       useFactory: () => {
