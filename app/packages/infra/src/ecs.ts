@@ -177,11 +177,13 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
   // `hostedZoneName.ts`.
   const strippedHostedZoneName = stripTrailingDots(hostedZoneName);
 
+  // @spec IAC-PROGRAM-ECS-001
+  // Container Insights publishes the per-task-family `NetworkRxBytes` the watchdog reads; Fargate emits no `AWS/EC2` network metrics.
   const cluster = new aws.ecs.Cluster(
     `${projectName}-cluster`,
     {
       name: `${projectName}-cluster`,
-      settings: [{ name: 'containerInsights', value: 'disabled' }],
+      settings: [{ name: 'containerInsights', value: 'enabled' }],
       tags: { Name: `${projectName}-cluster` },
     },
     opts,
