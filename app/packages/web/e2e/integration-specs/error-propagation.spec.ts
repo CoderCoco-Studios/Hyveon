@@ -21,6 +21,7 @@ import { test, expect, DEFAULT_STACK_OUTPUTS } from './index.js';
  * the real error-propagation path.
  */
 test.describe('Error propagation', () => {
+  // @spec RT-TASK-LAUNCH-013
   test('should surface RunTask AccessDeniedException as a failed start response', async ({
     ipc,
     serverMocks,

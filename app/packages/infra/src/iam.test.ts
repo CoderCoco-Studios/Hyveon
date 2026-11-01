@@ -266,6 +266,7 @@ describe('defineIamRoles', () => {
     });
   });
 
+  // @spec RT-HEALTH-PROV-001
   it('should declare no health-check role when no game declares healthCheck', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const roles = await runDefineIamRoles({ projectName: 'hyveon', gameServers: FIXTURE_GAME_SERVERS, provider });
@@ -274,6 +275,7 @@ describe('defineIamRoles', () => {
   });
 
   // @spec IAC-PROGRAM-IAM-009
+  // @spec RT-HEALTH-PROV-002
   it('should declare a single shared health-check role when at least one game declares healthCheck', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const roles = await runDefineIamRoles({ projectName: 'hyveon', gameServers: GAME_SERVERS_WITH_HEALTH_CHECK, provider });
@@ -297,6 +299,7 @@ describe('defineIamPolicies', () => {
   });
 
   // @spec IAC-PROGRAM-IAM-003, IAC-PROGRAM-IAM-005
+  // @spec RT-WATCHDOG-IAM-001, RT-WATCHDOG-IAM-003
   it('should declare the watchdog Lambda policy with no external ARN dependency', async () => {
     const { provider, roles } = await arrangeRoles(FIXTURE_GAME_SERVERS);
     await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS });
@@ -445,6 +448,7 @@ describe('defineIamPolicies', () => {
     });
   });
 
+  // @spec RT-HEALTH-PROV-001
   it('should declare no health-check policy when no game declares healthCheck', async () => {
     const { provider, roles } = await arrangeRoles(FIXTURE_GAME_SERVERS);
     const policies = await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS });
@@ -453,6 +457,7 @@ describe('defineIamPolicies', () => {
   });
 
   // @spec IAC-PROGRAM-IAM-009
+  // @spec RT-HEALTH-NET-002
   it('should grant the health-check policy ec2/ecs access plus secretsmanager scoped to exactly the referenced secret ARNs', async () => {
     const { provider, roles } = await arrangeRoles(GAME_SERVERS_WITH_HEALTH_CHECK);
     const policies = await runDefineIamPolicies({
@@ -489,6 +494,7 @@ describe('defineIamPolicies', () => {
     });
   });
 
+  // @spec RT-HEALTH-NET-002
   it('should omit the secretsmanager statement from the health-check policy when no opted-in game references a credential', async () => {
     const gameServers: Record<string, GameServerConfig> = {
       ...FIXTURE_GAME_SERVERS,
@@ -506,6 +512,8 @@ describe('defineIamPolicies', () => {
   });
 
   // @spec IAC-PROGRAM-IAM-006
+  // @spec RT-WATCHDOG-IAM-002
+  // @spec RT-HEALTH-NET-003
   it('should grant the watchdog policy lambda:InvokeFunction on the health-check function ARN when provided', async () => {
     const { provider, roles } = await arrangeRoles(GAME_SERVERS_WITH_HEALTH_CHECK);
     const healthCheckFunctionArn = 'arn:aws:lambda:us-east-1:123456789012:function:hyveon-health-check';
@@ -523,6 +531,8 @@ describe('defineIamPolicies', () => {
     expect(statements).toContainEqual({ Effect: 'Allow', Action: ['lambda:InvokeFunction'], Resource: healthCheckFunctionArn });
   });
 
+  // @spec RT-WATCHDOG-IAM-002
+  // @spec RT-HEALTH-PROV-001
   it('should omit lambda:InvokeFunction from the watchdog policy when no health-check function exists', async () => {
     const { provider, roles } = await arrangeRoles(FIXTURE_GAME_SERVERS);
     await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS });

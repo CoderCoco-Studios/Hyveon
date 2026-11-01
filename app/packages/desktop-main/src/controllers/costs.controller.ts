@@ -5,6 +5,7 @@ import { CostService } from '../services/CostService.js';
 import { EcsService } from '../services/EcsService.js';
 import { logger } from '../logger.js';
 
+// @spec RT-TASK-COST-001, RT-TASK-COST-002
 /**
  * Cost endpoints for the Electron main-process host. Every handler is bound to
  * an IPC channel via `@MessagePattern`. It delegates to the {@link ConfigService}, {@link CostService}, and
@@ -19,6 +20,7 @@ export class CostsController {
     private readonly ecs: EcsService,
   ) {}
 
+  // @spec RT-TASK-COST-006, RT-TASK-COST-007, RT-TASK-COST-008
   /**
    * Estimates the hourly Fargate cost of each game from its task definition's
    * CPU/memory, plus the sum-if-everything-were-running. Reads the game list

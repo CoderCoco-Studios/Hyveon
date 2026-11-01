@@ -1,3 +1,4 @@
+// @spec RT-WATCHDOG-UI-001
 /**
  * Static pointer to `DeploymentSettingsForm`'s "Watchdog tuning" section —
  * no IPC call, no inputs, no Save button. The deployed watchdog Lambda reads

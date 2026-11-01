@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { WatchdogPanel } from './watchdog-panel.component.js';
 
+// @spec RT-WATCHDOG-UI-001
 describe('WatchdogPanel', () => {
   it('should render the Watchdog Settings heading', () => {
     render(<WatchdogPanel />);

@@ -320,6 +320,7 @@ function healthCheckFromDraft(draft: WizardDraftHealthCheck): GameServerHealthCh
   return auth === undefined ? base : { ...base, auth };
 }
 
+// @spec RT-HEALTH-REDACT-002
 /** Builds the `auth` write-input `healthCheckFromDraft` submits — see that function's doc for the `undefined`/`null`/object convention. */
 function healthCheckAuthInputFromDraft(draft: WizardDraftHealthCheck): GameServerHealthCheckAuthWriteInput | null | undefined {
   switch (draft.authType) {

@@ -327,6 +327,7 @@ function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<
 }
 
 // @spec IAC-PROGRAM-ENV-002
+// @spec RT-WATCHDOG-ROUTE-004
 /**
  * Builds the `HEALTH_CHECKS` JSON object the watchdog reads to route a
  * game's idle decision to the health-check Lambda instead of the
@@ -352,6 +353,9 @@ function healthChecksByGame(gameServers: Record<string, GameServerConfig>): Reco
 // @spec IAC-PROGRAM-LAMBDA-004, IAC-PROGRAM-LAMBDA-005, IAC-PROGRAM-LAMBDA-006, IAC-PROGRAM-LAMBDA-007
 // @spec IAC-PROGRAM-LAMBDA-008, IAC-PROGRAM-LAMBDA-009, IAC-PROGRAM-LAMBDA-010, IAC-PROGRAM-LAMBDA-013
 // @spec IAC-PROGRAM-LAMBDA-014, IAC-PROGRAM-LAMBDA-015
+// @spec RT-WATCHDOG-SCHED-001, RT-WATCHDOG-SCHED-002, RT-WATCHDOG-SCHED-003, RT-WATCHDOG-SCHED-004
+// @spec RT-WATCHDOG-SCHED-006, RT-WATCHDOG-CFG-004
+// @spec RT-HEALTH-PROV-001, RT-HEALTH-PROV-002, RT-HEALTH-NET-003, RT-HEALTH-NET-004
 /**
  * Declares every Lambda function, its log group, its permissions, the
  * interactions Function URL, and the watchdog/dns-updater EventBridge
@@ -633,6 +637,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
   );
 
   // ── DNS-updater Lambda + EventBridge ECS-state-change rule ────────────────
+  // @spec RT-TASK-DNS-012
   const dnsUpdaterFunction = new aws.lambda.Function(
     `${projectName}-dns-updater`,
     {
@@ -666,6 +671,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
 
   const dnsUpdaterLogGroup = lambdaLogGroup(projectName, 'dns-updater', opts);
 
+  // @spec RT-TASK-DNS-002
   const ecsTaskChangeRule = new aws.cloudwatch.EventRule(
     `${projectName}-task-state-change`,
     {

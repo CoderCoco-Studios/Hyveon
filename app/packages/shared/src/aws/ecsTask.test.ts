@@ -47,6 +47,7 @@ describe('getTaskPrivateIp', () => {
   });
 });
 
+// @spec RT-TASK-DNS-015
 describe('resolveEniPublicIp', () => {
   it('should return the ENI public IP when present', async () => {
     const describeNetworkInterfaces = vi.fn().mockResolvedValue({

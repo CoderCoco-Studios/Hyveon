@@ -793,6 +793,7 @@ describe('validateGameServer', () => {
   });
 
   describe('health check', () => {
+    // @spec RT-HEALTH-VALID-001
     it('should accept a healthCheck.port equal to the https webPort', () => {
       const result = validateGameServer(
         'game',
@@ -834,6 +835,7 @@ describe('validateGameServer', () => {
       expect(result.success).toBe(true);
     });
 
+    // @spec RT-HEALTH-VALID-001
     it('should reject a port not among the game server\'s declared ports', () => {
       const result = validateGameServer('game', makeProposed({ healthCheck: makeHealthCheck({ port: 9999 }) }), []);
       expect(result.success).toBe(false);
@@ -842,6 +844,7 @@ describe('validateGameServer', () => {
       }
     });
 
+    // @spec RT-HEALTH-VALID-004
     it.each(['equals', 'notEquals', 'greaterThan', 'lessThan', 'contains'] as const)(
       'should reject operator "%s" declared without a value',
       (operator) => {
@@ -868,6 +871,7 @@ describe('validateGameServer', () => {
       expect(result.success).toBe(true);
     });
 
+    // @spec RT-HEALTH-VALID-003
     it('should reject a timeoutMs below the supported range', () => {
       const result = validateGameServer('game', makeProposed({ healthCheck: makeHealthCheck({ timeoutMs: 50 }) }), []);
       expect(result.success).toBe(false);
@@ -876,6 +880,7 @@ describe('validateGameServer', () => {
       }
     });
 
+    // @spec RT-HEALTH-VALID-003
     it('should reject a timeoutMs above the supported range', () => {
       const result = validateGameServer(
         'game',
@@ -888,6 +893,7 @@ describe('validateGameServer', () => {
       }
     });
 
+    // @spec RT-HEALTH-VALID-002
     it('should reject a request path that is not rooted at "/"', () => {
       const result = validateGameServer(
         'game',
@@ -989,6 +995,7 @@ describe('validateGameServer', () => {
       expect(result.success).toBe(false);
     });
 
+    // @spec RT-HEALTH-VALID-007
     it('should reject a header value that looks like an inline bearer token', () => {
       const result = validateGameServer(
         'game',
@@ -1081,6 +1088,7 @@ describe('estimateFargateHourlyCost', () => {
   });
 });
 
+// @spec RT-HEALTH-VALID-008
 describe('validateHealthCheckAuthInput', () => {
   it('should accept undefined (no credential change)', () => {
     expect(validateHealthCheckAuthInput(undefined)).toEqual([]);

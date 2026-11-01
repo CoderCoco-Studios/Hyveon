@@ -192,6 +192,7 @@ describe('DeploymentConfig gameServers https semantics', () => {
   });
 });
 
+// @spec RT-WATCHDOG-CFG-006
 describe('DEPLOYMENT_CONFIG_DEFAULTS', () => {
   it('should match the documented default values verbatim', () => {
     expect(DEPLOYMENT_CONFIG_DEFAULTS).toEqual({

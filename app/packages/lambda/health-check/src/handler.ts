@@ -31,6 +31,7 @@ export interface HealthCheckEvent {
   healthCheck: GameServerHealthCheck;
 }
 
+// @spec RT-HEALTH-PROV-006
 function region(): string {
   // AWS_REGION_ (trailing underscore) — AWS_REGION is reserved by the Lambda runtime and cannot be set as a function env var.
   return process.env['AWS_REGION_'] ?? process.env['AWS_REGION'] ?? process.env['AWS_DEFAULT_REGION'] ?? 'us-east-1';
@@ -50,6 +51,7 @@ function log(level: 'debug' | 'warn', message: string, fields: Record<string, un
   }
 }
 
+// @spec RT-HEALTH-HTTP-002
 /**
  * Resolves a running task's private IPv4 address from its ECS attachment
  * details — the same attachment-walking shape the watchdog's own
@@ -82,6 +84,7 @@ async function resolveAuthSecretValue(healthCheck: GameServerHealthCheck): Promi
   return resp.SecretString;
 }
 
+// @spec RT-HEALTH-AUTH-001, RT-HEALTH-AUTH-002, RT-HEALTH-AUTH-003, RT-HEALTH-AUTH-004
 /**
  * Builds the `Authorization` header value for a resolved secret, branching
  * on `auth.type` (absent or `'raw'` injects `secretValue` verbatim, no
@@ -122,6 +125,7 @@ function buildAuthorizationHeader(auth: GameServerHealthCheckAuth, secretValue: 
   return `Basic ${encoded}`;
 }
 
+// @spec RT-HEALTH-AUTH-005, RT-HEALTH-AUTH-006
 /**
  * Merges the declared headers with the resolved, type-branched credential.
  * The injected `Authorization` header always takes precedence over an
@@ -147,6 +151,8 @@ function logVerdict(game: string, healthCheck: GameServerHealthCheck, verdict: H
   log(verdict.failureDerived ? 'warn' : 'debug', 'health check verdict', fields);
 }
 
+// @spec RT-HEALTH-DECL-006, RT-HEALTH-HTTP-001, RT-HEALTH-HTTP-003, RT-HEALTH-HTTP-004, RT-HEALTH-FAIL-004
+// @spec RT-HEALTH-LOG-001, RT-HEALTH-LOG-004
 /**
  * Invoked synchronously by the watchdog for a game with a declared health
  * check. Resolves the task's host from ECS, issues the declared request,

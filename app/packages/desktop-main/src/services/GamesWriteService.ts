@@ -245,6 +245,7 @@ export class GamesWriteService {
     return this.successResult('update', name, validation.data, { before, after: validation.data, versionId: write.versionId });
   }
 
+  // @spec RT-HEALTH-CRED-005, RT-HEALTH-CRED-006
   /**
    * Removes a `gameServers` entry. Skips `validateGameServer()` entirely —
    * there's no proposed config to validate — and delegates straight to
@@ -432,6 +433,7 @@ export class GamesWriteService {
     return { ...config, healthCheck: { ...healthCheckRest, auth: { type, secretArn: STRUCTURAL_PREVIEW_SECRET_ARN } } };
   }
 
+  // @spec RT-HEALTH-CRED-001, RT-HEALTH-CRED-005, RT-HEALTH-CRED-006, RT-HEALTH-NET-005
   /**
    * Resolves `config.healthCheck.auth` into the persisted
    * `GameServerHealthCheckAuth` shape (`{ type?, secretArn }`), performing
@@ -510,6 +512,7 @@ export class GamesWriteService {
     return { ...config, healthCheck: { ...healthCheckRest, auth: { type, secretArn } } };
   }
 
+  // @spec RT-HEALTH-CRED-007
   /** Wraps {@link upsertHealthCheckAuthSecret}, normalizing and logging any Secrets Manager failure per this repo's logging convention. */
   private async upsertAppOwnedSecret(gameId: string, value: string): Promise<string> {
     try {
@@ -524,6 +527,7 @@ export class GamesWriteService {
     }
   }
 
+  // @spec RT-HEALTH-CRED-007
   /** Wraps {@link deleteHealthCheckAuthSecret}, logging (not throwing on) a Secrets Manager failure — a delete-cleanup failure must not block the config write it's tidying up after. */
   private async deleteAppOwnedSecret(gameId: string, secretArn: string): Promise<void> {
     try {

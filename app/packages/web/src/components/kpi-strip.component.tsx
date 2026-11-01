@@ -45,6 +45,7 @@ function currentMonthDays(): number {
   return new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
 }
 
+// @spec RT-TASK-UI-011, RT-TASK-UI-012, RT-TASK-UI-013
 /**
  * KPI strip rendered at the top of the Dashboard. Shows four tiles —
  * Servers running, Current run rate, Est. month cap, Active alerts — each

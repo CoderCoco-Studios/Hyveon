@@ -33,6 +33,7 @@ test.describe('Start / Stop game server', () => {
     statuses.forEach((s) => expect(s.state).toBe('stopped'));
   });
 
+  // @spec RT-TASK-LAUNCH-007
   /**
    * Seeds a running task for one game (one ListTasks/DescribeTasks pair
    * consumed by `getStatus`), verifies the status flips to RUNNING, then

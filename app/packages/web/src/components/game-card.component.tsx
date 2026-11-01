@@ -114,6 +114,7 @@ function Stat({ label, value, mono }: StatRowProps) {
   );
 }
 
+// @spec RT-TASK-UI-006, RT-TASK-UI-007
 /**
  * Card for a single game in the dashboard grid. Layout (top to bottom):
  *

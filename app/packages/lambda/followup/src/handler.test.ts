@@ -80,6 +80,7 @@ afterEach(() => {
 });
 
 describe('FollowupLambda: start', () => {
+  // @spec RT-TASK-LAUNCH-004
   it('should RunTask, write a pending row keyed by task ARN, and PATCH the original message', async () => {
     const taskArn = 'arn:aws:ecs:us-east-1:123:task/abc';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });

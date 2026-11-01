@@ -16,6 +16,7 @@ function makeConfig(activeWhen: GameServerHealthCheck['activeWhen']): GameServer
 }
 
 describe('evaluateHealthCheck', () => {
+  // @spec RT-HEALTH-FAIL-001
   describe('non-2xx status', () => {
     it.each([100, 199, 300, 400, 404, 500, 503])('should be fail-active for status %i', (status) => {
       const config = makeConfig({ jsonPath: 'players.online', operator: 'exists' });
@@ -24,6 +25,7 @@ describe('evaluateHealthCheck', () => {
     });
   });
 
+  // @spec RT-HEALTH-FAIL-002
   describe('unparseable body', () => {
     it('should be fail-active when the body is not valid JSON', () => {
       const config = makeConfig({ jsonPath: 'players.online', operator: 'exists' });
@@ -33,30 +35,35 @@ describe('evaluateHealthCheck', () => {
   });
 
   describe('jsonPath resolution', () => {
+    // @spec RT-HEALTH-EVAL-002, RT-HEALTH-EVAL-005
     it('should resolve a nested field path', () => {
       const config = makeConfig({ jsonPath: 'players.online', operator: 'equals', value: 3 });
       const verdict = evaluateHealthCheck(config, 200, '{"players":{"online":3}}');
       expect(verdict.active).toBe(true);
     });
 
+    // @spec RT-HEALTH-EVAL-005
     it('should resolve a numeric array index', () => {
       const config = makeConfig({ jsonPath: 'items[1].name', operator: 'equals', value: 'sword' });
       const verdict = evaluateHealthCheck(config, 200, '{"items":[{"name":"shield"},{"name":"sword"}]}');
       expect(verdict.active).toBe(true);
     });
 
+    // @spec RT-HEALTH-FAIL-003
     it('should be fail-active when the path resolves to nothing', () => {
       const config = makeConfig({ jsonPath: 'players.online', operator: 'equals', value: 3 });
       const verdict = evaluateHealthCheck(config, 200, '{"players":{}}');
       expect(verdict.active).toBe(true);
     });
 
+    // @spec RT-HEALTH-FAIL-003
     it('should be fail-active when the path resolves to a non-scalar object', () => {
       const config = makeConfig({ jsonPath: 'players', operator: 'equals', value: 3 });
       const verdict = evaluateHealthCheck(config, 200, '{"players":{"online":3}}');
       expect(verdict.active).toBe(true);
     });
 
+    // @spec RT-HEALTH-FAIL-003
     it('should be fail-active when the path resolves to a non-scalar array', () => {
       const config = makeConfig({ jsonPath: 'items', operator: 'equals', value: 3 });
       const verdict = evaluateHealthCheck(config, 200, '{"items":[1,2,3]}');
@@ -64,6 +71,7 @@ describe('evaluateHealthCheck', () => {
     });
   });
 
+  // @spec RT-HEALTH-EVAL-004
   describe('operator "exists"', () => {
     it('should be active when the path resolves to a value', () => {
       const config = makeConfig({ jsonPath: 'players.online', operator: 'exists' });
@@ -79,18 +87,21 @@ describe('evaluateHealthCheck', () => {
   });
 
   describe('operator "equals"', () => {
+    // @spec RT-HEALTH-EVAL-002
     it('should be active when the resolved value strictly equals the declared value', () => {
       const config = makeConfig({ jsonPath: 'status', operator: 'equals', value: 'running' });
       const verdict = evaluateHealthCheck(config, 200, '{"status":"running"}');
       expect(verdict.active).toBe(true);
     });
 
+    // @spec RT-HEALTH-EVAL-003
     it('should be idle when the resolved value does not equal the declared value', () => {
       const config = makeConfig({ jsonPath: 'status', operator: 'equals', value: 'running' });
       const verdict = evaluateHealthCheck(config, 200, '{"status":"stopped"}');
       expect(verdict.active).toBe(false);
     });
 
+    // @spec RT-HEALTH-EVAL-006
     it('should be fail-active when the resolved value is a different type than the declared value', () => {
       const config = makeConfig({ jsonPath: 'status', operator: 'equals', value: 1 });
       const verdict = evaluateHealthCheck(config, 200, '{"status":"1"}');
@@ -98,6 +109,7 @@ describe('evaluateHealthCheck', () => {
     });
   });
 
+  // @spec RT-HEALTH-EVAL-006
   describe('operator "notEquals"', () => {
     it('should be active when the resolved value differs from the declared value', () => {
       const config = makeConfig({ jsonPath: 'status', operator: 'notEquals', value: 'stopped' });
@@ -118,6 +130,7 @@ describe('evaluateHealthCheck', () => {
     });
   });
 
+  // @spec RT-HEALTH-EVAL-007
   describe('operator "greaterThan"', () => {
     it('should be active when the resolved value is numerically greater', () => {
       const config = makeConfig({ jsonPath: 'players.online', operator: 'greaterThan', value: 0 });
@@ -138,6 +151,7 @@ describe('evaluateHealthCheck', () => {
     });
   });
 
+  // @spec RT-HEALTH-EVAL-007
   describe('operator "lessThan"', () => {
     it('should be active when the resolved value is numerically less', () => {
       const config = makeConfig({ jsonPath: 'players.online', operator: 'lessThan', value: 10 });
@@ -162,6 +176,7 @@ describe('evaluateHealthCheck', () => {
     });
   });
 
+  // @spec RT-HEALTH-EVAL-008
   describe('operator "contains"', () => {
     it('should be active when the resolved string contains the declared substring', () => {
       const config = makeConfig({ jsonPath: 'motd', operator: 'contains', value: 'welcome' });
@@ -182,6 +197,7 @@ describe('evaluateHealthCheck', () => {
     });
   });
 
+  // @spec RT-HEALTH-EVAL-009
   describe('reason never leaks response content', () => {
     it('should not include the resolved value in the reason for any failure or genuine verdict', () => {
       const secretValue = 'super-secret-player-name-12345';

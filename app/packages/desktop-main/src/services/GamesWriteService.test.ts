@@ -160,6 +160,7 @@ describe('GamesWriteService', () => {
       }
     });
 
+    // @spec RT-HEALTH-REDACT-001
     it("should redact the returned game's health-check credential to secretSet, never the ARN", async () => {
       const secretArn = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:ark-token-AbCdEf';
       const deploymentConfig = makeDeploymentConfig();
@@ -568,6 +569,7 @@ describe('GamesWriteService', () => {
   });
 
   describe('health-check credential lifecycle', () => {
+    // @spec RT-HEALTH-CRED-001
     it('should create an app-owned secret on first save of a basic credential and persist only its secretArn', async () => {
       vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue(
         'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-minecraft-healthcheck-auth-AbCdEf',
@@ -590,6 +592,7 @@ describe('GamesWriteService', () => {
       });
     });
 
+    // @spec RT-HEALTH-CRED-002
     it('should update the existing app-owned secret in place when a bearer token changes, not create a new one', async () => {
       vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue(
         'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-minecraft-healthcheck-auth-AbCdEf',
@@ -613,6 +616,7 @@ describe('GamesWriteService', () => {
       expect(upsertHealthCheckAuthSecret).toHaveBeenCalledWith('minecraft', 'new-token');
     });
 
+    // @spec RT-HEALTH-CRED-005
     it('should delete the app-owned secret when a basic credential is removed', async () => {
       const before = makeExistingGame({
         name: 'minecraft',
@@ -633,6 +637,7 @@ describe('GamesWriteService', () => {
       expect(deleteHealthCheckAuthSecret).toHaveBeenCalledWith('minecraft');
     });
 
+    // @spec RT-HEALTH-CRED-005
     it('should delete the app-owned secret when a game with an app-owned credential is deleted', async () => {
       const before = makeExistingGame({
         name: 'minecraft',
@@ -650,6 +655,7 @@ describe('GamesWriteService', () => {
       expect(deleteHealthCheckAuthSecret).toHaveBeenCalledWith('minecraft');
     });
 
+    // @spec RT-HEALTH-CRED-006
     it('should never call upsertHealthCheckAuthSecret or deleteHealthCheckAuthSecret for a raw credential', async () => {
       const before = makeExistingGame({
         name: 'minecraft',

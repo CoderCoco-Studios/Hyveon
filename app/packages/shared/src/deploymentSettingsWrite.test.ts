@@ -78,6 +78,7 @@ describe('validateDeploymentSettingsPatch', () => {
     );
   });
 
+  // @spec RT-WATCHDOG-CFG-005
   describe('numeric fields', () => {
     it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinPackets'] as const)(
       'should accept a positive integer for %s',

@@ -141,6 +141,9 @@ function evaluateOperator(
   }
 }
 
+// @spec RT-HEALTH-EVAL-001, RT-HEALTH-EVAL-002, RT-HEALTH-EVAL-003, RT-HEALTH-EVAL-004, RT-HEALTH-EVAL-005
+// @spec RT-HEALTH-EVAL-006, RT-HEALTH-EVAL-007, RT-HEALTH-EVAL-008, RT-HEALTH-EVAL-009, RT-HEALTH-FAIL-001
+// @spec RT-HEALTH-FAIL-002, RT-HEALTH-FAIL-003
 /**
  * Pure evaluation of a health-check response against its declared condition
  * — no I/O, no AWS SDK. Every failure path (non-2xx status, unparseable

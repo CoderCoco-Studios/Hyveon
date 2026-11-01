@@ -234,6 +234,7 @@ describe('EcsService', () => {
   });
 
   describe('getStatus', () => {
+    // @spec RT-TASK-STATUS-001
     it('should return not_deployed when stack outputs are missing', async () => {
       const service = makeService(makeConfig(null), makeEc2());
       const status = await service.getStatus('minecraft');
@@ -241,6 +242,7 @@ describe('EcsService', () => {
       expect(status.message).toMatch(/run apply/i);
     });
 
+    // @spec RT-TASK-STATUS-002, RT-TASK-STATUS-007
     it('should return running with public IP and hostname for a RUNNING task', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
       ecsMock.on(DescribeTasksCommand).resolves({
@@ -270,6 +272,7 @@ describe('EcsService', () => {
       ]);
     });
 
+    // @spec RT-TASK-STATUS-003
     it('should return starting when the task is not yet RUNNING', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
       ecsMock.on(DescribeTasksCommand).resolves({
@@ -281,6 +284,7 @@ describe('EcsService', () => {
       expect(status.taskArn).toBe('arn1');
     });
 
+    // @spec RT-TASK-STATUS-004
     it('should return stopped when no running task is found', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
       const service = makeService(makeConfig(), makeEc2());
@@ -302,6 +306,7 @@ describe('EcsService', () => {
   });
 
   describe('start', () => {
+    // @spec RT-TASK-LAUNCH-008, RT-TASK-LAUNCH-013
     it('should return failure if stack outputs are missing', async () => {
       const service = makeService(makeConfig(null), makeEc2());
       const result = await service.start('minecraft');
@@ -309,6 +314,7 @@ describe('EcsService', () => {
       expect(result.message).toMatch(/run apply/i);
     });
 
+    // @spec RT-TASK-LAUNCH-005, RT-TASK-LAUNCH-013
     it('should refuse to start if a task is already running', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
       ecsMock.on(DescribeTasksCommand).resolves({
@@ -320,6 +326,7 @@ describe('EcsService', () => {
       expect(result.message).toMatch(/already running/i);
     });
 
+    // @spec RT-TASK-LAUNCH-001, RT-TASK-LAUNCH-002, RT-TASK-LAUNCH-012
     it('should launch a task with the correct cluster, family, subnets, and SG', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
       ecsMock.on(RunTaskCommand).resolves({ tasks: [{ taskArn: 'arn-new' }] });
@@ -338,6 +345,7 @@ describe('EcsService', () => {
       expect(input.networkConfiguration?.awsvpcConfiguration?.assignPublicIp).toBe('ENABLED');
     });
 
+    // @spec RT-TASK-LAUNCH-011, RT-TASK-LAUNCH-013
     it('should return failure with reason when RunTask reports failures', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
       ecsMock.on(RunTaskCommand).resolves({
@@ -355,6 +363,7 @@ describe('EcsService', () => {
       expect(result.message).toBe('Failed to start minecraft: CAPACITY');
     });
 
+    // @spec RT-TASK-LAUNCH-013
     it('should return failure when RunTask throws', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
       ecsMock.on(RunTaskCommand).rejects(new Error('throttled'));
@@ -364,6 +373,7 @@ describe('EcsService', () => {
       expect(result.message).toContain('throttled');
     });
 
+    // @spec RT-TASK-LAUNCH-013
     it('should surface AWS SDK exception name in the failure message', async () => {
       // Mirrors the shape thrown by the real AWS SDK — `name` is set to the
       // exception code (e.g. 'AccessDeniedException') so that `String(err)`
@@ -381,12 +391,14 @@ describe('EcsService', () => {
   });
 
   describe('stop', () => {
+    // @spec RT-TASK-LAUNCH-008, RT-TASK-LAUNCH-013
     it('should return failure if stack outputs are missing', async () => {
       const service = makeService(makeConfig(null), makeEc2());
       const result = await service.stop('minecraft');
       expect(result.success).toBe(false);
     });
 
+    // @spec RT-TASK-LAUNCH-006, RT-TASK-LAUNCH-013
     it('should return failure when nothing is running', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
       const service = makeService(makeConfig(), makeEc2());
@@ -395,6 +407,7 @@ describe('EcsService', () => {
       expect(result.message).toMatch(/not currently running/i);
     });
 
+    // @spec RT-TASK-LAUNCH-007, RT-TASK-LAUNCH-012
     it('should stop the task when one is found', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
       ecsMock.on(DescribeTasksCommand).resolves({
@@ -409,6 +422,7 @@ describe('EcsService', () => {
       expect(input.cluster).toBe('game-cluster');
     });
 
+    // @spec RT-TASK-LAUNCH-013
     it('should return failure when StopTask throws', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
       ecsMock.on(DescribeTasksCommand).resolves({

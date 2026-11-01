@@ -205,6 +205,7 @@ export interface DeploymentConfig {
  */
 export type TopLevelDeploymentSettings = Omit<DeploymentConfig, 'gameServers'>;
 
+// @spec RT-WATCHDOG-CFG-006
 /**
  * Every {@link DeploymentConfig} field that (a) has a static default AND (b) is safe to expose as
  * a single shared frozen constant value. {@link DeploymentConfig.hostedZoneName} and
@@ -295,6 +296,7 @@ export async function resolvePreApplyRunsTableName(remoteFileStore: RemoteFileSt
   }
 }
 
+// @spec RT-WATCHDOG-CFG-006
 /**
  * Fills in every {@link DeploymentConfig} field that has a static default
  * (see {@link DEPLOYMENT_CONFIG_DEFAULTS}) when the caller omits it, while

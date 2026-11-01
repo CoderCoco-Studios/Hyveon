@@ -461,6 +461,7 @@ describe('IamCheckService', () => {
   });
 
   describe('health-check credential lifecycle IAM coverage', () => {
+    // @spec RT-HEALTH-CRED-008
     it('should already cover secretsmanager:CreateSecret/PutSecretValue/DeleteSecret via the secretsmanager:* wildcard', () => {
       // The app-owned health-check credential lifecycle (GamesWriteService,
       // via secretsStore.ts's upsertHealthCheckAuthSecret/deleteHealthCheckAuthSecret)

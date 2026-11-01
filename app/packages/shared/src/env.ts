@@ -51,6 +51,7 @@ export function parseGameMapEnv<T>(name: string): Record<string, T> {
 }
 
 // @spec IAC-PROGRAM-ENV-007
+// @spec RT-WATCHDOG-SCOPE-004
 /**
  * Builds an ECS task-definition family → game name lookup from a game name list, matching
  * the `{game}-server` family naming convention used across the infra program's task

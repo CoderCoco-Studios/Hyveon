@@ -127,6 +127,7 @@ describe('GameCard — error-state recovery', () => {
   });
 });
 
+// @spec RT-TASK-UI-006
 describe('GameCard — Start/Stop button state per server state', () => {
   beforeEach(() => {
     apiMock.stop.mockResolvedValue({ success: true, message: 'minecraft is stopping.' });
@@ -289,6 +290,7 @@ describe('GameCard — Start/Stop toasts', () => {
     );
   });
 
+  // @spec RT-TASK-UI-009
   it('should show a stop toast with an Undo action when Stop succeeds', async () => {
     mockIsSuppressed.mockReturnValue(true);
     renderCard(runningStatus);

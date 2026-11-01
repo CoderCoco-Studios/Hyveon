@@ -68,6 +68,7 @@ describe('DashboardPage', () => {
     expect(await screen.findByText(/^Updated\b/)).toBeInTheDocument();
   });
 
+  // @spec RT-TASK-COST-003
   it('should not call api.costsActual on mount', async () => {
     renderPage(<DashboardPage />);
 
@@ -123,6 +124,7 @@ describe('DashboardPage', () => {
     expect(screen.getByText(/^Updated\b/)).toBeInTheDocument();
   });
 
+  // @spec RT-TASK-UI-016
   it("should navigate to the game's files page when Files is clicked", async () => {
     const user = userEvent.setup();
     renderPage(

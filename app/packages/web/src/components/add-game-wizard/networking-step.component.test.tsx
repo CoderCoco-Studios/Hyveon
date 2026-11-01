@@ -322,6 +322,7 @@ describe('NetworkingStep', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('must declare webPort');
     });
 
+    // @spec RT-HEALTH-REDACT-003
     it('should offer the web port as a health-check target ahead of the additional ports', () => {
       renderStep({
         webPort: 30000,
@@ -429,6 +430,7 @@ describe('NetworkingStep', () => {
     });
   });
 
+  // @spec RT-HEALTH-REDACT-003
   describe('health-check auth type selector', () => {
     /** Builds an enabled health-check draft; override any fields per test. */
     function baseHealthCheck(overrides: Partial<typeof DISABLED_HEALTH_CHECK> = {}) {
@@ -525,6 +527,7 @@ describe('NetworkingStep', () => {
       expect(onHealthCheckChange).toHaveBeenCalledWith({ authType: 'basic' });
     });
 
+    // @spec RT-HEALTH-REDACT-002
     it('should show "a credential is already set" when secretSet is true, regardless of authType', () => {
       render(
         <NetworkingStep
