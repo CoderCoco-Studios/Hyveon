@@ -23,8 +23,8 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 ## Verdict source routing
 
 - [x] **RT-WATCHDOG-ROUTE-001**: When the watchdog evaluates a running task of a game that has an entry in `HEALTH_CHECKS`, it shall take the idle verdict from the health-check Lambda and shall not query CloudWatch for that task. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
-- [x] **RT-WATCHDOG-ROUTE-002**: When the watchdog evaluates a running task of a game that has no entry in `HEALTH_CHECKS`, it shall take the idle verdict from the CloudWatch packet measurement and shall not invoke the health-check Lambda for that task. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
-- [x] **RT-WATCHDOG-ROUTE-003**: The watchdog shall apply exactly one verdict source to each evaluated game-server task per run, never a combination of the health check and the packet measurement. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
+- [x] **RT-WATCHDOG-ROUTE-002**: When the watchdog evaluates a running task of a game that has no entry in `HEALTH_CHECKS`, it shall take the idle verdict from the CloudWatch traffic measurement and shall not invoke the health-check Lambda for that task. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
+- [x] **RT-WATCHDOG-ROUTE-003**: The watchdog shall apply exactly one verdict source to each evaluated game-server task per run, never a combination of the health check and the traffic measurement. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
 - [x] **RT-WATCHDOG-ROUTE-004**: The infra program shall build the watchdog's `HEALTH_CHECKS` env var as a JSON object mapping each game name, in sorted key order, to its full declared `healthCheck`, omitting every game with no declared health check. (observed)
 
 ## CloudWatch traffic verdict
