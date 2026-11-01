@@ -186,7 +186,7 @@ Below the HTTPS toggle, an **Enable authoritative health check** checkbox
 lets you judge this server active/idle by an HTTP request instead of
 network traffic — for a game whose management API can answer the question
 directly (Palworld's REST API is the reference case), rather than relying
-on the network-packet heuristic every other game uses. Leaving it off keeps
+on the network-traffic heuristic every other game uses. Leaving it off keeps
 that default heuristic unchanged.
 
 Checking it exposes:

@@ -94,7 +94,7 @@ reply with the resolved address. `watchdog` fires on a schedule and stops a task
 `IDLE_CHECKS` consecutive intervals — it issues `StopTask` only; it never
 touches Route 53 itself, `update-dns` reacts to the resulting `STOPPED`
 event. How "idle" is decided is per-game: a game with no declared
-`healthCheck` falls back to the `NetworkPacketsIn`-below-threshold check;
+`healthCheck` falls back to the Container Insights check, mean inbound `NetworkRxBytes` below `watchdogMinBytesPerSecond`;
 a game that declares one delegates the verdict to the health-check Lambda
 instead, invoked over the network via the IAM identity-policy grant described
 in [Infra program](/components/infra#health-check-network-confinement-is-port-level-not-game-level).
@@ -112,7 +112,7 @@ ever letting the interaction time out.
 After the session: either the user types `/server-stop palworld` (same flow
 but `stopTask` + `DELETE` A record), or the Watchdog Lambda decides the task
 has been idle for four consecutive 15-minute windows and stops it itself —
-`NetworkPacketsIn < min_packets` for a game with no declared `healthCheck`,
+mean inbound `NetworkRxBytes` below `watchdogMinBytesPerSecond` for a game with no declared `healthCheck`,
 or a negative verdict from the health-check Lambda for a game that declares
 one.
 
