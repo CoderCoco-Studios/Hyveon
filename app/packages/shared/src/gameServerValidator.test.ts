@@ -844,6 +844,7 @@ describe('validateGameServer', () => {
       }
     });
 
+    // @spec RT-HEALTH-VALID-004
     it.each(['equals', 'notEquals', 'greaterThan', 'lessThan', 'contains'] as const)(
       'should reject operator "%s" declared without a value',
       (operator) => {
@@ -859,7 +860,6 @@ describe('validateGameServer', () => {
       },
     );
 
-    // @spec RT-HEALTH-VALID-004
     it('should accept operator "exists" declared without a value', () => {
       const result = validateGameServer(
         'game',
