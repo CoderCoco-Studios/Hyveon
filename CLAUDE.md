@@ -135,7 +135,7 @@ Then confirm documentation is current **in the same PR**:
   it maps the diff to the pages that own it and reviews the result through the `docs-*`
   evaluator agents, which is more reliable than hand-picking pages from memory.
 - **LID arrow** — if required behaviour changed, the change was cascaded down the arrow in the same PR: the owning LLD in `docs/intent/` is updated, its EARS lines in `<node>-specs.md` are added or edited and carry the right marker (`[x]` implemented, `[ ]` active gap, `[D]` deferred), the tests and code cite them with `@spec`, and the segment's doc in `docs/arrows/` still matches.
-  Run `node bin/coherence-check.mjs` and confirm its exit code is no worse than on `main`.
+  Run `npm run lid:check` (`node bin/coherence-check.mjs --strict`) and confirm it exits 0.
 - **Deployment-config fields** — there is no five-file checklist any more; the old one
   existed because the previous IaC tooling required each variable declared
   redundantly across several files and threaded through a module boundary by

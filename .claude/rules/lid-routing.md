@@ -1,7 +1,7 @@
 ## Workflow routing
 
 Changes are routed by risk through Linked-Intent Development (LID): `HLD → LLDs → EARS → tests → code`, with the `linked-intent-dev` skill driving the phases.
-The design tree is `docs/high-level-design.md` and `docs/intent/`; the arrow overlay is `docs/arrows/`; the `arrow-maintenance` skill audits it; `node bin/coherence-check.mjs` checks it deterministically.
+The design tree is `docs/high-level-design.md` and `docs/intent/`; the arrow overlay is `docs/arrows/`; the `arrow-maintenance` skill audits it; `npm run lid:check` (`node bin/coherence-check.mjs --strict`) checks it deterministically and must exit 0 before a PR that touches the arrow.
 
 ### Entry routing
 
