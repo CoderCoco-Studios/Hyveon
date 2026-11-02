@@ -131,7 +131,7 @@ EARS requirements for prefix `HELPER`; design in `docs/intent/helper-task/helper
 
 ## In-app file browser
 
-Requirements of capability `game-volume-file-browser` (`openspec/specs/game-volume-file-browser/spec.md`), shipped by the archived `embed-file-browser` change.
+Requirements of the in-app file browser, previously carried by the OpenSpec capability `game-volume-file-browser`.
 
 - [x] **HELPER-FB-001**: The desktop app shall provide an in-app file browser page per game, routed at `/games/:name/files`, for browsing every applied EFS volume of that game, with a volume picker listing each volume's name and container path. (OpenSpec: game-volume-file-browser / In-app file browser page per game)
 - [x] **HELPER-FB-002**: When the operator clicks Files on a deployed game's dashboard card, the app shall navigate to that game's file browser page and start a helper session. (OpenSpec: game-volume-file-browser / In-app file browser page per game)
@@ -174,7 +174,7 @@ Requirements of capability `game-volume-file-browser` (`openspec/specs/game-volu
 - [x] **HELPER-FB-039**: The desktop main process shall access volume files only through a backend interface covering list, stat, read, write, create folder, move/rename, delete and optional folder archive, and neither the renderer nor the IPC contract shall depend on the helper implementation. (OpenSpec: game-volume-file-browser / Replaceable file backend)
 - [x] **HELPER-FB-040**: Where the active file backend does not support folder archives, the file browser shall hide the folder download action and keep all other operations working. (OpenSpec: game-volume-file-browser / Replaceable file backend)
 - [x] **HELPER-FB-041**: If the operator starts a game's server from the app while an upload (a folder-upload run or an upload transfer) holds that game's helper session, including while the session is stopping, then the start shall be refused with an explanation that an upload is in progress and no server task shall be started; browse and download holds shall not block a start. (OpenSpec: game-volume-file-browser / One application-owned helper session per game shared by browsing and uploading)
-- [D] **HELPER-FB-042**: When a game's server is started through the Discord `/server-start` command while an upload holds the game's helper session, the system shall refuse the start. (observed; explicitly out of scope: the Lambda cannot see the main-process registry, `embed-file-browser/design.md` D3 and `games.controller.ts:97-99`)
+- [D] **HELPER-FB-042**: When a game's server is started through the Discord `/server-start` command while an upload holds the game's helper session, the system shall refuse the start. (observed; explicitly out of scope: the Lambda cannot see the main-process registry, so the refusal covers in-app starts only, `games.controller.ts:97-99`)
 
 ## Helper session registry
 
@@ -233,7 +233,7 @@ Requirements of capability `game-volume-file-browser` (`openspec/specs/game-volu
 
 These IDs described behaviour removed at `5c55a380` and are not reused.
 
-- `HELPER-UPLOAD-007` (refuse an upload while any helper is open): the OpenSpec scenario "Helper already open for this game" was removed by `embed-file-browser`; superseded by HELPER-UPLOAD-010 and HELPER-UPLOAD-011.
+- `HELPER-UPLOAD-007` (refuse an upload while any helper is open): the OpenSpec scenario "Helper already open for this game" was removed when the file browser shipped; superseded by HELPER-UPLOAD-010 and HELPER-UPLOAD-011.
 - `HELPER-BROWSE-001` to `HELPER-BROWSE-006` (dashboard modal, `files.list|start|stop`, plain-HTTP browse helper, modal polling): the modal, `use-file-manager.hook.ts` and `files.controller.ts` were deleted; superseded by the In-app file browser facet.
 - `HELPER-IPC-003` (`files.*` payload validation): the `files.*` channels were deleted; superseded by HELPER-IPC-006.
 

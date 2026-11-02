@@ -198,7 +198,7 @@ The renderer page (`app/packages/web/src/pages/discord/discord.page.tsx`) has Cr
 
 ### Resolved
 
-None. This leaf has no OpenSpec capability or design doc in which decisions were recorded.
+None recorded before this document was written.
 
 ### Deferred
 
@@ -221,13 +221,13 @@ None. This leaf has no OpenSpec capability or design doc in which decisions were
 17. Cited drift from `iac/program`: interactions receives an unused `HOSTED_ZONE_NAME` (`lambdas.ts:463`), and CloudFront allows all methods (`discordDomain.ts:178`) while the Function URL CORS allows only POST (`lambdas.ts:478-482`). Are either intentional?
 18. Stale or dead pieces: the `/api/discord/config` header (`DiscordConfigService.ts:8-9`), the Discord bot-token helpers in `secretsStore.ts:78-91` with no Lambda consumer, and the deprecated `hex.substr` (`interactions/src/handler.ts:72`).
 19. Removing a guild leaves its registered commands in Discord (`discord.controller.ts:111`). Should removal unregister them, or should the UI warn?
-20. Should this leaf gain an OpenSpec capability? It is the only player-facing subsystem with none.
+20. Should this leaf's intent be reviewed with the operator? It is the only player-facing subsystem whose requirements were derived from code and docs rather than from a prior spec.
 
 ## References
 
 - Arrow doc: `docs/arrows/discord-bot.md`
 - EARS specs: `docs/intent/discord-bot/discord-bot-specs.md`
-- OpenSpec: none carried; no capability under `openspec/specs/` covers Discord.
+- Legacy requirement source: none; no OpenSpec capability covered Discord.
 - Operator docs: `docs/docs/app/discord.md`, `docs/docs/components/lambdas.md`, `docs/docs/architecture.md`, `docs/docs/setup.md`
 - Invariants: root `CLAUDE.md`, "Invariants that hurt to break"
 - Neighbouring leaves: `docs/intent/game-runtime/task-and-dns/task-and-dns-design.md` (update-dns pending PATCH), `docs/intent/game-runtime/watchdog/watchdog-design.md` (idle stop), `docs/intent/game-runtime/health-check/health-check-design.md` (`secretsStore.ts`), `docs/intent/iac/program/program-design.md` (Lambdas, CloudFront, table, secrets, seed rows), `docs/intent/deployment-config/deployment-config-design.md` (`gameServers`, base allowlist fields), `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md` (IPC transport, validation)
