@@ -61,7 +61,7 @@ export interface DiagnosticsBundleWriteResult {
 /**
  * Gathers and zips the four diagnostics-bundle sections (logs, config
  * summary, app/system metadata, AWS resource snapshot) into a single `.zip`
- * file on disk, per `openspec/changes/add-diagnostics-export`.
+ * file on disk that an operator can attach to a bug report.
  *
  * Calls into `DiagnosticsService` (log access), `DeploymentConfigService`
  * (config access, via the {@link buildDiagnosticsConfigSummary} allowlist),
