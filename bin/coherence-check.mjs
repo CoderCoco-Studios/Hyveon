@@ -20,7 +20,10 @@
  *   3. Arrow staleness (audited >30 days ago; UNMAPPED/MAPPED status)
  *   4. Coverage summary (per-arrow and repo-wide)
  *
- * Not a blocker. Not a CI gate. Just a fast report. Exit code is always 0.
+ * Report-only by default (exit 0). With --strict, exits 1 when there are reverse
+ * orphans (@spec citing a nonexistent spec) or arrow index entries whose detail
+ * doc is missing. Staleness, MAPPED/UNMAPPED status, uncovered [ ] gaps and
+ * loosely-matched broken file refs never gate. Exit 2 means the grep scan failed.
  */
 
 import { readFileSync, readdirSync, existsSync } from 'fs';
@@ -59,7 +62,7 @@ function collectSpecIdsFromCode() {
   let output;
   try {
     output = execSync(
-      `grep -rn "@spec" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.py" --include="*.go" --include="*.rs" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build --exclude-dir=target --exclude-dir=cdk.out --exclude-dir=coverage --exclude-dir=.next --exclude-dir=__pycache__ .`,
+      `grep -rn "@spec" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.py" --include="*.go" --include="*.rs" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude --exclude-dir=worktrees --exclude-dir=.worktrees --exclude-dir=dist --exclude-dir=build --exclude-dir=target --exclude-dir=cdk.out --exclude-dir=coverage --exclude-dir=.next --exclude-dir=__pycache__ .`,
       { cwd: ROOT, encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024 }
     );
   } catch (e) {
@@ -296,13 +299,17 @@ function section(title) {
   console.log('═'.repeat(60));
 }
 
+const STRICT = process.argv.includes('--strict');
+
 function run() {
+  const strictFailures = [];
   console.log('LID Coherence Report');
   console.log(`Generated: ${new Date().toISOString().slice(0, 10)}`);
   console.log(`Root: ${ROOT}`);
 
   section('@spec Integrity');
   const { codeRefs, specDefs, reverseOrphans, uncovered } = checkSpecIntegrity();
+  if (reverseOrphans.length) strictFailures.push(`${reverseOrphans.length} reverse orphan(s)`);
   console.log(`  @spec annotations in code: ${codeRefs.size} unique IDs`);
   console.log(`  Spec definitions: ${specDefs.size} across docs/intent/`);
 
@@ -325,6 +332,8 @@ function run() {
 
   section('Arrow Reference Integrity');
   const { arrows, issues } = checkArrowReferences();
+  const missingDetail = issues.filter(i => i.type === 'missing_detail').length;
+  if (missingDetail) strictFailures.push(`${missingDetail} missing arrow detail doc(s)`);
   console.log(`  Arrows in index: ${Object.keys(arrows).length}`);
   if (issues.length) {
     for (const issue of issues) {
@@ -366,6 +375,11 @@ function run() {
   console.log(`    (defined, no marker): ${cov.defined}`);
   console.log(`  Unique @spec IDs in code: ${cov.codeRefsTotal}`);
   console.log('');
+
+  if (STRICT && strictFailures.length) {
+    console.error(`[STRICT] coherence check failed: ${strictFailures.join(', ')}`);
+    process.exit(1);
+  }
 }
 
 run();
