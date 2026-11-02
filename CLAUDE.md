@@ -1,16 +1,17 @@
 # CLAUDE.md
 
 This file holds **workflow rules and invariants only**. It deliberately does not
-describe how the system works — that lives in OpenSpec and in `docs/`, which are
-kept current and are the source of truth. Read the relevant spec/doc before
+describe how the system works — that lives in the LID design tree (`docs/high-level-design.md`, `docs/intent/`) and in `docs/docs/`, which are
+kept current and are the source of truth. Read the relevant design doc and EARS specs before
 working in an area rather than relying on a summary here.
 
 ## Where to look before starting work
 
 | You need | Read |
 |----------|------|
-| What a capability must do (requirements, scenarios) | `openspec/specs/<capability>/spec.md` |
-| Work already proposed or in flight | `openspec/changes/<change>/` (`proposal.md`, `design.md`, `tasks.md`) |
+| Big-picture design intent | `docs/high-level-design.md` |
+| What a component must do and why (design, decisions, requirements) | `docs/intent/<node>/<node>-design.md` and the EARS specs beside it, `<node>-specs.md` |
+| Which segments exist, their status, and what is blocked or open | `docs/arrows/index.yaml`, then the detail doc at the path each entry declares (`detail:`) — leaf segments under `docs/arrows/`, grouping nodes (`iac`, `game-runtime`, `operator-app`) under `docs/intent/` |
 | Big picture + invariants | `docs/docs/architecture.md` |
 | The Pulumi infra program's files, resources, and state backend | `docs/docs/components/infra.md` |
 | The six Lambda packages (four always-on, two conditional) and the `/server-start` critical path | `docs/docs/components/lambdas.md` |
@@ -27,10 +28,8 @@ working in an area rather than relying on a summary here.
 | Test-writing conventions (naming, tiers, Playwright, jsdom) | `.claude/rules/testing-conventions.md` |
 | Comment brevity/placement rules | `.claude/rules/comment-conciseness.md` |
 
-OpenSpec workflow skills: `/opsx:propose` (new change), `/opsx:apply`
-(implement), `/opsx:sync` (fold delta specs into main specs), `/opsx:archive`
-(close out a shipped change). Anything that changes required behaviour goes
-through a change, not straight into `openspec/specs/`.
+Workflow: the `linked-intent-dev` skill walks every code change down the arrow (HLD → LLD → EARS → tests → code) with an inspection after each phase; the `arrow-maintenance` skill audits and navigates `docs/arrows/`; `node bin/coherence-check.mjs` is the deterministic spec-to-code check.
+Anything that changes required behaviour starts at the design doc and its EARS specs, not at the code (see `.claude/rules/lid-routing.md`).
 
 ## Commands
 
@@ -88,7 +87,7 @@ these are easy to violate while making an otherwise reasonable change.
   (The infra program's `route53.ts` declares zero resources for this reason — only a
   hosted-zone lookup.)
 - **TLS terminates in-task via a Caddy sidecar.** There is no ALB, target group, or ACM
-  certificate anywhere in the stack (`openspec/specs/in-task-tls-termination`).
+  certificate anywhere in the stack (`IAC-PROGRAM-TLS-*` in `docs/intent/iac/program/program-specs.md`).
 - **Watchdog state lives in ECS task tags**, not DynamoDB or SSM.
 - **Lambda env vars use `AWS_REGION_`** (trailing underscore) — `AWS_REGION` is reserved
   by the Lambda runtime.
@@ -99,7 +98,7 @@ these are easy to violate while making an otherwise reasonable change.
 - **Secrets never reach the renderer.** Redacted shapes expose `botTokenSet` / `publicKeySet`
   booleans, never values.
 - **The desktop app has no HTTP transport.** `desktop-main` is an Electron IPC microservice;
-  there is no bearer token and no API server (`openspec/specs/desktop-only-operator-surface`).
+  there is no bearer token and no API server (`APP-IPC-XPORT-*` in `docs/intent/operator-app/ipc-bridge/ipc-bridge-specs.md`).
 - **`@hyveon/shared`'s barrel (`shared/src/index.ts`) stays free of AWS SDK imports beyond what it already carries.** It's bundled into every Lambda *and* imported by the renderer. New AWS-touching helpers go in a subpath module (`shared/src/aws/*.ts`) and are deep-imported — never added to the barrel, which already pulls `@aws-sdk/client-dynamodb` and `@aws-sdk/client-secrets-manager` into anything that imports it. Prefer structural parameter types over SDK type imports where possible.
 
 ## Markdown formatting
@@ -108,7 +107,7 @@ these are easy to violate while making an otherwise reasonable change.
   (GitHub, Docusaurus, editor soft-wrap) handle line breaks. Manual wraps at ~80 columns
   cause ragged reflow and noisy diffs (a one-word edit rewraps the whole paragraph) in
   content that's read rendered, not as a fixed-width text file — this file, `docs/docs/**`,
-  `openspec/**`, PR/issue bodies.
+  `docs/intent/**`, `docs/arrows/**`, PR/issue bodies.
 - Applies to prose only — code blocks, tables, and existing wrapped text don't need
   reflowing on unrelated edits.
 
@@ -135,8 +134,9 @@ Then confirm documentation is current **in the same PR**:
   A behaviour change with no docs update is an incomplete PR. Use the `write-docs` skill —
   it maps the diff to the pages that own it and reviews the result through the `docs-*`
   evaluator agents, which is more reliable than hand-picking pages from memory.
-- **OpenSpec** — if required behaviour changed, the change's delta specs must be synced
-  (`/opsx:sync`) or the change archived (`/opsx:archive`) so `openspec/specs/` matches reality.
+- **LID arrow** — if required behaviour changed, the change was cascaded down the arrow in the same PR: the owning LLD in `docs/intent/` is updated, its EARS lines in `<node>-specs.md` are added or edited and carry the right marker (`[x]` implemented, `[ ]` active gap, `[D]` deferred), the tests and code cite them with `@spec`, and the segment's doc in `docs/arrows/` still matches.
+  Run `npm run lid:check` (`node bin/coherence-check.mjs --strict`) and confirm it exits 0.
+  The check shells out to `grep` and exits 2 if it is missing, so `grep` must be on `PATH` (Git Bash or WSL on Windows).
 - **Deployment-config fields** — there is no five-file checklist any more; the old one
   existed because the previous IaC tooling required each variable declared
   redundantly across several files and threaded through a module boundary by
@@ -185,14 +185,15 @@ Never leave a noncommittal "tracking this".
 
 ## Linked-Intent Development (MANDATORY)
 
-**Consult the `linked-intent-dev` skill for ALL code changes.** All changes flow through the arrow of intent in one direction:
+**Consult the `linked-intent-dev` skill for changes that require LID** — changes that alter specified behaviour or contracts. Those changes flow through the arrow of intent in one direction:
 
 ```
 HLD → LLDs → EARS → Tests → Code
 ```
 
-- **All changes**: consult the `linked-intent-dev` skill if your harness provides it; otherwise read `docs/lid/workflow.md` before making changes, and if it is missing and `## LID` records no decline, offer the user once to add it from https://raw.githubusercontent.com/jszmajda/lid/v1.4.2/plugins/linked-intent-dev/skills/update-lid/references/workflow-doc.md (on decline, add `- Workflow doc: declined` to `## LID`). The workflow in one line: HLD check → LLD → EARS specs → edge audit → failing tests first → code — inspected at each phase.
-- **Bug fixes**: walk the arrow like any other change — find where behavior diverged from intent and cascade from there. No short-circuit.
+- **Changes that require LID**: consult the `linked-intent-dev` skill if your harness provides it; otherwise read `docs/lid/workflow.md` before making changes, and if it is missing and `## LID` records no decline, offer the user once to add it from https://raw.githubusercontent.com/jszmajda/lid/v1.4.2/plugins/linked-intent-dev/skills/update-lid/references/workflow-doc.md (on decline, add `- Workflow doc: declined` to `## LID`). The workflow in one line: HLD check → LLD → EARS specs → edge audit → failing tests first → code — inspected at each phase.
+- **Bug fixes**: start at the owning design/spec level — find where behavior diverged from intent and cascade from there. No short-circuit.
+- **Direct-PR changes skip the arrow**: the categories in `.claude/rules/lid-routing.md` (typo, docs-only, config tweak that does not alter specified behaviour, test backfill, linter tweak, non-breaking dependency upgrade).
 
 Each phase's output is inspected — by the user or an inspector they name — before the next begins; ambiguous spec readings go back to the user. **Docs carry current intent, written to be read cold** — write each doc as if authored fresh today, from current intent alone: no narration of how it changed, no meaning that needs the conversation that produced it, no rebuttals to questions only a past discussion raised. Rationale, considered alternatives, and constraints a fresh author would independently write stay; record rejected alternatives and why in the LLD's Decisions & Alternatives table, not as asides in body prose.
 

@@ -2,13 +2,13 @@
 
 ## Split large changes into a stack of small PRs, not one giant PR
 
-Trigger: multi-phase migration, an OpenSpec change with independent capability areas, or >~5-6 files across unrelated concerns.
+Trigger: multi-phase migration, an LID change spanning independent segments or capability areas, or >~5-6 files across unrelated concerns.
 
 **Why:** validated 2x at scale (`migrate-iac-to-pulumi`: 8-PR stack; `add-one-click-aws-bootstrap`: 9-PR stack). A giant PR gets skimmed or over-scrutinized; small ones review reliably and let earlier findings inform later groups.
 
 **How:**
 
-1. Decompose along real dependencies (e.g. `tasks.md` groups), not arbitrary file counts. Order by dependency.
+1. Decompose along real dependencies (e.g. arrow segments or an implementation plan's task groups), not arbitrary file counts. Order by dependency.
 2. One worktree + branch per group. First group branches from `main`; each later group branches from the *previous group's branch* — see `worktree.md`. Only the first PR bases on `main`; each later PR bases on the previous group's branch.
 3. **Use the `gh-stack` skill** to create, push, submit, sync, and rebase the stack — don't hand-roll the branch chaining or `--base` wiring. If the skill's mechanics conflict with a worktree hook, the hook wins; ask the user rather than bypassing it.
 4. Each PR independently passes the full pre-PR gate (lint, typecheck, test, +integration/e2e per CLAUDE.md) — **exit code 0, not "documented known failure."** A red CI check stays red no matter what the PR description says.
