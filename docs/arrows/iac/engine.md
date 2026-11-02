@@ -79,7 +79,7 @@ Engine provisioning, the workspace seam, credential exclusivity and provable-own
 
 ### OpenSpec sources
 - `pulumi-engine-runtime`: primary capability, 7 requirements / 32 scenarios. Synced; no active change touches it.
-- `pulumi-infra-program`: cited only for its contradicting passphrase sentence ("machine-bound"), which belongs to the program half and is not repeated in any LID text.
+- `pulumi-infra-program`: cited for its contradicting historical passphrase sentence ("machine-bound"), which belongs to the program half; `engine-design.md` quotes it only as historical context and does not adopt it as the engine decision.
 - `wizard-flow`: "Stack initialization step with phased progress" and "Resolved Pulumi engine version in Settings" are rendered by this leaf's `stack-init-step` and `pulumiVersion.ts`, but the capability is owned by `wizard-and-bootstrap`.
 
 ## Architecture
@@ -158,7 +158,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/engine/engine-specs
 ### Should Fix
 5. Resolve every desktop AWS client's region through `ConfigService.getRegion()`: the cloud provider in `EcsService.ts:72` (code owned by `game-runtime/task-and-dns`) and the audit, Discord-config and run-record stores in `cloud-provider.module.ts:109,131,180` (code owned by `operator-app/desktop-shell`) stop reading `outputs.awsRegion` (finding 15). (specs: `IAC-ENGINE-REGION-002`)
 6. Correct `PulumiOperationEscalatedError`'s message and the escalation log to say the promise was abandoned, not the process killed (finding 3). (specs: `IAC-ENGINE-LIFE-004`)
-7. Nothing to fix in the arrow for the "machine-bound" sentence (finding 5): it lived only in the former `pulumi-infra-program` OpenSpec capability and no LID text repeats it.
+7. Nothing to fix in the arrow for the "machine-bound" sentence (finding 5): it lived in the former `pulumi-infra-program` OpenSpec capability, and `engine-design.md` quotes it only as historical context; the current engine decision does not adopt it.
 8. Extract the triplicated streaming setup, outcome switches and destroy-token gate; reuse `LockClearConfirmationGate` for destroy (finding 11).
 9. Move raw `process.env` reads behind stubbable accessors and remove the duplicated `getConfigurationBucket` once the import cycle allows it (finding 10).
 10. Normalise raw `err` logging in `PulumiEngineService` and `PulumiService.getStackOutputs` (findings 7, 9). (specs: `IAC-ENGINE-PFAIL-006`, `IAC-ENGINE-OUT-003`)
