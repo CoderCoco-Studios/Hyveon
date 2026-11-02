@@ -81,9 +81,9 @@ Start and stop a game's container on demand, publish its address in DNS while it
 - `operator-app/ipc-bridge`: app/packages/desktop-preload/src/hyveon-api.ts, app/packages/web/src/api.service.ts (renderer-side `GameStatus`/`CostEstimates` shapes).
 
 ### OpenSpec sources
-- openspec/specs/cost-visibility/spec.md (carried; synced; source changes `2026-08-06-remove-cost-explorer-calls` and `2026-08-10-add-per-game-cost-tags` are archived).
-- openspec/specs/in-task-tls-termination/spec.md (cited: requirement "HTTPS games use the Lambda-managed DNS lifecycle" only; the rest belongs to `iac/program`).
-- No active OpenSpec change maps to this leaf.
+- `cost-visibility` capability (carried; the Cost Explorer removal and per-game cost tag work behind it are shipped).
+- `in-task-tls-termination` capability (cited: requirement "HTTPS games use the Lambda-managed DNS lifecycle" only; the rest belongs to `iac/program`).
+- No in-flight change maps to this leaf.
 
 ## Architecture
 
@@ -133,7 +133,7 @@ Start and stop a game's container on demand, publish its address in DNS while it
 9. **Status and cost shapes are declared four and three times.** `GameStatus` in `shared/src/types.ts:61`, `EcsService.ts:148`, `desktop-preload/src/hyveon-api.ts:100`, `web/src/api.service.ts:121`; `StartResult` in three of those; `CostEstimates` in `CostService.ts:14`, `hyveon-api.ts:126`, `api.service.ts:147`.
 10. **Dead and vestigial code in `EcsService`.** The null-on-failure `findRunningTask` (`EcsService.ts:281-287`) has no production caller; its fail-closed sibling `findRunningTaskOrThrow` (`EcsService.ts:242-268`) does, from the helper task (`FolderUploadService.ts:292`, `volumeFiles/fileOps.ts:116`). The `_ec2` constructor parameter is unused (`EcsService.ts:197-200`); `registerTaskDefinition` dynamically imports a command class from a package the file already imports (`EcsService.ts:388-390`).
 11. **Raw error objects logged.** `EcsService.start`/`stop` log `{ err }` on the non-guard path (`EcsService.ts:330,352`), as do `getTaskDefinition` `:377` and `listTasksByStartedBy` `:477` (`findRunningTaskOrThrow` now normalises, `:264-266`), against the repo's logging rule to normalise to a message. update-dns logs the full EventBridge event (`handler.ts:252`).
-12. **Stale references.** `CostService.ts:22`, `costs.controller.ts:12`, `costs.page.tsx:167` and `kpi-strip.component.tsx` doc cite `openspec/changes/remove-cost-explorer-calls`, which is archived as `openspec/changes/archive/2026-08-06-remove-cost-explorer-calls`; `costs.controller.ts:25-27` says "tfstate" for stack outputs; `update-dns/handler.ts:69` cites the retired `update_dns.py`; `CostsPage.ts:12,22-23` says Costs is not in the sidebar, but `app-nav.component.tsx:22` links it.
+12. **Stale references.** code comments at `CostService.ts:23`, `costs.controller.ts:13`, `costs.page.tsx:167,190`, `AwsCloudProvider.ts:183`, `shared/src/cloud.ts:35`, `kpi-strip.component.tsx:57` and `costs.spec.ts:18` cite the retired `remove-cost-explorer-calls` change name instead of stating the rationale (the app makes no Cost Explorer calls); `costs.controller.ts:25-27` says "tfstate" for stack outputs; `update-dns/handler.ts:69` cites the retired `update_dns.py`; `CostsPage.ts:12,22-23` says Costs is not in the sidebar, but `app-nav.component.tsx:22` links it.
 13. **Renderer cost fetch failures are silent and duplicated.** `GameStatusProvider` swallows `costs.estimate` errors (`game-status-provider.component.tsx:85`) and the Costs page fetches the same channel again with its own silent catch (`costs.page.tsx:172-180`).
 14. **`refreshGame` cannot add a game.** It maps over existing `statuses` only (`game-status-provider.component.tsx:88-91`), so a game absent from the last full poll stays absent until the next 20 s poll.
 15. **Undo-after-Stop does not set `busy`.** The Undo action calls `api.start` without `setBusy(true)` (`use-game-actions.hook.ts:89-97`), so the card's buttons stay enabled during the restart; the clipboard copy promise on the card is not handled (`game-card.component.tsx:195`).
