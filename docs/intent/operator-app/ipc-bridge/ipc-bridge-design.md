@@ -8,7 +8,7 @@ prefix: APP-IPC
 ## Context and Design Philosophy
 
 Hyveon's desktop app has exactly one way for the operator UI to reach the back end: the renderer calls a method on `window.hyveon`, the preload script turns that into `ipcRenderer.invoke(channel, payload)`, and the Electron main process answers it from a Nest `@MessagePattern` handler.
-There is no HTTP server, no bearer token, no API base URL and no `fetch` anywhere in the path (`desktop-preload/src/preload.ts:1-15`, `openspec/specs/desktop-only-operator-surface/spec.md`, "Desktop-main exposes no HTTP transport").
+There is no HTTP server, no bearer token, no API base URL and no `fetch` anywhere in the path (`desktop-preload/src/preload.ts:1-15`, APP-IPC-XPORT-001, APP-IPC-XPORT-006).
 This leaf owns that channel end to end: the shape of `window.hyveon`, how a call is dispatched on the main side, how an error crosses back, how a stream survives the `contextBridge` clone, and the test-mode seam that fakes the whole thing.
 
 The renderer runs with `contextIsolation: true` and `sandbox: true` and gets the preload from `../preload/preload.cjs` (`desktop-main/src/electron-entry.ts:181-183`), so the preload is the only code with `ipcRenderer`, and only values that survive structured clone reach the page.
@@ -129,7 +129,7 @@ This diverges from the `desktop-only-operator-surface` scenario "Cancellation st
 ## Contract and Types
 
 `hyveon-api.ts` (2,698 lines) is the full hand-written contract: `HyveonApi` (`:2651`), `HyveonTestApi` (`:2608`), `HyveonStreamHandle` (`:186`) and the payload/result types of every namespace.
-`index.ts` re-exports those types and `GUIDED_PROFILE_NAME`, and is the single declaration of `Window.hyveon?: HyveonApi` (`index.ts:1-62`), satisfying `openspec/specs/preload-bridge-naming/spec.md`.
+`index.ts` re-exports those types and `GUIDED_PROFILE_NAME`, and is the single declaration of `Window.hyveon?: HyveonApi` (`index.ts:1-62`), satisfying APP-IPC-NAME-005.
 The global is optional because the bridge is absent in a plain browser (`web/src/globals.d.ts:1-9`).
 
 The contract is mirrored rather than derived.
@@ -151,7 +151,7 @@ A registered stream mock is called with `(arg, signal)` or `(signal)` and its `A
 The production build never exposes `__test`, as `preload-bridge-naming` requires.
 
 Because a stream mock short-circuits before any IPC, `streaming-handle-roundtrip.spec.ts` proves the handle survives the clone but not that a real main-process stream reaches the renderer: every case registers a mock first (`streaming-handle-roundtrip.spec.ts:43,86,137,192`).
-The only unmocked electron roundtrip is `env.get` (`electron-ipc-roundtrip.spec.ts:21`), so the spec scenario "A test guards the real bridge boundary ... with no mock registered" is not met.
+The only unmocked electron roundtrip is `env.get` (`electron-ipc-roundtrip.spec.ts:21`), so the requirement that a test guard the real bridge boundary with no mock registered (APP-IPC-STREAM-011) is not met.
 
 **`test-mock-registry.ts`.** Exports namespace-level `register` / `lookup` / `clear` / `buildMockHyveon` at `@hyveon/desktop-preload/test-mock-registry` and says `@hyveon/web` tests use it (`test-mock-registry.ts:9-11`); the only references are its own test.
 
@@ -161,8 +161,8 @@ The only unmocked electron roundtrip is `env.get` (`electron-ipc-roundtrip.spec.
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| Operator transport | Electron IPC microservice only; no HTTP server | HTTP shim controllers over Express (previously present) | Spec'd in `openspec/specs/desktop-only-operator-surface/spec.md`; CLAUDE.md invariant "The desktop app has no HTTP transport". |
-| Renderer global name | `window.hyveon`, `Hyveon*` types | `window.gsd` / `Gsd*` (pre-rebrand) | `openspec/specs/preload-bridge-naming/spec.md` Purpose: names follow the rebrand. |
+| Operator transport | Electron IPC microservice only; no HTTP server | HTTP shim controllers over Express (previously present) | Required by APP-IPC-XPORT-001; CLAUDE.md invariant "The desktop app has no HTTP transport". IPC is reachable only from the app's own renderer, so there is no request-level auth to configure, and the HTTP shims carried an Express stack and bearer-token plumbing the desktop app has no use for. |
+| Renderer global name | `window.hyveon`, `Hyveon*` types | `window.gsd` / `Gsd*` (pre-rebrand) | Names follow the rebrand (APP-IPC-NAME-001, APP-IPC-NAME-002). |
 | Main-side dispatch | One generic `registerIpcMainBridges` loop over Nest's handler map | Per-controller `ipcMain.handle`; patching `nestjs-electron-ipc-transport` | Transport never calls `ipcMain.handle`, so channels hung (`ipc-main-bridge.ts:91-94`); subclass avoids `as unknown as` casts (`ipc-main-bridge.ts:39-48`). |
 | Long-running channels | Self-bridged in their controllers, listed in `SELF_BRIDGED_PATTERNS` | Route through the generic bridge | Need `evt.sender` for side-channel pushes, and Nest drops the undecorated `ctx` for some handlers (`ipc-main-bridge.ts:11-22`). |
 | Error shape across IPC | Plain `Error` with `.message` only, via a global RPC filter plus bridge rethrow | Let Nest's base filter run; structured error objects | Base filter yields "Internal server error" (`rpc-error-message.filter.ts:10-20`); raw SDK errors fail structured clone (`ipc-main-bridge.ts:98-106`). |
@@ -181,13 +181,13 @@ The only unmocked electron roundtrip is `env.get` (`electron-ipc-roundtrip.spec.
 
 ### Resolved
 
-- The one-time FileBrowser credential exception to "Secrets never reach the renderer" is gone: `embed-file-browser` (archived `openspec/changes/archive/2026-10-30-embed-file-browser/`) replaced the `files` namespace with `volumeFiles`, and `game-volume-file-browser` requires helper credentials and addresses to stay in the main process.
+- No FileBrowser credential reaches the renderer, so "Secrets never reach the renderer" has no exception: the `volumeFiles` namespace carries session state only, and helper credentials and addresses stay in the main process (HELPER-FB-008, HELPER-FB-009).
 
 ### Deferred
 
 1. Should `requireStringArray` and the inline `BadRequestException({ success: false, error })` throws reach the renderer with their field message, by throwing a plain `Error` or by teaching `RpcErrorMessageFilter` to read `getResponse()`? Today the operator sees "Bad Request Exception" (`validation.ts:21-24`, `rpc-error-message.filter.ts:36`, `iac-runs.controller.ts:213-216`).
 2. Should self-bridged registrations go through one shared helper that applies the same normalisation and logging as the generic bridge, replacing nine hand-written blocks (`iac.controller.ts:576-614`, `logs.controller.ts:43-50`, `iac-runs.controller.ts:182-185`, `iac-settings.controller.ts:116-119`)?
-3. Should shared side-channel streams get a main-side cancel, or should the "Cancellation stops the stream" scenario be narrowed to the per-call style (`stream-bridge.ts:24-26`, `iac-runs.controller.ts:273-276`)?
+3. Should shared side-channel streams get a main-side cancel, or should the cancellation requirement (APP-IPC-STREAM-009) be narrowed to the per-call style (`stream-bridge.ts:24-26`, `iac-runs.controller.ts:273-276`)?
 4. Does Electron's ordering guarantee that per-call chunks sent before the invoke reply are delivered after it, or is the listener-after-ack window real (`stream-bridge.ts:212-230`, `logs.controller.ts:170-196`)?
 5. Which test should drive a streaming channel end to end with no mock, to satisfy "A test guards the real bridge boundary" (`streaming-handle-roundtrip.spec.ts:43`, `electron-ipc-roundtrip.spec.ts:21`)? `logs.lambda.stream` and `iac.settings.autoUpdate.download` are not driven at all.
 6. Should preload types be imported from `@hyveon/shared` wherever a shared type exists, starting with `GameServerPort`, `GameServer`, `RedactedDiscordConfig` and `LogChunk` (`hyveon-api.ts:157,231-242,289-292,418-432`), and should `GameWizardDraft`'s drift that `api.service.ts:357` casts around be fixed with them (`hyveon-api.ts:650-679`)?
@@ -198,13 +198,11 @@ The only unmocked electron roundtrip is `env.get` (`electron-ipc-roundtrip.spec.
 11. Should `findSecretFields` also run against every IPC result in one generic test (for example over the integration harness), rather than only the volume-files results it guards today (`volume-files.controller.test.ts:292`, `VolumeFilesService.test.ts:526,553,649`)? Its IPv4 and `cert` patterns would also flag legitimate values such as a game's public IP, so a generic use needs an allowlist.
 12. Fix the stale comments: `ipc-main-bridge.ts:99-100` ("no NestJS exception filter anywhere"), `validation.ts:14-16` ("legacy Express 400"), `stream-bridge.ts:7-13,80` (four calls, actually five), `preload.ts:362` ("three generators"), `preload.ts:383` (omits `streamUpdateDownload`), `hyveon-api.ts:2645` (import path not in the `exports` map), `electron-ipc-roundtrip.spec.ts:10-12` (a preload invoke timeout that does not exist), and "tfstate" wording in `hyveon-api.ts:464-478,697-716,2143,2668`.
 13. The chromium e2e tier installs an HTTP-forwarding `window.hyveon` over a fictional `/api/*` map (`web/e2e/fixtures/hyveon-http-bridge.ts:44`), and renderer code carries guards that exist only for it (`app.component.tsx:34-43`). The spec keeps those five chromium specs for now; when they move to the electron project, can the shim and its guards go?
-14. `openspec/specs/preload-bridge-naming/spec.md:16` still lists a `files` namespace, which the bridge no longer has (`preload.ts:419-652`), and omits `folderUpload` and `volumeFiles`. Update the scenario through an OpenSpec change?
 
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/ipc-bridge.md`
 - EARS specs: `docs/intent/operator-app/ipc-bridge/ipc-bridge-specs.md`, prefix `APP-IPC`
-- OpenSpec: `openspec/specs/preload-bridge-naming/spec.md`; `openspec/specs/desktop-only-operator-surface/spec.md` (requirements "Desktop-main exposes no HTTP transport", "Test harnesses do not depend on the removed HTTP surface", "Streamed IPC channels work across the context bridge")
 - Docs: `docs/docs/components/management-app.md` (desktop-main bootstrap, controllers and IPC channels, `@hyveon/desktop-preload`), `docs/docs/components/integration-tests.md` (mock seams and test tiers), `docs/docs/architecture.md`
 - Rules: `.claude/rules/logging.md`
 - Neighbouring leaves: `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`, `docs/intent/operator-app/infra-logs/infra-logs-design.md`, `docs/intent/iac/run/run-design.md`, `docs/intent/operator-app/app-update-and-release/app-update-and-release-design.md`, `docs/intent/operator-app/diagnostics/diagnostics-design.md`

@@ -66,10 +66,6 @@ Both log pages (`/logs` for game servers, `/logs/infrastructure` for Lambdas) sh
 - `app/packages/web/src/app.component.tsx` (`operator-app/desktop-shell`): route `/logs/infrastructure` (`:102`).
 - Outbound: `ansi.utils.ts` and `log-line-display.component.tsx` are cited by `iac/run` (`ansi-log-viewer.component.tsx`) and `operator-app/diagnostics` (`DiagnosticsPanel.tsx`).
 
-### OpenSpec sources
-- `openspec/specs/infra-log-viewer/spec.md`: synced from archived change `2026-08-14-add-infra-log-viewer`; 5 requirements, 11 scenarios; Purpose still `TBD`.
-- `openspec/changes/add-vpc-flow-logs/` (active): not started, 0/22 tasks; proposes new capability `vpc-flow-logs` that extends this leaf's Lambda-log fetch/tail pattern to VPC Flow Logs.
-
 ## Architecture
 
 **Purpose:** Let an operator read CloudWatch logs for one game server (`/ecs/{game}-server`) or one of five log-tailable Lambdas (`/aws/lambda/{projectName}-{key}`) without leaving the app, with a 300-line live window, pause buffer, and scroll-driven historical paging.
@@ -90,9 +86,9 @@ Both log pages (`/logs` for game servers, `/logs/infrastructure` for Lambdas) sh
 
 | OpenSpec capability | requirements | scenarios | notes |
 |---|---|---|---|
-| `infra-log-viewer` | 5 | 11 | Log group resolution, recent fetch, page and nested nav appear implemented (`LogsService.ts:594-604,624-639`; `infrastructure-logs.page.tsx`; `app-nav.component.tsx:48-49`). Live Lambda tail deviates: first poll has no `startTime`, so it is not "newly-arriving" only (finding 1). Abort exits cleanly but only after the pending `setTimeout` (finding 3). The game log tail, scroll-back paging, pause buffer and jump-to-latest have no OpenSpec requirement at all. |
+| `infra-log-viewer` | 5 | 11 | Log group resolution, recent fetch, page and nested nav appear implemented (`LogsService.ts:594-604,624-639`; `infrastructure-logs.page.tsx`; `app-nav.component.tsx:48-49`). Live Lambda tail deviates: first poll has no `startTime`, so it is not "newly-arriving" only (finding 1). Abort exits cleanly but only after the pending `setTimeout` (finding 3). The game log tail, scroll-back paging, pause buffer and jump-to-latest were never part of that capability and are specified only by the `APP-LOGS` EARS. |
 
-**OpenSpec summary:** One OpenSpec capability (5 requirements, 11 scenarios) covers only the Lambda half of this leaf.
+**OpenSpec summary:** The one legacy capability (5 requirements, 11 scenarios) covers only the Lambda half of this leaf.
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
@@ -111,10 +107,10 @@ Both log pages (`/logs` for game servers, `/logs/infrastructure` for Lambdas) sh
 ## Key Findings
 
 1. **Lambda live tail replays the whole log group on its first poll**: `streamLambdaLogs` starts with `startTime` undefined (`LogsService.ts:735`) and drains every `nextToken` page (`:739-754`), so the first poll returns all retained events, re-yielding the snapshot `useLogTail` already rendered (`use-log-tail.hook.ts:340-344`). The game tail starts at `Date.now()` (`AwsCloudProvider.ts:558`). No test pins the first-poll `startTime` for the Lambda tail (`LogsService.test.ts:797` onward). Behavioural impact is inferred from the code, not observed. Observed live 2026-10-31: the watchdog tail replayed its full 7-day retention (about 50,000 lines) in a few minutes; without per-line timestamps (finding 10) the replay looked like the watchdog firing several times a second, while Lambda's `Invocations` metric showed a steady one run per minute.
-2. **Two live-tail loops that drifted apart**: `streamLambdaLogs` (`LogsService.ts:727-768`) re-implements `AwsCloudProvider.streamWorkloadLogs` (`AwsCloudProvider.ts:548-589`) and differs in start time, `limit: 100`, dedupe-key separator (`:` vs `-`), cursor advance (`max(ts)` vs `ts + 1`), abort-aware SDK call, and error logging. The TSDoc justifies the copy via "design.md D1" (`LogsService.ts:710`).
+2. **Two live-tail loops that drifted apart**: `streamLambdaLogs` (`LogsService.ts:727-768`) re-implements `AwsCloudProvider.streamWorkloadLogs` (`AwsCloudProvider.ts:548-589`) and differs in start time, `limit: 100`, dedupe-key separator (`:` vs `-`), cursor advance (`max(ts)` vs `ts + 1`), abort-aware SDK call, and error logging. The TSDoc justifies the copy by the interface-boundary decision (`LogsService.ts:710`), which does not require a second loop.
 3. **Lambda tail sleep is not abort-aware and poll errors are not logged**: plain `setTimeout` at `LogsService.ts:766` (the game tail uses `sleepInterruptible`, `AwsCloudProvider.ts:40,584`); the generic catch at `:762-763` yields a `[stream error]` line without any `logger` call, contrary to `.claude/rules/logging.md` rule 2. `AwsCloudProvider.ts:36` says it "mirrors `LogsService`'s `sleepInterruptible` helper", which does not exist in `LogsService`.
 4. **"Five vs six Lambdas" wording**: code says 5 log-tailable functions (`lambdaFunctionKey.ts:2`, `LogsService.ts:585`, `logs.controller.ts:220`, `infrastructure-logs.page.tsx:39,58`) and that is correct: six Lambda packages exist (`app/packages/lambda/*`), `efs-seeder` is per-game (`infra/src/lambdas.ts:723`). The stale claims are in docs/CI that say five *packages*: `docs/docs/components/management-app.md:14`, `.github/workflows/lint.yml:51` (inventory cited `:49`). `docs/docs/app/index.md:111` ("5 Lambda functions") is accurate for the log page.
-5. **Recent snapshot reads only the single newest stream**: `getRecentFromLogGroup` uses `DescribeLogStreams limit: 1` (`LogsService.ts:304-315`), matching the spec. For `https` games the Caddy sidecar writes to the same `/ecs/{game}-server` group under a `caddy` prefix (`openspec/specs/in-task-tls-termination/spec.md:16`), so the snapshot may show only Caddy lines while the live tail interleaves both `[inferred]`.
+5. **Recent snapshot reads only the single newest stream**: `getRecentFromLogGroup` uses `DescribeLogStreams limit: 1` (`LogsService.ts:304-315`), matching APP-LOGS-SNAP-001. For `https` games the Caddy sidecar writes to the same `/ecs/{game}-server` group under a `caddy` prefix (IAC-PROGRAM-ECS-007), so the snapshot may show only Caddy lines while the live tail interleaves both `[inferred]`.
 6. **`eventId` synthesis differs between snapshot and paging**: `${e.message ?? ''}` at `LogsService.ts:326` vs raw `${e.message}` at `:519`, so a message-less event gets `ts:` in one and `ts:undefined` in the other, breaking `excludeEventIds` matching for that edge case.
 7. **Two "no streams" messages, only one recognised**: `getRecentFromLogGroup` throws `No log streams found for {label}.` (`:313`), which `withLogGroup` matches verbatim (`:256`); `fetchAcrossStreams` throws `No log streams found in {logGroup}.` (`:475`), which is not matched (only relevant on the `'paging'` path, where it is rethrown anyway).
 8. **Stale and history-narrating comments in `LogsService`**: `:518` cites a nonexistent `fetchRange`; `:41` ("the bug this replaced"), `:218-219,232-233` ("pre-extraction call sites"), `:298-299` ("pre-dedup"), `:478` ("Bug 1") narrate history; the class TSDoc (`:150-154`) and controller TSDoc (`logs.controller.ts:10-14`) still describe only `/ecs/{game}-server`.
@@ -137,9 +133,8 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/infra-logs
 2. Collapse the two live-tail loops into one shared implementation, or at least make the Lambda loop abort-aware and log poll errors per the logging rule (specs: `APP-LOGS-TAIL-007`, `APP-LOGS-TAIL-009`).
 3. Unify `eventId` synthesis (`LogsService.ts:326` vs `:519`). (specs: `APP-LOGS-SNAP-006`)
 4. Extract the four identical controller catch blocks and stop double-logging paging failures. (specs: `APP-LOGS-PAGE-008`)
-5. Decide whether the game-log snapshot should read across streams (Caddy sidecar) and record the decision in the spec.
-6. Write OpenSpec/EARS coverage for the game log tail, paging, pause and jump-to-latest, which currently have none; fill the `infra-log-viewer` Purpose.
-7. Fix stale docs/CI wording: `management-app.md:14`, `lint.yml:51` ("five Lambda packages").
+5. Decide whether the game-log snapshot should read across streams (Caddy sidecar) and record the decision in the EARS.
+6. Fix stale docs/CI wording: `management-app.md:14`, `lint.yml:51` ("five Lambda packages").
 
 ### Nice to Have
 8. Remove history-narrating and stale comments in `LogsService.ts` and the controller/class TSDoc.
