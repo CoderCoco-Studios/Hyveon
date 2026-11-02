@@ -103,7 +103,7 @@ There is no OpenSpec capability for this leaf. Intent is taken from `docs/docs/a
 - `app/packages/shared/src/index.ts` (unassigned barrel): carries the "no new AWS SDK imports" constraint.
 
 ### OpenSpec sources
-- None. No capability under `openspec/specs/` covers Discord, and no active change under `openspec/changes/` is mapped to this leaf (final-clustering §7).
+- None. No OpenSpec capability covers Discord, and no active change is mapped to this leaf.
 
 ## Architecture
 

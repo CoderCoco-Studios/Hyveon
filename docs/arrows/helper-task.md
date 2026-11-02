@@ -5,7 +5,7 @@ Put files onto a game's storage volume: the shared file-manager helper session, 
 ## Status
 
 **MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
-Re-synced after the `embed-file-browser` change merged (PRs #694-#699, #701): one main-process helper session per game, served over pinned HTTPS, is shared by the in-app file browser page and folder uploads; the external-browser modal and `files.*` channels are gone.
+Re-synced after the in-app file browser shipped (PRs #694-#699, #701): one main-process helper session per game, served over pinned HTTPS, is shared by the in-app file browser page and folder uploads; the external-browser modal and `files.*` channels are gone.
 
 ## References
 
@@ -65,9 +65,9 @@ Re-synced after the `embed-file-browser` change merged (PRs #694-#699, #701): on
 - `operator-app/diagnostics`: `app/packages/web/src/components/DiagnosticsPanel.tsx` hosts `StrayHelpersButton`.
 
 ### OpenSpec sources
-- `openspec/specs/game-volume-file-browser/spec.md`: main spec, 10 requirements, 39 scenarios. Created by `embed-file-browser`.
-- `openspec/specs/game-volume-folder-upload/spec.md`: main spec, 9 requirements, 35 scenarios. Two requirements ("Upload goes directly into the mounted volume", "Helper sessions are tagged and stray ones are cleaned up") were rewritten by `embed-file-browser`.
-- `openspec/changes/archive/2026-10-30-embed-file-browser/`: archived, specs synced; `design.md` D1-D13 hold the rationale, `verify.md` section 7 lists two manual checks still owed (real OS drag-and-drop through the preload, `quitAndInstall` with an owned helper).
+- `game-volume-file-browser`: 10 requirements, 39 scenarios, created by the file-browser rollout.
+- `game-volume-folder-upload`: 9 requirements, 35 scenarios. Two requirements ("Upload goes directly into the mounted volume", "Helper sessions are tagged and stray ones are cleaned up") were rewritten by the file-browser rollout.
+- The file-browser rollout is archived and its specs synced. Its rationale lives in the Decisions & Alternatives table of `docs/intent/helper-task/helper-task-design.md`; two manual checks are still owed (real OS drag-and-drop through the preload, `quitAndInstall` with an owned helper).
 
 ## Architecture
 
@@ -122,7 +122,7 @@ Re-synced after the `embed-file-browser` change merged (PRs #694-#699, #701): on
 
 ## Key Findings
 
-1. **efs-seeder is first-volume-only and conditional.** Each seeder function mounts the first volume's access point (`infra/src/lambdas.ts:720-721`) and receives only `volumes[0].container_path` (`infra/src/escapes.ts:250`); a seed path under any other volume is rejected by `resolveDestination` (`handler.ts:34-38`). The helper now mounts every volume (`helperVolumeLayout.ts:89-102`), so seeds are the only remaining first-volume route. Functions exist only for games that declare `file_seeds` (`lambdas.ts:711`), contradicting `openspec/specs/lambda-runtime-currency/spec.md:21`, which lists efs-seeder as always-provisioned.
+1. **efs-seeder is first-volume-only and conditional.** Each seeder function mounts the first volume's access point (`infra/src/lambdas.ts:720-721`) and receives only `volumes[0].container_path` (`infra/src/escapes.ts:250`); a seed path under any other volume is rejected by `resolveDestination` (`handler.ts:34-38`). The helper now mounts every volume (`helperVolumeLayout.ts:89-102`), so seeds are the only remaining first-volume route. Functions exist only for games that declare `file_seeds` (`lambdas.ts:711`), so a runtime check that expects efs-seeder in every deployment (IAC-PROGRAM-RUNTIME-003) disagrees with the provisioning.
 2. **Auto-stop schedule failure is never surfaced, for any session.** `launchHelper` computes `scheduleWarning` (`FileManagerService.ts:487,498-514`) but `HelperSessionRegistry.launch` copies every other outcome field and drops it (`HelperSessionRegistry.ts:435-443`); `HelperSessionSnapshot` has no field for it (`:26-37`). Before the merge the browse modal at least showed the warning; now a missing scheduler role or failed schedule is log-only, and a session that also outlives the 5 s quit timeout (`helper-quit-hook.ts:12`) has no backstop until the next startup sweep, which skips helpers younger than 15 min (`FolderUploadService.ts:44`). Contrary to `game-volume-folder-upload/spec.md` ("SHALL still be stopped by its auto-stop schedule").
 3. **SG rule leak window in `launchHelper`.** The operator `/32` rule is authorised at `FileManagerService.ts:374`, but `generateEphemeralCert()` (`:393`) and `registerTaskDefinition` (`:403`) run outside any try; only falsy returns reach `cleanupAfterFailure` (`:380-383,448-451,472-475`). A throw skips it, and the registry's `failSession` stops nothing because no `taskArn` was set (`HelperSessionRegistry.ts:544`). The next stop or sweep would revoke it (`FileManagerService.ts:562,646`).
 4. **Folder uploads check the server only once.** `prepare` runs the fail-closed check (`FolderUploadService.ts:290-297`) and then awaits `registry.status` (`:298`) before `execute` adds the `upload:` holder (`:349,355`); nothing re-checks during `uploadAll` (`:367`). A `games.start` landing in that window passes `hasUploadHolders` (`HelperSessionRegistry.ts:380-383`), and Discord `/server-start` never sees the refusal at all (`games.controller.ts:97-99`). File-browser uploads re-check before every file (`transferOps.ts:215-218`); folder uploads do not.
@@ -151,7 +151,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/helper-task/helper-task
 4. Reserve folder-upload targets in `UploadReservations` (finding 5). (specs: `HELPER-RSV-005`)
 5. Honour cancel and force-stop during preflight (finding 6). (specs: `HELPER-UPLOAD-013`)
 6. Return a structured code on `FolderUploadStartResult` and failure snapshots instead of matching message text (finding 7). (specs: `HELPER-IPC-004`)
-7. Reconcile `lambda-runtime-currency` with the conditional efs-seeder, and decide whether seeds may target non-first volumes now that the helper mounts all of them (finding 1).
+7. Reconcile IAC-PROGRAM-RUNTIME-003 with the conditional efs-seeder, and decide whether seeds may target non-first volumes now that the helper mounts all of them (finding 1).
 8. Normalise `FileManagerService.stop` errors per `logging.md`, stop logging whole access-point maps, and drop issue-number history from comments (finding 13). (specs: `HELPER-IPC-005`)
 
 ### Nice to Have
