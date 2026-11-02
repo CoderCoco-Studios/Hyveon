@@ -208,7 +208,7 @@ The post-apply runtime check (IAC-PROGRAM-RUNTIME-003 in `docs/intent/iac/progra
 4. Should folder-upload runs reserve their targets so a concurrent text save cannot race them (`uploadEngine.ts:251`, `uploadReservations.ts:6-12`)?
 5. Should `cancel()` and the before-stop listener honour a game still in `preparing` (`FolderUploadService.ts:128-130,183-187,220-241`)?
 6. Should `FolderUploadStartResult` and failure snapshots carry structured codes instead of text matched by regex and prefix (`folder-upload-card.component.tsx:25,87`, `folder-upload-progress-meter.component.tsx:37`, `HelperSessionRegistry.ts:517`)?
-7. Should the runtime check in IAC-PROGRAM-RUNTIME-003 treat efs-seeder as conditional, and may `file_seeds` target volumes other than the first now that the helper mounts all of them (`escapes.ts:250`, `lambdas.ts:711-721`, `handler.ts:34-38`)?
+7. May `file_seeds` target volumes other than the first now that the helper mounts all of them (`escapes.ts:250`, `lambdas.ts:711-721`, `handler.ts:34-38`)?
 8. Should `FileManagerService.stop` normalise errors with `errMessage` and wrap its task listing, should `:315` stop logging whole access-point maps, and should the issue-number narration at `:39,110-111` go (`FileManagerService.ts:315,542,559`)?
 9. Should the folder-upload card treat a failed server status read as busy, matching `useServerGuard` (`folder-upload-card.component.tsx:52-53,62`)?
 10. Should `supportsArchive` come from one place (`HelperSessionRegistry.ts:694` versus `transferOps.ts:105`)?
