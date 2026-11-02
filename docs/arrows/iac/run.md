@@ -48,11 +48,11 @@ The run lifecycle works end to end through the IaC page and history, but `partia
 - `app/packages/web/e2e/fixtures/ipc-harness.ts` (shared test harness): the integration seam the `orchestrator-integration-coverage` specs run through.
 
 ### OpenSpec sources
-- `openspec/specs/iac-plan-apply-page/spec.md` (synced, main)
-- `openspec/specs/iac-destroy-flow/spec.md` (synced, main)
-- `openspec/specs/iac-run-history/spec.md` (synced, main)
-- `openspec/specs/iac-rollback/spec.md` (synced, main; gates only, the restore half is cited from `deployment-config`)
-- `openspec/specs/orchestrator-integration-coverage/spec.md` (synced, main)
+- `iac-plan-apply-page` (synced)
+- `iac-destroy-flow` (synced)
+- `iac-run-history` (synced)
+- `iac-rollback` (synced; gates only, the restore half is cited from `deployment-config`)
+- `orchestrator-integration-coverage` (synced)
 - Active changes: none mapped to this leaf in `final-clustering.md` §7.
 
 ## Architecture
