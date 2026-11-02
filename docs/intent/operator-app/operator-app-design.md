@@ -65,7 +65,7 @@ These are stated as prohibitions or explicit non-goals in the cited sources and 
 - No AWS SDK in the renderer (`app/eslint.config.js:114-198`, cited by `wizard-and-bootstrap-design.md`).
 - No update that downloads or installs itself, and no update-feed request at boot unless the operator opted in (`app-update-and-release-design.md`, guiding principles).
 - No per-workspace versioning; only the root version is released (`app-update-and-release-design.md`, Decisions, citing the `add-release-automation` design's Non-Goals).
-- No server-side log search in the log viewer (`infra-logs-design.md`, Decisions, citing the archived `add-infra-log-viewer` design's Non-Goals).
+- No server-side log search in the log viewer (`infra-logs-design.md`, Context).
 
 ## Tenets
 
@@ -196,7 +196,7 @@ Each decision below is load-bearing for more than one child.
 
 1. **Electron IPC is the only transport; there is no HTTP server.**
    Cited by `ipc-bridge-design.md`, `desktop-shell-design.md`, `wizard-and-bootstrap-design.md`, `diagnostics-design.md`, `infra-logs-design.md`, `app-update-and-release-design.md`.
-   Rationale `[stated]`: required by `openspec/specs/desktop-only-operator-surface/spec.md` and the `CLAUDE.md` invariant; IPC is reachable only from the app's own renderer, so no request-level auth exists to configure (`docs/docs/components/management-app.md`, "Auth").
+   Rationale `[stated]`: required by APP-IPC-XPORT-001 and the `CLAUDE.md` invariant; IPC is reachable only from the app's own renderer, so no request-level auth exists to configure (`docs/docs/components/management-app.md`, "Auth").
    Alternative rejected `[stated]`: HTTP controllers over Express with a bearer token (`ipc-bridge-design.md`, Decisions).
 
 2. **A narrow, statically shaped, secret-free bridge under `contextIsolation` and `sandbox`.**
@@ -281,9 +281,9 @@ Each decision below is load-bearing for more than one child.
    `wizard-and-bootstrap-design.md` and its arrow doc assign `env.ts` (`isTestMode`) to `ipc-bridge`; `ipc-bridge-design.md` does not list it among its files; `docs/arrows/operator-app/desktop-shell.md` lists it under `desktop-shell`'s code.
    Which leaf owns it?
 
-3. **Stale status of `embed-file-browser` in `diagnostics`.**
-   `diagnostics-design.md` lists `openspec/changes/embed-file-browser/` as an active change (References, and its deferred question on the stray-helper button), while `ipc-bridge-design.md` records it as archived, and the change exists only at `openspec/changes/archive/2026-10-30-embed-file-browser/`.
-   The deferred question in `diagnostics-design.md` (whether the diagnostics spec acknowledges hosting the stray-helper button) still needs an answer against the archived change.
+3. **Placement of the stray-helper button.**
+   `DiagnosticsPanel` hosts the stray-helper cleanup button (APP-DIAG-PANEL-002), while the button's behaviour belongs to `helper-task`.
+   `diagnostics-design.md` asks whether the diagnostics spec should keep acknowledging that hosting; which leaf owns the button's placement?
 
 4. **No single owner for the controller entry-log rule.**
    `.claude/rules/logging.md` rule 1 applies to every `@MessagePattern` handler in the app, but each leaf restates it only for its own controllers (for example `APP-DIAG-SVC-005`, `IAC-RUN-IPC-002`), while the service-layer half sits under `APP-DIAG-SVC-001` to `004`.
@@ -320,6 +320,6 @@ Each decision below is load-bearing for more than one child.
 - `docs/docs/architecture.md` ("Game plane and operator control", "Invariants")
 - `CLAUDE.md` ("Invariants that hurt to break"), `.claude/rules/logging.md`
 
-### OpenSpec capabilities carried by this subtree
+### Legacy requirement sets carried by this subtree
 
-`desktop-only-operator-surface`, `preload-bridge-naming`, `custom-title-bar`, `app-icon`, `wizard-flow`, `guided-iam-provisioning`, `guided-region-selection`, `aws-credentials`, `cloud-bootstrap`, `aws-cloud-health`, `app-diagnostics-logging`, `infra-log-viewer`, `auto-update-scaffold`, `release-automation`, `install-and-signing-docs` (each under `openspec/specs/<name>/spec.md`; per-leaf mapping in each child design's References).
+`desktop-only-operator-surface`, `preload-bridge-naming`, `custom-title-bar`, `app-icon`, `wizard-flow`, `guided-iam-provisioning`, `guided-region-selection`, `aws-credentials`, `cloud-bootstrap`, `aws-cloud-health`, `app-diagnostics-logging`, `infra-log-viewer`, `auto-update-scaffold`, `release-automation`, `install-and-signing-docs` (the provenance tags on each EARS line name the set and requirement it came from; per-leaf mapping in each child's specs file).

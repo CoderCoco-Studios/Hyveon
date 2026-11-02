@@ -8,8 +8,9 @@ prefix: APP-LOGS
 ## Context and Design Philosophy
 
 Hyveon writes every game server's output to `/ecs/{game}-server` and every fixed Lambda's output to `/aws/lambda/{projectName}-{functionKey}`, both with a seven-day retention declared by the infra program (`app/packages/infra/src/logGroups.ts:4,38`).
-Without this leaf, an operator reading those logs would have to leave the app for the AWS Console; the archived design names that gap as the reason the Lambda half exists (`openspec/changes/archive/2026-08-14-add-infra-log-viewer/design.md`, Context).
+Without this leaf, an operator reading those logs would have to leave the app for the AWS Console; closing that gap is the reason the Lambda half exists.
 This leaf lets the operator read either kind of log group inside the app: a recent snapshot, a 2-second live tail, a pause buffer, and scroll-driven paging back through retention and forward again.
+It deliberately offers no CloudWatch Insights queries or cross-group search, and no log retention, export or download UI.
 
 The leaf owns:
 
@@ -42,13 +43,13 @@ CLAUDE.md invariants that live here:
 | Lambda | `/aws/lambda/{projectName}-{functionKey}` | `resolveLambdaLogGroup` (`LogsService.ts:594-604`) | Snapshot returns one `No log group for {key} yet …` line (`:633-636`); paging throws the same text (`:661-664,697-700`); tail yields it once and ends (`:757-760`) |
 
 `resolveLambdaLogGroup` falls back to `DEPLOYMENT_CONFIG_DEFAULTS.projectName` both when the setting is unset and when the read itself fails, logging a `warn` in the second case (`LogsService.ts:595-602`).
-This satisfies the `infra-log-viewer` "Lambda log group resolution" requirement, but a failed config read silently points the viewer at the `hyveon-*` groups of what may be a differently named deployment.
+This satisfies APP-LOGS-GROUP-002 to APP-LOGS-GROUP-004, but a failed config read silently points the viewer at the `hyveon-*` groups of what may be a differently named deployment.
 
 `LambdaFunctionKey` covers five of the six Lambda packages; `efs-seeder` is excluded because it is per-game, not a single addressable function (`lambdaFunctionKey.ts:1-7`).
 The union and `LAMBDA_FUNCTION_KEYS` are written out separately (`lambdaFunctionKey.ts:8-13,20-26`); the comment claims they "can never drift", but nothing derives one from the other, so adding a key to the union without the array would compile `[inferred]`.
 
-The `add-vpc-flow-logs` change (active, not started) plans a third family on the same service: a flow-log resolver mirroring `resolveLambdaLogGroup` plus `getRecent/Older/Newer/streamFlowLogs` (`openspec/changes/add-vpc-flow-logs/tasks.md:15-16`).
-That would turn today's game/Lambda method pairs into triplets.
+A planned VPC flow-log view (not started) would add a third family on the same service: a flow-log resolver mirroring `resolveLambdaLogGroup` plus `getRecent/Older/Newer/streamFlowLogs`.
+That would turn today's game/Lambda method pairs into triplets; the design choices behind it are in Decisions & Alternatives, "Planned VPC flow-log view".
 
 ## IPC Contract and Stream Lifecycle
 
@@ -80,14 +81,14 @@ So live-tailed lines reach the renderer with no CloudWatch timestamp or event id
 ### Snapshot
 
 `getRecentFromLogGroup` reads only the single most recently written stream (`DescribeLogStreams` ordered by `LastEventTime`, `limit: 1`) and returns its last `limit` events oldest-first (`LogsService.ts:303-328`).
-That matches the spec's "most recently written CloudWatch log stream" wording for Lambdas (`openspec/specs/infra-log-viewer/spec.md`, "Recent Lambda logs fetch").
-For a game with an `https` Caddy sidecar, the sidecar logs into the same `/ecs/{game}-server` group under its own prefix (`openspec/specs/in-task-tls-termination/spec.md:16`), so the snapshot may show only one container's lines while the live tail, which filters the whole group, interleaves both `[inferred]`.
+That matches the requirement to read the most recently written stream (APP-LOGS-SNAP-001).
+For a game with an `https` Caddy sidecar, the sidecar logs into the same `/ecs/{game}-server` group under its own prefix (IAC-PROGRAM-ECS-007), so the snapshot may show only one container's lines while the live tail, which filters the whole group, interleaves both `[inferred]`.
 
 ### Failure contracts via `withLogGroup`
 
 All six get/page methods run through `withLogGroup` (`LogsService.ts:237-264`), which takes a `kind`:
 
-- `'recent'`: the exact `No log streams found for {label}.` error is returned verbatim as a synthetic line (`:256-257`); any other failure is logged by the per-method hook (`logger.error`, `:284,631`) and folded into `Error fetching logs for {label}: {String(err)}` (`:262`). This is the spec's "return a single message … rather than propagating a raw SDK error" contract.
+- `'recent'`: the exact `No log streams found for {label}.` error is returned verbatim as a synthetic line (`:256-257`); any other failure is logged by the per-method hook (`logger.error`, `:284,631`) and folded into `Error fetching logs for {label}: {String(err)}` (`:262`). This is the contract that a failed snapshot returns a single message rather than propagating a raw SDK error (APP-LOGS-SNAP-004).
 - `'paging'`: any failure is normalized with `errMessage`, logged at `warn` (`:359,397,660,696`), and rethrown as a plain `Error` (`:261`).
 - `notFound`, passed only by the three Lambda methods, intercepts `ResourceNotFoundException` ahead of both branches.
 
@@ -113,8 +114,8 @@ The TSDoc gives the reasoning (`:407-441`): `'older'` walks newest-to-oldest; `'
 | Poll error | `logger.error` then `[stream error] …` line (`:579-580`) | `[stream error] …` line, no log call (`:762-763`) |
 | Infra not deployed | throws `WorkloadGuardError` before polling (`:554`) | n/a |
 
-The Lambda tail's TSDoc says it copies the game loop's shape and cites "design.md D1" for not sharing it (`LogsService.ts:705-713`); D1 in the archived design argues only that Lambda naming should not enter the cloud-agnostic `CloudProvider` interface, not that the loops must differ.
-Because the first Lambda poll has no `startTime`, it yields every retained event, re-delivering the snapshot the renderer already rendered (`use-log-tail.hook.ts:340-344`); that departs from the spec's "stream newly-arriving log lines" wording.
+The Lambda tail's TSDoc says it copies the game loop's shape and cites a design decision for not sharing it (`LogsService.ts:705-713`); that decision argues only that Lambda naming should not enter the cloud-agnostic `CloudProvider` interface, not that the loops must differ.
+Because the first Lambda poll has no `startTime`, it yields every retained event, re-delivering the snapshot the renderer already rendered (`use-log-tail.hook.ts:340-344`); that departs from the requirement to stream newly-arriving lines only (APP-LOGS-TAIL-005).
 Both `seen` sets grow without bound for the life of a stream (`LogsService.ts:734`; `AwsCloudProvider.ts:559`) `[inferred]`.
 `AwsCloudProvider.ts:36` says its `sleepInterruptible` mirrors one in `LogsService`, which has none.
 
@@ -163,30 +164,31 @@ The Lambda page defaults to `watchdog` and renders `LAMBDA_FUNCTION_KEYS` as `ar
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| Where Lambda log access lives | Methods on `LogsService`, building the group name inline | A `streamLambdaLogs` on the `CloudProvider` interface | Lambda log naming is AWS-specific and should not leak into the cloud-agnostic interface (archived `add-infra-log-viewer` design.md D1) |
-| How Lambdas are addressed | Fixed `LambdaFunctionKey` union of five suffixes | Runtime `ListFunctions` discovery | Set is fixed by the codebase; a union is compile-time checked and needs no extra IAM permission (design.md D2) |
-| Sidebar placement | Always-expanded `Logs` group with `Game Logs` / `Infra Logs` children | Top-level `/logs/lambdas` item; a tab inside `/logs`; a section on `/iac` | Groups both log domains without generic collapsible-nav code; labels avoid colliding with `Games` / `Infrastructure` links (design.md D3) |
-| Routes | Keep `/logs` for games, add sibling `/logs/infrastructure` | `/logs/games` plus a redirect | Avoids breaking existing links and docs (design.md D4) |
-| Lambda live view | 2 s `FilterLogEvents` poll tail | On-demand fetch only | Same interaction model as the game page; watchdog runs often enough that near-live tail is useful (design.md D5) |
-| Sharing the tail state machine | One `useLogTail` hook consumed by both pages | Parallel `useInfraLogTail` copy; a full shared presentational panel | User chose extraction to keep one source of truth (design.md D6). The presentational panel D6 rejected now exists as `LogTailView`; why it was later added is not recorded |
-| Game live tail | Delegate to `CloudProvider.streamWorkloadLogs`; snapshot and paging call CloudWatch directly | All game reads through `CloudProvider` | Depending on the interface keeps the service swappable (`LogsService.ts:164-169`); why snapshot/paging bypass it is stated only for Lambdas (D1), for games it is `[inferred]` historical |
-| Lambda live tail | Separate loop in `LogsService` | Share the provider's loop | TSDoc cites D1 (`LogsService.ts:710`), but D1 justifies the interface boundary, not a second loop; divergence appears unintended `[inferred]` |
+| Where Lambda log access lives | Methods on `LogsService`, building the group name inline | A `streamLambdaLogs` on the `CloudProvider` interface | Lambda log naming is AWS-specific and should not leak into the cloud-agnostic interface: `CloudProvider.streamWorkloadLogs` abstracts a game workload, and a `streamLambdaLogs` there would force every future provider to model AWS Lambda log-group naming. `LogsService` already talks to `CloudWatchLogsClient` directly for the same reason |
+| How Lambdas are addressed | Fixed `LambdaFunctionKey` union of five suffixes | Runtime `ListFunctions` discovery | Set is fixed by the codebase; a union is compile-time checked at both ends of the IPC contract and needs no `ListFunctions` call, extra IAM permission or error path. A sixth Lambda needs a manual union update in `LogsService` and the picker, which the type safety outweighs |
+| Sidebar placement | Always-expanded `Logs` group with `Game Logs` / `Infra Logs` children | Top-level `/logs/lambdas` item; a tab inside `/logs`; a section on `/iac` | Groups both log domains without generic collapsible-nav code; labels avoid colliding with the `Games` / `Infrastructure` links, which would give two same-named links, ambiguous to a screen reader and to locators keyed on accessible name. A tab inside `/logs` would crowd a single-purpose page; a section on `/iac` mixes in a page about provisioning (plan/apply), a different mental model from tailing logs |
+| Routes | Keep `/logs` for games, add sibling `/logs/infrastructure` | `/logs/games` plus a redirect | Avoids breaking the bookmarked `/logs` URL, docs screenshots and external links; the symmetric form would need a redirect or a 404 on bare `/logs` |
+| Lambda live view | 2 s `FilterLogEvents` poll tail | On-demand fetch only | Same interaction model as the game page; watchdog runs on a schedule every few minutes, so near-live tailing confirms a run just happened; only the selected function is polled, the same call volume as the game tail |
+| Sharing the tail state machine | One `useLogTail` hook consumed by both pages | Parallel `useInfraLogTail` copy; a full shared presentational panel | A parallel copy satisfies "looks the same" but not "is the same" and would drift the first time either page's tail behavior changed, so extraction was chosen to keep one source of truth. It is a real refactor of the working `/logs` page, so `logs.page.test.tsx` served as a fixed regression gate that had to pass with zero edits. A shared presentational panel was first rejected as larger than needed because the two pickers differ; it now exists as `LogTailView`, and why it was later added is not recorded |
+| Game live tail | Delegate to `CloudProvider.streamWorkloadLogs`; snapshot and paging call CloudWatch directly | All game reads through `CloudProvider` | Depending on the interface keeps the service swappable (`LogsService.ts:164-169`); why snapshot/paging bypass it is stated only for Lambdas (see "Where Lambda log access lives"), for games it is `[inferred]` historical |
+| Lambda live tail | Separate loop in `LogsService` | Share the provider's loop | TSDoc cites the interface-boundary decision (`LogsService.ts:710`), which justifies that boundary, not a second loop; divergence appears unintended `[inferred]` |
 | Event identity for paging | Synthesized `${timestamp}:${message}` id, multiset exclusion | `Set` exclusion; per-stream ids | `GetLogEvents` has no `eventId`; a `Set` would drop distinct same-content events across rotated streams (`LogsService.ts:430-440,515-519`) |
 | Paging scan bound | Cap of 50 streams per call; `atOldest` only when the scan is exhaustive | Unbounded stream listing | Prevents one page call becoming unbounded CloudWatch requests on groups with years of task restarts (`LogsService.ts:138-147`) |
-| Snapshot vs paging failure contract | Snapshot never throws (synthetic line); paging throws a plain `Error` | One contract for both | Snapshot contract is required by `infra-log-viewer` "Recent Lambda logs fetch"; paging throws so the hook can show `Could not load older logs: …` (`use-log-tail.hook.ts:417-420`) `[inferred]` |
+| Snapshot vs paging failure contract | Snapshot never throws (synthetic line); paging throws a plain `Error` | One contract for both | Snapshot contract is required by APP-LOGS-SNAP-002 to APP-LOGS-SNAP-004; paging throws so the hook can show `Could not load older logs: …` (`use-log-tail.hook.ts:417-420`) `[inferred]` |
 | Missing Lambda log group in the tail | Yield one informational line and end the stream | Repeat `[stream error]` every poll | A missing group will not appear while the operator watches; repeating would flood the window (`LogsService.ts:715-721`) |
 | Stream transport | uuid-scoped `WebContents.send` side channels with a renderer `.cancel` | Single `invoke` reply | `invoke` returns one value only (`logs.controller.ts:167-169`) |
 | Viewport bound | 300-line window, 300-line buffer dropping oldest | Unbounded list; virtualized list | Bound keeps rendering cheap and eviction directional per mode (`use-log-tail.hook.ts:7-15`); the specific number is `[inferred]` |
-| Search | Highlight-only over the loaded window | Filter lines; server-side `filterPattern` | `[inferred]`: keeps context around matches; server-side search was a non-goal (design.md Non-Goals) |
+| Search | Highlight-only over the loaded window | Filter lines; server-side `filterPattern` | `[inferred]`: keeps context around matches; server-side search was a non-goal |
+| Planned VPC flow-log view (not started) | A VPC-level `aws.ec2.FlowLog` with `trafficType: 'ALL'` publishing to a CloudWatch Logs group named `/vpc/${projectName}-flow-logs`; `LogsService` gains a third thin resolver family; records are parsed as a pure transform over `LogEventLine.message` at the controller/renderer boundary; default UI filter is rejected-only; a boolean toggle `vpcFlowLogsEnabled` defaulting to enabled | Per-subnet flow logs; `REJECT`-only capture; an S3 destination; a new service class; retention days or traffic type as operator settings | One VPC-level resource covers every ENI, including ECS task ENIs, and survives subnet changes. `ALL` lets an accepted packet serve as a control case that separates "the network dropped it" from "the game process never answered", the ambiguity that motivated the view; the rejected-only default needs no second log group. CloudWatch matches every other log destination and reuses this leaf's client and paging primitives, whereas S3 would need a second read path. The `/vpc/` prefix cannot collide with a game or Lambda group, keeping the three families distinguishable. The paging engine already needs only a resolved group name, so a fourth thin wrapper beats a duplicated implementation, and keeping `LogsService` protocol-agnostic leaves pipe-delimited record parsing outside it. A boolean toggle matches the rule that a `DeploymentConfig` field exists because an operator needs to set it; retention stays never-expire like the other groups. Risks: CloudWatch bills ingestion per GB regardless of accept or reject, so docs must say so; AWS aggregates records over roughly a minute, so the view states that lag in its copy |
 
 ## Open Questions & Future Decisions
 
 ### Resolved
 
-1. ✅ Lambda logs go through `LogsService`, not `CloudProvider` (design.md D1).
-2. ✅ Lambdas are a fixed five-key union, `efs-seeder` excluded (design.md D2, `lambdaFunctionKey.ts:1-7`).
-3. ✅ Both pages share one tail hook (design.md D6).
-4. ✅ The log-level filter is gone; archived change `2026-08-21-remove-log-level-filter` removed it after D6 listed it as part of the shared state machine.
+1. ✅ Lambda logs go through `LogsService`, not `CloudProvider`.
+2. ✅ Lambdas are a fixed five-key union, `efs-seeder` excluded (`lambdaFunctionKey.ts:1-7`).
+3. ✅ Both pages share one tail hook.
+4. ✅ The log-level filter is gone; the shared tail state machine no longer carries one.
 
 ### Deferred
 
@@ -194,7 +196,7 @@ The Lambda page defaults to `watchdog` and renders `LAMBDA_FUNCTION_KEYS` as `ar
 2. Should the two live-tail loops collapse into one implementation (`LogsService.ts:727-768` vs `AwsCloudProvider.ts:548-589`), and if not, should the Lambda loop at least use an abort-aware sleep and SDK call (`:766`) and log poll errors per `.claude/rules/logging.md` rule 2 (`:762-763`)?
 3. Should `eventId` synthesis be one helper so the snapshot (`:326`) and paging (`:519`) agree for message-less events?
 4. Should the four identical controller catch blocks be extracted, and should the controller stop re-logging at `error` what the service already logged at `warn` (`logs.controller.ts:88-95,112-119,248-255,272-279`; `LogsService.ts:359,397,660,696`)?
-5. Should the game snapshot read across streams (or across containers) so `https` games with a Caddy sidecar show both containers (`LogsService.ts:304-315`)? Record the decision in a spec either way.
+5. Should the game snapshot read across streams (or across containers) so `https` games with a Caddy sidecar show both containers (`LogsService.ts:304-315`)? Record the decision in the EARS either way.
 6. Should the game log group get a `notFound` hook like the Lambda family, instead of surfacing a raw `ResourceNotFoundException` string (`LogsService.ts:277-288`)?
 7. `fetchAcrossStreams` throws `No log streams found in {logGroup}.` (`:475`), a different text from the one `withLogGroup` recognizes (`:256,313`). Harmless today on the paging path; should both use one message?
 8. Should live chunks carry the CloudWatch timestamp and event id end to end (`LogsService.ts:205-206`, `hyveon-api.ts:157`), which would remove the `liveInterruptedAtRef` fallback (`use-log-tail.hook.ts:458`) and make the footer age real log age? Two unrelated types both named `LogChunk` (`shared/src/cloud.ts:26`, `hyveon-api.ts:157`) complicate this.
@@ -205,17 +207,16 @@ The Lambda page defaults to `watchdog` and renders `LAMBDA_FUNCTION_KEYS` as `ar
 13. Should the `seen` dedupe sets in both tails be bounded (`LogsService.ts:734`, `AwsCloudProvider.ts:559`)?
 14. When the project-name read fails, should the Lambda viewer show an error instead of silently reading `hyveon-*` groups (`LogsService.ts:599-602`)?
 15. Should `LAMBDA_FUNCTION_KEYS` derive the union (or vice versa) so the "can never drift" comment is enforced (`lambdaFunctionKey.ts:15-26`)?
-16. Before `add-vpc-flow-logs` adds a third resolution family, should the game/Lambda method pairs collapse into one resolver-parameterized set (`LogsService.ts:277,352,385,624,653,684`; `openspec/changes/add-vpc-flow-logs/tasks.md:15-16`)?
+16. Before a VPC flow-log view adds a third resolution family, should the game/Lambda method pairs collapse into one resolver-parameterized set (`LogsService.ts:277,352,385,624,653,684`)?
 17. Stale and history-narrating comments: `fetchRange` (`LogsService.ts:518`), "Bug 1" (`:478`), "pre-extraction call sites" (`:218-219,232-233`), the class TSDoc and controller TSDoc that describe only `/ecs/{game}-server` (`:150-154`; `logs.controller.ts:11-15`), and `AwsCloudProvider.ts:36`.
 18. Rendering debt: index keys on a prepend-heavy list (`log-line-display.component.tsx:116`); undeclared `--shadow-md` (`jump-to-latest-button.component.tsx:26`); duplicate mounted search inputs on mobile (`log-tail-view.component.tsx:150-166`); `formatAge` duplicated by `formatAgo` in `polling-indicator.component.tsx:96-102`, which rounds where `formatAge` floors (`use-log-tail.hook.ts:137-145`).
 19. Docs and CI say five Lambda *packages* where six exist (`docs/docs/components/management-app.md:14`, `.github/workflows/lint.yml:51`); the five-function wording in code and `docs/docs/app/index.md:111` is correct.
-20. The game log tail, scroll-back paging, pause buffer and jump-to-latest have no OpenSpec requirement, and `infra-log-viewer`'s Purpose is still `TBD`. EARS coverage under `APP-LOGS` should close that gap.
+20. If a VPC flow-log view is built and its toggle is later switched off, should the flow-log group be deleted or retained? A group the infra program stops declaring is deleted on the next apply unless it is marked retain-on-delete, which would also need a retention requirement and a docs note for manual cleanup.
 21. Sweep disagreement, resolved against the inventory: the `GameStatusProvider` comment in `infrastructure-logs.page.test.tsx:9-11` is accurate because `renderPage` wraps in it (`web/src/test-utils/render-page.utils.tsx:35`). No action unless the test helper changes.
 
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/infra-logs.md`
 - EARS specs: `docs/intent/operator-app/infra-logs/infra-logs-specs.md`
-- OpenSpec: `openspec/specs/infra-log-viewer/spec.md`; archived design `openspec/changes/archive/2026-08-14-add-infra-log-viewer/design.md`; archived `2026-08-21-remove-log-level-filter`; active `openspec/changes/add-vpc-flow-logs/`; related `openspec/specs/in-task-tls-termination/spec.md`
 - Docs pages: `docs/docs/app/logs.md`, `docs/docs/components/management-app.md` (LogsController row), `docs/docs/app/index.md`
 - Neighbouring leaf docs: `docs/intent/operator-app/diagnostics/diagnostics-design.md` (consumes `LogLineList` and ANSI parsing); `docs/arrows/operator-app/ipc-bridge.md`, `docs/arrows/operator-app/desktop-shell.md`, and the `game-runtime/task-and-dns`, `iac/program`, `deployment-config` arrow docs (design docs not yet written)

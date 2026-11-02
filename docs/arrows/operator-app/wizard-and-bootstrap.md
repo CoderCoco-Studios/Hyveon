@@ -6,7 +6,7 @@ First launch and Reconfigure: connect an AWS account (guided IAM or keys), pick 
 
 **MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
 
-Feature-complete against its six OpenSpec capabilities except the in-app key rotation path, which exists in the service layer with no caller; the leaf also owns credential custody (`ElectronStoreService`, `SafeStorageService`, `awsCredentialSource.ts`, client caches) that every AWS-calling leaf depends on.
+Feature-complete against its legacy requirement sets except the in-app key rotation path, which exists in the service layer with no caller; the leaf also owns credential custody (`ElectronStoreService`, `SafeStorageService`, `awsCredentialSource.ts`, client caches) that every AWS-calling leaf depends on.
 
 ## References
 
@@ -113,15 +113,6 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 - `game-server`: `GameWizardDraftService.ts` uses the `addGameWizardDraft` slot that `ElectronStoreService` declares.
 - Unassigned repo gates: `app/eslint.config.js:114-198` (renderer `@aws-sdk/*` import ban backing cloud-bootstrap), `docs/docs/setup.md` (the `HyveonDeployAll` oracle `iamPolicy.test.ts` checks against).
 
-### OpenSpec sources
-- `openspec/specs/wizard-flow/spec.md` (synced main spec)
-- `openspec/specs/guided-iam-provisioning/spec.md` (synced main spec)
-- `openspec/specs/guided-region-selection/spec.md` (synced main spec)
-- `openspec/specs/aws-credentials/spec.md` (synced main spec)
-- `openspec/specs/cloud-bootstrap/spec.md` (synced main spec)
-- `openspec/specs/aws-cloud-health/spec.md` (synced main spec; Purpose still TBD)
-- Active changes: none mapped to this leaf in §7. Source changes are archived (`archive/2026-08-10-add-one-click-aws-bootstrap`, `2026-08-05-first-run-wizard-region-dropdown`, `2026-08-11-aws-cloud-health-checks`).
-
 ## Architecture
 
 **Purpose:** Take a fresh install to a usable, credentialed AWS account (guided IAM via CloudFormation or an existing profile or pasted keys, a region, the state bucket, configuration bucket, seeded `deployment-config.json` and runs table, an advisory IAM simulation), hand off to stack init, and then hold the resulting credentials so every AWS caller in the main process resolves them the same way.
@@ -142,14 +133,14 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 
 | OpenSpec capability | requirements | scenarios | notes |
 |---|---|---|---|
-| `wizard-flow` | 10 | 26 | State-file name and step order inconsistent inside the spec (finding 9); Purpose omits guided IAM, engine version and layout. Stack-init requirement is satisfied by `iac/engine`'s `stack-init-step`. |
+| `wizard-flow` | 10 | 26 | Stack-init requirement is satisfied by `iac/engine`'s `stack-init-step`. The legacy text's state-file name and step order disagreed with the code (finding 9). |
 | `guided-iam-provisioning` | 5 | 14 | Implemented in `GuidedIamService` + guided-IAM screens; rotation-pending resume overlaps `wizard-flow` (`:65-73`). |
 | `guided-region-selection` | 3 | 6 | `app/packages/shared/src/awsRegions.ts` + `guided-iam-region-screen`; sweep reports sovereign/local-zone entries contrary to the exclusion rule `[unverified]`. |
 | `aws-credentials` | 4 | 12 | "In-app access key rotation" (`:47-59`) is implemented in `AwsProfileService` but unreachable from any IPC channel (finding 3). Header lacks the "Specification" suffix. |
 | `cloud-bootstrap` | 8 | 21 | ECS service-linked-role policy requirement (`:134-157`) is the policy half of `aws-cloud-health`. |
 | `aws-cloud-health` | 3 | 10 | Purpose is still TBD. Only the ECS SLR check exists. |
 
-**OpenSpec summary:** 33 requirements and 89 scenarios across six synced OpenSpec capabilities; no active changes.
+**OpenSpec summary:** 33 requirements and 89 scenarios across six legacy OpenSpec capabilities, all carried by the EARS specs.
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
@@ -188,7 +179,7 @@ Feature-complete against its six OpenSpec capabilities except the in-app key rot
 6. **Bootstrap credential error escapes the result model** — `createS3Client()` throws `BootstrapCredentialsNotConfiguredError` (`BootstrapService.ts:701-708`) and is called outside the `try` in every `ensure*` method (`:125,187,315,410`), so the controller rejects instead of returning `{ status: 'failed' }`, against `.claude/rules/logging.md` rule 2.
 7. **Runs table name ignores the operator's project name** — `wizard.controller.ts:310` always passes `DEPLOYMENT_CONFIG_DEFAULTS.projectName` to `resolveRunsTableName`, while buckets take operator-edited names.
 8. **Duplicated client cache** — `app/packages/desktop-main/src/services/awsClientCache.ts` and `cloud-aws/src/cachedClient.ts` are code-identical (`diff` shows only doc-comment differences); `CloudHealthService.ts:193-212,240-291` carries several "Mirrors GuidedIamService exactly" helpers; `GUIDED_PROFILE_NAME` is declared in both `GuidedIamService.ts:94` and `app/packages/desktop-preload/src/hyveon-api.ts:2107`. All three trip `.claude/rules/duplication.md` rule 4.
-9. **`wizard-flow` spec contradicts itself and the code** — requirement says `userData/wizard-state.json` (`wizard-flow/spec.md:25`) but the scenario says `userData/state.json` (`:34`); Reconfigure lists step order "cloud, credentials, bootstrap, guided-IAM, stack-init" (`:100`) while code is `pick-cloud, guided-iam, credentials, bootstrap, stack-init` (`wizardSteps.ts:9`). Code matches the requirement text, not the scenario.
+9. **State-file name and step order are fixed by the code**: the progress file is `userData/wizard-state.json` (`FirstRunWizardService.ts:33-41`) and the step order is `pick-cloud, guided-iam, credentials, bootstrap, stack-init` (`wizardSteps.ts:9`); the legacy text named `userData/state.json` and a different Reconfigure order. `APP-WIZARD-PROG-005` and `APP-WIZARD-RECONF-001` state the code's values.
 10. **Reset leaves non-wizard state behind** — `FirstRunWizardService.reset()` (`:200-208`) clears `wizardCompleted`, `activeCloud`, `aws`, `bootstrap`, `creds` and the progress file, but not `addGameWizardDraft` or folder-upload state, and deliberately not `pulumi.*` (documented `:189-198`).
 11. **Cloud Health is all-or-nothing and misfiled** — `CloudHealthController.list` wraps checks in a bare `Promise.all` (`cloud-health.controller.ts:28-33`), so one throwing check rejects the whole list; `CloudHealthService` is a Settings feature but is provided by `WizardModule` (`wizard.module.ts:37`) because it shares IAM helpers. `writePolicyToDisk` has no try/catch (`CloudHealthService.ts:200-204`).
 12. **IAM check suggests an over-broad policy** — `IamCheckService.buildPolicyJson` emits `Resource: '*'` for every missing action (`IamCheckService.ts:306-315`), unlike the scoped statements in `iamPolicy.ts:79`.
@@ -209,14 +200,13 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/wizard-and
 ### Should Fix
 4. Wrap client creation inside each `BootstrapService.ensure*` try so credential errors return `{ status: 'failed' }` (finding 6). (specs: `APP-WIZARD-BOOT-004`)
 5. Resolve the runs table name from the operator's project name (finding 7). (specs: `APP-WIZARD-BOOT-012`)
-6. Either wire `rotateActiveCredentials` to an IPC channel and UI, or drop the requirement from `aws-credentials` (finding 3). (specs: `APP-WIZARD-ROTKEY-005`)
-7. Fix the `wizard-flow` spec's state-file name and Reconfigure step order (finding 9).
-8. Use `Promise.allSettled` in `cloudHealth.list`; guard `writePolicyToDisk` (finding 11). (specs: `APP-WIZARD-HEALTH-011`)
-9. Verify and, if real, fix the Reconfigure guided-credentials overwrite (finding 15). (specs: `APP-WIZARD-RECONF-009`)
+6. Either wire `rotateActiveCredentials` to an IPC channel and UI, or drop `APP-WIZARD-ROTKEY-001` to `APP-WIZARD-ROTKEY-004` (finding 3). (specs: `APP-WIZARD-ROTKEY-005`)
+7. Use `Promise.allSettled` in `cloudHealth.list`; guard `writePolicyToDisk` (finding 11). (specs: `APP-WIZARD-HEALTH-011`)
+8. Verify and, if real, fix the Reconfigure guided-credentials overwrite (finding 15). (specs: `APP-WIZARD-RECONF-009`)
 
 ### Nice to Have
-10. Collapse `awsClientCache.ts` into `cloud-aws/src/cachedClient.ts`; share `GUIDED_PROFILE_NAME` and the Cloud Health/Guided IAM helpers (finding 8).
-11. Scope the IAM-check suggested policy using `HYVEON_DEPLOY_ALL_STATEMENTS` (finding 12).
-12. Clear the add-game draft and folder-upload state on wizard reset, or document why not (finding 10).
-13. Use `replaceAll` for template placeholders; add tests for `awsClientCache.ts` (findings 13, 14).
-14. Consider moving `CloudHealthService` to its own module owned by the Settings surface.
+9. Collapse `awsClientCache.ts` into `cloud-aws/src/cachedClient.ts`; share `GUIDED_PROFILE_NAME` and the Cloud Health/Guided IAM helpers (finding 8).
+10. Scope the IAM-check suggested policy using `HYVEON_DEPLOY_ALL_STATEMENTS` (finding 12).
+11. Clear the add-game draft and folder-upload state on wizard reset, or document why not (finding 10).
+12. Use `replaceAll` for template placeholders; add tests for `awsClientCache.ts` (findings 13, 14).
+13. Consider moving `CloudHealthService` to its own module owned by the Settings surface.

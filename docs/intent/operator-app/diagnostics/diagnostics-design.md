@@ -136,14 +136,14 @@ ExportBundleButton ──diagnostics.exportBundle──▶ DiagnosticsController
 | Write | `archiver` zip at level 9 to a UUID-suffixed temp file, renamed into place; on failure the stream is destroyed, the temp file removed, and a plain `Error` thrown, which the controller maps to `{ status: 'error' }` | `DiagnosticsBundleService.ts:128-136,232-273`, `diagnostics.controller.ts:92-99` |
 | Reveal | `diagnostics.showInFolder` calls `shell.showItemInFolder`; failures are logged at `warn` and never rejected | `diagnostics.controller.ts:109-129` |
 
-`errors.json` is always written, so an all-failed export is a valid zip containing only it (`DiagnosticsBundleService.ts:86-90,254`), matching the spec.
+`errors.json` is always written, so an all-failed export is a valid zip containing only it (`DiagnosticsBundleService.ts:86-90,254`), consistent with the best-effort export contract (APP-DIAG-BNDL-*).
 The result union lives once in `@hyveon/shared` (`diagnosticsBundle.ts:8-11`); its doc says `DiagnosticsPanel` switches on it, but `ExportBundleButton` does.
 
 ### Secret scrubbing
 
 `scrubSecrets` applies two regexes (`diagnosticsLogScrubber.ts:5,15-16,31-38`): AWS access key IDs (`AKIA`/`ASIA` + 16) and a `token`/`key`/`secret`-ish label followed by `:` or `=` and a 16+ character value.
 The label pattern requires the separator immediately after the label word, so JSON-quoted keys as produced by the production `json()` format (`"botToken":"..."`) and dev meta (`"apiKey": "..."`) do not match.
-The scrubber is explicitly defense-in-depth (`:18-23`; archived design `2026-08-14-add-diagnostics-export/design.md`, Decisions), with "never log secrets" as the primary control.
+The scrubber is explicitly defense-in-depth (`:18-23`): a second layer over text that is already collected, with "never log secrets" as the primary control, and it will have false negatives on secret shapes it was not written for.
 
 ## Audit Trail
 
@@ -177,7 +177,7 @@ The store is bound to `AUDIT_LOG_STORE` by `cloud-provider.module.ts:273-276` an
 The page header carries `<PollingIndicator />`, which reflects the global status poller, although the page itself never polls (`audit.page.tsx:85`).
 Documented framing still describes only game mutations: `AuditEntry`'s doc (`audit.ts:29-33`), `AuditController`'s doc (`audit.controller.ts:8-11`), and the subtitle "Who changed which game's configuration" (`audit.page.tsx:84`), while IaC rows render an empty Game cell and a `null`/`null` diff.
 
-The audit trail has no OpenSpec capability; its required behaviour is currently only what the code above does.
+The audit trail's required behaviour is currently only what the code above does; its EARS lines are derived from that code and `docs/docs/app/audit.md`.
 
 ## Decisions & Alternatives
 
@@ -185,15 +185,19 @@ The audit trail has no OpenSpec capability; its required behaviour is currently 
 |---|---|---|---|
 | Log destination | One local daily-rotated winston file per day, 14-day retention | Remote log shipping; single unrotated file | Local file is the only post-hoc record with no HTTP cycle (`.claude/rules/logging.md`, "Why"); 14-day window `[inferred]` as a bound on disk use. |
 | Logger construction | Console-only singleton upgraded in place via a reassigned live ESM binding | Inject a logger via Nest DI | Lets modules imported before `main.ts` log immediately and pick up the file transport without re-importing (`logger.ts:56-60,87`). |
-| Console forwarding channel | New sibling `diagnostics.reportLog`, crash channel untouched | Widen `reportError` to a union; per-call synchronous IPC; separate pipeline | Purely additive, existing crash payload and tests unchanged (archived `2026-08-10-add-app-logging-debugging/design.md`, Decision 1). |
-| Console batching | 2 s flush, 50 per flush, 200 queue cap with in-flight reservation and requeue | Per-call IPC; drop at the 50 send cap | Hot-loop console output would flood IPC and the log; bounding at 200 delivers bursts in full (same design, Decision 2). |
-| Panel data source | Keep a 5 s cumulative-tail poll; pause buffers the latest snapshot | Push/stream model like `/logs`; append successive polls | Reuse `/logs` interaction patterns without its data source; snapshot shape makes appending incorrect (same design, Decision 4; spec "Diagnostics panel pause, search, and autoscroll"). |
-| Bundle orchestration | New `DiagnosticsBundleService` calling into existing services | Grow `DiagnosticsService` | Distinct responsibility and test surface (archived `2026-08-14-add-diagnostics-export/design.md`, Decisions). |
-| Section isolation | `Promise.allSettled` over four gatherers, failures to `errors.json` | Sequential try/catch chaining | One slow AWS call must not block cheap sections (same design). |
-| Zip library | `archiver`, streamed to disk | `adm-zip` | Streams instead of buffering multi-MB logs in memory (same design). |
-| Save location | Native save dialog before writing | Silent write to Downloads, then reveal | Operator controls where config/log data lands (same design). |
-| Config redaction | Explicit field-by-field allowlist; new fields excluded by default | Generic deep redact-by-key-name | Safe failure direction when a new `DeploymentConfig` field is forgotten (same design, Risks; `diagnosticsBundleAllowlist.ts:70-77`). |
-| Log redaction | Regex scrubber as a second layer only | Structured redaction at log time | "Never log secrets" stays primary (same design, Decisions; `diagnosticsLogScrubber.ts:18-23`). |
+| Console forwarding channel | New sibling `diagnostics.reportLog`, crash channel untouched | Widen `reportError` to a union; per-call synchronous IPC; separate pipeline | Purely additive: the existing crash payload, callers and tests are unchanged. A batch is console-originated by arriving on `reportLog` rather than `reportError`, so entries carry no per-entry `source` field. Per-call synchronous IPC would turn every `console.log` in a hot loop into an IPC round-trip and a log line; a separate pipeline would duplicate `DiagnosticsService`'s file-path and write logic for no benefit. |
+| Console batching | 2 s flush, 50 per flush, 200 queue cap with in-flight reservation and requeue | Per-call IPC; drop at the 50 send cap | Hot-loop console output would flood IPC and the log. The 50-entry send cap only paces IPC: the unsent remainder stays queued for the next tick. The 200-entry cap is the only point data is dropped, reported as one combined "N entries dropped" warning per flush rather than a line per entry. While a flush is pending its entry count is reserved against the cap, so a rejected call can always requeue its batch at the front, oldest first, without displacing newer entries; a burst of 120 calls is delivered in full over three ticks. |
+| Panel data source | Keep a 5 s cumulative-tail poll; pause buffers the latest snapshot | Push/stream model like `/logs`; append successive polls | Reuse `/logs` interaction patterns (pause with buffering, level filter, substring search without regex) without its data source; the snapshot shape makes appending incorrect. The app's own log is a local file with no main-process file-watch-and-stream mechanism, and building one is materially more work than porting controls onto the existing poll for a panel used for post-hoc debugging rather than live monitoring. A `LogViewer` component shared with `/logs` would need a fetch-strategy prop layer; it remains a possible follow-up. |
+| Bundle orchestration | New `DiagnosticsBundleService` calling into existing services | Grow `DiagnosticsService` | `DiagnosticsService` is a narrow tail reader; bundling, zipping and cross-service orchestration is a distinct responsibility with its own test surface. |
+| Section isolation | `Promise.allSettled` over four gatherers, failures to `errors.json` | Sequential try/catch chaining | One slow AWS call must not serialize behind or block the cheap sections (logs, metadata); each settled result becomes bundle content or an `errors.json` entry. |
+| Zip library | `archiver`, streamed to disk | `adm-zip` | `archiver` streams to a file; `adm-zip` has a simpler synchronous API but builds the whole archive in memory first, which matters because log content can be several MB. |
+| Save location | Native save dialog before writing | Silent write to Downloads, then reveal | Operator controls where a file containing config and log data lands, rather than the app assuming a safe location. |
+| Config redaction | Explicit field-by-field allowlist; new fields excluded by default | Generic deep redact-by-key-name | Safe failure direction when a new `DeploymentConfig` field is forgotten: it is silently excluded, never leaked. Matches the existing field-by-field redacted-shape helpers (`botTokenSet`) rather than a new redaction style (`diagnosticsBundleAllowlist.ts:70-77`). |
+| Log redaction | Regex scrubber as a second layer only | Structured redaction at log time | "Never log secrets" stays primary; the regex layer runs over already-collected text and is not a substitute (`diagnosticsLogScrubber.ts:18-23`). |
+| Bundle destination | A local file only, no upload path | Upload to a backend or bucket | No new backend, bucket, credential or auth story, and no new outbound network dependency; the operator hands the zip to support themselves. |
+| Console argument redaction | None; callers follow the no-secrets rule in `.claude/rules/logging.md` | Sanitizing forwarded console arguments | Forwarding captures calls that already exist into a local file the operator already controls, so it adds no new destination; automatic redaction of arbitrary arguments is out of scope. |
+| Log levels | Reuse winston `debug` and `silly` | A custom `trace` level | The standard levels already cover normal and very verbose detail; `silly` is configured and unused. |
+| Service-layer logging scope | Files whose methods call an AWS SDK client, the Pulumi engine or another external system that can fail | Every file under `services/` | Pure helpers with no external call or failure mode (`mergeGameLists.ts`, `sleep.ts`) would only add noise. |
 | Atomic bundle write | Temp file with UUID suffix, rename on success | Write in place | A partial file must never look like a complete bundle; UUID avoids concurrent-export races (`DiagnosticsBundleService.ts:92-95,221-231`). |
 | Audit storage layout | Single `pk = AUDIT` partition, `sk = ISO#ULID`, before/after as JSON strings | Per-game partition; native DynamoDB maps | Newest-first query with no sort; JSON strings keep item shape stable across `GameServer` changes (`AwsAuditLogStore.ts:7-12,91-95`). Single-partition scalability is `[inferred]` acceptable at operator scale. |
 | Audit write semantics | Best-effort `record()` that never blocks the mutation | Fail the mutation on audit failure; transactional write | An audit failure or undeployed table must not block the `game_servers` write (`AuditService.ts:6-9`). |
@@ -204,9 +208,9 @@ The audit trail has no OpenSpec capability; its required behaviour is currently 
 
 ### Resolved
 
-1. ✅ Console forwarding uses a separate `diagnostics.reportLog` channel with client-side batching (archived `2026-08-10-add-app-logging-debugging/design.md`, Decisions 1-2).
-2. ✅ The bundle is assembled by a dedicated service with per-section `Promise.allSettled` isolation, `archiver`, a save-dialog-first flow, and an allowlist config summary (archived `2026-08-14-add-diagnostics-export/design.md`, Decisions).
-3. ✅ The panel keeps polling rather than streaming, with snapshot-swap pause semantics (archived `2026-08-10-add-app-logging-debugging/design.md`, Decision 4).
+1. ✅ Console forwarding uses a separate `diagnostics.reportLog` channel with client-side batching (APP-DIAG-CONS-*).
+2. ✅ The bundle is assembled by a dedicated service with per-section `Promise.allSettled` isolation, `archiver`, a save-dialog-first flow, and an allowlist config summary (APP-DIAG-BNDL-*).
+3. ✅ The panel keeps polling rather than streaming, with snapshot-swap pause semantics (APP-DIAG-PANEL-*).
 
 ### Deferred
 
@@ -216,23 +220,20 @@ The audit trail has no OpenSpec capability; its required behaviour is currently 
 4. Should `AuditService.list` catch, normalize and log store failures per `.claude/rules/logging.md` rule 2 (`AuditService.ts:140`), and should `record()` normalize its logged error and move the stack-outputs read inside its try (`AuditService.ts:90,114-118`)? No test covers a `listEntries` rejection (`AuditService.test.ts:143-170`).
 5. Should `ErrorBoundary` detect falsy throws (`error-boundary.component.tsx:55`), point to "Settings → Diagnostics" instead of the non-existent "Settings → Logs" (`:61`), and offer a reload action?
 6. Should `installGlobalErrorReporting` gain an install guard and use `isErrorLike` like `formatConsoleArgs` (`report-renderer-error.utils.ts:4-11,165-174`)? Should the flush interval ever be cleared (`:208`)?
-7. Should the audit trail get its own OpenSpec capability (or its own leaf), given it has no spec and now records IaC actions under a game-only schema and copy (`audit.ts:29-33`, `audit.controller.ts:8-11`, `audit.page.tsx:84`, `iac.controller.ts:755,885,1029`)? If IaC rows stay, how should the page render an empty Game cell and a `null`/`null` diff?
+7. Should the audit trail get its own leaf, given it is a separate concern from diagnostics and now records IaC actions under a game-only schema and copy (`audit.ts:29-33`, `audit.controller.ts:8-11`, `audit.page.tsx:84`, `iac.controller.ts:755,885,1029`)? If IaC rows stay, how should the page render an empty Game cell and a `null`/`null` diff?
 8. Should the `/audit` page drop or rewire `<PollingIndicator />`, which reflects the global status poller on a page that fetches once (`audit.page.tsx:85`, `polling-indicator.component.tsx:18`)?
 9. Should per-game `getStatus` failure messages in `aws-snapshot.json` pass through `scrubSecrets` like section errors do (`DiagnosticsBundleService.ts:192-199` vs `:149`)?
 10. Should the log directory and `readAppVersion` route through `electronRuntime.ts` (`main.ts:26`, `app.module.ts:109`, `electronRuntime.ts:17`, `app-version.ts:5-6,12-21`) so the write and read paths cannot drift?
 11. Should `useDiagnosticsTail` move onto the shared polling registry and stop re-fetching the static log path every 5 s (`use-diagnostics-tail.hook.ts:56,83`)? Should the 500-line panel tail be a shared constant rather than a literal (`diagnostics.controller.ts:50`), and `TAIL_READ_BYTES` be exported instead of duplicated in tests (`DiagnosticsService.test.ts:17-18`)?
-12. Stale pointers to refresh: "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`), `openspec/changes/add-diagnostics-export` now archived (`DiagnosticsBundleService.ts:64`), and `diagnosticsBundle.ts:3` naming `DiagnosticsPanel` as the switcher.
+12. Stale pointers to refresh: "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`), `DiagnosticsBundleService`'s class doc naming a change directory that no longer exists (`DiagnosticsBundleService.ts:64`), and `diagnosticsBundle.ts:3` naming `DiagnosticsPanel` as the switcher.
 13. `AwsAuditLogStore` resolves `getConfig()` twice per operation (`AwsAuditLogStore.ts:65,83`); acceptable, or fold into one resolution?
 14. Test hygiene: `logger.test.ts:16,27,99` builds real `DailyRotateFile` transports under `/tmp`; there are no dedicated tests for `export-bundle-button.component.tsx` or `use-diagnostics-tail.hook.ts`; `DiagnosticsPanel.tsx` is the lone PascalCase component filename (sweep disagreement, `final-clustering.md` §6).
-15. The `add-pinned-hostname` change added `hasPinnedHostname` to the bundle allowlist (`diagnosticsBundleAllowlist.ts:23,66`) but is shipped, unsynced and unarchived; does `app-diagnostics-logging` need a delta for it when that change is archived?
-16. The `embed-file-browser` change's `game-volume-folder-upload` delta asks for stray-helper cleanup "from Diagnostics"; the button already renders here (`DiagnosticsPanel.tsx:76`). Should the diagnostics spec acknowledge that hosting, or does it belong solely to `helper-task`?
+15. The stray-helper cleanup button renders inside this leaf's panel (`DiagnosticsPanel.tsx:76`, APP-DIAG-PANEL-002) while its behaviour belongs to `helper-task`. Should this leaf keep acknowledging that hosting, or should the panel's spec drop the button?
 
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/diagnostics.md`
 - EARS specs: `docs/intent/operator-app/diagnostics/diagnostics-specs.md`
-- OpenSpec: `openspec/specs/app-diagnostics-logging/spec.md`; archived design docs `openspec/changes/archive/2026-08-10-add-app-logging-debugging/design.md`, `openspec/changes/archive/2026-08-14-add-diagnostics-export/design.md`, plus `2026-08-10-ansi-log-rendering` and `2026-08-21-remove-log-level-filter`
-- Active changes touching this leaf: `openspec/changes/add-pinned-hostname/`, `openspec/changes/embed-file-browser/`
 - Rules: `.claude/rules/logging.md`
 - Docs pages: `docs/docs/app/settings.md`, `docs/docs/app/audit.md`, `docs/docs/components/management-app.md`
 - Neighbouring leaf designs: `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`, `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md`, `docs/intent/operator-app/infra-logs/infra-logs-design.md`, `docs/intent/helper-task/helper-task-design.md`, `docs/intent/game-server/game-server-design.md`, `docs/intent/iac/run/run-design.md`, `docs/intent/iac/program/program-design.md`
