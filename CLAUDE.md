@@ -11,7 +11,7 @@ working in an area rather than relying on a summary here.
 |----------|------|
 | Big-picture design intent | `docs/high-level-design.md` |
 | What a component must do and why (design, decisions, requirements) | `docs/intent/<node>/<node>-design.md` and the EARS specs beside it, `<node>-specs.md` |
-| Which segments exist, their status, and what is blocked or open | `docs/arrows/index.yaml`, then the per-segment doc in `docs/arrows/` |
+| Which segments exist, their status, and what is blocked or open | `docs/arrows/index.yaml`, then the detail doc at the path each entry declares (`detail:`) — leaf segments under `docs/arrows/`, grouping nodes (`iac`, `game-runtime`, `operator-app`) under `docs/intent/` |
 | Big picture + invariants | `docs/docs/architecture.md` |
 | The Pulumi infra program's files, resources, and state backend | `docs/docs/components/infra.md` |
 | The six Lambda packages (four always-on, two conditional) and the `/server-start` critical path | `docs/docs/components/lambdas.md` |
@@ -136,6 +136,7 @@ Then confirm documentation is current **in the same PR**:
   evaluator agents, which is more reliable than hand-picking pages from memory.
 - **LID arrow** — if required behaviour changed, the change was cascaded down the arrow in the same PR: the owning LLD in `docs/intent/` is updated, its EARS lines in `<node>-specs.md` are added or edited and carry the right marker (`[x]` implemented, `[ ]` active gap, `[D]` deferred), the tests and code cite them with `@spec`, and the segment's doc in `docs/arrows/` still matches.
   Run `npm run lid:check` (`node bin/coherence-check.mjs --strict`) and confirm it exits 0.
+  The check shells out to `grep` and exits 2 if it is missing, so `grep` must be on `PATH` (Git Bash or WSL on Windows).
 - **Deployment-config fields** — there is no five-file checklist any more; the old one
   existed because the previous IaC tooling required each variable declared
   redundantly across several files and threaded through a module boundary by
@@ -184,14 +185,15 @@ Never leave a noncommittal "tracking this".
 
 ## Linked-Intent Development (MANDATORY)
 
-**Consult the `linked-intent-dev` skill for ALL code changes.** All changes flow through the arrow of intent in one direction:
+**Consult the `linked-intent-dev` skill for changes that require LID** — changes that alter specified behaviour or contracts. Those changes flow through the arrow of intent in one direction:
 
 ```
 HLD → LLDs → EARS → Tests → Code
 ```
 
-- **All changes**: consult the `linked-intent-dev` skill if your harness provides it; otherwise read `docs/lid/workflow.md` before making changes, and if it is missing and `## LID` records no decline, offer the user once to add it from https://raw.githubusercontent.com/jszmajda/lid/v1.4.2/plugins/linked-intent-dev/skills/update-lid/references/workflow-doc.md (on decline, add `- Workflow doc: declined` to `## LID`). The workflow in one line: HLD check → LLD → EARS specs → edge audit → failing tests first → code — inspected at each phase.
-- **Bug fixes**: walk the arrow like any other change — find where behavior diverged from intent and cascade from there. No short-circuit.
+- **Changes that require LID**: consult the `linked-intent-dev` skill if your harness provides it; otherwise read `docs/lid/workflow.md` before making changes, and if it is missing and `## LID` records no decline, offer the user once to add it from https://raw.githubusercontent.com/jszmajda/lid/v1.4.2/plugins/linked-intent-dev/skills/update-lid/references/workflow-doc.md (on decline, add `- Workflow doc: declined` to `## LID`). The workflow in one line: HLD check → LLD → EARS specs → edge audit → failing tests first → code — inspected at each phase.
+- **Bug fixes**: start at the owning design/spec level — find where behavior diverged from intent and cascade from there. No short-circuit.
+- **Direct-PR changes skip the arrow**: the categories in `.claude/rules/lid-routing.md` (typo, docs-only, config tweak that does not alter specified behaviour, test backfill, linter tweak, non-breaking dependency upgrade).
 
 Each phase's output is inspected — by the user or an inspector they name — before the next begins; ambiguous spec readings go back to the user. **Docs carry current intent, written to be read cold** — write each doc as if authored fresh today, from current intent alone: no narration of how it changed, no meaning that needs the conversation that produced it, no rebuttals to questions only a past discussion raised. Rationale, considered alternatives, and constraints a fresh author would independently write stay; record rejected alternatives and why in the LLD's Decisions & Alternatives table, not as asides in body prose.
 

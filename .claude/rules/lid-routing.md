@@ -9,9 +9,9 @@ The design tree is `docs/high-level-design.md` and `docs/intent/`; the arrow ove
 |---|---|
 | New feature, new capability, architectural change, or a change to an external contract, schema, or cross-system integration | Walk the arrow: HLD check → LLD → EARS specs → edge audit → failing tests first → code. Stop for inspection by the user (or an inspector they name) after each phase before the next begins |
 | Bug fix | Also walk the arrow. Find where behaviour diverged from intent and cascade from that level; a bug fix has no short-circuit, though it often touches only an EARS line, its tests, and the code |
-| Typo, config value tweak, docs-only change, test backfill, linter tweak, non-breaking dependency upgrade | Direct PR — no design or spec change needed |
+| Typo, docs-only change, test backfill, linter tweak, non-breaking dependency upgrade, or a config value tweak that does not alter specified runtime behaviour | Direct PR — no design or spec change needed. A config change that alters specified behaviour is a behaviour change and walks the arrow |
 | User starts a narrative "design discussion / let's brainstorm" | Keep it verbal. Do not write design docs or specs until the conversation converges (see below), then start at the HLD or LLD phase |
-| User is mid-change | Resume at the phase the arrow shows (`docs/arrows/index.yaml` status, the owning `<node>-specs.md` markers) rather than restarting |
+| User is mid-change | Resume from an explicit checkpoint recorded in the segment's arrow doc or in the PR (it names the phase and what was inspected) rather than restarting from the HLD. Arrow statuses in `docs/arrows/index.yaml` and `[x]`/`[ ]`/`[D]` markers in `<node>-specs.md` describe implementation state, not phase progress, so they are not checkpoints; with no explicit checkpoint, ask the user where the change stands |
 
 Principle: **process ceremony scales with risk**. External contracts, schema, cross-system integration, and compliance walk the full arrow. Everything else that does not alter specified behaviour goes straight to a PR.
 
