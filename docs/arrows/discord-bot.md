@@ -4,7 +4,7 @@ Let players start, stop and check games from Discord slash commands, under the o
 
 ## Status
 
-**MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited. Fully serverless path (Function URL → interactions Lambda → followup Lambda → update-dns PATCH) works end to end; the desktop config service has a cache-poisoning bug that can wipe the config row, and there is no OpenSpec capability behind any of it.
+**MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited. Fully serverless path (Function URL → interactions Lambda → followup Lambda → update-dns PATCH) works end to end; the desktop config service has a cache-poisoning bug that can wipe the config row, and no dedicated Discord OpenSpec capability covers the leaf.
 
 ## References
 
@@ -18,7 +18,7 @@ Let players start, stop and check games from Discord slash commands, under the o
 - `docs/intent/discord-bot/discord-bot-specs.md` (92 specs)
 
 ### Documented intent sources
-There is no OpenSpec capability for this leaf. Intent is taken from `docs/docs/app/discord.md` (the operator page, including the permission-evaluation order and the Interactions Endpoint URL contract) and the root `CLAUDE.md` invariants: "Discord is fully serverless" (no discord.js, no gateway, per-guild registration only), "`canRun()` lives in `@hyveon/shared`" (one copy), "Secrets never reach the renderer", "Lambda env vars use `AWS_REGION_`", and the `@hyveon/shared` barrel AWS-SDK restriction.
+There is no dedicated Discord OpenSpec capability for this leaf. Intent is taken from `docs/docs/app/discord.md` (the operator page, including the permission-evaluation order and the Interactions Endpoint URL contract), the Discord fragments of the `cost-visibility`, `game-port-visibility` and `pulumi-infra-program` capabilities, and the root `CLAUDE.md` invariants: "Discord is fully serverless" (no discord.js, no gateway, per-guild registration only), "`canRun()` lives in `@hyveon/shared`" (one copy), "Secrets never reach the renderer", "Lambda env vars use `AWS_REGION_`", and the `@hyveon/shared` barrel AWS-SDK restriction.
 
 ### Tests
 - `app/packages/cloud-aws/src/AwsDiscordConfigStore.test.ts`
@@ -103,7 +103,7 @@ There is no OpenSpec capability for this leaf. Intent is taken from `docs/docs/a
 - `app/packages/shared/src/index.ts` (unassigned barrel): carries the "no new AWS SDK imports" constraint.
 
 ### OpenSpec sources
-- None. No capability under `openspec/specs/` covers Discord, and no active change under `openspec/changes/` is mapped to this leaf (final-clustering §7).
+- None dedicated. Requirements retain Discord fragments of `cost-visibility`, `game-port-visibility` and `pulumi-infra-program`, recorded in `discord-bot-specs.md`. No active change is mapped to this leaf.
 
 ## Architecture
 
@@ -127,7 +127,7 @@ There is no OpenSpec capability for this leaf. Intent is taken from `docs/docs/a
 
 | OpenSpec capability | requirements | scenarios | notes |
 |---|---|---|---|
-| (none) | 0 | 0 | No OpenSpec capability; EARS will be authored from code, with `docs/docs/app/discord.md` and CLAUDE.md invariants as the documented intent. |
+| (none) | 0 | 0 | No dedicated Discord OpenSpec capability; EARS are authored from code, `docs/docs/app/discord.md`, CLAUDE.md invariants, and the retained capability fragments recorded in `discord-bot-specs.md`. |
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
