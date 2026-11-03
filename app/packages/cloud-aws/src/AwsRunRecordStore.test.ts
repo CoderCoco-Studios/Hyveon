@@ -112,6 +112,25 @@ describe('AwsRunRecordStore', () => {
       expect(input.Item).not.toHaveProperty('logInline');
     });
 
+    // @spec IAC-RUN-STORE-007
+    it('should write partialApply on the item when the record carries it', async () => {
+      ddbMock.on(PutCommand).resolves({});
+
+      await makeStore().putRecord(makeRecord({ status: 'aborted', exitCode: null, partialApply: true }));
+
+      const input = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
+      expect(input.Item?.['partialApply']).toBe(true);
+    });
+
+    // @spec IAC-RUN-STORE-007
+    it('should omit partialApply from the item when absent on the record', async () => {
+      ddbMock.on(PutCommand).resolves({});
+
+      await makeStore().putRecord(makeRecord());
+
+      expect(ddbMock.commandCalls(PutCommand)[0]!.args[0].input.Item).not.toHaveProperty('partialApply');
+    });
+
     it('should include logInline (and not logS3Key) on the written item when the log was embedded', async () => {
       ddbMock.on(PutCommand).resolves({});
 
@@ -233,6 +252,17 @@ describe('AwsRunRecordStore', () => {
       expect(input.FilterExpression).toBe('runId = :runId');
       expect(input.ExpressionAttributeValues).toEqual({ ':pk': 'RUN', ':runId': 'run-123' });
       expect(input.ScanIndexForward).toBe(false);
+    });
+
+    // @spec IAC-RUN-STORE-007
+    it('should round-trip partialApply on an aborted pre-flight marker record', async () => {
+      const marker = makeRecord({ status: 'aborted', exitCode: null, partialApply: true });
+      ddbMock.on(QueryCommand).resolves({ Items: [{ pk: 'RUN', ...marker }] });
+
+      const found = await makeStore().getRecordByRunId('run-123');
+
+      expect(found).toEqual(marker);
+      expect(found?.partialApply).toBe(true);
     });
 
     it('should return the newest record when the query returns multiple items for the runId', async () => {
