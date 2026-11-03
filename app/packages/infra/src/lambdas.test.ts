@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
@@ -810,6 +811,20 @@ describe('defineLambdas', () => {
       );
     });
 
+    // @spec RT-HEALTH-PROV-003, RT-HEALTH-PROV-005, IAC-PROGRAM-LAMBDA-011
+    it('should provision every env var the health-check handler requires at module load', async () => {
+      const handlerSource = readFileSync(path.resolve(__dirname, '../../lambda/health-check/src/handler.ts'), 'utf8');
+      const required = [...handlerSource.matchAll(/requireEnv\('([A-Z_]+)'\)/g)].map((match) => match[1]);
+      expect(required).toContain('ECS_CLUSTER');
+
+      const gameServers = gameServersWithHealthCheck();
+      const { provider, roles, efs } = await arrangeDependencies(gameServers);
+      await runDefineLambdas(buildArgs({ gameServers, roles, efs, provider, healthCheckSecurityGroupId: MOCK_HEALTH_CHECK_SECURITY_GROUP_ID }));
+
+      const variables = (findByName(mocks.resources, 'hyveon-health-check').inputs.environment as { variables: Record<string, unknown> }).variables;
+      expect(Object.keys(variables)).toEqual(expect.arrayContaining(required));
+    });
+
     // @spec RT-HEALTH-PROV-002, RT-HEALTH-NET-003
     it('should declare the health-check function and log group, wired to the externally-supplied security group id and the same public subnets as every other Lambda', async () => {
       const gameServers = gameServersWithHealthCheck();
@@ -829,7 +844,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.role).toBe(await promiseOf(roles.healthCheckLambdaRole!.arn));
       expect(fn.inputs.handler).toBe('handler.handler');
       expect(fn.inputs.runtime).toBe('nodejs24.x');
-      expect((fn.inputs.environment as { variables: Record<string, unknown> }).variables).toEqual({ AWS_REGION_: 'us-east-1' });
+      expect((fn.inputs.environment as { variables: Record<string, unknown> }).variables).toEqual({ AWS_REGION_: 'us-east-1', ECS_CLUSTER: MOCK_NETWORK_INPUTS.ecsClusterName });
 
       // Same public subnets every other Lambda's `vpcConfig` uses (no NAT
       // gateway or VPC endpoint needed for its ecs:DescribeTasks /

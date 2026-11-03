@@ -351,6 +351,7 @@ function healthChecksByGame(gameServers: Record<string, GameServerConfig>): Reco
   return result;
 }
 
+// @spec IAC-PROGRAM-LAMBDA-011, RT-HEALTH-PROV-003
 // @spec IAC-PROGRAM-FANOUT-001, IAC-PROGRAM-LAMBDA-001, IAC-PROGRAM-LAMBDA-002, IAC-PROGRAM-LAMBDA-003
 // @spec IAC-PROGRAM-LAMBDA-004, IAC-PROGRAM-LAMBDA-005, IAC-PROGRAM-LAMBDA-006, IAC-PROGRAM-LAMBDA-007
 // @spec IAC-PROGRAM-LAMBDA-008, IAC-PROGRAM-LAMBDA-009, IAC-PROGRAM-LAMBDA-010, IAC-PROGRAM-LAMBDA-013
@@ -565,7 +566,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
           subnetIds: publicSubnetIds,
           securityGroupIds: [healthCheckSg],
         },
-        environment: { variables: { AWS_REGION_: awsRegion } },
+        environment: { variables: { AWS_REGION_: awsRegion, ECS_CLUSTER: ecsClusterName } },
         tags: { Name: `${projectName}-health-check` },
       },
       { ...opts, dependsOn: [healthCheckLogGroup] },

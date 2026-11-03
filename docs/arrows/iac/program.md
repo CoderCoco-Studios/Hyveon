@@ -117,7 +117,7 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 | In-Task TLS (Caddy Sidecar) | `IAC-PROGRAM-TLS-001` to `IAC-PROGRAM-TLS-010` | 9 | 0 | 1 |
 | Environment Tokens and Boot Wrapper | `IAC-PROGRAM-TOKEN-001` to `IAC-PROGRAM-TOKEN-007` | 6 | 0 | 1 |
 | Pinned Hostname | `IAC-PROGRAM-HOST-001` to `IAC-PROGRAM-HOST-008` | 8 | 0 | 0 |
-| Lambda Wiring | `IAC-PROGRAM-LAMBDA-001` to `IAC-PROGRAM-LAMBDA-016` | 13 | 0 | 3 |
+| Lambda Wiring | `IAC-PROGRAM-LAMBDA-001` to `IAC-PROGRAM-LAMBDA-016` | 14 | 0 | 2 |
 | Lambda Environment Wire Format | `IAC-PROGRAM-ENV-001` to `IAC-PROGRAM-ENV-007` | 7 | 0 | 0 |
 | Data Tables and Discord Seed Rows | `IAC-PROGRAM-DATA-001` to `IAC-PROGRAM-DATA-005` | 5 | 0 | 0 |
 | Secrets | `IAC-PROGRAM-SECRET-001` to `IAC-PROGRAM-SECRET-005` | 4 | 0 | 1 |
@@ -130,7 +130,7 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 
 ## Key Findings
 
-1. **Health-check Lambda cannot initialise**: `app/packages/infra/src/lambdas.ts:568` gives the function only `{ AWS_REGION_ }`, but `lambda/health-check/src/handler.ts:40` calls `requireEnv('ECS_CLUSTER')` at module load, which throws (`app/packages/shared/src/env.ts:17-20`). `app/packages/infra/src/lambdas.test.ts:832` pins the env to exactly `{ AWS_REGION_ }`, locking the bug in. Sweep-8 also reports the health-check SG has only per-port egress to the game SG (`securityGroups.ts:430-446`), so even with the env fixed it has no path to the ECS or Secrets Manager APIs from a public subnet without a public IP (verified the egress rules; reachability is `[inferred]`). The watchdog treats invoke failures as active, so the symptom is "games with a health check never idle out".
+1. **Health-check Lambda cannot reach the ECS and Secrets Manager APIs** (the missing `ECS_CLUSTER` env var is fixed, `IAC-PROGRAM-LAMBDA-011`; the original finding read): `app/packages/infra/src/lambdas.ts:568` gives the function only `{ AWS_REGION_ }`, but `lambda/health-check/src/handler.ts:40` calls `requireEnv('ECS_CLUSTER')` at module load, which throws (`app/packages/shared/src/env.ts:17-20`). `app/packages/infra/src/lambdas.test.ts:832` pins the env to exactly `{ AWS_REGION_ }`, locking the bug in. Sweep-8 also reports the health-check SG has only per-port egress to the game SG (`securityGroups.ts:430-446`), so even with the env fixed it has no path to the ECS or Secrets Manager APIs from a public subnet without a public IP (verified the egress rules; reachability is `[inferred]`). The watchdog treats invoke failures as active, so the symptom is "games with a health check never idle out".
 2. **Stack outputs now cover every volume; the efs-seeder still does not**: `buildStackOutputs` builds a per-game, per-volume map from `efs.gameAccessPoints["${game}-${volume.name}"]` and exports it as `efsVolumeAccessPoints` (`program.ts:477-494,511`; typed at `shared/src/stackOutputs.ts:79-83`, projected with a `{}` default by `iac/engine` at `PulumiService.ts:1042`). The older `efsAccessPoints` is kept and still carries only `volumes[0]` (`program.ts:493,510`). The helper task mounts every volume from the new map; the efs-seeder Lambda still mounts only the first volume (`lambdas.ts:718-745`), so deploy-time seeding remains first-volume-only.
 3. **Caddy image is a floating tag**: `ecs.ts:305` uses `caddy:2-alpine`, while `in-task-tls-termination` requires a version-pinned image and `hostnameShim.ts` pins busybox exactly.
 4. **efs-seeder is conditional, spec says always-on**: `lambdas.ts:398` iterates `roles.efsSeederRoles`, which only exist for games with `file_seeds` (`iam.ts:222-226`). `lambda-runtime-currency` lists efs-seeder among "always-provisioned functions". CLAUDE.md ("four always-on, two conditional") matches the code.
@@ -151,7 +151,7 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/program/program-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-1. Give the health-check Lambda `ECS_CLUSTER` (and fix the test pinning its env), and give its SG/subnet a route to the ECS and Secrets Manager APIs (finding 1). (specs: `IAC-PROGRAM-LAMBDA-011`, `IAC-PROGRAM-LAMBDA-012`)
+1. Give the health-check Lambda's SG/subnet a route to the ECS and Secrets Manager APIs (finding 1). (specs: `IAC-PROGRAM-LAMBDA-012`)
 2. Let the efs-seeder target any volume, or document first-volume-only seeding as a hard limit; per-volume access points are already in the stack outputs (finding 2). (specs: `IAC-PROGRAM-SEED-004`)
 
 ### Should Fix

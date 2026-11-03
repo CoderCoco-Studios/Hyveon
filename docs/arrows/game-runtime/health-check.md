@@ -71,7 +71,7 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 | Credential injection | `RT-HEALTH-AUTH-001` to `RT-HEALTH-AUTH-006` | 6 | 0 | 0 |
 | Verdict evaluation | `RT-HEALTH-EVAL-001` to `RT-HEALTH-EVAL-009` | 9 | 0 | 0 |
 | Fail-active | `RT-HEALTH-FAIL-001` to `RT-HEALTH-FAIL-004` (the watchdog-side wrapper is `RT-WATCHDOG-HC-003`, `-004`, `-006`) | 4 | 0 | 0 |
-| Provisioning and runtime environment | `RT-HEALTH-PROV-001` to `RT-HEALTH-PROV-006` | 3 | 0 | 3 |
+| Provisioning and runtime environment | `RT-HEALTH-PROV-001` to `RT-HEALTH-PROV-006` | 5 | 0 | 1 |
 | Network and permission confinement | `RT-HEALTH-NET-001` to `RT-HEALTH-NET-005` | 5 | 0 | 0 |
 | Save-time validation | `RT-HEALTH-VALID-001` to `RT-HEALTH-VALID-008` | 8 | 0 | 0 |
 | Logging | `RT-HEALTH-LOG-001` to `RT-HEALTH-LOG-004` | 4 | 0 | 0 |
@@ -82,7 +82,7 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 
 ## Key Findings
 
-1. **Lambda cannot initialise: `ECS_CLUSTER` required at module load but never provided.** `handler.ts:40` calls `requireEnv('ECS_CLUSTER')` at module scope, and `requireEnv` throws on an unset var (`shared/src/env.ts:17-21`). Infra sets only `{ AWS_REGION_: awsRegion }` (`infra/src/lambdas.ts:568`), and `infra/src/lambdas.test.ts:832` pins the env to exactly `{ AWS_REGION_: 'us-east-1' }`. `docs/docs/components/lambdas.md:296` also says "`AWS_REGION_` only". The handler test masks it by setting `ECS_CLUSTER` before import (`handler.test.ts:18-20`). Every invoke therefore fails at init; the watchdog sees `FunctionError` and treats the game as active (`watchdog/src/handler.ts:131-143`), so health-checked games are never auto-stopped. Sweep-8 claim verified in code.
+1. **(Resolved, `RT-HEALTH-PROV-003`) Lambda could not initialise: `ECS_CLUSTER` was required at module load but never provided.** `handler.ts:40` calls `requireEnv('ECS_CLUSTER')` at module scope, and `requireEnv` throws on an unset var (`shared/src/env.ts:17-21`). Infra sets only `{ AWS_REGION_: awsRegion }` (`infra/src/lambdas.ts:568`), and `infra/src/lambdas.test.ts:832` pins the env to exactly `{ AWS_REGION_: 'us-east-1' }`. `docs/docs/components/lambdas.md:296` also says "`AWS_REGION_` only". The handler test masks it by setting `ECS_CLUSTER` before import (`handler.test.ts:18-20`). Every invoke therefore fails at init; the watchdog sees `FunctionError` and treats the game as active (`watchdog/src/handler.ts:131-143`), so health-checked games are never auto-stopped. Sweep-8 claim verified in code.
 2. **No AWS API reachability from the function's VPC placement.** The function sits in public subnets (`lambdas.ts:564-567`); `network.ts` provisions no NAT gateway or VPC endpoints (only `mapPublicIpOnLaunch`, `network.ts:132`), and VPC-attached Lambda ENIs never receive a public IP per AWS Lambda VPC networking behaviour. Independently, the health-check SG has no inline egress (`securityGroups.ts:305`) and its only egress rules are TCP to `gameServersSg` on declared ports (`securityGroups.ts:432-453`), so even with a route, `ecs:DescribeTasks` and Secrets Manager calls would be blocked. The check's stated intent (AWS API calls use the component's normal route out of its public subnet) and a test comment (`infra/src/lambdas.test.ts:834-836`) both claim no NAT or endpoint is needed; that contradicts the SG rules in the same code. Sweep-8 claim verified by reading code; not verified against a live deployment.
 3. **Fixing only Finding 1 would degrade the watchdog for every game** `[inferred]`. With env fixed but egress missing, each `DescribeTasks` would hang until the 30 s function timeout (`lambdas.ts:547`). The watchdog invokes sequentially per task (`watchdog/src/handler.ts:203-216`) under a 60 s timeout (`lambdas.ts:568`), so two health-checked running tasks would time out the whole watchdog run, including CloudWatch-path games later in the loop.
 4. **Fail-active everywhere except `exists`.** Every engine failure path returns `active: true, failureDerived: true` (`engine.ts:157-203`) and the handler catch does the same (`handler.ts:178-187`). The `exists` operator alone treats an unresolved path as a conclusive idle verdict (`engine.ts:175-178`), so a typo in `jsonPath` with `exists` reads as "idle" rather than as a fault. This matches the spec's operator semantics but is the one route by which a misconfigured check can stop a server.
@@ -100,18 +100,16 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-runtime/health-check/health-check-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-1. Pass `ECS_CLUSTER` to the health-check function (`lambdas.ts:568`), update the pinned env test (`lambdas.test.ts:832`) and `lambdas.md:296`, or move the cluster name into the watchdog's invoke payload. (specs: `RT-HEALTH-PROV-003`)
-2. Give the function a path to ECS and Secrets Manager: VPC interface endpoints (or NAT) plus SG egress 443 to them, or drop `vpcConfig` and reach the task another way. Correct `lambdas.test.ts:834-836` to match. (specs: `RT-HEALTH-PROV-004`)
-3. Land 1 and 2 together, or bound per-invoke time in the watchdog, to avoid the cascading watchdog timeout in Finding 3. (specs: `RT-WATCHDOG-HC-006`)
+1. Give the function a path to ECS and Secrets Manager: VPC interface endpoints (or NAT) plus SG egress 443 to them, or drop `vpcConfig` and reach the task another way. Correct `lambdas.test.ts:834-836` to match. (specs: `RT-HEALTH-PROV-004`)
+2. Land 1 and 2 together, or bound per-invoke time in the watchdog, to avoid the cascading watchdog timeout in Finding 3. (specs: `RT-WATCHDOG-HC-006`)
 
 ### Should Fix
-4. Add an infra-level or contract test asserting the handler's required env is a subset of the provisioned env, so `handler.test.ts:18` can no longer mask the gap. (specs: `RT-HEALTH-PROV-005`)
-5. Decide whether `exists` with an unresolved path should stay a conclusive idle verdict (Finding 4).
-6. Split `secretsStore.ts` into health-check and Discord modules; delete or justify the uncalled Discord helpers.
-7. Before scripted health checks start, reconcile their credential model with the `raw` / `basic` / `bearer` auth-type discriminator.
+3. Decide whether `exists` with an unresolved path should stay a conclusive idle verdict (Finding 4).
+4. Split `secretsStore.ts` into health-check and Discord modules; delete or justify the uncalled Discord helpers.
+5. Before scripted health checks start, reconcile their credential model with the `raw` / `basic` / `bearer` auth-type discriminator.
 
 ### Nice to Have
-8. Show `timeoutMs` validation text in the wizard; dedupe the secret hint copy. (specs: `RT-HEALTH-REDACT-004`)
-9. Fix the stale `getEniId` comment (`handler.ts:53-59`).
-10. Extract the region fallback chain into one shared helper.
+6. Show `timeoutMs` validation text in the wizard; dedupe the secret hint copy. (specs: `RT-HEALTH-REDACT-004`)
+7. Fix the stale `getEniId` comment (`handler.ts:53-59`).
+8. Extract the region fallback chain into one shared helper.
 11. Derive the secret-name prefix from the project name.
