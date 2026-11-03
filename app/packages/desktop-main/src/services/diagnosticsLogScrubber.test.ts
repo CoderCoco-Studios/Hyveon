@@ -76,4 +76,60 @@ describe('scrubSecrets', () => {
 
     expect(result).toBe('abcdefghijklmnop_token=[REDACTED]');
   });
+
+  describe('JSON-quoted labeled values', () => {
+    const SECRET = 'aG9yc2ViYXR0ZXJ5c3RhcGxlY29ycmVjdA';
+
+    // @spec APP-DIAG-SCRUB-003
+    it('should redact a compact production json() value', () => {
+      const line = `{"level":"info","message":"saved","botToken":"${SECRET}"}`;
+
+      expect(scrubSecrets(line)).toBe('{"level":"info","message":"saved","botToken":"[REDACTED]"}');
+    });
+
+    // @spec APP-DIAG-SCRUB-003
+    it('should redact a dev meta value with a space after the colon', () => {
+      const line = `saved {"apiKey": "${SECRET}"}`;
+
+      expect(scrubSecrets(line)).toBe('saved {"apiKey": "[REDACTED]"}');
+    });
+
+    // @spec APP-DIAG-SCRUB-003
+    it('should redact a single-quoted label and value', () => {
+      const line = `{'apiKey': '${SECRET}'}`;
+
+      expect(scrubSecrets(line)).toBe("{'apiKey': '[REDACTED]'}");
+    });
+
+    // @spec APP-DIAG-SCRUB-003
+    it('should redact a value nested inside another object', () => {
+      const line = `{"meta":{"discord":{"publicKey":"${SECRET}"}}}`;
+
+      expect(scrubSecrets(line)).toBe('{"meta":{"discord":{"publicKey":"[REDACTED]"}}}');
+    });
+
+    // @spec APP-DIAG-SCRUB-003
+    it('should redact a value inside a JSON string with escaped quotes', () => {
+      const line = String.raw`{"message":"payload {\"botToken\":\"${SECRET}\"}"}`;
+
+      expect(scrubSecrets(line)).toBe(String.raw`{"message":"payload {\"botToken\":\"[REDACTED]\"}"}`);
+    });
+
+    // @spec APP-DIAG-SCRUB-003
+    it('should redact every labeled value on one line but leave unlabeled neighbours', () => {
+      const neighbour = 'abcdefghijklmnopqrstuvwxyz0123';
+      const line = `{"id":"${neighbour}","botToken":"${SECRET}","name":"${neighbour}","clientSecret":"${SECRET}"}`;
+
+      expect(scrubSecrets(line)).toBe(
+        `{"id":"${neighbour}","botToken":"[REDACTED]","name":"${neighbour}","clientSecret":"[REDACTED]"}`,
+      );
+    });
+
+    // @spec APP-DIAG-SCRUB-003, APP-DIAG-SCRUB-004
+    it('should leave a short JSON-quoted labeled value untouched', () => {
+      const line = '{"apiKey":"short","tokenCount":"12"}';
+
+      expect(scrubSecrets(line)).toBe(line);
+    });
+  });
 });

@@ -11,11 +11,15 @@ const AWS_ACCESS_KEY_ID_PATTERN = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g;
  * logged alongside its own label. Deliberately does not match short words
  * like "key" or "secret" used in ordinary prose (e.g. "the key thing"),
  * since those aren't followed by a `:`/`=` and a long value run.
+ *
+ * Also matches JSON-shaped pairs (`"botToken":"…"`, `"apiKey": "…"`, `'apiKey': '…'`, and the backslash-escaped
+ * quotes of JSON nested inside a JSON string): the label may carry a closing quote before the separator, and the
+ * value may carry an opening quote.
  */
 const LABELED_SECRET_VALUE_PATTERN =
-  /\b([\w-]*(?:token|key|secret)[\w-]*\s*[:=]\s*['"]?)([A-Za-z0-9+/_-]{16,})(['"]?)/gi;
+  /\b([\w-]*(?:token|key|secret)[\w-]*(?:\\?['"])?\s*[:=]\s*(?:\\?['"])?)([A-Za-z0-9+/_-]{16,})/gi;
 
-// @spec APP-DIAG-SCRUB-001, APP-DIAG-SCRUB-002, APP-DIAG-SCRUB-004
+// @spec APP-DIAG-SCRUB-001, APP-DIAG-SCRUB-002, APP-DIAG-SCRUB-003, APP-DIAG-SCRUB-004
 /**
  * Regex-based secret scrubber applied to already-collected log text before
  * it's included in a diagnostics bundle. Defense-in-depth only — the
@@ -32,8 +36,5 @@ const LABELED_SECRET_VALUE_PATTERN =
 export function scrubSecrets(text: string): string {
   return text
     .replace(AWS_ACCESS_KEY_ID_PATTERN, '[REDACTED]')
-    .replace(
-      LABELED_SECRET_VALUE_PATTERN,
-      (_match, prefix: string, _value: string, suffix: string) => `${prefix}[REDACTED]${suffix}`,
-    );
+    .replace(LABELED_SECRET_VALUE_PATTERN, (_match, prefix: string) => `${prefix}[REDACTED]`);
 }
