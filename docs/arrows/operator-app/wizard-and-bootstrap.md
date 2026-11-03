@@ -131,17 +131,6 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 
 ## Spec Coverage
 
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `wizard-flow` | 10 | 26 | Stack-init requirement is satisfied by `iac/engine`'s `stack-init-step`. The legacy text's state-file name and step order disagreed with the code (finding 9). |
-| `guided-iam-provisioning` | 5 | 14 | Implemented in `GuidedIamService` + guided-IAM screens; rotation-pending resume overlaps `wizard-flow` (`:65-73`). |
-| `guided-region-selection` | 3 | 6 | `app/packages/shared/src/awsRegions.ts` + `guided-iam-region-screen`; sweep reports sovereign/local-zone entries contrary to the exclusion rule `[unverified]`. |
-| `aws-credentials` | 4 | 12 | "In-app access key rotation" (`:47-59`) is implemented in `AwsProfileService` but unreachable from any IPC channel (finding 3). Header lacks the "Specification" suffix. |
-| `cloud-bootstrap` | 8 | 21 | ECS service-linked-role policy requirement (`:134-157`) is the policy half of `aws-cloud-health`. |
-| `aws-cloud-health` | 3 | 10 | Purpose is still TBD. Only the ECS SLR check exists. |
-
-**OpenSpec summary:** 33 requirements and 89 scenarios across six legacy OpenSpec capabilities, all carried by the EARS specs.
-
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Launch gating and completion | `APP-WIZARD-GATE-001` to `APP-WIZARD-GATE-006` | 4 | 0 | 1 |

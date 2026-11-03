@@ -86,11 +86,6 @@ Shared model and validator are mature and heavily tested; the write path has a s
 - `iac/engine`: `ConfigService.getStackOutputs` (deployed game names for the merged list).
 - `helper-task`: `app/packages/desktop-main/src/services/volumeFiles/HelperSessionRegistry.ts` (`hasUploadHolders`, read by this leaf's `games.start` guard), `app/packages/web/src/pages/volume-files.page.tsx` (the `/games/:name/files` file browser the detail page links to).
 
-### OpenSpec sources
-- Capabilities carried (as EARS provenance tags): `game-environment-variables` (3 requirements), `game-https-configuration` (7), `game-port-visibility` (9), `game-resource-picker` (2), `env-token-interpolation` (6), `game-draft-persistence` (6).
-- Shipped work carried: pinned hostname (#692, 2 manual verification tasks outstanding), explicit HTTPS `webPort` (#688/#689/#691), ICMP ingress (#599).
-- Touching this leaf, owned elsewhere: the health-check auth type (validator and wizard fields; owner `game-runtime/health-check`) and the embedded file browser (detail-page Files link and upload start guard; owner `helper-task`).
-
 ## Architecture
 
 **Purpose:** Define the canonical per-game declaration (`GameServer`) that every per-game AWS resource fans out from, validate it identically in renderer and main process, and give the operator a list, detail page, six-step add wizard, edit form and remove action that write it into `deployment-config.json`.
@@ -109,16 +104,6 @@ Shared model and validator are mature and heavily tested; the write path has a s
 11. `app/packages/web/src/pages/games.page.tsx` (`:71`) and `game-detail.page.tsx` (`:107`): declared/deployed table with drift chips (`game-status-badges.component.tsx:41`), draft-resume banner, read-only detail with a Files link to `/games/:name/files` (`game-detail.page.tsx:140-148`), type-to-confirm `remove-game-button.component.tsx`.
 
 ## Spec Coverage
-
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| game-environment-variables | 3 | 13 | Env step, edit form, validator. |
-| game-https-configuration | 7 | 27 | Cross-game `webPort` constraint 5 is enforced in code and carried by `GAME-HTTPS-009` / `GAME-HTTPS-010`. |
-| game-port-visibility | 9 | 23 | Includes the ICMP and HTTPS-extra-port requirements. Infra half (`securityGroups.ts`) owned by `iac/program`. |
-| game-resource-picker | 2 | 5 | Resources step, Fargate tiers in validator. |
-| env-token-interpolation | 6 | 13 | Purpose still "TBD". Substitution half in `app/packages/infra/src/ecs.ts` (`iac/program`). |
-| game-draft-persistence | 6 | 11 | Autosave hook, `GameWizardDraftService`, resume banner. |
-| game-hostname-pinning (shipped, `add-pinned-hostname`) | 5 | 22 | Carried by `GAME-HOST-*`. |
 
 **Legacy requirement summary:** 33 requirements / 92 scenarios across 6 capabilities, plus 5 / 22 for pinned hostname.
 

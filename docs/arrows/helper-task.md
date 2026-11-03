@@ -64,11 +64,6 @@ Re-synced after the in-app file browser shipped (PRs #694-#699, #701): one main-
 - `operator-app/desktop-shell`: `app/packages/desktop-main/src/electron-entry.ts` (installs the quit hook, `:225`), `app/packages/desktop-main/src/services/NativeDialogService.ts` and `modules/native-dialog.module.ts` (open/save dialogs), `app/packages/web/src/app.component.tsx` (route `/games/:name/files`, `:109`).
 - `operator-app/diagnostics`: `app/packages/web/src/components/DiagnosticsPanel.tsx` hosts `StrayHelpersButton`.
 
-### OpenSpec sources
-- `game-volume-file-browser`: 10 requirements, 39 scenarios, created by the file-browser rollout.
-- `game-volume-folder-upload`: 9 requirements, 35 scenarios. Two requirements ("Upload goes directly into the mounted volume", "Helper sessions are tagged and stray ones are cleaned up") were rewritten by the file-browser rollout.
-- The file-browser rollout is archived and its specs synced. Its rationale lives in the Decisions & Alternatives table of `docs/intent/helper-task/helper-task-design.md`; two manual checks are still owed (real OS drag-and-drop through the preload, `quitAndInstall` with an owned helper).
-
 ## Architecture
 
 **Purpose:** Get bytes onto a game's EFS volumes without SSH, by three routes: an in-app file browser page that drives a main-process-owned FileBrowser Fargate task over pinned HTTPS (browse, edit, download, upload), a folder-to-volume upload that runs through the same session, and declarative `file_seeds` written by a per-game Lambda during the infra apply.
@@ -88,13 +83,6 @@ Re-synced after the in-app file browser shipped (PRs #694-#699, #701): one main-
 12. Web: `volume-files.page.tsx` (route page, auto-start from the dashboard, `:52-59`), `components/volume-files/*` (session bar, picker, browser, editor, transfers, server guard), `folder-upload/*` (selection tree, card, meter, overwrite prompt), `stray-helpers-button.component.tsx`.
 
 ## Spec Coverage
-
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `game-volume-file-browser` (main) | 10 | 39 | Shipped; every requirement implemented. The Discord start path is outside the "server start while an upload holds the session" guarantee by design (`HELPER-FB-042`, `[D]`). |
-| `game-volume-folder-upload` (main) | 9 | 35 | Shipped. Gaps remain in auto-stop surfacing and cancel-during-preflight (findings 2, 6). |
-
-**OpenSpec summary:** The efs-seeder, the session registry internals, reservations, page transfers, the text editor details and the quit hook have no OpenSpec requirement of their own; they are specified as `(observed)`.
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|

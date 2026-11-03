@@ -85,12 +85,6 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 - `helper-task`: `app/packages/lambda/efs-seeder/**` (invoked synchronously by `escapes.ts`), `FileManagerService` (registers FileBrowser task definitions at runtime against log groups and SGs declared here).
 - `discord-bot`, `game-runtime/task-and-dns`, `game-runtime/watchdog`, `game-runtime/health-check`: the Lambda handlers whose env, roles and triggers `lambdas.ts`/`iam.ts`/`securityGroups.ts` declare.
 
-### OpenSpec sources
-- `pulumi-infra-program` (program half; config-persistence requirement is carried with `deployment-config`).
-- `lambda-runtime-currency`.
-- `in-task-tls-termination` (infra half; DNS lifecycle half sits with `game-runtime/task-and-dns`).
-- Active changes touching this leaf (primary owner elsewhere): `add-pluggable-health-checks` (shipped + synced, unarchived; its `lambda-runtime-currency` delta must not be re-applied), `add-scripted-health-checks` (not started), `add-icmp-ingress` (shipped + synced, unarchived; `securityGroups.ts`), `https-explicit-web-port` (shipped + synced, unarchived; Caddy and SG), `add-pinned-hostname` (shipped, not synced; `hostnameShim.ts`), `add-vpc-flow-logs` (not started; would add a flow log and IAM role here), `embed-file-browser` (shipped, synced and archived at `5c55a380`; added the `efsVolumeAccessPoints` output).
-
 ## Architecture
 
 **Purpose:** A single in-process Pulumi Automation API inline program that turns one `DeploymentConfig` into every AWS resource Hyveon owns, and returns the `StackOutputs` the desktop app reads to find them. It does not run anything itself; `iac/engine` and `iac/run` drive it.
@@ -109,14 +103,6 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 11. `lambda/buildLambda.mjs`: shared esbuild bundler producing `dist/handler.cjs` (CJS, `node24`) that `lambdas.ts:230-242` zips.
 
 ## Spec Coverage
-
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `pulumi-infra-program` | 7 | 26 | Program half. "Configuration persisted as versioned JSON" (4 scenarios) is `deployment-config` behaviour. Passphrase "machine-bound" wording contradicts `pulumi-engine-runtime` (owned by `iac/engine`). Preservation-test scenario only partly met (finding 6). |
-| `lambda-runtime-currency` | 3 | 5 | Lists efs-seeder as always-provisioned; code makes it per-game conditional (finding 4). Scenario expects `target` in each `esbuild.config.mjs`; it lives in `buildLambda.mjs:20`. |
-| `in-task-tls-termination` | 6 | 14 | Infra half (sidecar, cert AP, SG, no ELB/ACM). "version-pinned" Caddy image not met (finding 3); "no ACM certificate" sits awkwardly with the Discord ACM cert (finding 5). |
-
-**OpenSpec summary:** 16 requirements and 45 scenarios carried across 3 capabilities.
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|

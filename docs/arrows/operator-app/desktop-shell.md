@@ -100,14 +100,6 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 
 ## Spec Coverage
 
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `custom-title-bar` | 5 | 16 | Owned. Purpose is still "TBD". Hidden title bar, mac traffic lights, Windows overlay, Linux app-drawn buttons, safe browser degradation and the five window channels all present in code (`electron-entry.ts:104-117`, `window-chrome.component.tsx`, `WindowService.ts`). |
-| `app-icon` | 3 | 5 | Owned. Assets, `electron-builder.yml` wiring and favicon all present; "approved master artwork" scenarios are process, not code. |
-| `desktop-only-operator-surface` | 2 of 11 | 5 of 32 | Cited. Carried here: "Every routed screen is reachable from the sidebar" and "The chrome exposes no non-functional controls" (its "placeholder statistics" scenario is about the game card, owned by `task-and-dns`). The rest belongs to `ipc-bridge`, `iac/engine`, `deployment-config` and the docs index. |
-
-**OpenSpec summary:** Per the clustering recommendation, `APP-SHELL` EARS cover window chrome, app icon, polling heartbeat and route table / first-run gate; the primitives are carried code bound by `DESIGN.md`.
-
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Process Start and Composition Root | `APP-SHELL-BOOT-001` to `APP-SHELL-BOOT-016` | 15 | 0 | 1 |
