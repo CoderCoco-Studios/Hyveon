@@ -179,8 +179,7 @@ export interface AwsCloudProviderLogger {
  * `streamWorkloadLogs` reproduces `LogsService.streamLogs`'s CloudWatch Logs
  * polling behaviour (see the method for details). `getCostEstimate`
  * reproduces the previous `CostService`'s Fargate-pricing estimate. The
- * app makes no AWS Cost Explorer API calls, ever — see
- * `openspec/changes/remove-cost-explorer-calls`.
+ * app makes no AWS Cost Explorer API calls, ever.
  */
 export class AwsCloudProvider implements CloudProvider {
   private readonly getCachedEcsClient = createCachedAwsClient(

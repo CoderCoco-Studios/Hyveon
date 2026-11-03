@@ -4,9 +4,9 @@ EARS requirements for prefix `CONFIG`; design in `docs/intent/deployment-config/
 
 ## Document model
 
-- [x] **CONFIG-MODEL-001**: The `DeploymentConfig` type in `@hyveon/shared` shall be the single type for `deployment-config.json`, imported directly by both the infra program and `DeploymentConfigService`, so a change to its shape fails type-checking in both until both are updated. (OpenSpec: pulumi-infra-program / Typed game-server configuration model)
-- [x] **CONFIG-MODEL-002**: The `DeploymentConfig.gameServers` record, keyed by game name, shall be the only edit required to add or remove a game; the infra program shall derive every per-game resource by iterating that record rather than declaring any game by hand. (OpenSpec: pulumi-infra-program / Typed game-server configuration model)
-- [x] **CONFIG-MODEL-003**: The `DeploymentConfig` type shall carry the top-level deployment settings (project name, VPC CIDR, hosted zone, DNS TTL, the three watchdog tunables, the three Discord base allowlists, the Discord application id, and the audit and runs table-name overrides) alongside `gameServers`, so that no deployment setting requires editing a file by hand. The install's AWS region is not a deployment setting: it is the wizard region (`IAC-ENGINE-REGION-001`). (OpenSpec: pulumi-infra-program / Configuration persisted as versioned JSON)
+- [x] **CONFIG-MODEL-001**: The `DeploymentConfig` type in `@hyveon/shared` shall be the single type for `deployment-config.json`, imported directly by both the infra program and `DeploymentConfigService`, so a change to its shape fails type-checking in both until both are updated.
+- [x] **CONFIG-MODEL-002**: The `DeploymentConfig.gameServers` record, keyed by game name, shall be the only edit required to add or remove a game; the infra program shall derive every per-game resource by iterating that record rather than declaring any game by hand.
+- [x] **CONFIG-MODEL-003**: The `DeploymentConfig` type shall carry the top-level deployment settings (project name, VPC CIDR, hosted zone, DNS TTL, the three watchdog tunables, the three Discord base allowlists, the Discord application id, and the audit and runs table-name overrides) alongside `gameServers`, so that no deployment setting requires editing a file by hand. The install's AWS region is not a deployment setting: it is the wizard region (`IAC-ENGINE-REGION-001`).
 - [x] **CONFIG-MODEL-004**: The `DeploymentConfig` type shall contain no secret field; Discord credentials shall live only in Secrets Manager and never in `deployment-config.json`. (observed)
 - [x] **CONFIG-MODEL-005**: The deployment-config document shall be stored under the fixed object key `CONFIGURATION_OBJECT_KEY` (`deployment-config.json`), with no environment override able to change the key. (observed)
 - [x] **CONFIG-MODEL-006**: When `withDeploymentConfigDefaults` is given a partial deployment-config document, it shall fill every absent top-level field from `DEPLOYMENT_CONFIG_DEFAULTS` (fresh empty arrays for the three Discord allowlists) and pass `hostedZoneName` and `gameServers` through unchanged. (observed)
@@ -15,21 +15,21 @@ EARS requirements for prefix `CONFIG`; design in `docs/intent/deployment-config/
 
 ## Storage transport
 
-- [x] **CONFIG-STORE-001**: `DeploymentConfigService` shall read and write `deployment-config.json` only through the cloud-agnostic `RemoteFileStore` contract, so every write inherits its conditional-write locking and S3 version history. (OpenSpec: pulumi-infra-program / Configuration persisted as versioned JSON)
-- [x] **CONFIG-STORE-002**: The desktop app shall depend on no HCL parsing package, and reading or writing `deployment-config.json` shall neither parse nor emit HCL. (OpenSpec: pulumi-infra-program / Configuration persisted as versioned JSON)
+- [x] **CONFIG-STORE-001**: `DeploymentConfigService` shall read and write `deployment-config.json` only through the cloud-agnostic `RemoteFileStore` contract, so every write inherits its conditional-write locking and S3 version history.
+- [x] **CONFIG-STORE-002**: The desktop app shall depend on no HCL parsing package, and reading or writing `deployment-config.json` shall neither parse nor emit HCL.
 - [x] **CONFIG-STORE-003**: When `AwsRemoteFileStore.put` is called with an `ifMatch` etag, it shall send that etag as the S3 `IfMatch` condition, and when called without one it shall send an unconditional `PutObject`. (observed)
 - [x] **CONFIG-STORE-004**: If S3 rejects an `AwsRemoteFileStore.put` with HTTP 409 or 412, then the store shall throw `RemoteFileConflictError`. (observed)
 - [x] **CONFIG-STORE-005**: If S3 `PutObject` returns no ETag, then `AwsRemoteFileStore.put` shall throw. (observed)
 - [x] **CONFIG-STORE-006**: When `AwsRemoteFileStore.get` reads an object that S3 reports as `NoSuchKey` or HTTP 404, it shall return `undefined`. (observed)
 - [ ] **CONFIG-STORE-007**: If S3 `GetObject` for `deployment-config.json` returns a response with no body or no ETag, then `AwsRemoteFileStore.get` shall report an error rather than the "not found" result it uses for a missing object. (gap: `app/packages/cloud-aws/src/AwsRemoteFileStore.ts:106`)
-- [x] **CONFIG-STORE-008**: When `AwsRemoteFileStore.listVersions` receives a response with `IsTruncated: true`, it shall issue the next request with that response's `NextKeyMarker` and `NextVersionIdMarker` as `KeyMarker` and `VersionIdMarker`, accumulating every page's versions. (OpenSpec: iac-rollback / Complete remote file version listing)
-- [x] **CONFIG-STORE-009**: When `AwsRemoteFileStore.listVersions` finishes paging, it shall return only versions whose key exactly matches the requested path, sorted newest `lastModified` first. (OpenSpec: iac-rollback / Complete remote file version listing)
-- [x] **CONFIG-STORE-010**: When `AwsRemoteFileStore.listVersions` is called for a key whose versions fit in one response, it shall issue exactly one `ListObjectVersions` request. (OpenSpec: iac-rollback / Complete remote file version listing)
+- [x] **CONFIG-STORE-008**: When `AwsRemoteFileStore.listVersions` receives a response with `IsTruncated: true`, it shall issue the next request with that response's `NextKeyMarker` and `NextVersionIdMarker` as `KeyMarker` and `VersionIdMarker`, accumulating every page's versions.
+- [x] **CONFIG-STORE-009**: When `AwsRemoteFileStore.listVersions` finishes paging, it shall return only versions whose key exactly matches the requested path, sorted newest `lastModified` first.
+- [x] **CONFIG-STORE-010**: When `AwsRemoteFileStore.listVersions` is called for a key whose versions fit in one response, it shall issue exactly one `ListObjectVersions` request.
 - [x] **CONFIG-STORE-011**: When `AwsRemoteFileStore.getVersion` is asked for a version id that S3 reports as missing, it shall return `undefined` rather than throw. (observed)
 
 ## Reads
 
-- [x] **CONFIG-READ-001**: If any `DeploymentConfigService` read or write of `deployment-config.json` runs while no configuration bucket is configured, then it shall throw `ConfigurationNotConfiguredError` before any store call, never falling back to a file on disk. (OpenSpec: pulumi-infra-program / Configuration persisted as versioned JSON)
+- [x] **CONFIG-READ-001**: If any `DeploymentConfigService` read or write of `deployment-config.json` runs while no configuration bucket is configured, then it shall throw `ConfigurationNotConfiguredError` before any store call, never falling back to a file on disk.
 - [x] **CONFIG-READ-002**: If the configuration bucket is configured but `deployment-config.json` is absent, then `DeploymentConfigService`'s raw read shall throw an error naming the object key and bucket. (observed)
 - [x] **CONFIG-READ-003**: If the text of `deployment-config.json` is not valid JSON or does not decode to a plain object, then `DeploymentConfigService` shall reject the parse with an error. (observed)
 - [x] **CONFIG-READ-004**: While a `DeploymentConfigService.getGameServers` cache entry is younger than `ConfigService.readEnvConfigCacheTtlMs()` (default 30 s), `getGameServers` shall return the cached game list without reading the store. (observed)
@@ -43,8 +43,8 @@ EARS requirements for prefix `CONFIG`; design in `docs/intent/deployment-config/
 
 ## Writes
 
-- [x] **CONFIG-WRITE-001**: When the operator adds, edits or removes a game through the app, `DeploymentConfigService` shall write a new version of `deployment-config.json` to the configuration bucket as JSON. (OpenSpec: pulumi-infra-program / Configuration persisted as versioned JSON)
-- [x] **CONFIG-WRITE-002**: When a deployment-config document containing every supported field is written by `DeploymentConfigService` and read back, the parsed result shall be deeply equal to what was written, including boolean and numeric fields. (OpenSpec: pulumi-infra-program / Configuration persisted as versioned JSON)
+- [x] **CONFIG-WRITE-001**: When the operator adds, edits or removes a game through the app, `DeploymentConfigService` shall write a new version of `deployment-config.json` to the configuration bucket as JSON.
+- [x] **CONFIG-WRITE-002**: When a deployment-config document containing every supported field is written by `DeploymentConfigService` and read back, the parsed result shall be deeply equal to what was written, including boolean and numeric fields.
 - [x] **CONFIG-WRITE-003**: `DeploymentConfigService` shall serialise every edited deployment-config document as `JSON.stringify(config, null, 2)` followed by a newline. (observed)
 - [x] **CONFIG-WRITE-004**: When a game or settings edit to `deployment-config.json` is made with a caller-supplied etag (`expectedVersionId`), `DeploymentConfigService` shall read the current head, apply the edit, and put the result conditionally on that caller's etag. (observed)
 - [x] **CONFIG-WRITE-005**: If a conditional put of `deployment-config.json` fails with `RemoteFileConflictError`, then `DeploymentConfigService` shall throw `OptimisticLockError` carrying the expected etag and, when a follow-up read succeeds, the current head etag. (observed)
@@ -59,15 +59,15 @@ EARS requirements for prefix `CONFIG`; design in `docs/intent/deployment-config/
 
 ## Rollback restore
 
-- [x] **CONFIG-RESTORE-001**: When rollback calls `DeploymentConfigService.restoreRawConfig` with a historic version's content, the service shall write that content as a new head version of `deployment-config.json` without deleting or rewriting any existing version. (OpenSpec: iac-rollback / Rollback restores the version and queues a tagged plan)
-- [x] **CONFIG-RESTORE-002**: When `DeploymentConfigService.restoreRawConfig` writes a historic deployment-config version, the new head's content shall be byte-for-byte identical to the historic content, with no parse-and-re-emit step. (OpenSpec: iac-rollback / Rollback restores the version and queues a tagged plan)
+- [x] **CONFIG-RESTORE-001**: When rollback calls `DeploymentConfigService.restoreRawConfig` with a historic version's content, the service shall write that content as a new head version of `deployment-config.json` without deleting or rewriting any existing version.
+- [x] **CONFIG-RESTORE-002**: When `DeploymentConfigService.restoreRawConfig` writes a historic deployment-config version, the new head's content shall be byte-for-byte identical to the historic content, with no parse-and-re-emit step.
 - [x] **CONFIG-RESTORE-003**: When `DeploymentConfigService.restoreRawConfig` runs, it shall apply the runs-table rename guard (CONFIG-WRITE-012) between the current head and the restored document before writing. (observed)
 - [ ] **CONFIG-RESTORE-004**: If `deployment-config.json` changes between `restoreRawConfig`'s head read and its put (for example a game edit, which does not take the run lock), then the restore shall fail with `OptimisticLockError` rather than overwrite that change. (gap: `app/packages/desktop-main/src/services/DeploymentConfigService.ts:381-390` writes unconditionally)
 
 ## Settings IPC
 
 - [x] **CONFIG-SET-001**: When `iac.settings.get` is invoked, `IacSettingsController` shall log on entry and return `{ ok: true, settings, etag }` from `getTopLevelSettings`. (observed)
-- [x] **CONFIG-SET-002**: If an `iac.settings.get` or `iac.settings.update` call hits `ConfigurationNotConfiguredError`, then `IacSettingsController` shall return `code: 'setup_incomplete'` with the error message. (OpenSpec: pulumi-infra-program / Configuration persisted as versioned JSON)
+- [x] **CONFIG-SET-002**: If an `iac.settings.get` or `iac.settings.update` call hits `ConfigurationNotConfiguredError`, then `IacSettingsController` shall return `code: 'setup_incomplete'` with the error message.
 - [ ] **CONFIG-SET-003**: If `iac.settings.get` runs while the configuration bucket is configured but `deployment-config.json` is absent, then `IacSettingsController` shall return a result distinct from the generic `code: 'error'`. (gap: `app/packages/desktop-main/src/controllers/iac-settings.controller.ts:139-140`)
 - [x] **CONFIG-SET-004**: When `iac.settings.update` is invoked, `IacSettingsController` shall log on entry, run `validateDeploymentSettingsPatch` on the patch, and return `code: 'validation'` with per-field issues without writing if any issue is found. (observed)
 - [x] **CONFIG-SET-005**: When `iac.settings.update` passes validation, `IacSettingsController` shall write the patch with the payload's `expectedVersionId` and return `{ ok: true, settings, etag, versionId }` using a fresh read of the stored settings. (observed)
@@ -111,11 +111,5 @@ EARS requirements for prefix `CONFIG`; design in `docs/intent/deployment-config/
 
 ## Rollback diff
 
-- [x] **CONFIG-RBDIFF-001**: When `diffDeploymentConfig` compares two deployment-config documents for the rollback confirmation, it shall return the changed top-level fields and the added, removed and changed `gameServers` keys, comparing arrays and game entries with key-order-insensitive JSON equality. (OpenSpec: iac-rollback / Rollback initiation from history)
+- [x] **CONFIG-RBDIFF-001**: When `diffDeploymentConfig` compares two deployment-config documents for the rollback confirmation, it shall return the changed top-level fields and the added, removed and changed `gameServers` keys, comparing arrays and game entries with key-order-insensitive JSON equality.
 - [ ] **CONFIG-RBDIFF-002**: When a top-level field is added to `DeploymentConfig`, `diffDeploymentConfig` shall include it in its comparison without a separate hand-maintained list falling out of date. (gap: `app/packages/shared/src/deploymentConfig.ts:392-407` is not checked for completeness)
-
-## Dropped from OpenSpec
-
-- pulumi-infra-program / Typed game-server configuration model, "replacing the HCL `game_servers` map": migration framing from the Terraform era; the HCL map no longer exists, so only the current-state model requirements are kept (CONFIG-MODEL-001, CONFIG-MODEL-002).
-- pulumi-infra-program / Configuration persisted as versioned JSON, "replacing `terraform.tfvars`" and "the unguarded synchronous local write path is deleted, not patched": Terraform-era and removal-history clauses; the current-state outcome is kept as CONFIG-READ-001 and CONFIG-STORE-001.
-- pulumi-infra-program / Typed game-server configuration model, scenarios "Adding a game requires only a config entry" and "Removing a game removes its resources" as preview assertions: the preview's resource set is owned by `iac/program`; only the config-side half is kept here (CONFIG-MODEL-002).

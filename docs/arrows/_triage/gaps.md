@@ -66,7 +66,7 @@ Next in line (all **med**): helper upload not re-checking for a server start mid
 
 ### Palworld ICMP (`add-icmp-ingress`)
 
-Not an open `[ ]` gap. ICMP port declarations are implemented in code, docs and specs, and the governing specs are `[x]` (`GAME-PORT-009` to `GAME-PORT-012`, `DISCORD-MSG-004`): validator exemption and type range (`app/packages/shared/src/gameServerValidator.ts:656,811`), security-group rule (`app/packages/infra/src/securityGroups.ts:222-223`), exclusion from `portMappings` (`app/packages/infra/src/ecs.ts:279-283`), `firstPortByGame` skipping ICMP (`app/packages/infra/src/lambdas.ts:321`), and the wizard's ICMP row defaulting to type 8. What remains is operational: `openspec/changes/add-icmp-ingress/tasks.md` 5.3 (a live preview and apply, then a Palworld in-game browser join), after which the change is closed.
+Not an open `[ ]` gap. ICMP port declarations are implemented in code, docs and specs, and the governing specs are `[x]` (`GAME-PORT-009` to `GAME-PORT-012`, `DISCORD-MSG-004`): validator exemption and type range (`app/packages/shared/src/gameServerValidator.ts:656,811`), security-group rule (`app/packages/infra/src/securityGroups.ts:222-223`), exclusion from `portMappings` (`app/packages/infra/src/ecs.ts:279-283`), `firstPortByGame` skipping ICMP (`app/packages/infra/src/lambdas.ts:321`), and the wizard's ICMP row defaulting to type 8. What remains is operational: a live preview and apply of the ICMP ingress rule, then a Palworld in-game browser join.
 
 ## Cross-segment duplicates
 

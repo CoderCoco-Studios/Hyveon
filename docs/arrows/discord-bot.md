@@ -4,7 +4,7 @@ Let players start, stop and check games from Discord slash commands, under the o
 
 ## Status
 
-**MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited. Fully serverless path (Function URL → interactions Lambda → followup Lambda → update-dns PATCH) works end to end; a failed config read is never cached or saved over the real row, and no dedicated Discord OpenSpec capability covers the leaf.
+**MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited. Fully serverless path (Function URL → interactions Lambda → followup Lambda → update-dns PATCH) works end to end; a failed config read is never cached or saved over the real row.
 
 ## References
 
@@ -18,7 +18,7 @@ Let players start, stop and check games from Discord slash commands, under the o
 - `docs/intent/discord-bot/discord-bot-specs.md` (92 specs)
 
 ### Documented intent sources
-There is no dedicated Discord OpenSpec capability for this leaf. Intent is taken from `docs/docs/app/discord.md` (the operator page, including the permission-evaluation order and the Interactions Endpoint URL contract), the Discord fragments of the `cost-visibility`, `game-port-visibility` and `pulumi-infra-program` capabilities, and the root `CLAUDE.md` invariants: "Discord is fully serverless" (no discord.js, no gateway, per-guild registration only), "`canRun()` lives in `@hyveon/shared`" (one copy), "Secrets never reach the renderer", "Lambda env vars use `AWS_REGION_`", and the `@hyveon/shared` barrel AWS-SDK restriction.
+Intent is taken from `docs/docs/app/discord.md` (the operator page, including the permission-evaluation order and the Interactions Endpoint URL contract) and the root `CLAUDE.md` invariants: "Discord is fully serverless" (no discord.js, no gateway, per-guild registration only), "`canRun()` lives in `@hyveon/shared`" (one copy), "Secrets never reach the renderer", "Lambda env vars use `AWS_REGION_`", and the `@hyveon/shared` barrel AWS-SDK restriction.
 
 ### Tests
 - `app/packages/cloud-aws/src/AwsDiscordConfigStore.test.ts`
@@ -102,9 +102,6 @@ There is no dedicated Discord OpenSpec capability for this leaf. Intent is taken
 - `app/packages/desktop-main/src/controllers/validation.ts` (`operator-app/ipc-bridge`): `requireStringArray` etc.
 - `app/packages/shared/src/index.ts` (unassigned barrel): carries the "no new AWS SDK imports" constraint.
 
-### OpenSpec sources
-- None dedicated. Requirements retain Discord fragments of `cost-visibility`, `game-port-visibility` and `pulumi-infra-program`, recorded in `discord-bot-specs.md`. No active change is mapped to this leaf.
-
 ## Architecture
 
 **Purpose:** Discord POSTs signed interactions to `https://discord.{zone}/` (CloudFront → Lambda Function URL). The interactions Lambda verifies, authorises with the shared `canRun`, defers, and async-invokes the followup Lambda, which does the ECS work and PATCHes the deferred message. On `/server-start` it also writes a `PENDING#{taskArn}` row so update-dns can PATCH the same message with the connect line once the task is RUNNING. The desktop app only edits configuration (DynamoDB row + Secrets Manager secrets) and registers commands per guild.
@@ -124,10 +121,6 @@ There is no dedicated Discord OpenSpec capability for this leaf. Intent is taken
 12. `web/src/pages/discord/discord.page.tsx` + `use-discord-config.hook.ts` — Credentials / Guilds / Admins / Per-Game Permissions tabs and the Get started checklist.
 
 ## Spec Coverage
-
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| (none) | 0 | 0 | No dedicated Discord OpenSpec capability; EARS are authored from code, `docs/docs/app/discord.md`, CLAUDE.md invariants, and the retained capability fragments recorded in `discord-bot-specs.md`. |
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
@@ -177,7 +170,6 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/discord-bot/discord-bot
 6. Delete one of the two `DiscordEventReceiver` implementations and either wire the remaining one (with its config callback) or remove the `DISCORD_RECEIVER` token; collapse the duplicate `interactionsInvokeUrl`/`discordInteractionsUrl` outputs (finding 7). (specs: `DISCORD-SVC-005`)
 7. Make the Discord page distinguish "not deployed" from other load errors, and only clear secret inputs after a successful save (finding 10). (specs: `DISCORD-UI-008`, `DISCORD-UI-009`)
 8. Fix the CLAUDE.md ACM invariant wording and the "recoverable from IaC" copy (findings 11, 13).
-9. Author an OpenSpec capability (or EARS set) for the Discord bot; it is the only user-facing subsystem with none.
 
 ### Nice to Have
 10. Share one `FollowupPayload` type between the two Lambdas; drop the dead Discord helpers in `secretsStore.ts`; remove the stale `/api/discord/config` header; replace `substr`; drop the unused `HOSTED_ZONE_NAME` env (findings 6, 11, 12).

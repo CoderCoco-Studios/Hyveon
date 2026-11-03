@@ -1410,7 +1410,7 @@ export interface HyveonGamesApi {
   };
 }
 
-/** Cost endpoints: forward-looking Fargate estimates. The app makes no AWS Cost Explorer API calls — see `openspec/changes/remove-cost-explorer-calls`. */
+/** Cost endpoints: forward-looking Fargate estimates. The app makes no AWS Cost Explorer API calls. */
 export interface HyveonCostsApi {
   /** Estimates per-game and total hourly Fargate cost. */
   estimate: () => Promise<CostEstimates>;
@@ -1967,7 +1967,7 @@ export interface RevokeBootstrapKeyResult {
 }
 
 // @spec APP-WIZARD-BOOT-015, APP-WIZARD-CREDS-003
-/** First-run wizard endpoints (see `openspec/changes/add-first-run-wizard`). */
+/** First-run wizard endpoints. */
 export interface HyveonWizardApi {
   /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
   listAwsProfiles: () => Promise<AwsProfileSummary[]>;

@@ -25,7 +25,7 @@
  *   --exclude   Comma-separated list of paths (relative to rootDir) to skip
  *               for this run only, on top of the built-in defaults — e.g. a
  *               directory that's expected to hold historical references
- *               (`openspec`) or a generated artifact not covered by the
+ *               (`docs/superpowers`) or a generated artifact not covered by the
  *               defaults. Matches the path itself and everything under it.
  *   --json      Emit the full match list as JSON instead of a
  *               human-readable report (still deterministically ordered).
@@ -39,7 +39,7 @@
  *   node scan-vocabulary.mjs ../.. --terms=oldServiceName,oldServiceConfig,id --boundary=id
  *
  *   # Skip a directory that's expected to hold historical references
- *   node scan-vocabulary.mjs ../.. --terms=oldServiceName,oldServiceConfig --exclude=openspec
+ *   node scan-vocabulary.mjs ../.. --terms=oldServiceName,oldServiceConfig --exclude=docs/superpowers
  *
  * No external dependencies — Node builtins only.
  */

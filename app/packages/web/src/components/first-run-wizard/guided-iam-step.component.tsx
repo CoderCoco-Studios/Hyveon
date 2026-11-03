@@ -63,8 +63,7 @@ export interface GuidedIamStepProps {
 
 // @spec APP-WIZARD-GSTEP-001
 /**
- * Guided IAM bootstrap step of the first-run wizard
- * (`openspec/changes/add-one-click-aws-bootstrap`). Self-contained and
+ * Guided IAM bootstrap step of the first-run wizard. Self-contained and
  * stateful, following `stack-init-step.component.tsx`'s ownership model
  * rather than every other step's purely-presentational one — the phase
  * machine and IPC orchestration live in {@link useGuidedIam}; this component

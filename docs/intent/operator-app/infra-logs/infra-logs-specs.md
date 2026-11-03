@@ -5,19 +5,19 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 ## Log group resolution
 
 - [x] **APP-LOGS-GROUP-001**: The log viewer shall read a game server's logs from the CloudWatch log group `/ecs/{game}-server` for the game snapshot, game paging, and game live tail. (observed)
-- [x] **APP-LOGS-GROUP-002**: The log viewer shall resolve a Lambda function's CloudWatch log group as `/aws/lambda/{projectName}-{functionKey}`, where `projectName` comes from the active `deployment-config.json` top-level settings. (OpenSpec: infra-log-viewer / Lambda log group resolution)
-- [x] **APP-LOGS-GROUP-003**: When `projectName` is unset in `deployment-config.json`, the Lambda log group resolver shall use the default project name `hyveon`, so `functionKey: 'watchdog'` resolves to `/aws/lambda/hyveon-watchdog`. (OpenSpec: infra-log-viewer / Lambda log group resolution)
-- [x] **APP-LOGS-GROUP-004**: When `projectName` is set (for example `acme`), the Lambda log group resolver shall use it, so `functionKey: 'health-check'` resolves to `/aws/lambda/acme-health-check`. (OpenSpec: infra-log-viewer / Lambda log group resolution)
-- [x] **APP-LOGS-GROUP-005**: The addressable Lambda set for the log viewer shall be exactly the five `LambdaFunctionKey` values `watchdog`, `health-check`, `dns-updater`, `interactions`, `followup`, excluding the per-game `efs-seeder` Lambda. (OpenSpec: infra-log-viewer / Lambda log group resolution)
+- [x] **APP-LOGS-GROUP-002**: The log viewer shall resolve a Lambda function's CloudWatch log group as `/aws/lambda/{projectName}-{functionKey}`, where `projectName` comes from the active `deployment-config.json` top-level settings.
+- [x] **APP-LOGS-GROUP-003**: When `projectName` is unset in `deployment-config.json`, the Lambda log group resolver shall use the default project name `hyveon`, so `functionKey: 'watchdog'` resolves to `/aws/lambda/hyveon-watchdog`.
+- [x] **APP-LOGS-GROUP-004**: When `projectName` is set (for example `acme`), the Lambda log group resolver shall use it, so `functionKey: 'health-check'` resolves to `/aws/lambda/acme-health-check`.
+- [x] **APP-LOGS-GROUP-005**: The addressable Lambda set for the log viewer shall be exactly the five `LambdaFunctionKey` values `watchdog`, `health-check`, `dns-updater`, `interactions`, `followup`, excluding the per-game `efs-seeder` Lambda.
 - [x] **APP-LOGS-GROUP-006**: If reading `deployment-config.json` fails while resolving a Lambda log group, then the resolver shall log a `warn` with the `functionKey` and fall back to the default project name. (observed)
 - [ ] **APP-LOGS-GROUP-007**: The `LambdaFunctionKey` union and the `LAMBDA_FUNCTION_KEYS` picker array shall be derived from one declaration so a key cannot be added to one without the other. (observed; gap: `shared/src/lambdaFunctionKey.ts:8-13,20-26` declares both by hand)
 
 ## Recent snapshot
 
-- [x] **APP-LOGS-SNAP-001**: When the caller requests recent logs for a game or a Lambda `functionKey` with a `limit` (default 50), the log viewer shall return up to `limit` events from the most recently written stream in that log group, ordered oldest-first, each carrying its CloudWatch `timestamp` and an `eventId`. (OpenSpec: infra-log-viewer / Recent Lambda logs fetch)
-- [x] **APP-LOGS-SNAP-002**: If the log group for a recent-logs request (game or Lambda) has no log streams, then the log viewer shall return a single informational `No log streams found for {label}.` line instead of throwing or returning an empty array. (OpenSpec: infra-log-viewer / Recent Lambda logs fetch)
-- [x] **APP-LOGS-SNAP-003**: If the log group for a Lambda recent-logs request does not exist (`ResourceNotFoundException`), then the log viewer shall return a single informational `No log group for {functionKey} yet …` line, logged at `warn` rather than `error`. (OpenSpec: infra-log-viewer / Recent Lambda logs fetch)
-- [x] **APP-LOGS-SNAP-004**: If a CloudWatch call fails during a game or Lambda recent-logs request, then the log viewer shall return a single `Error fetching logs for {label}: …` line instead of propagating the SDK error, and shall log the failure via `logger.error` with the game or `functionKey` and log group as identifiers. (OpenSpec: infra-log-viewer / Recent Lambda logs fetch)
+- [x] **APP-LOGS-SNAP-001**: When the caller requests recent logs for a game or a Lambda `functionKey` with a `limit` (default 50), the log viewer shall return up to `limit` events from the most recently written stream in that log group, ordered oldest-first, each carrying its CloudWatch `timestamp` and an `eventId`.
+- [x] **APP-LOGS-SNAP-002**: If the log group for a recent-logs request (game or Lambda) has no log streams, then the log viewer shall return a single informational `No log streams found for {label}.` line instead of throwing or returning an empty array.
+- [x] **APP-LOGS-SNAP-003**: If the log group for a Lambda recent-logs request does not exist (`ResourceNotFoundException`), then the log viewer shall return a single informational `No log group for {functionKey} yet …` line, logged at `warn` rather than `error`.
+- [x] **APP-LOGS-SNAP-004**: If a CloudWatch call fails during a game or Lambda recent-logs request, then the log viewer shall return a single `Error fetching logs for {label}: …` line instead of propagating the SDK error, and shall log the failure via `logger.error` with the game or `functionKey` and log group as identifiers.
 - [ ] **APP-LOGS-SNAP-005**: If the log group for a game recent-logs request does not exist, then the log viewer shall return the same kind of informational "no log group yet" line it returns for Lambdas, rather than a raw `ResourceNotFoundException` string. (observed; gap: `LogsService.ts:277-288` passes no `notFound` hook for games)
 - [ ] **APP-LOGS-SNAP-006**: The log viewer shall synthesize a game or Lambda event's `eventId` the same way on the snapshot path and the paging path, including for events with no message. (observed; gap: `LogsService.ts:326` uses `${e.message ?? ''}` while `:519` uses raw `${e.message}`)
 
@@ -36,10 +36,10 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 
 - [x] **APP-LOGS-TAIL-001**: When a consumer starts a game live tail, the log viewer shall poll `FilterLogEvents` on `/ecs/{game}-server` every poll interval (default 2000 ms), starting from the moment the tail opened, and yield each new event's message once. (observed)
 - [x] **APP-LOGS-TAIL-002**: If infrastructure is not deployed when a game live tail starts, then the game tail shall fail with a `WorkloadGuardError` before polling. (observed)
-- [x] **APP-LOGS-TAIL-003**: When a consumer starts a Lambda live tail for a `functionKey`, the log viewer shall poll `FilterLogEvents` on that function's log group every poll interval (default 2000 ms), draining every `nextToken` page per poll. (OpenSpec: infra-log-viewer / Live Lambda log tail)
-- [x] **APP-LOGS-TAIL-004**: While a game or Lambda live tail is active, the tail shall not yield any CloudWatch event it has already yielded on that stream. (OpenSpec: infra-log-viewer / Live Lambda log tail)
-- [ ] **APP-LOGS-TAIL-005**: When a Lambda live tail starts, the tail shall yield only events written after it started (newly-arriving lines), not the group's retained history already shown by the snapshot. (OpenSpec: infra-log-viewer / Live Lambda log tail; gap: `LogsService.ts:735` starts with `startTime` undefined, so the first poll replays the whole group; observed live 2026-10-31: opening the watchdog tail replayed about 50,000 retained lines from roughly 10,000 runs in a few minutes with no timestamps, which reads as the Lambda running several times a second)
-- [x] **APP-LOGS-TAIL-006**: When the caller's `AbortSignal` is aborted during a game or Lambda live tail, the tail shall end without an unhandled rejection and issue no further polls. (OpenSpec: infra-log-viewer / Live Lambda log tail)
+- [x] **APP-LOGS-TAIL-003**: When a consumer starts a Lambda live tail for a `functionKey`, the log viewer shall poll `FilterLogEvents` on that function's log group every poll interval (default 2000 ms), draining every `nextToken` page per poll.
+- [x] **APP-LOGS-TAIL-004**: While a game or Lambda live tail is active, the tail shall not yield any CloudWatch event it has already yielded on that stream.
+- [ ] **APP-LOGS-TAIL-005**: When a Lambda live tail starts, the tail shall yield only events written after it started (newly-arriving lines), not the group's retained history already shown by the snapshot.
+- [x] **APP-LOGS-TAIL-006**: When the caller's `AbortSignal` is aborted during a game or Lambda live tail, the tail shall end without an unhandled rejection and issue no further polls.
 - [ ] **APP-LOGS-TAIL-007**: When the caller's `AbortSignal` is aborted during a Lambda live tail, the tail shall cancel its in-flight `FilterLogEvents` call and its inter-poll sleep immediately, as the game tail does. (observed; gap: `LogsService.ts:739-741` passes no `abortSignal`, `:766` uses a plain `setTimeout`)
 - [x] **APP-LOGS-TAIL-008**: If a poll fails during a game or Lambda live tail, then the tail shall yield one `[stream error] …` line and keep polling. (observed)
 - [ ] **APP-LOGS-TAIL-009**: If a poll fails during a Lambda live tail, then the tail shall log the normalized error with the `functionKey` and log group, per the logging rule. (observed; gap: `LogsService.ts:762-763` yields the line without any `logger` call)
@@ -59,8 +59,8 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 
 ## Renderer tail engine
 
-- [x] **APP-LOGS-ENGINE-001**: When the selected target (game or `functionKey`) changes, the log tail engine shall clear lines, pause buffer, pause state, error and paging state, fetch the target's recent snapshot, then open its live stream. (OpenSpec: infra-log-viewer / Infrastructure logs page)
-- [x] **APP-LOGS-ENGINE-002**: When the selected target changes, the log tail engine shall cancel the previous target's live stream. (OpenSpec: infra-log-viewer / Infrastructure logs page)
+- [x] **APP-LOGS-ENGINE-001**: When the selected target (game or `functionKey`) changes, the log tail engine shall clear lines, pause buffer, pause state, error and paging state, fetch the target's recent snapshot, then open its live stream.
+- [x] **APP-LOGS-ENGINE-002**: When the selected target changes, the log tail engine shall cancel the previous target's live stream.
 - [x] **APP-LOGS-ENGINE-003**: If the snapshot fetch fails on target change, then the log tail engine shall show `Could not load initial logs; trying live stream.` and still open the live stream. (observed)
 - [x] **APP-LOGS-ENGINE-004**: While in live mode and not paused, the log tail engine shall append live lines and keep only the newest 300 lines loaded. (observed)
 - [x] **APP-LOGS-ENGINE-005**: While paused or in historical mode, the log tail engine shall route live lines into a pause buffer capped at 300 entries that drops its oldest entries. (observed)
@@ -80,8 +80,8 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 ## Log pages and view
 
 - [x] **APP-LOGS-UI-001**: The app shall provide a routed page at `/logs` that live-tails the selected game server's logs, loading game names from the games list and selecting the game passed in router navigation state when it exists, else the first game. (observed)
-- [x] **APP-LOGS-UI-002**: The app shall provide a routed page at `/logs/infrastructure` that lets the operator pick one of the five `LambdaFunctionKey` values from `aria-pressed` buttons, defaulting to `watchdog`, and view its recent and live-tailed logs. (OpenSpec: infra-log-viewer / Infrastructure logs page)
-- [x] **APP-LOGS-UI-003**: The `/logs` and `/logs/infrastructure` pages shall both use the same log tail engine (`useLogTail`) and view shell (`LogTailView`). (OpenSpec: infra-log-viewer / Infrastructure logs page)
+- [x] **APP-LOGS-UI-002**: The app shall provide a routed page at `/logs/infrastructure` that lets the operator pick one of the five `LambdaFunctionKey` values from `aria-pressed` buttons, defaulting to `watchdog`, and view its recent and live-tailed logs.
+- [x] **APP-LOGS-UI-003**: The `/logs` and `/logs/infrastructure` pages shall both use the same log tail engine (`useLogTail`) and view shell (`LogTailView`).
 - [x] **APP-LOGS-UI-004**: If the games list fails to load on `/logs`, then the page shall show `Could not load games.` (observed)
 - [x] **APP-LOGS-UI-005**: The log view shell shall show a `Live` / `Paused` badge, a search input, an autoscroll toggle, a pause/resume button, an error banner, a `Loading older logs…` marker while an older page is loading, a `Beginning of log retention` marker at the oldest point, and a footer with the loaded line count. (observed)
 - [x] **APP-LOGS-UI-006**: While in historical mode, the log view shell shall show a `Jump to latest` button, and hide it in live mode. (observed)
@@ -91,16 +91,12 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 
 ## Line rendering
 
-- [x] **APP-LOGS-RENDER-001**: When the search input is non-empty, the shared log line list (used by `/logs`, `/logs/infrastructure` and the Settings → Diagnostics panel) shall highlight every case-insensitive match in each loaded line with `<mark>`, including matches spanning ANSI-styled segments while keeping their colour, without hiding non-matching lines. (observed; OpenSpec: app-diagnostics-logging / ANSI escape sequence rendering for log lines)
-- [x] **APP-LOGS-RENDER-002**: The shared log line list shall render the 16 standard ANSI SGR foreground colours, bold and normal intensity, and reset per line, ignore unrecognized SGR codes, strip every well-formed non-SGR escape sequence (cursor movement, clear-line, OSC) from the displayed text, and leave a malformed or truncated escape in place as plain text without erroring. (observed; OpenSpec: app-diagnostics-logging / ANSI escape sequence rendering for log lines)
+- [x] **APP-LOGS-RENDER-001**: When the search input is non-empty, the shared log line list (used by `/logs`, `/logs/infrastructure` and the Settings → Diagnostics panel) shall highlight every case-insensitive match in each loaded line with `<mark>`, including matches spanning ANSI-styled segments while keeping their colour, without hiding non-matching lines. (observed)
+- [x] **APP-LOGS-RENDER-002**: The shared log line list shall render the 16 standard ANSI SGR foreground colours, bold and normal intensity, and reset per line, ignore unrecognized SGR codes, strip every well-formed non-SGR escape sequence (cursor movement, clear-line, OSC) from the displayed text, and leave a malformed or truncated escape in place as plain text without erroring. (observed)
 - [ ] **APP-LOGS-RENDER-003**: The log line list shall key rows by a stable per-line identity, so prepending older lines does not re-render every row. (observed; gap: `log-line-display.component.tsx:116` keys by array index)
 
 ## Sidebar navigation
 
-- [x] **APP-LOGS-NAV-001**: The sidebar shall present `Logs` under the `Monitoring` section as a group with two always-visible child links, `Game Logs` to `/logs` and `Infra Logs` to `/logs/infrastructure`, with no expand/collapse interaction. (OpenSpec: infra-log-viewer / Nested Logs sidebar navigation)
-- [x] **APP-LOGS-NAV-002**: The `Logs` group's child link labels shall not share an accessible name with any other sidebar link, such as the Configuration section's `Games` and `Infrastructure`. (OpenSpec: infra-log-viewer / Nested Logs sidebar navigation)
-- [x] **APP-LOGS-NAV-003**: While the operator is on `/logs/infrastructure`, the sidebar shall mark `Infra Logs` as active and shall not mark `Game Logs` as active. (OpenSpec: infra-log-viewer / Nested Logs sidebar navigation)
-
-## Dropped from OpenSpec
-
-None. Every `infra-log-viewer` requirement still describes current behaviour; the "5 Lambda functions" wording matches the five `LambdaFunctionKey` values.
+- [x] **APP-LOGS-NAV-001**: The sidebar shall present `Logs` under the `Monitoring` section as a group with two always-visible child links, `Game Logs` to `/logs` and `Infra Logs` to `/logs/infrastructure`, with no expand/collapse interaction.
+- [x] **APP-LOGS-NAV-002**: The `Logs` group's child link labels shall not share an accessible name with any other sidebar link, such as the Configuration section's `Games` and `Infrastructure`.
+- [x] **APP-LOGS-NAV-003**: While the operator is on `/logs/infrastructure`, the sidebar shall mark `Infra Logs` as active and shall not mark `Game Logs` as active.

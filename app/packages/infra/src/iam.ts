@@ -234,8 +234,7 @@ export function gamesWithFileSeeds(gameServers: Record<string, GameServerConfig>
  * exactly the games whose running tasks are checked via the shared
  * health-check Lambda instead of the network-traffic heuristic, and thus the
  * set that determines whether that Lambda, its role, and its security group
- * are provisioned at all (see `lambda-runtime-currency`/`game-health-checks`
- * OpenSpec capabilities). Unlike {@link gamesWithFileSeeds}, this set backs a
+ * are provisioned at all. Unlike {@link gamesWithFileSeeds}, this set backs a
  * single shared role rather than one role per game.
  *
  * @param gameServers - The configured game-server map to filter.

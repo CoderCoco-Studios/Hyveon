@@ -94,13 +94,6 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 
 ## Spec Coverage
 
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `preload-bridge-naming` | 3 | 3 | Implemented: `exposeInMainWorld('hyveon', …)` (`preload.ts:686`), `Hyveon*` type names (`index.ts:1-4`), `globals.d.ts` side-effect import, `__test` gated on `HYVEON_TEST_MODE`. The bridge exposes `folderUpload` and `volumeFiles` and no `files` namespace (APP-IPC-NAME-003). |
-| `desktop-only-operator-surface` (transport half) | 3 of 11 | 13 of 31 | No HTTP: no `*-http.controller.ts`, no `express` in `app/packages/desktop-main/package.json`, `createMicroservice` at `main.ts:45`. Streaming: five channels wrapped in `HyveonStreamHandle`. Gaps: "A test guards the real bridge boundary ... with no mock registered" is not met (finding 7); "Cancellation stops the stream" is only true for the per-call style (finding 5). Remaining 8 requirements are carried by `desktop-shell`. |
-
-**OpenSpec summary:** 6 OpenSpec requirements carried, 2 scenarios appear unmet.
-
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Bridge naming (NAME) | `APP-IPC-NAME-001` to `APP-IPC-NAME-007` | 7 | 0 | 0 |

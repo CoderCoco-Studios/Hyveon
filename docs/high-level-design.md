@@ -1,6 +1,6 @@
 # High-Level Design: Hyveon
 
-This is the root of Hyveon's design tree, bootstrapped from a brownfield `/map-codebase` sweep at git SHA `2822efd1` (lens: domain concept, 16 leaves under 3 grouping nodes).
+This is the root of Hyveon's design tree, organised by domain concept as 16 leaves under 3 grouping nodes.
 It describes what exists today, grounded in code, `CLAUDE.md`, `README.md` and `docs/docs/architecture.md`; where no such source states an intent, the section is marked `*(not yet specified)*` rather than filled with placeholder prose.
 Statements marked `[inferred]` are the mapper's reading of the code and should be confirmed or refuted during flesh-out.
 
@@ -99,7 +99,7 @@ flowchart TD
 
 ### Main runtime data flows
 
-Derived from the cross-layer behaviour chains in `docs/arrows/_map-codebase/inventory.md` §2 (chain numbers in edge labels).
+Edge labels number the cross-layer behaviour chains.
 Edges run between leaves; AWS services are shown only where a chain crosses them.
 
 ```mermaid
@@ -183,7 +183,7 @@ flowchart LR
 | `discord-bot` | leaf | Players start, stop and check games from slash commands under allowlists and per-game permissions, with no bot process. | `docs/intent/discord-bot/discord-bot-design.md` | `DISCORD` |
 | `helper-task` | leaf | Putting files onto a game's EFS volume: the throwaway FileBrowser task, folder upload with pinned TLS, and seeding during deploy. | `docs/intent/helper-task/helper-task-design.md` | `HELPER` |
 
-Index `unmapped.docs` (operator documentation, screenshot capture, Node toolchain version) sits outside the tree; see `docs/arrows/_map-codebase/final-clustering.md` §1.
+Index `unmapped.docs` (operator documentation, screenshot capture, Node toolchain version) sits outside the tree.
 
 ### Spec ownership across segments
 
@@ -235,7 +235,7 @@ Rationale is marked `[stated]` when the cited source gives it and `[inferred]` w
 8. **The desktop app has exactly one transport, Electron IPC, and secrets never reach the renderer.**
    Cited by `ipc-bridge-design.md`, `desktop-shell-design.md`, `wizard-and-bootstrap-design.md`, `diagnostics-design.md`, `helper-task-design.md`; invariants at `CLAUDE.md:99-102`.
    Rationale `[inferred]`: with `contextIsolation` and `sandbox` on, the preload is the only code holding `ipcRenderer`, so a typed, secret-free bridge is both the narrowest attack surface and the only thing that survives structured clone (`ipc-bridge-design.md`, intro, `[stated]` for the constraint); there is no web console to serve, so an HTTP server would be surface without a consumer.
-   Alternative rejected `[stated]`: the earlier HTTP API with a bearer token that the HTTP-to-IPC conversion removed (`openspec/specs/desktop-only-operator-surface`).
+   Alternative rejected `[stated]`: the earlier HTTP API with a bearer token that the HTTP-to-IPC conversion removed.
 
 9. **One copy of every shared rule in `@hyveon/shared`, including `canRun()`, and the barrel stays free of new AWS SDK imports.**
    Cited by `discord-bot-design.md`, `game-server-design.md`, `wizard-and-bootstrap-design.md`, `program-design.md`; invariants at `CLAUDE.md:97-98` and `CLAUDE.md:103`.
@@ -293,11 +293,5 @@ Rationale is marked `[stated]` when the cited source gives it and `[inferred]` w
 ### Arrow tracking and architecture
 
 - `docs/arrows/index.yaml`: the design tree and dependency graph (load first).
-- `docs/arrows/_map-codebase/final-clustering.md` and `inventory.md`: the bootstrap sweep this HLD was drafted from (transient; may be deleted after flesh-out).
 - `docs/docs/architecture.md`: the operator-facing architecture page, including the invariants list and the `/server-start` critical path.
 - `CLAUDE.md` ("Invariants that hurt to break") and `README.md`.
-
-### Legacy requirement source
-
-`openspec/specs/` holds the 36 OpenSpec capabilities that were the requirement source before this tree existed.
-They are being migrated into the per-leaf `*-specs.md` EARS files; until that migration completes, the leaf designs cite OpenSpec scenarios by path, and `openspec/specs/` remains authoritative for anything not yet carried over.

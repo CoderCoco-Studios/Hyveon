@@ -164,7 +164,7 @@ function EstimateTableRow({ row, color }: { row: EstimateRow; color: string }) {
 
 /**
  * Fetches the per-game Fargate cost estimates once on mount. The app makes no
- * AWS Cost Explorer API calls — see `openspec/changes/remove-cost-explorer-calls`.
+ * AWS Cost Explorer API calls.
  */
 function useCostEstimates(): { estimates: CostEstimates | null } {
   const [estimates, setEstimates] = useState<CostEstimates | null>(null);
@@ -186,8 +186,7 @@ function useCostEstimates(): { estimates: CostEstimates | null } {
 /**
  * Cost analysis route (`/costs`). Renders a sortable per-game Fargate cost
  * estimate table plus a callout linking out to the AWS Cost Explorer console
- * for real billed spend. The app makes no AWS Cost Explorer API calls, ever —
- * see `openspec/changes/remove-cost-explorer-calls`.
+ * for real billed spend. The app makes no AWS Cost Explorer API calls, ever.
  */
 export function CostsPage() {
   const { estimates } = useCostEstimates();

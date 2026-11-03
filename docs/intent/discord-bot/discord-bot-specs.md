@@ -1,6 +1,6 @@
 # Discord Bot Specs
 
-EARS requirements for prefix `DISCORD`, the Discord Bot leaf described in `docs/intent/discord-bot/discord-bot-design.md`. No OpenSpec capability covers this leaf; requirements come from code, `docs/docs/app/discord.md`, the root `CLAUDE.md` invariants, and the Discord fragments of the `cost-visibility`, `game-port-visibility` and `pulumi-infra-program` capabilities.
+EARS requirements for prefix `DISCORD`, the Discord Bot leaf described in `docs/intent/discord-bot/discord-bot-design.md`. Requirements come from code, `docs/docs/app/discord.md` and the root `CLAUDE.md` invariants.
 
 ## Serverless invariants
 
@@ -14,7 +14,7 @@ EARS requirements for prefix `DISCORD`, the Discord Bot leaf described in `docs/
 
 - [x] **DISCORD-AUTH-001**: If a request to the interactions Lambda lacks either the `x-signature-ed25519` or the `x-signature-timestamp` header, then the interactions Lambda shall respond 401 without reading configuration (`interactions/src/handler.ts:269-271`). (observed)
 - [x] **DISCORD-AUTH-002**: When verifying a Discord interaction signature, the interactions Lambda shall verify the Ed25519 signature over the timestamp concatenated with the raw request body as received (base64-decoded when flagged), never over a re-serialised body (`interactions/src/handler.ts:79-93`, `:132-136`). (observed)
-- [x] **DISCORD-AUTH-003**: If the Discord public-key secret is missing or still holds the infra placeholder value, then the interactions Lambda shall respond 401 to every interaction (`interactions/src/handler.ts:275-277`, `secretsStore.ts:71-76`). (observed; OpenSpec: pulumi-infra-program / No secret material enters the stack, consumer side)
+- [x] **DISCORD-AUTH-003**: If the Discord public-key secret is missing or still holds the infra placeholder value, then the interactions Lambda shall respond 401 to every interaction (`interactions/src/handler.ts:275-277`, `secretsStore.ts:71-76`). (observed)
 - [x] **DISCORD-AUTH-004**: If the Ed25519 signature on a Discord interaction fails to parse or verify, then the interactions Lambda shall respond 401 (`interactions/src/handler.ts:279-280`, `:90-92`). (observed)
 - [x] **DISCORD-AUTH-005**: If a signature-verified Discord interaction body is not valid JSON, then the interactions Lambda shall respond 400 (`interactions/src/handler.ts:282-287`). (observed)
 - [x] **DISCORD-AUTH-006**: When a signature-verified Discord interaction is a PING, the interactions Lambda shall respond with PONG without reading the Discord config table (`interactions/src/handler.ts:289-291`). (observed)
@@ -49,7 +49,7 @@ EARS requirements for prefix `DISCORD`, the Discord Bot leaf described in `docs/
 
 - [x] **DISCORD-RUN-001**: When the followup Lambda handles a `start`, `stop` or game-bearing `status` job, it shall re-read the effective Discord config and re-check `canRun` before doing any ECS work, replying with a permission-denied message if the check now fails (`followup/src/handler.ts:219-228`, `:247-263`). (observed)
 - [x] **DISCORD-RUN-002**: When the followup Lambda handles a permitted `start` job and no task for that game is running, it shall issue one Fargate `RunTask` against the `{game}-server` task definition with a public IP and `propagateTags: 'TASK_DEFINITION'` (`followup/src/handler.ts:126-138`). (observed)
-- [x] **DISCORD-RUN-003**: When the followup Lambda starts a game server via `RunTask` for a Discord `/server-start`, the resulting ECS task shall carry a `Game` tag equal to the game's id, inherited from its task definition through `propagateTags` (`followup/src/handler.ts:136`). (OpenSpec: cost-visibility / Launching a game server from the Discord `/start` command)
+- [x] **DISCORD-RUN-003**: When the followup Lambda starts a game server via `RunTask` for a Discord `/server-start`, the resulting ECS task shall carry a `Game` tag equal to the game's id, inherited from its task definition through `propagateTags` (`followup/src/handler.ts:136`).
 - [x] **DISCORD-RUN-004**: If a task for the requested game is already running when the followup Lambda handles `start`, then it shall reply that the game is already running and issue no `RunTask` (`followup/src/handler.ts:123-124`). (observed)
 - [x] **DISCORD-RUN-005**: If `RunTask` returns no task ARN, then the followup Lambda shall reply with the first ECS failure reason, or "unknown" (`followup/src/handler.ts:139-143`). (observed)
 - [x] **DISCORD-RUN-006**: When the followup Lambda handles a permitted `stop` job, it shall `StopTask` the game's running task with reason "Stopped via Discord", or reply that the game is not running if none is found (`followup/src/handler.ts:150-162`). (observed)
@@ -75,8 +75,8 @@ EARS requirements for prefix `DISCORD`, the Discord Bot leaf described in `docs/
 - [x] **DISCORD-MSG-001**: When rendering a game's status for Discord, `formatGameStatus` shall emit one status line with a state emoji, the bold game name and the state, followed for a running game with a connect-message template by the rendered template on a second line (`formatStatus.ts:43-55`). (observed)
 - [x] **DISCORD-MSG-002**: When rendering a connect-message template, `renderConnectMessage` shall substitute `{host}`, `{ip}`, `{port}` and `{game}`, rendering absent values as empty (`formatStatus.ts:16-31`). (observed)
 - [x] **DISCORD-MSG-003**: When the followup Lambda replies to a successful `/server-start` for a game with a connect-message template, it shall append the template rendered with the `{game}.{domain}` host and a blank `{ip}`, since no public IP exists yet (`followup/src/handler.ts:201-209`). (observed)
-- [x] **DISCORD-MSG-004**: When the Discord `GAME_PORTS` mapping is built for a non-HTTPS game, it shall use the first non-`icmp` port, preferring a public-visibility one, so that an `icmp` entry listed first is never presented as the connect port (`infra/src/lambdas.ts:307-322`). (OpenSpec: game-port-visibility / Connect-port surfaces exclude ICMP entries / ICMP entry listed first)
-- [x] **DISCORD-MSG-005**: When a Discord connect message is rendered for an HTTPS game, it shall present the `https://{game}.{hosted_zone_name}` URL form (port 443) and never `webPort` or an additional port (`infra/src/lambdas.ts:310-313`, `formatStatus.ts:20-25`, `:57`). (OpenSpec: game-port-visibility / Connect-port surfaces exclude ICMP entries / HTTPS game connect message)
+- [x] **DISCORD-MSG-004**: When the Discord `GAME_PORTS` mapping is built for a non-HTTPS game, it shall use the first non-`icmp` port, preferring a public-visibility one, so that an `icmp` entry listed first is never presented as the connect port (`infra/src/lambdas.ts:307-322`).
+- [x] **DISCORD-MSG-005**: When a Discord connect message is rendered for an HTTPS game, it shall present the `https://{game}.{hosted_zone_name}` URL form (port 443) and never `webPort` or an additional port (`infra/src/lambdas.ts:310-313`, `formatStatus.ts:20-25`, `:57`).
 - [x] **DISCORD-MSG-006**: The followup Lambda and the update-dns Lambda shall render Discord status and connect messages through the same `@hyveon/shared` `formatStatus.ts` functions (`followup/src/handler.ts:178`, `:184`, `:207`). (observed)
 
 ## Configuration model
@@ -85,7 +85,7 @@ EARS requirements for prefix `DISCORD`, the Discord Bot leaf described in `docs/
 - [x] **DISCORD-CFG-002**: The infra-seeded base Discord configuration (`allowedGuilds`, `admins` from `baseAllowedGuilds`/`baseAdminUserIds`/`baseAdminRoleIds`) shall live in the `BASE#discord` row, which the desktop app only reads (`configStore.ts:7-11`, `escapes.ts:13-15`). (observed; `docs/docs/app/discord.md` Base config guilds)
 - [x] **DISCORD-CFG-003**: When either Lambda reads the effective Discord config, `getEffectiveDiscordConfig` shall return the set-union of base and dynamic `allowedGuilds`, admin user IDs and admin role IDs, and take `clientId` and `gamePermissions` from the dynamic row only (`configStore.ts:105-122`). (observed)
 - [x] **DISCORD-CFG-004**: When reading a Discord config row, the config store shall use consistent reads and drop non-string entries and prototype-unsafe game keys, so that a hand-edited item cannot crash a Lambda (`configStore.ts:28-67`, `sanitize.ts:11`, `:26`). (observed)
-- [x] **DISCORD-CFG-005**: The Discord bot token and public key shall be stored only in Secrets Manager, written by the desktop app directly, never as infrastructure inputs or stack state (`DiscordConfigService.ts:303-307`). (OpenSpec: pulumi-infra-program / No secret material enters the stack / Real credentials never enter state, consumer side)
+- [x] **DISCORD-CFG-005**: The Discord bot token and public key shall be stored only in Secrets Manager, written by the desktop app directly, never as infrastructure inputs or stack state (`DiscordConfigService.ts:303-307`).
 - [x] **DISCORD-CFG-006**: The Discord Lambdas shall read only the public-key secret; the bot token shall be used solely by the desktop command registrar (`interactions/src/handler.ts:275-276`, `DiscordCommandRegistrar.ts:80`). (observed)
 
 ## Desktop configuration service
@@ -129,7 +129,3 @@ EARS requirements for prefix `DISCORD`, the Discord Bot leaf described in `docs/
 - [ ] **DISCORD-UI-008**: If the Discord configuration cannot load because the infrastructure is not deployed, then the Discord page shall show the "not deployed yet" state, and other load failures shall be reported distinctly. (observed; `docs/docs/app/discord.md:375-381`; arrow Should Fix 7) (gap: `DiscordConfigService.ts:125-134` degrades a missing table to an empty config, and `discord.page.tsx:39-50` labels every load error "not deployed")
 - [ ] **DISCORD-UI-009**: When the operator saves credentials, the Discord page shall clear the secret inputs only after the save succeeds. (observed; arrow Should Fix 7) (gap: `credentials-section.component.tsx:47-52` clears immediately after calling `onSave`)
 - [ ] **DISCORD-UI-010**: When the operator copies the interactions endpoint URL, the Discord page shall show "Copied" only after the clipboard write succeeds. (observed; arrow finding 10) (gap: `credentials-section.component.tsx:56-59` fires and forgets the write)
-
-## Dropped from OpenSpec
-
-None. No OpenSpec capability is carried by this leaf, and every Discord fragment translated above from `cost-visibility`, `game-port-visibility` and `pulumi-infra-program` still describes current behaviour. The infra-side scenarios of `pulumi-infra-program / No secret material enters the stack` (placeholder creation, create-only secret versions, no-diff previews, the preservation test) stay with `iac/program`.

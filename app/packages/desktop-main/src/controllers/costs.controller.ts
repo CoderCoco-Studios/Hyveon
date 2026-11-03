@@ -10,7 +10,7 @@ import { logger } from '../logger.js';
  * Cost endpoints for the Electron main-process host. Every handler is bound to
  * an IPC channel via `@MessagePattern`. It delegates to the {@link ConfigService}, {@link CostService}, and
  * {@link EcsService} providers. The app makes no AWS Cost Explorer API
- * calls — see `openspec/changes/remove-cost-explorer-calls`.
+ * calls.
  */
 @Controller()
 export class CostsController {

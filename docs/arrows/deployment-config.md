@@ -57,15 +57,6 @@ The S3-only, etag-guarded read/write path is solid and well tested; drift detect
 - `app/packages/web/src/components/snowflake-chips-input.component.tsx` (`discord-bot`): the base allowlist inputs in the settings form.
 - `app/packages/web/src/pages/settings.page.tsx` (`operator-app/desktop-shell`), `pages/dashboard.page.tsx` and `pages/games.page.tsx`: hosts of the settings form and the pending-changes banner.
 
-### OpenSpec sources
-- No capability of its own; EARS will be authored from code.
-- `pulumi-infra-program` capability (cited): "Typed game-server configuration model" and "Configuration persisted as versioned JSON".
-- `iac-rollback` capability (cited): "Complete remote file version listing" and the restore half of "Rollback restores the version and queues a tagged plan".
-- Active changes touching this leaf (state from final-clustering §7):
-  - `https-explicit-web-port`: shipped (15/15); this leaf carries the read-time normaliser call.
-  - `add-user-initiated-update-install`: shipped (11/11); its channels live in `iac-settings.controller.ts`.
-  - `add-vpc-flow-logs`: not started; proposes a new top-level toggle in `DeploymentConfig`.
-
 ## Architecture
 
 **Purpose:** Own `deployment-config.json` in the operator's versioned S3 configuration bucket as the single source of truth for what should be deployed, expose it as a cached game list, a raw document, and a top-level settings form, and report how it differs from what the last apply recorded.
@@ -82,13 +73,6 @@ The S3-only, etag-guarded read/write path is solid and well tested; drift detect
 9. `PendingChangesBanner` (`web/src/components/pending-changes-banner.component.tsx:81`): polls `drift.get` every 30 s on the dashboard and games pages, with a sessionStorage dismissal keyed to the report signature.
 
 ## Spec Coverage
-
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `pulumi-infra-program` (cited) | 2 of its requirements land here: typed game-server configuration model; configuration persisted as versioned JSON | 7 (3 + 4) | S3-only with no local fallback is implemented (`DeploymentConfigService.ts:563-574`). "Round-trips losslessly" holds for the service's own writes (`serializeConfig` `:787`); `parseConfigContents` (`:798-818`) casts without schema validation, so a lossy document is never rejected on read. |
-| `iac-rollback` (cited) | 2: complete remote file version listing; the restore half of "rollback restores the version" | 2 + 1 (byte-identical restore) | Pagination implemented (`AwsRemoteFileStore.ts:188-217`). Restore is a verbatim `putRawConfig(rawConfig)` (`DeploymentConfigService.ts:381-390`); the lock and orphaned-restore handling live in `PulumiService` (`iac/run`). |
-
-**OpenSpec summary:** No OpenSpec capability of its own. Drift detection, the settings editor, the rename guard and the read/write error contract had no OpenSpec coverage anywhere.
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
