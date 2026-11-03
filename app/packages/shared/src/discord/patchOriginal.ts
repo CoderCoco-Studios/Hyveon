@@ -1,6 +1,6 @@
 const DISCORD_API = 'https://discord.com/api/v10';
 
-// @spec DISCORD-SVC-001, DISCORD-RUN-009, DISCORD-RUN-015
+// @spec DISCORD-SVC-001, DISCORD-RUN-009, DISCORD-RUN-014, DISCORD-RUN-015
 /**
  * PATCH a deferred Discord interaction's original message with `content`.
  *
@@ -21,13 +21,17 @@ export async function patchInteractionOriginal(
   content: string,
 ): Promise<void> {
   const url = `${DISCORD_API}/webhooks/${applicationId}/${interactionToken}/messages/@original`;
-  const resp = await fetch(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    console.error('Discord PATCH failed', { status: resp.status, body });
+  try {
+    const resp = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      console.error('Discord PATCH failed', { status: resp.status, body });
+    }
+  } catch (err) {
+    console.error('Discord PATCH request failed', { error: err instanceof Error ? err.message : String(err) });
   }
 }
