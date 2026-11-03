@@ -42,11 +42,6 @@ A single scheduled Lambda with its state in an ECS task tag; tested at the handl
 - `app/packages/web/src/components/deployment-settings-form.component.tsx` (`deployment-config`): the "Watchdog tuning" editor the panel points at.
 - `app/packages/web/src/pages/settings.page.tsx` (`operator-app/desktop-shell`): hosts `WatchdogPanel`.
 
-### OpenSpec sources
-- No OpenSpec capability of its own; EARS will be authored from code.
-- Fragments: the `game-health-checks` capability (verdict-source routing, fail-active, log recoverability), `in-task-tls-termination` (no ELB paths in watchdog), `operator-documentation` (watchdog never described as touching DNS) and `desktop-only-operator-surface` (a `server_config.json` scenario that no code matches, see finding 6).
-- The pluggable health-check work touching this leaf is shipped; its primary leaf is `game-runtime/health-check`.
-
 ## Architecture
 
 **Purpose:** On a fixed EventBridge rate, look at every running game-server task, decide idle or active from exactly one verdict source, keep a consecutive-idle count in the task's own `idle_checks` tag, and `StopTask` once the count reaches `IDLE_CHECKS`. DNS cleanup is left to update-dns via the resulting `STOPPED` event.
@@ -63,14 +58,6 @@ A single scheduled Lambda with its state in an ECS task tag; tested at the handl
 9. `WatchdogPanel`: `app/packages/web/src/components/watchdog-panel.component.tsx:7-20`; static Settings card pointing at the General form's "Watchdog tuning"; no IPC, no inputs.
 
 ## Spec Coverage
-
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| (none owned) |: |: | No OpenSpec capability; EARS will be authored from code. |
-| `game-health-checks` (fragment) | 3 of 10 touch the watchdog: authoritative health check routing (`spec.md:12`), fail-active (`:152`), shutdown basis recoverable from logs (`:292`) | 30 total in capability | Owned by `game-runtime/health-check`; watchdog side implemented at `handler.ts:211-228`, `:113-144`, `:234`. |
-| `in-task-tls-termination` (fragment) | 1 of 6 (`spec.md:56`) | 1 (`:65-68`) | Holds: no ELBv2 calls or `elasticloadbalancing` grants in `handler.ts` or `iam.ts:445-457`. |
-| `operator-documentation` (fragment) | 1 (`spec.md:57`) | 1 (`:67-70`) | Watchdog issues `StopTask` only; `docs/docs/app/settings.md:250` still contradicts it (finding 7). |
-| `desktop-only-operator-surface` (fragment) | 1 (`spec.md:42`) | 1 (`:51-54`) | Stale; see finding 6. |
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|

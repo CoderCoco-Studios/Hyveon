@@ -265,18 +265,12 @@ arrows:
     drift: null
 
 # Items found during mapping that don't belong to a leaf.
-# `docs.openspec` and `docs.pages` are project extensions beyond the base
-# schema (which defines only `docs.intent`); the schema permits extensions.
+# `docs.pages` is a project extension beyond the base schema (which defines
+# only `docs.intent`); the schema permits extensions.
 unmapped:
   docs:
     intent: []
-    # OpenSpec capabilities with no owning leaf (final-clustering §1).
-    openspec:
-      - operator-documentation
-      - docs-screenshot-capture
-      - node-toolchain-version
-    # final-clustering §2 "Unassigned" leaves all of docs/** to
-    # operator-documentation; leaves cite these pages but none owns them.
+    # Operator documentation pages: leaves cite these but none owns them.
     pages:
       - docs/docs/intro.md
       - docs/docs/install.md

@@ -47,14 +47,6 @@ The run lifecycle works end to end through the IaC page and history, but `partia
 - `app/packages/desktop-main/src/services/AuditService.ts` (`operator-app/diagnostics`): audit entries written by `iac.controller.ts`.
 - `app/packages/web/e2e/fixtures/ipc-harness.ts` (shared test harness): the integration seam the `orchestrator-integration-coverage` specs run through.
 
-### OpenSpec sources
-- `iac-plan-apply-page` (synced)
-- `iac-destroy-flow` (synced)
-- `iac-run-history` (synced)
-- `iac-rollback` (synced; gates only, the restore half is cited from `deployment-config`)
-- `orchestrator-integration-coverage` (synced)
-- Active changes: none mapped to this leaf in `final-clustering.md` §7.
-
 ## Architecture
 
 **Purpose:** Turn every Pulumi plan, apply, destroy and rollback into a tracked run: guard submissions with a single apply lock, gate apply behind approval and a plan hash, persist a record (with log) to the runs table, and give the operator the IaC page, run history and run detail to drive and inspect them.
@@ -72,16 +64,6 @@ The run lifecycle works end to end through the IaC page and history, but `partia
 10. History and detail (`web/src/pages/iac-history.page.tsx:36`, `iac-run-detail.page.tsx:179`, `hooks/use-run-history.hook.ts:26`): paged list with server-side status filter and client-side kind filter, read-only detail with log ladder (replay → `logInline` → presigned S3 `fetch`), two-step rollback (`rollback-action.component.tsx:58`). Routes at `web/src/app.component.tsx:103-105`.
 
 ## Spec Coverage
-
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `iac-plan-apply-page` | 8 | 21 | Partial-apply scenario holds on the live page only (record read locally); history loses it (finding 1). Gate order and atomic lock live in `PulumiService` (`iac/engine`). |
-| `iac-destroy-flow` | 4 | 12 | Token mint/consume implemented in `PulumiService`, not via `LockClearConfirmationGate` (finding 6). |
-| `iac-run-history` | 5 | 14 | Status filter server-side, kind filter client-side; partial badge in history never renders (finding 1). |
-| `iac-rollback` | 5 | 10 | Gates side only here; restore + version listing cited from `deployment-config`. Confirm ack waits for the whole tagged plan (finding 8). |
-| `orchestrator-integration-coverage` | 7 | 27 | Integration specs replace `PulumiService` wholesale, so gate logic is unit-tested, not integration-tested (finding 10). |
-
-**OpenSpec summary:** 29 requirements / 84 scenarios carried across 5 OpenSpec capabilities.
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|

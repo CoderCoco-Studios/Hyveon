@@ -18,7 +18,7 @@ It is the same component regardless of what the infrastructure program declares.
 
 The CLAUDE.md invariants that live here: there is no CLI-based IaC step and no host-installed `pulumi` binary, because the app provisions its own pinned engine (`PulumiEngineService.ts:308`); `electronRuntime.ts` gates every Electron import on `process.versions.electron` so the plain-Node integration harness can construct the same services (`electronRuntime.ts:17-61`); and every engine-calling method normalises errors to `.message` before logging, which this leaf mostly but not fully honours (Deferred 7, 8).
 
-The capability this leaf carries is the former OpenSpec `pulumi-engine-runtime` (7 requirements, 32 scenarios; named by the provenance tags in the specs file). Most scenarios match code; the exceptions are called out in place below.
+Most of the engine runtime's behaviour matches code; the exceptions are called out in place below.
 
 ## Engine Provisioning
 
@@ -140,7 +140,7 @@ AWS-mandated global placements are outside the rule: the program's `us-east-1` p
 
 ### Resolved
 
-1. Passphrase is derived per AWS account and stack, not stored per machine (Decisions & Alternatives: Passphrase source, Legacy migration). The former `pulumi-infra-program` OpenSpec capability called the secrets provider "machine-bound and has no recovery path"; that wording contradicts this decision and is not repeated in any LID text.
+1. Passphrase is derived per AWS account and stack, not stored per machine (Decisions & Alternatives: Passphrase source, Legacy migration).
 2. `PulumiService.ts` splits along the run/engine seam as its own pure-refactor change (Decisions & Alternatives, "File layout"; `iac-design.md`, decision 10).
 3. The state bucket's region is the wizard region: bootstrap creates the bucket in `aws.region`, and an install has one region, so the backend URL keeps using `aws.region` and the store records no separate bucket region (`IAC-ENGINE-WS-010`; Install Region; `docs/high-level-design.md`, decision 10).
 
@@ -150,8 +150,8 @@ AWS-mandated global placements are outside the rule: the program's `us-east-1` p
 2. Should the app abort in-flight engine calls on quit (a `before-quit` handler or Nest shutdown hook), or should the spec scenario "App quits with an operation in flight" be amended? Does Electron currently exit cleanly with a live `pulumi` child? [unverified] (`electron-entry.ts:251`)
 3. Should `initializeStack` accept an `AbortSignal` and run `refresh()` through the cancellation, leaked-promise and lock-classification wrappers? (`PulumiService.ts:1113,1168`)
 4. Should `PulumiOperationEscalatedError` and its log line say "abandoned" instead of "forcefully terminated", or should escalation actually kill the child via `onEscalate`? (`PulumiCancellation.ts:118-119,232`)
-5. None. The "machine-bound" passphrase wording lived only in the former `pulumi-infra-program` OpenSpec capability; `iac/engine` owns the passphrase decision and no arrow text needs correcting.
-6. Is there to be an operator cancel channel for running plan/apply/destroy? The controller maps anticipate `iac.*.cancel` but none is registered, so `pulumi-engine-runtime`'s "Operation is cancelled" scenario is reachable only by closing the window (`iac.controller.ts:532-549,740`).
+5. None. `iac/engine` owns the passphrase decision.
+6. Is there to be an operator cancel channel for running plan/apply/destroy? The controller maps anticipate `iac.*.cancel` but none is registered, so the "operation is cancelled" behaviour is reachable only by closing the window (`iac.controller.ts:532-549,740`).
 7. Should `getStackOutputs` stop logging the raw `err` object, per `.claude/rules/logging.md`? (`PulumiService.ts:1006-1008`)
 8. Should `PulumiEngineService` normalise its raw-`err` logs, which serialise to `{}` through this logger per `PulumiLeakedPromise.ts:205-210`? (`PulumiEngineService.ts:253,446,453,618,528-532,572-576`)
 9. Should orphaned `.staging-`/`.trash-` engine directories be pruned? (`PulumiEngineService.ts:622`)
@@ -171,6 +171,5 @@ AWS-mandated global placements are outside the rule: the program's `us-east-1` p
 
 - Arrow doc: `docs/arrows/iac/engine.md`
 - EARS specs: `docs/intent/iac/engine/engine-specs.md`
-- Former OpenSpec capabilities (named by provenance tags): `pulumi-engine-runtime` (carried); `wizard-flow` (stack-init step and engine-version row, owned by `wizard-and-bootstrap`)
 - Docs pages: `docs/docs/architecture.md`, `docs/docs/components/infra.md`, `docs/docs/components/management-app.md`, `docs/docs/app/settings.md`
 - Neighbouring leaf designs: `docs/intent/iac/run/run-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-design.md`, `docs/intent/deployment-config/deployment-config-design.md`

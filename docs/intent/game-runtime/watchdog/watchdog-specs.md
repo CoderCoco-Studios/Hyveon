@@ -22,9 +22,9 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 
 ## Verdict source routing
 
-- [x] **RT-WATCHDOG-ROUTE-001**: When the watchdog evaluates a running task of a game that has an entry in `HEALTH_CHECKS`, it shall take the idle verdict from the health-check Lambda and shall not query CloudWatch for that task. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
-- [x] **RT-WATCHDOG-ROUTE-002**: When the watchdog evaluates a running task of a game that has no entry in `HEALTH_CHECKS`, it shall take the idle verdict from the CloudWatch traffic measurement and shall not invoke the health-check Lambda for that task. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
-- [x] **RT-WATCHDOG-ROUTE-003**: The watchdog shall apply exactly one verdict source to each evaluated game-server task per run, never a combination of the health check and the traffic measurement. (OpenSpec: game-health-checks / A game may declare an authoritative health check)
+- [x] **RT-WATCHDOG-ROUTE-001**: When the watchdog evaluates a running task of a game that has an entry in `HEALTH_CHECKS`, it shall take the idle verdict from the health-check Lambda and shall not query CloudWatch for that task.
+- [x] **RT-WATCHDOG-ROUTE-002**: When the watchdog evaluates a running task of a game that has no entry in `HEALTH_CHECKS`, it shall take the idle verdict from the CloudWatch traffic measurement and shall not invoke the health-check Lambda for that task.
+- [x] **RT-WATCHDOG-ROUTE-003**: The watchdog shall apply exactly one verdict source to each evaluated game-server task per run, never a combination of the health check and the traffic measurement.
 - [x] **RT-WATCHDOG-ROUTE-004**: The infra program shall build the watchdog's `HEALTH_CHECKS` env var as a JSON object mapping each game name, in sorted key order, to its full declared `healthCheck`, omitting every game with no declared health check. (observed)
 
 ## CloudWatch traffic verdict
@@ -40,8 +40,8 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 
 - [x] **RT-WATCHDOG-HC-001**: When the watchdog evaluates a task of a game with a declared health check, it shall invoke `HEALTH_CHECK_FUNCTION_NAME` synchronously (`RequestResponse`) with the payload `{ game, taskArn, healthCheck }`, forwarding the declaration verbatim. (observed)
 - [x] **RT-WATCHDOG-HC-002**: When the health-check Lambda returns a well-formed verdict to the watchdog, the watchdog shall treat the task as idle for that window exactly when the verdict's `active` is `false`. (observed)
-- [x] **RT-WATCHDOG-HC-003**: If a game declares a health check but `HEALTH_CHECK_FUNCTION_NAME` is empty or unset, then the watchdog shall treat that game's task as active with a failure-derived reason, without attempting an invoke. (OpenSpec: game-health-checks / A failed check reports the server as active)
-- [x] **RT-WATCHDOG-HC-004**: If the watchdog's health-check invoke throws, returns a `FunctionError`, returns an unparseable payload, or returns a payload without a boolean `active` and a string `reason`, then the watchdog shall treat the task as active with a failure-derived reason naming the failure. (OpenSpec: game-health-checks / A failed check reports the server as active)
+- [x] **RT-WATCHDOG-HC-003**: If a game declares a health check but `HEALTH_CHECK_FUNCTION_NAME` is empty or unset, then the watchdog shall treat that game's task as active with a failure-derived reason, without attempting an invoke.
+- [x] **RT-WATCHDOG-HC-004**: If the watchdog's health-check invoke throws, returns a `FunctionError`, returns an unparseable payload, or returns a payload without a boolean `active` and a string `reason`, then the watchdog shall treat the task as active with a failure-derived reason naming the failure.
 - [x] **RT-WATCHDOG-HC-005**: The watchdog shall never resolve a health check's `auth.secretArn` itself; secret resolution is left to the health-check Lambda. (observed)
 - [ ] **RT-WATCHDOG-HC-006**: While a watchdog run is evaluating several games with declared health checks, the watchdog shall bound the total time spent on health-check invokes so that slow or hung checks cannot exhaust the watchdog's 60 s timeout before every remaining task is evaluated. (observed) (gap: `handler.ts:203-255` invokes sequentially with `RequestResponse`; the health-check function's 30 s timeout at `app/packages/infra/src/lambdas.ts:547` allows two hung checks to exceed the watchdog's 60 s at `lambdas.ts:568`)
 
@@ -53,22 +53,22 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 - [x] **RT-WATCHDOG-STATE-004**: When a game-server task is active for the current window and its idle count is greater than 0, the watchdog shall reset the task's `idle_checks` tag to 0. (observed)
 - [x] **RT-WATCHDOG-STATE-005**: When a game-server task is active for the current window and its idle count is already 0, the watchdog shall not write the `idle_checks` tag. (observed)
 - [x] **RT-WATCHDOG-STATE-006**: If writing a game-server task's `idle_checks` tag fails, then the watchdog shall log a warning and continue evaluating the remaining tasks in that run. (observed)
-- [x] **RT-WATCHDOG-STATE-007**: When a game-server task's failure-derived health-check verdict is reported as active, the watchdog shall not increment that task's idle count. (OpenSpec: game-health-checks / A failed check reports the server as active)
+- [x] **RT-WATCHDOG-STATE-007**: When a game-server task's failure-derived health-check verdict is reported as active, the watchdog shall not increment that task's idle count.
 
 ## Shutdown
 
 - [x] **RT-WATCHDOG-STOP-001**: When a game-server task is idle for the current window and its incremented idle count reaches or exceeds `IDLE_CHECKS`, the watchdog shall call `StopTask` on that task in `ECS_CLUSTER` with reason `Watchdog: idle for {count * CHECK_WINDOW_MINUTES} minutes`, and shall not write the `idle_checks` tag for that window. (observed)
 - [x] **RT-WATCHDOG-STOP-002**: The watchdog shall not create, update or delete any Route 53 record; DNS removal for a watchdog-stopped task is left to update-dns reacting to the resulting `STOPPED` task-state event. (observed)
-- [x] **RT-WATCHDOG-STOP-003**: The watchdog Lambda source shall contain no load-balancer target-registration path, no ELBv2 API call, and no `ALB_TARGET_GROUPS` or `HTTPS_GAMES` configuration. (OpenSpec: in-task-tls-termination / HTTPS games use the Lambda-managed DNS lifecycle)
+- [x] **RT-WATCHDOG-STOP-003**: The watchdog Lambda source shall contain no load-balancer target-registration path, no ELBv2 API call, and no `ALB_TARGET_GROUPS` or `HTTPS_GAMES` configuration.
 - [x] **RT-WATCHDOG-STOP-004**: If `StopTask` fails for one game-server task, then the watchdog shall log the failure and continue evaluating the remaining tasks in that run. (observed)
 
 ## Logging
 
-- [x] **RT-WATCHDOG-LOG-001**: When a game-server task is idle for the current window, the watchdog shall log the game, the incremented idle count against `IDLE_CHECKS`, and the verdict detail (the health-check reason, or `rxBytesPerSecond=N, threshold=MIN_BYTES_PER_SECOND`). (OpenSpec: game-health-checks / The basis for a shutdown decision is recoverable from the logs)
-- [x] **RT-WATCHDOG-LOG-002**: When the watchdog resets a game-server task's idle count after an active window, it shall log the game and the verdict detail that caused the reset. (OpenSpec: game-health-checks / The basis for a shutdown decision is recoverable from the logs)
-- [x] **RT-WATCHDOG-LOG-003**: When the watchdog stops a game-server task, it shall log the game, the idle count and the computed idle minutes before calling `StopTask`. (OpenSpec: game-health-checks / The basis for a shutdown decision is recoverable from the logs)
-- [x] **RT-WATCHDOG-LOG-004**: When a health-check verdict received by the watchdog is failure-derived, the watchdog shall log it at warn level with the game and the failure reason. (OpenSpec: game-health-checks / The basis for a shutdown decision is recoverable from the logs)
-- [x] **RT-WATCHDOG-LOG-005**: The watchdog's health-check log lines shall carry only the game name and the verdict reason, never the health-check declaration, credential values, or game-response bodies. (OpenSpec: game-health-checks / The basis for a shutdown decision is recoverable from the logs)
+- [x] **RT-WATCHDOG-LOG-001**: When a game-server task is idle for the current window, the watchdog shall log the game, the incremented idle count against `IDLE_CHECKS`, and the verdict detail (the health-check reason, or `rxBytesPerSecond=N, threshold=MIN_BYTES_PER_SECOND`).
+- [x] **RT-WATCHDOG-LOG-002**: When the watchdog resets a game-server task's idle count after an active window, it shall log the game and the verdict detail that caused the reset.
+- [x] **RT-WATCHDOG-LOG-003**: When the watchdog stops a game-server task, it shall log the game, the idle count and the computed idle minutes before calling `StopTask`.
+- [x] **RT-WATCHDOG-LOG-004**: When a health-check verdict received by the watchdog is failure-derived, the watchdog shall log it at warn level with the game and the failure reason.
+- [x] **RT-WATCHDOG-LOG-005**: The watchdog's health-check log lines shall carry only the game name and the verdict reason, never the health-check declaration, credential values, or game-response bodies.
 
 ## Configuration
 
@@ -84,7 +84,7 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 
 - [x] **RT-WATCHDOG-IAM-001**: The watchdog Lambda's policy shall grant log writes, `ecs:ListTasks`, `ecs:DescribeTasks`, `ecs:StopTask`, `ecs:TagResource`, `ecs:ListTagsForResource` and `cloudwatch:GetMetricStatistics`. (observed)
 - [x] **RT-WATCHDOG-IAM-002**: Where at least one game declares a health check, the watchdog Lambda's policy shall grant `lambda:InvokeFunction` on the health-check function's ARN only; otherwise it shall grant no `lambda:InvokeFunction`. (observed)
-- [x] **RT-WATCHDOG-IAM-003**: The watchdog Lambda's policy shall contain no `secretsmanager`, `route53` or `elasticloadbalancing` actions. (OpenSpec: in-task-tls-termination / HTTPS games use the Lambda-managed DNS lifecycle)
+- [x] **RT-WATCHDOG-IAM-003**: The watchdog Lambda's policy shall contain no `secretsmanager`, `route53` or `elasticloadbalancing` actions.
 
 ## Settings panel
 
@@ -92,10 +92,6 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 
 ## Documentation
 
-- [x] **RT-WATCHDOG-DOC-001**: `docs/docs/guides/user.md` and `docs/diagrams/control-loops.d2` shall describe the watchdog as issuing `StopTask` only, with update-dns removing the DNS record on the resulting `STOPPED` event. (OpenSpec: operator-documentation / Documentation contains no references to removed infrastructure)
-- [ ] **RT-WATCHDOG-DOC-002**: No page under `docs/docs/**` shall describe the watchdog as writing or deleting DNS records. (OpenSpec: operator-documentation / Documentation contains no references to removed infrastructure) (gap: `docs/docs/app/settings.md:250` says DNS TTL applies to "records the watchdog Lambda writes")
+- [x] **RT-WATCHDOG-DOC-001**: `docs/docs/guides/user.md` and `docs/diagrams/control-loops.d2` shall describe the watchdog as issuing `StopTask` only, with update-dns removing the DNS record on the resulting `STOPPED` event.
+- [ ] **RT-WATCHDOG-DOC-002**: No page under `docs/docs/**` shall describe the watchdog as writing or deleting DNS records. (gap: `docs/docs/app/settings.md:250` says DNS TTL applies to "records the watchdog Lambda writes")
 - [x] **RT-WATCHDOG-DOC-003**: `docs/docs/guides/user.md`'s watchdog section shall describe both verdict sources, the health-check route and the Container Insights traffic route. (observed)
-
-## Dropped from OpenSpec
-
-- `desktop-only-operator-surface` / "ConfigService carries no API-token plumbing", scenario "Watchdog tunables still persist": dropped because `ConfigService` holds no watchdog tunables and there is no `ConfigController`; tunables live in `deployment-config.json` (`app/packages/shared/src/deploymentConfig.ts:240-242`) and are covered by RT-WATCHDOG-CFG-005/006.
