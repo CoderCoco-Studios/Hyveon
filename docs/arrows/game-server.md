@@ -5,7 +5,7 @@ What one game *is*: its declared shape (image, size, ports, HTTPS, environment, 
 ## Status
 
 **MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
-Shared model and validator are mature and heavily tested; the write path has a secret-before-config ordering hazard, and three of the five OpenSpec sources carried here have sync debt (one change unsynced, one main spec missing a delta constraint, one main spec hand-merged).
+Shared model and validator are mature and heavily tested; the write path has a secret-before-config ordering hazard.
 
 ## References
 
@@ -87,16 +87,9 @@ Shared model and validator are mature and heavily tested; the write path has a s
 - `helper-task`: `app/packages/desktop-main/src/services/volumeFiles/HelperSessionRegistry.ts` (`hasUploadHolders`, read by this leaf's `games.start` guard), `app/packages/web/src/pages/volume-files.page.tsx` (the `/games/:name/files` file browser the detail page links to).
 
 ### OpenSpec sources
-- `openspec/specs/game-environment-variables/spec.md`: 3 requirements, 13 scenarios.
-- `openspec/specs/game-https-configuration/spec.md`: 7 requirements, 27 scenarios.
-- `openspec/specs/game-port-visibility/spec.md`: 9 requirements, 23 scenarios.
-- `openspec/specs/game-resource-picker/spec.md`: 2 requirements, 5 scenarios.
-- `openspec/specs/env-token-interpolation/spec.md`: 6 requirements, 13 scenarios.
-- `openspec/specs/game-draft-persistence/spec.md`: 6 requirements, 11 scenarios.
-- Active `openspec/changes/add-pinned-hostname/` (delta `game-hostname-pinning`: 5 requirements, 22 scenarios): shipped (#692), **not synced** (no main spec exists), unarchived, 20/22 tasks (2 manual).
-- Active `openspec/changes/https-explicit-web-port/`: shipped (#688/#689/#691) and synced, unarchived, 15/15; main spec is missing constraint 5 (see finding 1).
-- Active `openspec/changes/add-icmp-ingress/`: shipped and synced, unarchived, 16/16; main `game-port-visibility` is a hand-merge, so archive must skip spec application.
-- Touching this leaf, owned elsewhere: `add-healthcheck-auth-type` (validator and wizard fields; owner `game-runtime/health-check`), `embed-file-browser` (detail-page Files link and upload start guard; owner `helper-task`; shipped, synced into `game-volume-file-browser`, archived as `openspec/changes/archive/2026-10-30-embed-file-browser/`).
+- Capabilities carried (as EARS provenance tags): `game-environment-variables` (3 requirements), `game-https-configuration` (7), `game-port-visibility` (9), `game-resource-picker` (2), `env-token-interpolation` (6), `game-draft-persistence` (6).
+- Shipped work carried: pinned hostname (#692, 2 manual verification tasks outstanding), explicit HTTPS `webPort` (#688/#689/#691), ICMP ingress (#599).
+- Touching this leaf, owned elsewhere: the health-check auth type (validator and wizard fields; owner `game-runtime/health-check`) and the embedded file browser (detail-page Files link and upload start guard; owner `helper-task`).
 
 ## Architecture
 
@@ -120,14 +113,14 @@ Shared model and validator are mature and heavily tested; the write path has a s
 | OpenSpec capability | requirements | scenarios | notes |
 |---|---|---|---|
 | game-environment-variables | 3 | 13 | Env step, edit form, validator. |
-| game-https-configuration | 7 | 27 | Main lacks cross-game `webPort` constraint 5 that the code enforces. |
-| game-port-visibility | 9 | 23 | Hand-merged icmp/https deltas; file has no title line. Infra half (`securityGroups.ts`) owned by `iac/program`. |
+| game-https-configuration | 7 | 27 | Cross-game `webPort` constraint 5 is enforced in code and carried by `GAME-HTTPS-009` / `GAME-HTTPS-010`. |
+| game-port-visibility | 9 | 23 | Includes the ICMP and HTTPS-extra-port requirements. Infra half (`securityGroups.ts`) owned by `iac/program`. |
 | game-resource-picker | 2 | 5 | Resources step, Fargate tiers in validator. |
 | env-token-interpolation | 6 | 13 | Purpose still "TBD". Substitution half in `app/packages/infra/src/ecs.ts` (`iac/program`). |
 | game-draft-persistence | 6 | 11 | Autosave hook, `GameWizardDraftService`, resume banner. |
-| game-hostname-pinning (pending, `add-pinned-hostname`) | 5 | 22 | Delta only; no main spec. |
+| game-hostname-pinning (shipped, `add-pinned-hostname`) | 5 | 22 | Carried by `GAME-HOST-*`. |
 
-**OpenSpec summary:** 33 main requirements / 92 scenarios across 6 capabilities, plus 5 / 22 pending in an unsynced change.
+**Legacy requirement summary:** 33 requirements / 92 scenarios across 6 capabilities, plus 5 / 22 for pinned hostname.
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
@@ -148,8 +141,8 @@ Shared model and validator are mature and heavily tested; the write path has a s
 
 ## Key Findings
 
-1. **Main spec is missing a constraint the code enforces**: the `https-explicit-web-port` delta adds constraint 5 (no game's `tcp` port may equal another game's `webPort`) and a scenario to "An HTTPS-enabled game must satisfy the Caddy sidecar's port constraints" (`openspec/changes/https-explicit-web-port/specs/game-https-configuration/spec.md:53-101`); main `openspec/specs/game-https-configuration/spec.md:38-80` stops at constraint 4. Code enforces it in `gameServerValidator.ts:829-862` and rechecks raw reads in `gameServerPorts.ts:118-136`.
-2. **Pinned hostname shipped with no main spec**: `PINNED_HOSTNAME_PATTERN` and `HOSTNAME_SHIM_RESERVED_NAME` exist (`gameServerValidator.ts:62-72`) and `GameServer.pinnedHostname` is live, but `openspec/specs/game-hostname-pinning/` does not exist; only the `add-pinned-hostname` delta describes it.
+1. **Constraint 5 is enforced in code and carried in LID**: no game's `tcp` port may equal another game's `webPort`, and the same applies in reverse. Code enforces it in `gameServerValidator.ts:829-862` and rechecks raw reads in `gameServerPorts.ts:118-136`; `GAME-HTTPS-009` and `GAME-HTTPS-010` carry it. The design assumption that `checkPortCollisions` covers `webPort` does not match the code (Deferred 9 in the design).
+2. **Pinned hostname is carried in LID**: `PINNED_HOSTNAME_PATTERN` and `HOSTNAME_SHIM_RESERVED_NAME` exist (`gameServerValidator.ts:62-72`) and `GameServer.pinnedHostname` is live; `GAME-HOST-*` carries the behaviour.
 3. **Health-check secret is written before the config, so a lost write leaves it mutated**: `createGame` upserts the secret at `GamesWriteService.ts:148` before `addGameServer` at `:157`; `updateGame` upserts at `:221` before `updateGameServer` at `:231`. An `OptimisticLockError` or not-found on the config write returns a modeled error with the secret already changed. An upsert failure is rethrown as a plain `Error` (`:514-525`) instead of a `GameWriteResult`.
 4. **All `GameServerEntryError` reasons collapse to `not_found` on update**: `GamesWriteService.ts:236-238` maps any `GameServerEntryError` to `not_found`, whereas create distinguishes `invalid-name`/`duplicate-name` as validation (`:162-164`).
 5. **Raw error object logged on the generic failure path**: `errorResult` logs `{ err }` (`GamesWriteService.ts:383`) rather than the normalised message required by `.claude/rules/logging.md`.
@@ -170,7 +163,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-server/game-server
 
 ### Must Fix
 1. Order the health-check secret write after a successful config write, or roll it back on conflict/not-found, and return upsert failures as a `GameWriteResult` (finding 3). (specs: `GAME-WRITE-004`, `GAME-WRITE-005`)
-2. Sync `add-pinned-hostname` into a `game-hostname-pinning` main spec and add constraint 5 to main `game-https-configuration` (findings 1, 2).
+2. Decide which release removes the `@deprecated` `normalizeGameServer` compatibility and whether `pinnedHostname` joins the drift field set (findings 1, 2; design Deferred 7 and 8).
 
 ### Should Fix
 3. Validate `protocol` as `tcp|udp|icmp` for every game and make all protocol comparisons case-insensitive, or normalise on read (finding 6). (specs: `GAME-VALID-010`, `GAME-VALID-011`)

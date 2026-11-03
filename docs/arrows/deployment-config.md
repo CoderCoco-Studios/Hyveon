@@ -59,12 +59,12 @@ The S3-only, etag-guarded read/write path is solid and well tested; drift detect
 
 ### OpenSpec sources
 - No capability of its own; EARS will be authored from code.
-- `openspec/specs/pulumi-infra-program/spec.md` (cited): "Typed game-server configuration model" and "Configuration persisted as versioned JSON".
-- `openspec/specs/iac-rollback/spec.md` (cited): "Complete remote file version listing" and the restore half of "Rollback restores the version and queues a tagged plan".
+- `pulumi-infra-program` capability (cited): "Typed game-server configuration model" and "Configuration persisted as versioned JSON".
+- `iac-rollback` capability (cited): "Complete remote file version listing" and the restore half of "Rollback restores the version and queues a tagged plan".
 - Active changes touching this leaf (state from final-clustering §7):
-  - `https-explicit-web-port`: shipped and synced, unarchived (15/15); this leaf carries the read-time normaliser call.
-  - `add-user-initiated-update-install`: shipped, **not synced**, unarchived (11/11); its channels live in `iac-settings.controller.ts`.
-  - `add-vpc-flow-logs`: not started (0/22); proposes a new top-level toggle in `DeploymentConfig`.
+  - `https-explicit-web-port`: shipped (15/15); this leaf carries the read-time normaliser call.
+  - `add-user-initiated-update-install`: shipped (11/11); its channels live in `iac-settings.controller.ts`.
+  - `add-vpc-flow-logs`: not started; proposes a new top-level toggle in `DeploymentConfig`.
 
 ## Architecture
 

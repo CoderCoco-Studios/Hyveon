@@ -30,7 +30,7 @@ Two actors start tasks (the desktop app through `AwsCloudProvider`, and the Disc
 ### DNS that follows task state
 
 The update-dns Lambda, triggered by an EventBridge rule on `ECS Task State Change` for this cluster, UPSERTs `{game}.{domain}` to the task's public IP on `RUNNING` and deletes it on `STOPPED` (`task-and-dns-design.md`, "DNS Lifecycle"; `docs/docs/architecture.md`, "Control loops (DNS + watchdog)").
-Because DNS keys off the event, the same path serves every start and stop issuer and every game, HTTPS or not (`openspec/specs/in-task-tls-termination/spec.md:56-58`, cited by `task-and-dns-design.md`).
+Because DNS keys off the event, the same path serves every start and stop issuer and every game, HTTPS or not; an HTTPS game needs no load balancer registration or separate DNS step (`task-and-dns-design.md`, "DNS Lifecycle").
 
 ### Idle shutdown with exactly one verdict source per game
 
@@ -59,10 +59,10 @@ Each of these is stated as a prohibition in a grounding source and binds more th
 
 - No persistent ECS Service and no scale-to-zero controller (`CLAUDE.md`, "No persistent ECS Service").
 - No infra-program-managed per-game DNS record, and no runtime Lambda other than update-dns writing one; the watchdog never touches Route 53 (`CLAUDE.md`, "DNS records are Lambda-managed"; `docs/docs/architecture.md`, "Control loops (DNS + watchdog)").
-- No load balancer, target registration or `elasticloadbalancing` grant in the runtime Lambdas; TLS terminates in-task (`CLAUDE.md`, "TLS terminates in-task via a Caddy sidecar"; `openspec/specs/in-task-tls-termination/spec.md:56`, cited by both `task-and-dns-design.md` and `watchdog-design.md`).
+- No load balancer, target registration or `elasticloadbalancing` grant in the runtime Lambdas; TLS terminates in-task (`CLAUDE.md`, "TLS terminates in-task via a Caddy sidecar"; `task-and-dns-design.md` and `watchdog-design.md` each record how their handler honours it).
 - No DynamoDB or SSM store for watchdog state (`CLAUDE.md`, "Watchdog state lives in ECS task tags").
-- No combination of verdict sources for one game (`openspec/specs/game-health-checks/spec.md:17-20`, cited by `watchdog-design.md`).
-- No billed-cost data source; Cost Explorer is not called (`openspec/specs/cost-visibility/spec.md:10-42`, cited by `task-and-dns-design.md`).
+- No combination of verdict sources for one game (a declared check replaces the network-traffic measurement, so exactly one verdict source applies and an operator reading a log can attribute a shutdown to a single cause; `watchdog-design.md`, "Verdict Sources").
+- No billed-cost data source; Cost Explorer is not called, and cost shown to the operator is an estimate from task-definition CPU and memory and static Fargate constants (`task-and-dns-design.md`, "Cost Estimates").
 
 ## Tenets
 
@@ -162,15 +162,15 @@ A change to the watchdog tunables, `dnsTtl`, the game list or a health-check dec
 
 4. **The watchdog owns routing and the stop decision; the health-check Lambda owns only the verdict.**
    The watchdog picks exactly one verdict source per game from `HEALTH_CHECKS`, keeps the count and issues `StopTask`; the health-check Lambda resolves host and credential, makes the request and returns a verdict (`watchdog-design.md`, "Verdict Sources"; `health-check-design.md`, "It deliberately does not own").
-   Rationale `[stated]`: a separate, conditionally provisioned Lambda keeps VPC attachment, game-network egress and secret access out of the function every shutdown depends on (`openspec/changes/add-pluggable-health-checks/design.md:54-73`, cited by both leaves); a single source per game lets an operator read why a server stopped (`openspec/specs/game-health-checks/spec.md:17-20`); routing by an apply-time env map avoids giving the watchdog S3 access and avoids an unconditional network hop (`add-pluggable-health-checks/design.md:83-107`).
+   Rationale `[stated]`: a separate, conditionally provisioned Lambda keeps VPC attachment, game-network egress and secret access out of the function every shutdown depends on, and adds no ENI-attachment cold start to the watchdog's tight schedule (`health-check-design.md`, Decisions: "Where the check runs"); a single source per game lets an operator read why a server stopped; routing by an apply-time env map avoids giving the watchdog S3 access and avoids an unconditional network hop in every deployment (`health-check-design.md`, Decisions: "How the watchdog learns opt-ins").
    Alternatives rejected `[stated]`: checking inside the watchdog; one Lambda per opted-in game; the watchdog reading `deployment-config.json`; always invoking and letting the function decide; combining packets and health check.
    The watchdog never resolves `auth.secretArn` and holds no `secretsmanager` permission (`watchdog-design.md`, "Health-check invoke").
 
 5. **Fail active: an inconclusive verdict never reads as idle.**
    Every layer that can fail to reach a verdict resolves to "active": the CloudWatch path counts a missing datapoint or query error as active; the health-check engine and handler return `failureDerived: true` verdicts; the watchdog's invoke wrapper does the same for an absent function, a `FunctionError`, a throw or a malformed payload (`watchdog-design.md`, "Verdict Sources"; `health-check-design.md`, "Fail-active Layering").
-   Rationale `[stated]`: a wrongly stopped server drops players, which costs more than a server kept running (`health-check/src/engine.ts:144-151`, cited by `health-check-design.md`); a brand-new task that has not yet emitted metrics must not be stopped (`watchdog-design.md`, "CloudWatch heuristic"); fail-active sits at every layer because the most important failure, the function absent or unreachable, is one where no lower layer runs (`add-pluggable-health-checks/design.md:109-116`).
+   Rationale `[stated]`: a wrongly stopped server drops players, which costs more than a server kept running (`health-check/src/engine.ts:144-151`, cited by `health-check-design.md`); a brand-new task that has not yet emitted metrics must not be stopped (`watchdog-design.md`, "CloudWatch heuristic"); fail-active sits at every layer because the most important failure, the function absent or unreachable, is one where no lower layer runs (`health-check-design.md`, "Fail-active Layering").
    Alternatives rejected `[stated]`: fail-idle; fail-active in the engine only (`health-check-design.md`, Decisions: "Failure semantics").
-   Accepted cost `[stated]`: a persistently broken verdict source keeps a server running indefinitely, made visible by `warn`-level logs at both the health-check and watchdog layers (`add-pluggable-health-checks/design.md:146-150`; `health-check-design.md`, "Fail-active Layering").
+   Accepted cost `[stated]`: a persistently broken verdict source keeps a server running indefinitely, made visible by `warn`-level logs at both the health-check and watchdog layers; the opposite default could stop a live server with players on it (`health-check-design.md`, "Fail-active Layering").
    The one route from a misconfigured check to a conclusive idle verdict is the `exists` operator on an unresolved path (`health-check-design.md`, "Check Execution").
 
 6. **Lambda packages deploy independently.**
@@ -225,8 +225,3 @@ A change to the watchdog tunables, `dnsTtl`, the game list or a health-check dec
 - `docs/docs/architecture.md` ("Control loops (DNS + watchdog)", "The `/server-start` critical path", "Invariants")
 - `docs/docs/components/lambdas.md` (update-dns, watchdog, health-check, and the assembled `/server-start` critical path)
 - `CLAUDE.md` ("Invariants that hurt to break")
-
-### Legacy requirement and rationale sources
-
-- `openspec/specs/game-health-checks/spec.md`, `openspec/specs/cost-visibility/spec.md`, `openspec/specs/in-task-tls-termination/spec.md`
-- `openspec/changes/add-pluggable-health-checks/design.md`, `openspec/changes/add-healthcheck-auth-type/design.md`

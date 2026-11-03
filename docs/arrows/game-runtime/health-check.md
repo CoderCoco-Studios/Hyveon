@@ -49,10 +49,9 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 - `docs/docs/components/lambdas.md` (`## health-check`, lines 290-363).
 
 ### OpenSpec sources
-- `openspec/specs/game-health-checks/spec.md` (10 requirements, 30 scenarios).
-- `openspec/changes/add-healthcheck-auth-type/` (shipped + synced, unarchived; 27/27; ready for archive).
-- `openspec/changes/add-pluggable-health-checks/` (shipped + synced, unarchived; 29/29; its delta is superseded by auth-type, so archive without spec application, before auth-type).
-- `openspec/changes/add-scripted-health-checks/` (not started; 0/28; credential model written against pluggable-health-checks, needs reconciling with auth-type).
+- `game-health-checks` capability (10 requirements, 30 scenarios), carried as EARS provenance tags.
+- The pluggable health-check and auth-type work is shipped and carried in LID.
+- Scripted health checks are not started; their credential model predates the auth-type discriminator and needs reconciling with it (see Should Fix 7).
 
 ## Architecture
 
@@ -95,7 +94,7 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 ## Key Findings
 
 1. **Lambda cannot initialise: `ECS_CLUSTER` required at module load but never provided.** `handler.ts:39` calls `requireEnv('ECS_CLUSTER')` at module scope, and `requireEnv` throws on an unset var (`shared/src/env.ts:16-20`). Infra sets only `{ AWS_REGION_: awsRegion }` (`infra/src/lambdas.ts:552`), and `infra/src/lambdas.test.ts:792` pins the env to exactly `{ AWS_REGION_: 'us-east-1' }`. `docs/docs/components/lambdas.md:296` also says "`AWS_REGION_` only". The handler test masks it by setting `ECS_CLUSTER` before import (`handler.test.ts:18-20`). Every invoke therefore fails at init; the watchdog sees `FunctionError` and treats the game as active (`watchdog/src/handler.ts:131-143`), so health-checked games are never auto-stopped. Sweep-8 claim verified in code.
-2. **No AWS API reachability from the function's VPC placement.** The function sits in public subnets (`lambdas.ts:548-551`); `network.ts` provisions no NAT gateway or VPC endpoints (only `mapPublicIpOnLaunch`, `network.ts:132`), and VPC-attached Lambda ENIs never receive a public IP per AWS Lambda VPC networking behaviour. Independently, the health-check SG has no inline egress (`securityGroups.ts:296-297`) and its only egress rules are TCP to `gameServersSg` on declared ports (`securityGroups.ts:430-446`), so even with a route, `ecs:DescribeTasks` and Secrets Manager calls would be blocked. The spec (`openspec/specs/game-health-checks/spec.md:213-220`) and a test comment (`infra/src/lambdas.test.ts:794-796`) both claim no NAT or endpoint is needed; that contradicts the SG rules in the same code. Sweep-8 claim verified by reading code; not verified against a live deployment.
+2. **No AWS API reachability from the function's VPC placement.** The function sits in public subnets (`lambdas.ts:564-567`); `network.ts` provisions no NAT gateway or VPC endpoints (only `mapPublicIpOnLaunch`, `network.ts:132`), and VPC-attached Lambda ENIs never receive a public IP per AWS Lambda VPC networking behaviour. Independently, the health-check SG has no inline egress (`securityGroups.ts:305`) and its only egress rules are TCP to `gameServersSg` on declared ports (`securityGroups.ts:432-453`), so even with a route, `ecs:DescribeTasks` and Secrets Manager calls would be blocked. The check's stated intent (AWS API calls use the component's normal route out of its public subnet) and a test comment (`infra/src/lambdas.test.ts:834-836`) both claim no NAT or endpoint is needed; that contradicts the SG rules in the same code. Sweep-8 claim verified by reading code; not verified against a live deployment.
 3. **Fixing only Finding 1 would degrade the watchdog for every game** `[inferred]`. With env fixed but egress missing, each `DescribeTasks` would hang until the 30 s function timeout (`lambdas.ts:547`). The watchdog invokes sequentially per task (`watchdog/src/handler.ts:203-216`) under a 60 s timeout (`lambdas.ts:568`), so two health-checked running tasks would time out the whole watchdog run, including CloudWatch-path games later in the loop.
 4. **Fail-active everywhere except `exists`.** Every engine failure path returns `active: true, failureDerived: true` (`engine.ts:157-203`) and the handler catch does the same (`handler.ts:178-187`). The `exists` operator alone treats an unresolved path as a conclusive idle verdict (`engine.ts:175-178`), so a typo in `jsonPath` with `exists` reads as "idle" rather than as a fault. This matches the spec's operator semantics but is the one route by which a misconfigured check can stop a server.
 5. **Sweep-8 JSONPath bug is unreachable (sweep disagreement, code wins).** Sweep-8 says `$.`-prefixed paths never resolve (`engine.ts:26-60`). True of the tokenizer in isolation (`$` becomes a literal key), but the validator rejects `$` via `HEALTH_CHECK_JSON_PATH_PATTERN = /^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+|\[\d+\])*$/` (`shared/src/gameServerValidator.ts:114`, `:227-232`), so no saved config can carry one.
@@ -106,7 +105,6 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 10. **`secretsStore.ts` mixes two leaves.** Health-check helpers (`secretsStore.ts:94-194`) share a file with Discord helpers; `getBotToken`, `putBotToken`, `putPublicKey`, `invalidateSecretsCache` (`secretsStore.ts:63-91`) have no non-test caller in `app/packages`. The module is re-exported from the barrel (`shared/src/index.ts:35`), while `GamesWriteService` deep-imports it (`GamesWriteService.ts:35`).
 11. **Secret name hard-codes `hyveon-`.** `healthCheckAuthSecretName` returns `hyveon-${gameId}-healthcheck-auth` (`secretsStore.ts:95`) regardless of the infra `projectName`; harmless because IAM scopes to the persisted ARN (`iam.ts:602-604`), but two deployments in one account and region would collide on a shared game id `[inferred]`.
 12. **Wizard gaps.** The timeout `FormField` passes no `errors` prop (`health-check-fields.component.tsx:122`), so a `healthCheck.timeoutMs` issue only shows as `aria-invalid`. The "app stores this as a Secrets Manager secret" hint is duplicated for basic and bearer (`health-check-fields.component.tsx:305-307`, `:326-328`). The component has no dedicated test file; it is exercised through `networking-step.component.test.tsx` and `add-game-wizard.component.test.tsx`.
-13. **Spec sync hazard.** Re-applying `add-pluggable-health-checks` would regress main's auth-type wording; both shipped changes remain unarchived (final-clustering §7).
 
 ## Work Required
 
@@ -121,7 +119,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-runtime/health-che
 4. Add an infra-level or contract test asserting the handler's required env is a subset of the provisioned env, so `handler.test.ts:18` can no longer mask the gap. (specs: `RT-HEALTH-PROV-005`)
 5. Decide whether `exists` with an unresolved path should stay a conclusive idle verdict (Finding 4).
 6. Split `secretsStore.ts` into health-check and Discord modules; delete or justify the uncalled Discord helpers.
-7. Archive `add-pluggable-health-checks` (without spec application) then `add-healthcheck-auth-type`; reconcile `add-scripted-health-checks` with the auth-type credential model.
+7. Before scripted health checks start, reconcile their credential model with the `raw` / `basic` / `bearer` auth-type discriminator.
 
 ### Nice to Have
 8. Show `timeoutMs` validation text in the wizard; dedupe the secret hint copy. (specs: `RT-HEALTH-REDACT-004`)
