@@ -103,7 +103,7 @@ These lines are owned by this leaf; the shared renderer (`LogLineList`, `parseAn
 
 - [x] **APP-DIAG-SCRUB-001**: When `scrubSecrets` processes text, it shall replace every AWS access key ID (`AKIA` or `ASIA` followed by 16 uppercase alphanumerics) with `[REDACTED]`.
 - [x] **APP-DIAG-SCRUB-002**: When `scrubSecrets` processes text containing an unquoted `token`/`key`/`secret`-ish label followed by `:` or `=` and a value of 16 or more base64url/hex-ish characters, it shall replace the value with `[REDACTED]` and keep the label.
-- [ ] **APP-DIAG-SCRUB-003**: When `scrubSecrets` processes a JSON-quoted labeled value as emitted by the production `json()` format (`"botToken":"..."`) or the dev meta format (`"apiKey": "..."`), it shall redact the value.
+- [x] **APP-DIAG-SCRUB-003**: When `scrubSecrets` processes a JSON-quoted labeled value as emitted by the production `json()` format (`"botToken":"..."`) or the dev meta format (`"apiKey": "..."`), it shall redact the value.
 - [x] **APP-DIAG-SCRUB-004**: When `scrubSecrets` processes ordinary prose using words like "key" or "secret" without a separator and long value, it shall leave the text unchanged. (observed: `diagnosticsLogScrubber.ts:11-13`)
 
 ## Audit Trail Recording
