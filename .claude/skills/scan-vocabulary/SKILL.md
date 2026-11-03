@@ -40,7 +40,7 @@ node .claude/skills/scan-vocabulary/scan-vocabulary.mjs <rootDir> --terms=term1,
   check alone would miss.
 - `--exclude` — comma-separated paths (relative to `<rootDir>`) to skip for this run
   only, on top of the built-in defaults. Use this for directories a specific sweep
-  doesn't need — e.g. `openspec` when its historical change/spec docs are expected to
+  doesn't need — e.g. `docs/superpowers` when its historical plans are expected to
   cite retired names — or a generated path the defaults don't already cover. Matches
   the path itself and everything under it; not persisted, scoped to the one invocation.
 - `--json` — emit the full match list as JSON instead of a human-readable report.
@@ -55,8 +55,8 @@ node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=oldServiceName
 # matching inside unrelated words (plain substring would hit "hidden")
 node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=oldServiceName,oldServiceConfig,id --boundary=id
 
-# Skip openspec's historical change docs, which are expected to cite retired terms
-node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=oldServiceName,oldServiceConfig --exclude=openspec
+# Skip the historical plan docs, which are expected to cite retired terms
+node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=oldServiceName,oldServiceConfig --exclude=docs/superpowers
 
 # Verify a class rename reached everywhere
 node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=OldServiceName
@@ -81,8 +81,8 @@ node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=OldServiceName
   `.tsbuildinfo`).
 
 These defaults cover generated output that's true for *every* sweep. For a directory
-that's only noise for *this particular* sweep — e.g. `openspec`'s archived change docs
-when checking for retired terms — use `--exclude` instead of touching the script (see
+that's only noise for *this particular* sweep — e.g. the historical `docs/superpowers`
+plans when checking for retired terms — use `--exclude` instead of touching the script (see
 above). If a future sweep needs a different **permanent** default, edit the
 `EXCLUDED_DIR_NAMES`, `EXCLUDED_PATH_PREFIXES`, `EXCLUDED_FILE_NAMES`, or
 `BINARY_EXTENSIONS` sets at the top of the script directly — there's no config file
