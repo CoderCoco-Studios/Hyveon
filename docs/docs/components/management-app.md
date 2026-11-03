@@ -288,7 +288,7 @@ called out again in the `WindowController` row below.
   `FileManagerService` composes `EcsService`/`Ec2Service`/`SchedulerService`
   rather than calling any SDK client itself. `CostService` is pure
   arithmetic — no AWS SDK client at all — since the Cost Explorer call
-  chain was removed (see `openspec/changes/remove-cost-explorer-calls`).
+  chain was removed.
   New cloud-facing code should prefer adding to (or consuming) the
   `CLOUD_PROVIDER` / `SECRETS_STORE` / `REMOTE_FILE_STORE` /
   `DISCORD_RECEIVER` / `AUDIT_LOG_STORE` / `DISCORD_CONFIG_STORE` /
@@ -325,7 +325,7 @@ called out again in the `WindowController` row below.
   **Why one planned layout drives both the mounts and the remote paths.** A path computed relative to a single access point sends bytes meant for a game's second volume into the first (#672), so `FolderUploadService` resolves the destination's owning volume (`validateDestination`), builds each remote path as `toHelperPath(layout, volume, toRemotePath(destination, containerPath, relPath))` — `toRemotePath` (in `@hyveon/shared/folderUpload`) returns a path *inside* the volume, and `toHelperPath` prefixes `/<dir>` — and re-derives the remote paths from the live session's layout (the one `registry.withBackend` hands the operation), so the path and the mount cannot disagree even when a reused browse session predates an infrastructure apply. If that session does not mount the volume, the run fails with `Stop and start the file manager session to upload into '<volume>'.` before writing anything. An upload into a volume that is not mounted, or any upload while the layout is the fallback (`usedFallback`, including into the first volume), is refused before any launch (against a freshly planned layout) with `Apply the infrastructure to upload into '<volume>'. Your selection is kept.`
 
   **Fail-closed stopped-server check.** `EcsService.findRunningTaskOrThrow(cluster, game)` logs and throws a plain `Error` when ECS can't be queried; `findRunningTask` is unchanged for existing callers — it wraps the throwing variant and returns `null` on failure, so it is only safe where "unknown" may be treated as "none". Folder upload uses the throwing variant: if ECS can't be queried the run is refused with `Couldn't confirm '<game>' is stopped. Try again in a moment.` Writing to EFS while the game server is live can corrupt saves, so an unconfirmed server is never assumed stopped.
-- **File-manager helper sessions** — `VolumeFilesModule` (imports `AwsModule`; imported by `AppModule`, `FolderUploadModule` and `VolumeFilesApiModule`) provides and exports `HelperSessionRegistry` and `FileBrowserClientFactory`. `AwsModule` now exports `PublicIpService` so the registry can detect the operator's IP. The registry (`services/volumeFiles/HelperSessionRegistry.ts`) owns the one app-managed FileBrowser helper per game and is shared by the file browser and folder upload (design D3 in `openspec/changes/archive/2026-10-30-embed-file-browser/design.md`; requirements in `openspec/specs/game-volume-file-browser/spec.md` and `openspec/specs/game-volume-folder-upload/spec.md`).
+- **File-manager helper sessions** — `VolumeFilesModule` (imports `AwsModule`; imported by `AppModule`, `FolderUploadModule` and `VolumeFilesApiModule`) provides and exports `HelperSessionRegistry` and `FileBrowserClientFactory`. `AwsModule` now exports `PublicIpService` so the registry can detect the operator's IP. The registry (`services/volumeFiles/HelperSessionRegistry.ts`) owns the one app-managed FileBrowser helper per game and is shared by the file browser and folder upload (requirements: `docs/intent/helper-task/helper-task-specs.md`).
 
   | Concern | Behaviour |
   |---------|-----------|
@@ -523,8 +523,7 @@ my apply just touch the wrong AWS account" footgun, so the rules are:
 
 `DeploymentConfigService` is the S3-backed deployment-config JSON reader/parser
 backing the Games page's declared-config view, the add/edit/remove game
-flows, and drift detection — see `openspec/specs/desktop-only-operator-surface`'s
-"No operator-editable configuration files" requirement. There is no
+flows, and drift detection. There is no
 local-file fallback: `ConfigService.getConfigurationBucket()` resolves the
 configured S3 bucket (the `HYVEON_CONFIG_BUCKET` env var as a dev/CI
 override, otherwise `ElectronStoreService`'s `bootstrap.configurationBucket`

@@ -99,13 +99,6 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 
 ## Spec Coverage
 
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `app-diagnostics-logging` | 5 | 22 | Console forwarding (5 scenarios), service-layer logging (2), bundle export (6), panel pause/search/autoscroll (5), ANSI rendering (4). ANSI rendering is implemented by `infra-logs` files (`ansi.utils.ts`, `log-line-display.component.tsx`). Service-layer logging is a cross-cutting rule over every `desktop-main/src/services/*.ts`, not just this leaf; `AuditService` itself deviates (findings 7, 8). |
-| (audit trail) | 0 | 0 | No earlier requirement source; EARS are derived from code. |
-
-**OpenSpec summary:** All 5 OpenSpec requirements have implementing code.
-
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | App Log File | `APP-DIAG-LOG-001` to `APP-DIAG-LOG-008` | 7 | 0 | 1 |

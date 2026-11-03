@@ -91,8 +91,7 @@ export class BootstrapCredentialsNotConfiguredError extends Error {
 
 // @spec APP-WIZARD-BOOT-001
 /**
- * Performs the first-run wizard's AWS SDK-only bootstrap operations (see
- * `openspec/changes/migrate-iac-to-pulumi`, "cloud-bootstrap" spec) —
+ * Performs the first-run wizard's AWS SDK-only bootstrap operations —
  * idempotently provisioning the self-managed infrastructure backend's state
  * bucket and the configuration bucket via `@aws-sdk/client-s3` directly,
  * never by shelling out to a CLI and never by invoking the infrastructure

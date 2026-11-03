@@ -32,7 +32,7 @@ export interface LogChunk {
  * Cloud-agnostic cost snapshot returned by `getCostEstimate` — a
  * forward-looking Fargate cost projection derived from task-definition
  * CPU/memory, not a billed-actuals lookup. The app makes no AWS Cost Explorer
- * API calls; see `openspec/changes/remove-cost-explorer-calls`.
+ * API calls.
  */
 export interface CostBreakdown {
   /** Total cost across all items in the breakdown. */

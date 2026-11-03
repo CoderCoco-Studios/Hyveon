@@ -145,8 +145,7 @@ export default tseslint.config(
       'packages/desktop-main/src/services/SchedulerService.ts',
       'packages/desktop-main/src/services/SchedulerService.test.ts',
       // First-run wizard bootstrap (epic #139): deliberately AWS-SDK-direct,
-      // not part of the cloud-agnostic RunTask/StopTask contract — see
-      // openspec/changes/add-first-run-wizard/design.md decision 6.
+      // not part of the cloud-agnostic RunTask/StopTask contract.
       'packages/desktop-main/src/services/BootstrapService.ts',
       'packages/desktop-main/src/services/BootstrapService.test.ts',
       'packages/desktop-main/src/services/IamCheckService.ts',

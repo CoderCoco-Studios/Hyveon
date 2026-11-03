@@ -88,7 +88,7 @@ Which operations take which lock:
 | destroy | yes (`:3007`) | yes, after the token check (`:2959`) |
 | rollback confirm | yes, `'rollback'` (`:3595`) | no |
 
-Plan never takes the durable lock (`IAC-RUN-LOCK-007`; `docs/docs/app/iac.md:200-201`). The rollback requirement (carried as `IAC-RUN-RBK-006`, from the former `iac-rollback` OpenSpec capability) was originally worded as holding "the shared operation lock" across restore and plan; today that is only the in-process `operationInFlight` guard.
+Plan never takes the durable lock (`IAC-RUN-LOCK-007`; `docs/docs/app/iac.md:200-201`). The rollback requirement (`IAC-RUN-RBK-006`) holds only the in-process `operationInFlight` guard across restore and plan, not the durable lock.
 
 **Fresh-install gap.** `createRun`, `releaseRun` and `resolveCurrentLock` consult the durable lock only when `getStackOutputs().runsTableName` is set (`RunService.ts:179`, `:231`, `:272`). They have no pre-apply fallback, whereas `RunRecordService.resolveRunsTableName` and the store's own config do. So before the first successful apply the durable lock is skipped and only the in-memory lock guards the run, while the pre-flight marker in the same apply is written durably. `RunService.ts:16-21` describes this skip as intentional, but the reason it gives ("table not deployed") is no longer true since the table is created at bootstrap. The intended behaviour is the same pre-apply fallback in `RunService`, so the first apply holds the durable lock (`IAC-RUN-LOCK-009`; `iac-design.md`, decision 4).
 
@@ -207,6 +207,5 @@ Unit tests cover the services, store and controllers directly (`RunService.test.
 
 - Arrow doc: `docs/arrows/iac/run.md`
 - EARS specs: `docs/intent/iac/run/run-specs.md`
-- Former OpenSpec capabilities (named by provenance tags): `iac-plan-apply-page`, `iac-destroy-flow`, `iac-run-history`, `iac-rollback`, `orchestrator-integration-coverage`
 - Operator docs: `docs/docs/app/iac.md`, `docs/docs/components/management-app.md`, `docs/docs/components/integration-tests.md`
 - Neighbouring leaf designs: `docs/intent/iac/engine/engine-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/deployment-config/deployment-config-design.md`, `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md`, `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`

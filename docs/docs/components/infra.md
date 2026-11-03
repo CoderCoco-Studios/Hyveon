@@ -247,8 +247,7 @@ are no per-game security groups. So the health-check Lambda's egress rules
 (one per distinct port declared across every opted-in game's `healthCheck`)
 confine it to **ports**, not **games**: a game that declares no health
 check is still reachable on that port if some *other*, opted-in game
-happens to declare the same one. This is accepted deliberately (see the
-`game-health-checks` OpenSpec capability's Risks section) rather than
+happens to declare the same one. This is accepted deliberately rather than
 overclaiming game-level isolation — the request is still addressed to a
 specific task's private address resolved from ECS, so reachability alone
 never redirects a check at the wrong task. Splitting `gameServers` into

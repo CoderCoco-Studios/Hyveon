@@ -6,7 +6,7 @@ description: Write or update the Hyveon Docusaurus documentation under docs/docs
 # Writing Hyveon docs
 
 Docs in this repo are not a nice-to-have. `CLAUDE.md` deliberately contains almost
-no architecture — it routes to OpenSpec and to `docs/`, so a stale docs page
+no architecture — it routes to the LID design tree and to `docs/`, so a stale docs page
 directly misleads the next agent (and the operator following the setup guide).
 That is the reason for the verification pressure in this skill: a confidently
 wrong docs page is worse than a missing one.
@@ -19,7 +19,7 @@ wrong docs page is worse than a missing one.
 
 | Surface | Use instead |
 |---------|-------------|
-| `openspec/specs/**`, `openspec/changes/**` prose | `/opsx:propose`, `/opsx:update`, `/opsx:sync` |
+| `docs/intent/**`, `docs/high-level-design.md`, `docs/arrows/**` | the `linked-intent-dev` and `arrow-maintenance` skills |
 | `CLAUDE.md` | `claude-md-management:claude-md-improver` |
 | Code comments / TSDoc | ordinary editing — see the conventions in `CLAUDE.md` |
 
@@ -52,7 +52,7 @@ it belongs rather than wedging it into the nearest page — the site is small en
 that a new page is often correct, and `docs/docs/components/index.md` is where new
 component pages get listed.
 
-Read the relevant `openspec/specs/<capability>/spec.md` before drafting. Specs
+Read the relevant `docs/intent/<node>/<node>-specs.md` before drafting. Specs
 state required behaviour precisely; docs explain it. Docs that contradict a spec
 are a bug in the docs.
 
@@ -146,7 +146,7 @@ check that catches a broken link, and `onBrokenLinks` is `throw`.
 
 - `.md` files are parsed as MDX. A bare `{` or `<` outside a code fence is a parse
   error — wrap identifiers like `{game}-server` or `Partial<T>` in backticks.
-- Don't duplicate `openspec/specs/**` requirement wording into docs. Link to the
+- Don't duplicate `docs/intent/**` requirement wording into docs. Link to the
   behaviour and explain it; two copies drift and the spec is the one that wins.
 - Don't restate what `CLAUDE.md` covers (workflow rules, PR conventions). The
   arrow points the other way: `CLAUDE.md` points at docs.

@@ -23,7 +23,6 @@ Hyveon/
 ├── build/                               # icon source art (icon.svg, icon-small.svg) + generate-icons.mjs, generate-aws-regions.mjs
 ├── electron.vite.config.ts              # electron-vite build config (main/preload/renderer pipelines)
 ├── electron-builder.yml                 # packaged-installer config (NSIS/DMG/AppImage)
-├── openspec/                            # OpenSpec change proposals/specs for this repo
 ├── app/                                 # @hyveon/app — Electron desktop app workspace
 │   ├── eslint.config.js                 # flat config; recommended TS + React presets
 │   ├── vitest.config.ts

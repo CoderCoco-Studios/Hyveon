@@ -123,8 +123,8 @@ export type AwsProfileRotationResult =
   | { status: 'delete-failed'; consoleUrl: string };
 
 /**
- * Discovers AWS CLI profiles for the first-run wizard's credentials step
- * (see `openspec/changes/add-first-run-wizard`). Delegates parsing to
+ * Discovers AWS CLI profiles for the first-run wizard's credentials step.
+ * Delegates parsing to
  * `@smithy/shared-ini-file-loader`'s `parseKnownFiles` — the same loader the
  * AWS SDK for JS itself uses to resolve profiles — rather than hand-rolling
  * INI parsing, so profile discovery matches `aws configure list-profiles`

@@ -1,6 +1,6 @@
 ---
 name: docs-coverage-auditor
-description: Use this agent to check that a change updated every piece of documentation it was obliged to update — the right docs/docs/** pages, the components index, the CLAUDE.md routing table, OpenSpec sync, and the deployment-config-field checklist. Dispatch before opening a PR, or in parallel with docs-accuracy-auditor and docs-style-reviewer after drafting docs. Read-only; returns a punch list of gaps, not prose feedback.
+description: Use this agent to check that a change updated every piece of documentation it was obliged to update — the right docs/docs/** pages, the components index, the CLAUDE.md routing table, EARS spec coverage, and the deployment-config-field checklist. Dispatch before opening a PR, or in parallel with docs-accuracy-auditor and docs-style-reviewer after drafting docs. Read-only; returns a punch list of gaps, not prose feedback.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
@@ -41,10 +41,10 @@ close.
      `_category_.json`.
    - A new or relocated doc that agents should route to belongs in the
      "Where to look before starting work" table in `CLAUDE.md`.
-   - **Behaviour changes** need their OpenSpec delta specs synced (`/opsx:sync`)
-     or the change archived, so `openspec/specs/**` matches reality. Look for an
-     `openspec/changes/<change>/` directory in the diff whose specs were never
-     folded in.
+   - **Behaviour changes** need the owning EARS lines in
+     `docs/intent/**/*-specs.md` updated in the same PR (Linked-Intent
+     Development), so the specs match reality. Look for changed behaviour in
+     the diff whose EARS line was never touched.
    - **`DeploymentConfig`/`GameServerConfig` fields** added or removed (in
      `app/packages/shared/src/deploymentConfig.ts` / `gameServerConfig.ts`) must touch, as
      applicable: the relevant `defineX()` consumer in `app/packages/infra`, the
