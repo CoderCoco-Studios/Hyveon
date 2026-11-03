@@ -60,7 +60,7 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 - [x] **RT-WATCHDOG-STOP-001**: When a game-server task is idle for the current window and its incremented idle count reaches or exceeds `IDLE_CHECKS`, the watchdog shall call `StopTask` on that task in `ECS_CLUSTER` with reason `Watchdog: idle for {count * CHECK_WINDOW_MINUTES} minutes`, and shall not write the `idle_checks` tag for that window. (observed)
 - [x] **RT-WATCHDOG-STOP-002**: The watchdog shall not create, update or delete any Route 53 record; DNS removal for a watchdog-stopped task is left to update-dns reacting to the resulting `STOPPED` task-state event. (observed)
 - [x] **RT-WATCHDOG-STOP-003**: The watchdog Lambda source shall contain no load-balancer target-registration path, no ELBv2 API call, and no `ALB_TARGET_GROUPS` or `HTTPS_GAMES` configuration.
-- [ ] **RT-WATCHDOG-STOP-004**: If `StopTask` fails for one game-server task, then the watchdog shall log the failure and continue evaluating the remaining tasks in that run. (observed) (gap: `handler.ts:239-245` awaits `StopTaskCommand` with no try/catch, aborting the run)
+- [x] **RT-WATCHDOG-STOP-004**: If `StopTask` fails for one game-server task, then the watchdog shall log the failure and continue evaluating the remaining tasks in that run. (observed)
 
 ## Logging
 

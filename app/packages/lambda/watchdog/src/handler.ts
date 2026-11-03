@@ -206,7 +206,7 @@ async function listAllRunningTaskArns(): Promise<string[]> {
 // @spec RT-WATCHDOG-SCHED-005, RT-WATCHDOG-SCOPE-002, RT-WATCHDOG-SCOPE-003, RT-WATCHDOG-SCOPE-004
 // @spec RT-WATCHDOG-SCOPE-006, RT-WATCHDOG-ROUTE-001, RT-WATCHDOG-ROUTE-002, RT-WATCHDOG-ROUTE-003
 // @spec RT-WATCHDOG-CW-002, RT-WATCHDOG-CW-004, RT-WATCHDOG-CW-007, RT-WATCHDOG-STATE-003, RT-WATCHDOG-STATE-004
-// @spec RT-WATCHDOG-STATE-005, RT-WATCHDOG-STATE-007, RT-WATCHDOG-STOP-001, RT-WATCHDOG-LOG-001, RT-WATCHDOG-LOG-002
+// @spec RT-WATCHDOG-STATE-005, RT-WATCHDOG-STATE-007, RT-WATCHDOG-STOP-001, RT-WATCHDOG-STOP-004, RT-WATCHDOG-LOG-001, RT-WATCHDOG-LOG-002
 // @spec RT-WATCHDOG-LOG-003, RT-WATCHDOG-LOG-004, RT-WATCHDOG-LOG-005
 // @spec RT-HEALTH-LOG-002, RT-HEALTH-LOG-003
 /**
@@ -264,13 +264,17 @@ export const handler = async (): Promise<{ checked: number }> => {
         console.log(
           `${game}: shutting down after ${idleCount} idle checks (${idleCount * CHECK_WINDOW_MINUTES} minutes idle)`,
         );
-        await ecs.send(
-          new StopTaskCommand({
-            cluster: ECS_CLUSTER,
-            task: task.taskArn,
-            reason: `Watchdog: idle for ${idleCount * CHECK_WINDOW_MINUTES} minutes`,
-          }),
-        );
+        try {
+          await ecs.send(
+            new StopTaskCommand({
+              cluster: ECS_CLUSTER,
+              task: task.taskArn,
+              reason: `Watchdog: idle for ${idleCount * CHECK_WINDOW_MINUTES} minutes`,
+            }),
+          );
+        } catch (err) {
+          console.error(`${game}: StopTask failed for ${task.taskArn}`, err instanceof Error ? err.message : String(err));
+        }
       } else {
         await setIdleCount(task.taskArn, idleCount);
       }
