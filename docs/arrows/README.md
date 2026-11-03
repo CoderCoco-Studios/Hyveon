@@ -6,9 +6,8 @@ This directory tracks the arrow of intent across Hyveon — the chain from high-
 HLD → LLDs → EARS → Tests → Code
 ```
 
-Bootstrapped 2026-10-30 by `/map-codebase` (brownfield sweep at git SHA `2822efd1`), lens: domain concept, 16 leaves under 3 grouping nodes.
+The tree has 16 leaves under 3 grouping nodes, organised by domain concept.
 The design tree lives in `docs/intent/` (node-as-folder: `<node>/<node>-design.md` + `<node>-specs.md`); the root HLD is `docs/high-level-design.md`.
-`_map-codebase/` holds the transient sweep and reconciliation files from the bootstrap; it is excluded from audits and may be deleted once flesh-out is complete.
 
 
 ## Files in this directory

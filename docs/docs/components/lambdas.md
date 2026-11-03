@@ -206,7 +206,7 @@ Failure modes:
      query gets. The invoked verdict's `reason` is folded into this Lambda's
      own idle/shutdown log line, so one line explains verdict, idle count,
      and (eventually) shutdown regardless of which source produced it. See
-     `game-health-checks`'s OpenSpec capability and the `health-check`
+     the `health-check`
      section below for the check itself.
    - If idle by whichever source applied:
      - Increment the `idle_checks` tag.

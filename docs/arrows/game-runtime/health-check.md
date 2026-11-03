@@ -42,16 +42,11 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 - `app/packages/infra/src/securityGroups.ts`, `app/packages/infra/src/network.ts` (`iac/program`): health-check SG, per-port egress rules (`securityGroups.ts:283-314`, `:430-446`), public subnets only (`network.ts:132`).
 - `app/packages/lambda/watchdog/src/handler.ts` (`game-runtime/watchdog`): sole invoker, `invokeHealthCheck` fail-active wrapper (`handler.ts:113-144`), sequential per-task loop (`handler.ts:203-216`).
 - `app/packages/shared/src/aws/ecsTask.ts` (`game-runtime/task-and-dns`): `getTaskPrivateIp`.
-- `app/packages/shared/src/env.ts` (`iac/program`): `requireEnv` (`env.ts:16-20`).
+- `app/packages/shared/src/env.ts` (`iac/program`): `requireEnv` (`env.ts:17-21`).
 - `app/packages/shared/src/gameServerConfig.ts`, `app/packages/shared/src/gameServerValidator.ts` (`game-server`): `GameServerHealthCheck(Auth)` shape, JSONPath regex (`gameServerValidator.ts:114`), cross-field rules.
 - `app/packages/desktop-main/src/services/GamesWriteService.ts` (`game-server`): calls `upsertHealthCheckAuthSecret` / `deleteHealthCheckAuthSecret` (`GamesWriteService.ts:35`, `:513-535`).
 - `app/packages/web/src/components/add-game-wizard/networking-step.component.tsx` (`game-server`): hosts `HealthCheckFields` (`networking-step.component.tsx:320`).
 - `docs/docs/components/lambdas.md` (`## health-check`, lines 290-363).
-
-### OpenSpec sources
-- `game-health-checks` capability (10 requirements, 30 scenarios), carried as EARS provenance tags.
-- The pluggable health-check and auth-type work is shipped and carried in LID.
-- Scripted health checks are not started; their credential model predates the auth-type discriminator and needs reconciling with it (see Should Fix 7).
 
 ## Architecture
 
@@ -68,12 +63,6 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 8. `lambda/watchdog/src/handler.ts:113-144` (cited): synchronous `RequestResponse` invoke; any invoke failure, `FunctionError`, or malformed payload is fail-active.
 
 ## Spec Coverage
-
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `game-health-checks` | 10 | 30 | Behavioural requirements (declaration, HTTP kind, fail-active, conditional provisioning, SSRF-safe host, validation, log recoverability, redaction, app-owned credentials) all have matching code and tests. The confinement requirement (`spec.md:204-252`) asserts AWS API calls travel "over the component's normal route out of its public subnet", which the deployed topology does not provide (Key Findings 2). |
-
-**OpenSpec summary:** The one OpenSpec capability is implemented in code but is not operational on HEAD because of Key Findings 1 and 2.
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
@@ -93,7 +82,7 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 
 ## Key Findings
 
-1. **(Resolved, `RT-HEALTH-PROV-003`) Lambda could not initialise: `ECS_CLUSTER` was required at module load but never provided.** `handler.ts:39` calls `requireEnv('ECS_CLUSTER')` at module scope, and `requireEnv` throws on an unset var (`shared/src/env.ts:16-20`). Infra sets only `{ AWS_REGION_: awsRegion }` (`infra/src/lambdas.ts:552`), and `infra/src/lambdas.test.ts:792` pins the env to exactly `{ AWS_REGION_: 'us-east-1' }`. `docs/docs/components/lambdas.md:296` also says "`AWS_REGION_` only". The handler test masks it by setting `ECS_CLUSTER` before import (`handler.test.ts:18-20`). Every invoke therefore fails at init; the watchdog sees `FunctionError` and treats the game as active (`watchdog/src/handler.ts:131-143`), so health-checked games are never auto-stopped. Sweep-8 claim verified in code.
+1. **(Resolved, `RT-HEALTH-PROV-003`) Lambda could not initialise: `ECS_CLUSTER` was required at module load but never provided.** `handler.ts:40` calls `requireEnv('ECS_CLUSTER')` at module scope, and `requireEnv` throws on an unset var (`shared/src/env.ts:17-21`). Infra sets only `{ AWS_REGION_: awsRegion }` (`infra/src/lambdas.ts:568`), and `infra/src/lambdas.test.ts:832` pins the env to exactly `{ AWS_REGION_: 'us-east-1' }`. `docs/docs/components/lambdas.md:296` also says "`AWS_REGION_` only". The handler test masks it by setting `ECS_CLUSTER` before import (`handler.test.ts:18-20`). Every invoke therefore fails at init; the watchdog sees `FunctionError` and treats the game as active (`watchdog/src/handler.ts:131-143`), so health-checked games are never auto-stopped. Sweep-8 claim verified in code.
 2. **No AWS API reachability from the function's VPC placement.** The function sits in public subnets (`lambdas.ts:564-567`); `network.ts` provisions no NAT gateway or VPC endpoints (only `mapPublicIpOnLaunch`, `network.ts:132`), and VPC-attached Lambda ENIs never receive a public IP per AWS Lambda VPC networking behaviour. Independently, the health-check SG has no inline egress (`securityGroups.ts:305`) and its only egress rules are TCP to `gameServersSg` on declared ports (`securityGroups.ts:432-453`), so even with a route, `ecs:DescribeTasks` and Secrets Manager calls would be blocked. The check's stated intent (AWS API calls use the component's normal route out of its public subnet) and a test comment (`infra/src/lambdas.test.ts:834-836`) both claim no NAT or endpoint is needed; that contradicts the SG rules in the same code. Sweep-8 claim verified by reading code; not verified against a live deployment.
 3. **Fixing only Finding 1 would degrade the watchdog for every game** `[inferred]`. With env fixed but egress missing, each `DescribeTasks` would hang until the 30 s function timeout (`lambdas.ts:547`). The watchdog invokes sequentially per task (`watchdog/src/handler.ts:203-216`) under a 60 s timeout (`lambdas.ts:568`), so two health-checked running tasks would time out the whole watchdog run, including CloudWatch-path games later in the loop.
 4. **Fail-active everywhere except `exists`.** Every engine failure path returns `active: true, failureDerived: true` (`engine.ts:157-203`) and the handler catch does the same (`handler.ts:178-187`). The `exists` operator alone treats an unresolved path as a conclusive idle verdict (`engine.ts:175-178`), so a typo in `jsonPath` with `exists` reads as "idle" rather than as a fault. This matches the spec's operator semantics but is the one route by which a misconfigured check can stop a server.
@@ -111,7 +100,7 @@ Code, tests, docs and the `game-health-checks` spec are complete and internally 
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-runtime/health-check/health-check-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-1. Give the function a path to ECS and Secrets Manager: VPC interface endpoints (or NAT) plus SG egress 443 to them, or drop `vpcConfig` and reach the task another way. Correct `spec.md:213-220` and `lambdas.test.ts:794-796` to match. (specs: `RT-HEALTH-PROV-004`)
+1. Give the function a path to ECS and Secrets Manager: VPC interface endpoints (or NAT) plus SG egress 443 to them, or drop `vpcConfig` and reach the task another way. Correct `lambdas.test.ts:834-836` to match. (specs: `RT-HEALTH-PROV-004`)
 2. Land 1 and 2 together, or bound per-invoke time in the watchdog, to avoid the cascading watchdog timeout in Finding 3. (specs: `RT-WATCHDOG-HC-006`)
 
 ### Should Fix

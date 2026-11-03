@@ -77,11 +77,6 @@ Engine provisioning, the workspace seam, credential exclusivity and provable-own
 - `game-runtime/task-and-dns`: `EcsService.ts` (`buildProviderConfig` region at `:72` and `getClient` at `:213-217`, governed by `IAC-ENGINE-REGION-002`).
 - `app/packages/desktop-main/src/electron-entry.ts` (quit lifecycle; see finding 2).
 
-### OpenSpec sources
-- `pulumi-engine-runtime`: primary capability, 7 requirements / 32 scenarios. Synced; no active change touches it.
-- `pulumi-infra-program`: cited for its contradicting historical passphrase sentence ("machine-bound"), which belongs to the program half; `engine-design.md` quotes it only as historical context and does not adopt it as the engine decision.
-- `wizard-flow`: "Stack initialization step with phased progress" and "Resolved Pulumi engine version in Settings" are rendered by this leaf's `stack-init-step` and `pulumiVersion.ts`, but the capability is owned by `wizard-and-bootstrap`.
-
 ## Architecture
 
 **Purpose:** Make the Pulumi engine usable from a packaged desktop app with no operator-installed tooling: provision the exact pinned CLI, construct one stable Automation API workspace against the operator's own S3 state bucket, inject the wizard-selected credentials exclusively, run operations with cancellation and leaked-promise recovery, recover stale backend locks only on provable ownership, and expose the deployed stack outputs to the rest of the app through a memoised reader.
@@ -101,12 +96,6 @@ Engine provisioning, the workspace seam, credential exclusivity and provable-own
 12. `PULUMI_ENGINE_VERSION` (`pulumiVersion.ts:21`, `'3.255.0'`) and `PulumiServiceStub` (`pulumi-mock.ts`), the DI-seam double the web integration harness injects in place of `PulumiService`.
 
 ## Spec Coverage
-
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `pulumi-engine-runtime` | 7 | 32 | Provisioning, pin, typed failures, workspace seam, passphrase derivation + migration, credential exclusivity and provable-ownership lock recovery match code. "App quits with an operation in flight" has no implementing code path (finding 2). "Every operation MUST be cancellable" does not hold for `initializeStack` (finding 4). "Credentials are not logged" holds for credentials, but destroy output skips the separate env-value redaction (finding 1). Escalation wording in code contradicts the spec's "logical escalation, not a literal forced kill" (finding 3). Passphrase portability contradicts `pulumi-infra-program` (finding 5). |
-
-**OpenSpec summary:** `wizard-flow`'s stack-init and engine-version requirements are cited, not carried.
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
@@ -133,7 +122,7 @@ Engine provisioning, the workspace seam, credential exclusivity and provable-own
 2. **No quit-time termination of an in-flight engine**: `electron-entry.ts` only calls `app.quit()` on `window-all-closed` (`electron-entry.ts:251`), with no `before-quit`/`will-quit` handler, and no desktop-main provider implements `onModuleDestroy`/`onApplicationShutdown` except `folder-upload.controller.ts`. Nothing aborts `PulumiService`'s internal controllers on quit. Whether the Electron process still exits cleanly with a live `pulumi` child is `[unverified]`; the spec scenario "App quits with an operation in flight" has no code behind it.
 3. **Escalation claims a kill that never happens**: escalation only abandons the promise (`PulumiCancellation.ts:226-238`), but `PulumiOperationEscalatedError`'s message says the invocation "has been forcefully terminated" (`:118-119`) and the log says "force-terminating" (`:232`). No caller passes `onEscalate` (`PulumiService.ts:1674-1683,2375-2378,3110-3113`), so an escalated `pulumi` child keeps running. Escalated runs deliberately keep their lock-ownership record as reclaim evidence (`:2417-2420,3151-3154`).
 4. **Stack initialization is neither cancellable nor lock-recoverable**: `initializeStack(onPhase?)` takes no `AbortSignal` (`PulumiService.ts:1113`) and `stack.refresh()` runs bare (`:1168`), with no `runWithEscalatingCancellation`, no leaked-promise wrapper and no `classifyStackLockConflict` (unlike up/destroy at `:2325-2347,3061-3083`). The wizard's `cancel()` only stops consumption (`stack-init-step.component.tsx:118-122`). A lock conflict during refresh surfaces as `PulumiStackInitializationError('operation')` (`:1172`) with no reclaim path.
-5. **Passphrase spec contradiction (sweep disagreement)**: the former `pulumi-infra-program` OpenSpec capability called the secrets provider "machine-bound and has no recovery path"; code derives a portable passphrase per AWS account (`PulumiWorkspaceService.ts:95-99,425-435`), never stored, matching `pulumi-engine-runtime`. The infra-program sentence is stale.
+5. **Passphrase is portable**: code derives a per-AWS-account passphrase (`PulumiWorkspaceService.ts:95-99,425-435`), never stored; `iac/engine` owns the decision.
 6. **Legacy passphrase migration has a documented dead end**: migration runs the CLI in `workDir` before `LocalWorkspace.create` and needs a `Pulumi.yaml` from a prior run; if `workDir` was wiped but `pulumi.passphrase` survived, every `getOrCreateStack` fails and needs a manual reset (doc comment in `PulumiWorkspaceService.ts:522-591`; call site `:459-473`). Every Pulumi read, including `getStackOutputs`, is blocked in that state.
 7. **`getStackOutputs` is a write-capable, flaky read**: it returns `null` whenever any operation or stack init is in flight (`PulumiService.ts:970-976`), and `ConfigService` caches that `null` for 20 s (`ConfigService.ts:99,145-150`). It goes through `getOrCreateStack`, which calls `Stack.createOrSelect` (`PulumiWorkspaceService.ts:508`) and can run the legacy migration, so a dashboard poll can create a stack or re-encrypt secrets [inferred]. It logs the raw `err` object (`PulumiService.ts:1006-1008`), against `.claude/rules/logging.md`.
 8. **Lock-recovery side effects and identity scope**: `classifyStackLockConflict` prunes and consumes ownership records as a side effect of classifying (`PulumiLockRecovery.ts:281,301`). The app never calls `requestSingleInstanceLock` (`:33-34`), so a second instance on the same host shares the identity; the dead-PID check (`:217`) is what stops a live sibling's lock being reclaimed.
@@ -158,7 +147,6 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/engine/engine-specs
 ### Should Fix
 5. Resolve every desktop AWS client's region through `ConfigService.getRegion()`: the cloud provider in `EcsService.ts:72` (code owned by `game-runtime/task-and-dns`) and the audit, Discord-config and run-record stores in `cloud-provider.module.ts:109,131,180` (code owned by `operator-app/desktop-shell`) stop reading `outputs.awsRegion` (finding 15). (specs: `IAC-ENGINE-REGION-002`)
 6. Correct `PulumiOperationEscalatedError`'s message and the escalation log to say the promise was abandoned, not the process killed (finding 3). (specs: `IAC-ENGINE-LIFE-004`)
-7. Nothing to fix in the arrow for the "machine-bound" sentence (finding 5): it lived in the former `pulumi-infra-program` OpenSpec capability, and `engine-design.md` quotes it only as historical context; the current engine decision does not adopt it.
 8. Extract the triplicated streaming setup, outcome switches and destroy-token gate; reuse `LockClearConfirmationGate` for destroy (finding 11).
 9. Move raw `process.env` reads behind stubbable accessors and remove the duplicated `getConfigurationBucket` once the import cycle allows it (finding 10).
 10. Normalise raw `err` logging in `PulumiEngineService` and `PulumiService.getStackOutputs` (findings 7, 9). (specs: `IAC-ENGINE-PFAIL-006`, `IAC-ENGINE-OUT-003`)

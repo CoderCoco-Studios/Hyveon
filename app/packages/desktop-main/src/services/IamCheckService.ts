@@ -94,9 +94,7 @@ export interface IamCheckResult {
 }
 
 /**
- * Runs the first-run wizard's best-effort IAM permission dry-run (see
- * `openspec/changes/add-first-run-wizard`, "IAM permission simulation"
- * scenario). Resolves the caller's identity via `sts:GetCallerIdentity`,
+ * Runs the first-run wizard's best-effort IAM permission dry-run. Resolves the caller's identity via `sts:GetCallerIdentity`,
  * then batches `iam:SimulatePrincipalPolicy` calls across the
  * `HyveonDeployAll` action set (`@hyveon/shared`'s single source of
  * truth, itself synced to `docs/docs/setup.md`). Never grants permissions —

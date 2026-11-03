@@ -104,7 +104,6 @@ Hyveon/
 │           └── efs-seeder/     # conditional, per game — writes declarative file_seeds to a game's EFS volume
 ├── build/                      # icon source art + generator for packaging
 ├── docs/                       # this site
-├── openspec/                   # OpenSpec change proposals/specs for this repo
 ├── electron.vite.config.ts     # electron-vite build config (main/preload/renderer)
 ├── electron-builder.yml        # packaged-installer config
 └── README.md

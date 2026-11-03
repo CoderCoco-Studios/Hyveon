@@ -53,8 +53,7 @@ function currentMonthDays(): number {
  * across games whose current status is `running`) and "Est. month cap"
  * (`totalPerHourIfAllOn × 24 × days in the current month`) are derived
  * entirely from the free per-game Fargate estimate (`estimates`) and current
- * run state (`statuses`) — the app makes no AWS Cost Explorer API calls, ever
- * (see `openspec/changes/remove-cost-explorer-calls`).
+ * run state (`statuses`) — the app makes no AWS Cost Explorer API calls, ever.
  */
 export function KpiStrip({ statuses, estimates }: Props) {
   const tiles = useMemo<TileSpec[]>(() => {

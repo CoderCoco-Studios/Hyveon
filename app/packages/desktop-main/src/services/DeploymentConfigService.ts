@@ -4,9 +4,7 @@
  *
  * The operator's versioned S3 configuration bucket
  * (`ConfigService.getConfigurationBucket()`) is the ONLY configuration
- * source — see `openspec/specs/desktop-only-operator-surface`'s "No
- * operator-editable configuration files" requirement and
- * `pulumi-infra-program`'s "Configuration persisted as versioned JSON". There
+ * source. There
  * is no local-file fallback: when no bucket is configured, every method on
  * this class reports "setup incomplete" rather than reading/writing a path
  * on disk — see {@link isConfigured}, {@link ConfigurationNotConfiguredError},
