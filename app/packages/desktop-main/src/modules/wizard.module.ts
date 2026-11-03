@@ -10,8 +10,7 @@ import { ConfigModule } from './config.module.js';
 import { DeploymentConfigModule } from './deployment-config.module.js';
 
 /**
- * Groups the first-run wizard's providers (see
- * `openspec/changes/add-first-run-wizard`). Follows the same shape as
+ * Groups the first-run wizard's providers. Follows the same shape as
  * `DiscordModule` — `providers`/`exports` only, no
  * `controllers` array; the IPC controller is wired directly into
  * `AppModule.controllers` alongside every other controller in this codebase.

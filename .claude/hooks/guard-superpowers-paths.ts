@@ -1,16 +1,12 @@
 #!/usr/bin/env bun
 /**
  * PreToolUse guard (Write|Edit): blocks writes to docs/superpowers/specs/**
- * or docs/superpowers/plans/**, per .claude/rules/spec-driven-development.md's
- * brainstorm -> opsx routing rule.
+ * or docs/superpowers/plans/**, per .claude/rules/lid-routing.md.
  *
- * This repo's OpenSpec schema (superpowers-bridge) redirects both paths —
- * superpowers:brainstorming's default output and superpowers:writing-plans'
- * default output — into openspec/changes/<name>/{brainstorm,plan}.md instead.
- * That redirection only fires when brainstorming/writing-plans are invoked
- * through /opsx:* commands; triggered narratively, the generic skills still
- * write to these paths directly, contradicting the routing rule. See
- * openspec/schemas/superpowers-bridge/README.md, "Entry & exit gates".
+ * superpowers:brainstorming and superpowers:writing-plans default to those
+ * paths. In this repo design intent lives in the LID design tree
+ * (docs/high-level-design.md and docs/intent/), so brainstorming stays
+ * verbal until it converges and then starts the arrow at the HLD or LLD.
  */
 
 import { readStdin, deny, allow, isRecord } from './lib/hook-io.js';
@@ -18,12 +14,10 @@ import { readStdin, deny, allow, isRecord } from './lib/hook-io.js';
 const GUARD_PATTERN = /(^|\/)docs\/superpowers\/(specs|plans)\//;
 
 const DENY_REASON =
-  'Blocked: .claude/rules/spec-driven-development.md forbids writing directly to ' +
+  'Blocked: .claude/rules/lid-routing.md forbids writing directly to ' +
   'docs/superpowers/specs/** or docs/superpowers/plans/**. Narrative brainstorming ' +
-  'stays verbal-only; writing-plans output is redirected by the superpowers-bridge ' +
-  'schema. Promote via /opsx:propose or /opsx:new so output lands in ' +
-  'openspec/changes/<name>/brainstorm.md or plan.md instead. See ' +
-  'openspec/schemas/superpowers-bridge/README.md, section "Entry & exit gates".';
+  'stays verbal-only; once it converges, record the design in the LID tree ' +
+  '(docs/high-level-design.md or docs/intent/<node>/) through the linked-intent-dev skill.';
 
 const raw = await readStdin();
 if (!raw.trim()) allow();

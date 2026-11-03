@@ -185,13 +185,11 @@ Three resource kinds are written once and then excluded from reconciliation so t
 15. Sweep disagreement: code comments here say five Lambdas while CLAUDE.md and the packages say six. Primary owner is `operator-app/infra-logs`; this leaf only needs its own comments fixed.
 16. Should game-server task definitions carry a task role? None is set (`ecs.ts:333-346`), so containers have no AWS credentials of their own; whether any game or the Caddy sidecar ever needs one is unexplained.
 17. Should the Discord table enable point-in-time recovery like the audit table? (`dynamodb.ts:123` versus `dynamodb.ts:142`) The rationale for the difference is not recorded.
-18. An earlier description of the secrets provider as "machine-bound" contradicts the per-account portable passphrase (`engine-design.md`, Decisions & Alternatives, Passphrase source). No design or EARS text in the arrow repeats the sentence, so it needs no correction here; `iac/engine` owns the passphrase decision.
 
 ## References
 
 - Arrow doc: `docs/arrows/iac/program.md`
 - EARS specs: `docs/intent/iac/program/program-specs.md`, prefix `IAC-PROGRAM`
-- Former OpenSpec capabilities carried here (named by the provenance tags on the EARS lines): `pulumi-infra-program` (program half), `lambda-runtime-currency`, `in-task-tls-termination` (infra half)
 - Work still in flight against this leaf is tracked in the arrow doc
 - Project docs: `docs/docs/components/infra.md`, `docs/docs/components/lambdas.md`, `docs/docs/architecture.md`
 - Neighbouring leaf designs: `docs/intent/iac/engine/engine-design.md`, `docs/intent/iac/run/run-design.md`, `docs/intent/deployment-config/deployment-config-design.md`, `docs/intent/game-server/game-server-design.md`, `docs/intent/helper-task/helper-task-design.md`, `docs/intent/discord-bot/discord-bot-design.md`, `docs/intent/game-runtime/health-check/health-check-design.md`

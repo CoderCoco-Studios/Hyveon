@@ -467,18 +467,10 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
    * denied/unavailable clipboard is non-critical since the path is already visible on screen.
    *
    * @remarks
-   * Disclosed scope reduction: the `template` screen this backs ships a
-   * copy-path action ONLY — it does not also offer a reveal-in-file-manager
-   * action, even though `guided-iam-provisioning`'s spec
-   * (`openspec/changes/add-one-click-aws-bootstrap/specs/guided-iam-provisioning/spec.md`)
-   * calls for both. No `shell.showItemInFolder`-equivalent IPC channel
-   * exists anywhere in this codebase's `desktop-main`↔renderer surface, and
-   * building that channel end-to-end was judged out of scope for this
-   * UI-wiring group (`add-one-click-aws-bootstrap` Group 7) — this is a
-   * deliberate, disclosed reduction, not an oversight. The operator can
-   * navigate to the printed `templatePath` manually in the meantime; a
-   * follow-up change can add the IPC channel and wire a "Reveal in
-   * Finder/Explorer" button here without touching this function.
+   * The `template` screen this backs offers a copy-path action only, not a
+   * reveal-in-file-manager action: no `shell.showItemInFolder`-equivalent IPC
+   * channel exists in the `desktop-main`↔renderer surface. The operator can
+   * navigate to the printed `templatePath` manually.
    */
   function onCopyPath() {
     if (!templatePath || !navigator.clipboard) return;

@@ -32,7 +32,7 @@ and plausibility is precisely what makes it hard to spot on a read-through.
      defaults, and `docs/docs/components/infra.md` for the file/resource table
      it documents
    - `package.json` scripts for any documented command
-   - `openspec/specs/**` for required behaviour
+   - `docs/intent/**/*-specs.md` for required behaviour
    Prefer a test or the actual declaration over a comment.
 4. Pay special attention to the claims most likely to have rotted:
    - counts and enumerations (packages, Lambdas, tiers, steps)

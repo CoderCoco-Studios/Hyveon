@@ -221,13 +221,12 @@ None recorded before this document was written.
 17. Cited drift from `iac/program`: interactions receives an unused `HOSTED_ZONE_NAME` (`lambdas.ts:463`), and CloudFront allows all methods (`discordDomain.ts:178`) while the Function URL CORS allows only POST (`lambdas.ts:478-482`). Are either intentional?
 18. Stale or dead pieces: the `/api/discord/config` header (`DiscordConfigService.ts:8-9`), the Discord bot-token helpers in `secretsStore.ts:78-91` with no Lambda consumer, and the deprecated `hex.substr` (`interactions/src/handler.ts:72`).
 19. Removing a guild leaves its registered commands in Discord (`discord.controller.ts:111`). Should removal unregister them, or should the UI warn?
-20. Should this leaf's intent be reviewed with the operator? It has no dedicated Discord OpenSpec capability; its requirements derive from code and docs plus fragments of other capabilities.
+20. Should this leaf's intent be reviewed with the operator? Its requirements derive from code and docs rather than from an operator-reviewed requirement set.
 
 ## References
 
 - Arrow doc: `docs/arrows/discord-bot.md`
 - EARS specs: `docs/intent/discord-bot/discord-bot-specs.md`
-- Legacy requirement source: no dedicated Discord OpenSpec capability; the fragments retained from `cost-visibility`, `game-port-visibility` and `pulumi-infra-program` are recorded in `discord-bot-specs.md`.
 - Operator docs: `docs/docs/app/discord.md`, `docs/docs/components/lambdas.md`, `docs/docs/architecture.md`, `docs/docs/setup.md`
 - Invariants: root `CLAUDE.md`, "Invariants that hurt to break"
 - Neighbouring leaves: `docs/intent/game-runtime/task-and-dns/task-and-dns-design.md` (update-dns pending PATCH), `docs/intent/game-runtime/watchdog/watchdog-design.md` (idle stop), `docs/intent/game-runtime/health-check/health-check-design.md` (`secretsStore.ts`), `docs/intent/iac/program/program-design.md` (Lambdas, CloudFront, table, secrets, seed rows), `docs/intent/deployment-config/deployment-config-design.md` (`gameServers`, base allowlist fields), `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md` (IPC transport, validation)

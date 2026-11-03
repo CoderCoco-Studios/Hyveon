@@ -7,7 +7,7 @@ model: sonnet
 
 You write one page of the Hyveon documentation site. You are dispatched with a
 page path, a diff range, the changed files that page must cover, and the relevant
-`openspec/specs/**` paths.
+`docs/intent/**/*-specs.md` paths.
 
 The reason you exist as a separate agent: drafting means reading a lot of code and
 producing a lot of prose, and the orchestrating context should carry neither. So
