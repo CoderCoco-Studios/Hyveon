@@ -148,7 +148,7 @@ Specs: `docs/intent/iac/program/program-specs.md` · Arrow doc: `docs/arrows/iac
 | `IAC-PROGRAM-EFS-004` | b | low | Key `${game}-${volume.name}` re-derived at infra/src/efs.ts:122, ecs.ts:224,229,262, lambdas.ts:739, program.ts:493; GAME_NAME_PATTERN allows '-' (shared/src/gameServerValidator.ts:51) so a-b/c vs a/b-c collides; unlikely names |
 | `IAC-PROGRAM-TLS-002` | b | low | Caddy sidecar still uses floating tag 'caddy:2-alpine' (infra/src/ecs.ts:315) |
 | `IAC-PROGRAM-TOKEN-002` | d | - | program.ts:169-174 rejects every empty hostedZoneName up front, so a zone is mandatory for all deploys; token check (ecs.ts:127-131) only matters for zone ".". Scenario predates mandatory zone; generic error is clearer |
-| `IAC-PROGRAM-LAMBDA-011` | b | high | health-check env is only AWS_REGION_ (infra/src/lambdas.ts:568) but handler does requireEnv('ECS_CLUSTER') at module load (lambda/health-check/src/handler.ts:40); watchdog fails active (watchdog handler.ts:159-163) so games never idle-stop |
+| `IAC-PROGRAM-LAMBDA-011` (CLOSED) | b | high | health-check env is only AWS_REGION_ (infra/src/lambdas.ts:568) but handler does requireEnv('ECS_CLUSTER') at module load (lambda/health-check/src/handler.ts:40); watchdog fails active (watchdog handler.ts:159-163) so games never idle-stop |
 | `IAC-PROGRAM-LAMBDA-012` | b | high | health-check Lambda in public subnets (lambdas.ts:564-567), SG egress only to game ports (securityGroups.ts:295-320), no NAT/VPC endpoints in network.ts; can't reach ECS/Secrets Manager APIs; fail-active, so no idle stop |
 | `IAC-PROGRAM-LAMBDA-016` | b | low | followup/interactions/watchdog/dns-updater Functions (lambdas.ts:431,462,576,643) have no dependsOn on their log groups (:459,:487,:604,:674); only health-check :571 and seeder :773 do |
 | `IAC-PROGRAM-SECRET-005` | c | - | secrets.test.ts:159 only asserts ignoreChanges:['secretString']; a real write-redeploy-assert test needs a live-AWS harness that doesn't exist; ignoreChanges semantics are Pulumi's own |
@@ -197,9 +197,9 @@ Specs: `docs/intent/game-runtime/health-check/health-check-specs.md` · Arrow do
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
 | `RT-HEALTH-HTTP-005` | b | med | lambda/health-check/src/handler.ts:173-179 fetch(`https://<privateIP>`) with default TLS: no SNI/servername, Caddy cert is for {game}.{zone} -> handshake fails -> fail-active, https games never idle-stop |
-| `RT-HEALTH-PROV-003` | b | high | handler.ts:40 requireEnv('ECS_CLUSTER') at load; infra/src/lambdas.ts:568 env only AWS_REGION_ (pinned lambdas.test.ts:832) -> init crash, every health-checked game judged active forever |
+| `RT-HEALTH-PROV-003` (CLOSED) | b | high | handler.ts:40 requireEnv('ECS_CLUSTER') at load; infra/src/lambdas.ts:568 env only AWS_REGION_ (pinned lambdas.test.ts:832) -> init crash, every health-checked game judged active forever |
 | `RT-HEALTH-PROV-004` | b | high | infra/src/lambdas.ts:564-567 public subnets (Lambda ENIs get no public IP), no NAT/VPC endpoints in network.ts; SG egress only game ports (securityGroups.ts:437-452) -> ECS/SM calls cannot leave VPC |
-| `RT-HEALTH-PROV-005` | d | - | test-process wish, not runtime behaviour; handler.test.ts:18 still masks it. Better expressed as an infra test pinning ECS_CLUSTER under PROV-003 (fix lambdas.test.ts:832) |
+| `RT-HEALTH-PROV-005` (CLOSED) | d | - | test-process wish, not runtime behaviour; handler.test.ts:18 still masks it. Better expressed as an infra test pinning ECS_CLUSTER under PROV-003 (fix lambdas.test.ts:832) |
 | `RT-HEALTH-REDACT-004` | b | low | web/src/components/add-game-wizard/health-check-fields.component.tsx:124 timeout FormField has no errors prop (only aria-invalid at :130); message not shown |
 
 ### `wizard-and-bootstrap`
