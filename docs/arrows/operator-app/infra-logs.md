@@ -84,12 +84,6 @@ Both log pages (`/logs` for game servers, `/logs/infrastructure` for Lambdas) sh
 
 ## Spec Coverage
 
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `infra-log-viewer` | 5 | 11 | Log group resolution, recent fetch, page and nested nav appear implemented (`LogsService.ts:594-604,624-639`; `infrastructure-logs.page.tsx`; `app-nav.component.tsx:48-49`). Live Lambda tail deviates: first poll has no `startTime`, so it is not "newly-arriving" only (finding 1). Abort exits cleanly but only after the pending `setTimeout` (finding 3). The game log tail, scroll-back paging, pause buffer and jump-to-latest were never part of that capability and are specified only by the `APP-LOGS` EARS. |
-
-**OpenSpec summary:** The one legacy capability (5 requirements, 11 scenarios) covers only the Lambda half of this leaf.
-
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Log group resolution | `APP-LOGS-GROUP-001` to `APP-LOGS-GROUP-007` | 6 | 0 | 1 |

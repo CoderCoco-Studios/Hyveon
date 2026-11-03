@@ -5,14 +5,13 @@
  * typed `window.hyveon` bridge via `contextBridge` so the renderer can call
  * into the main process over IPC without any direct access to Node or
  * Electron internals — this is the app's only surface, and it never opens an
- * HTTP transport (see `openspec/specs/desktop-only-operator-surface`).
+ * HTTP transport.
  *
  * Channel naming convention: `<namespace>.<action>`
  *
  * There is no bearer token, no `fetch`, and no API base URL anywhere in this file — the desktop
  * app has no HTTP transport at all. `desktop-main` is an Electron IPC microservice; every call
- * crosses the `contextBridge` above, never a network socket. See
- * `openspec/specs/desktop-only-operator-surface`.
+ * crosses the `contextBridge` above, never a network socket.
  *
  * ## Streaming channels and the contextBridge clone boundary
  *

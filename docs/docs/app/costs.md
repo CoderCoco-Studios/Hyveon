@@ -21,8 +21,7 @@ this page.
 AWS Cost Explorer bills $0.01 per `GetCostAndUsage` request. Earlier versions
 of this page called it automatically on every page load and range-selector
 toggle, silently charging the operator's AWS bill. That call chain has been
-removed end-to-end — see `openspec/changes/remove-cost-explorer-calls` for the
-full rationale. The estimates below are computed from each game's ECS task
+removed end-to-end. The estimates below are computed from each game's ECS task
 definition (`DescribeTaskDefinition`, not a billed API) and are always free.
 
 ## See real billed spend

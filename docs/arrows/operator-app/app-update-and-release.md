@@ -74,15 +74,6 @@ Implemented end to end (release workflow → GitHub release feed → electron-up
 
 ## Spec Coverage
 
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| `auto-update-scaffold` | 7 | 24 | Implemented. Its flag-gating wording contradicts its on-demand check requirement (Finding 1). Includes the update-feed fallback requirement. |
-| `auto-update-scaffold` (download and install) | 2 | 10 | Implemented (`updater.ts:197-265`, `iac-settings.controller.ts:291-320`, `settings.page.tsx:215-245`). |
-| `release-automation` | 6 | 16 | Implemented in `release.yml`, `cliff.toml`, `publish-release`. Code diverges on explicit `to` (Finding 6) and on the AI-failure body shape (Finding 7). |
-| `install-and-signing-docs` | 3 | 5 | Carried here, but its three subject files (`install.md`, `code-signing-roadmap.md`, `README.md`) sit under index `unmapped.docs`. Files exist; README Install link at `README.md:40`; roadmap documents `hardenedRuntime: false` (`code-signing-roadmap.md:29-38`). |
-
-**OpenSpec summary:** every requirement above is carried by the EARS specs.
-
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Boot-time update check | `APP-UPDATE-BOOT-001` to `APP-UPDATE-BOOT-006` | 6 | 0 | 0 |

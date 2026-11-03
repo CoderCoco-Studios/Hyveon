@@ -100,8 +100,7 @@ export interface SaveWizardStateInput {
 
 // @spec APP-WIZARD-BOOT-015
 /**
- * IPC-only controller for the first-run wizard (see
- * `openspec/changes/add-first-run-wizard`). Every handler is a plain
+ * IPC-only controller for the first-run wizard. Every handler is a plain
  * request/response `@MessagePattern` — no HTTP routes, and no streaming
  * side-channels of its own (the wizard's one streaming step reuses the
  * already-shipped `iac.stack.initialize` channel instead of adding a second

@@ -20,7 +20,7 @@ export interface CostEstimates {
 /**
  * Produces the numbers that back the Costs page: static Fargate estimates
  * derived from each game's task-definition CPU/memory. The app makes no AWS
- * Cost Explorer API calls — see `openspec/changes/remove-cost-explorer-calls`.
+ * Cost Explorer API calls.
  */
 @Injectable()
 export class CostService {

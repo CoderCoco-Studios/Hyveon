@@ -10,8 +10,7 @@ import { test, expect, stubApis } from '../fixtures/index.js';
  * The nested Logs sidebar group's child links are labelled `Game Logs` and
  * `Infra Logs` (not `Games`/`Infrastructure`) specifically to avoid colliding
  * with the accessible names of the pre-existing top-level Configuration
- * section's `Games` (`/games`) and `Infrastructure` (`/iac`) links — see
- * `openspec/changes/add-infra-log-viewer/design.md` D3.
+ * section's `Games` (`/games`) and `Infrastructure` (`/iac`) links.
  */
 test.describe('infrastructure logs page', () => {
   // @spec APP-LOGS-NAV-001

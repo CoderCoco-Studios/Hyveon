@@ -80,11 +80,6 @@ Start and stop a game's container on demand, publish its address in DNS while it
 - `helper-task`: app/packages/desktop-main/src/services/Ec2Service.ts (ENI and security-group ingress helper; injected into `EcsService`, unused there; `FileManagerService` is its real consumer), Ec2Service.test.ts.
 - `operator-app/ipc-bridge`: app/packages/desktop-preload/src/hyveon-api.ts, app/packages/web/src/api.service.ts (renderer-side `GameStatus`/`CostEstimates` shapes).
 
-### OpenSpec sources
-- `cost-visibility` capability (carried; the Cost Explorer removal and per-game cost tag work behind it are shipped).
-- `in-task-tls-termination` capability (cited: requirement "HTTPS games use the Lambda-managed DNS lifecycle" only; the rest belongs to `iac/program`).
-- No in-flight change maps to this leaf.
-
 ## Architecture
 
 **Purpose:** Turn the operator's Start/Stop click into an ECS `RunTask`/`StopTask` against the game's `{game}-server` task definition (no persistent ECS Service), keep `{game}.{domain}` pointed at the running task's public IP through a Lambda rather than the infra program, poll status into the dashboard, and estimate Fargate cost from task-definition CPU/memory without ever calling Cost Explorer.
@@ -103,11 +98,6 @@ Start and stop a game's container on demand, publish its address in DNS while it
 11. `AwsModule` (app/packages/desktop-main/src/modules/aws.module.ts) — provides `Ec2Service`, `EcsService`, `LogsService`, `CostService`, `SchedulerService`, `PublicIpService`, `FileManagerService` `:48`.
 
 ## Spec Coverage
-
-| OpenSpec capability | requirements | scenarios | notes |
-|---|---|---|---|
-| cost-visibility | 6 | 15 | Carried. No Cost Explorer client or `GetCostAndUsage` anywhere in `app/packages`. Both RunTask paths set `propagateTags` (`AwsCloudProvider.ts:441`, `followup/handler.ts:136`). The `Game` tag scenarios are satisfied in `iac/program`, not here. The wizard live-estimate scenarios are satisfied in `game-server` (`estimateFargateHourlyCost`). |
-| in-task-tls-termination | 1 of 6 cited | 2 | Cited: "HTTPS games use the Lambda-managed DNS lifecycle". update-dns has one path for every game (`handler.ts:217-240`); no `elasticloadbalancing`, `ALB_TARGET_GROUPS` or `HTTPS_GAMES` in Lambda or infra sources. |
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|

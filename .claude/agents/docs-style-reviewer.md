@@ -49,7 +49,7 @@ resembled a known-bad signature defeats the whole point of this review.
   weak documentation even when every sentence is true.
 - Heading hierarchy is sane and skimmable; no orphan `###` under a missing `##`.
 - Voice matches the neighbouring pages rather than introducing a new register.
-- Content that belongs elsewhere: OpenSpec requirement wording copied into docs,
+- Content that belongs elsewhere: EARS requirement wording copied into docs,
   or workflow rules that belong in `CLAUDE.md`. Flag the duplication and where it
   belongs.
 

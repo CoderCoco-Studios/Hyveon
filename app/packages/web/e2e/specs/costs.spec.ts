@@ -15,7 +15,7 @@ import { CostsPage } from '../pages/index.js';
  * navigates to `/costs` via history injection (`CostsPage.gotoElectron`).
  *
  * The app makes no AWS Cost Explorer API calls — there is no `costs.actual`
- * channel any more (see `openspec/changes/remove-cost-explorer-calls`).
+ * channel any more.
  *
  * Filter / sort exercises pass `MULTI_GAME_COST_DATA` so the table has more
  * than one row to interact with; the default `COST_DATA` only contains
