@@ -125,6 +125,42 @@ describe('scrubSecrets', () => {
       );
     });
 
+    // @spec APP-DIAG-SCRUB-003
+    it.each([1, 2, 3, 4])('should redact a labeled value under %i layer(s) of JSON.stringify nesting', (depth) => {
+      let line = JSON.stringify({ botToken: SECRET });
+      for (let i = 1; i < depth; i++) line = JSON.stringify({ message: line });
+
+      const result = scrubSecrets(line);
+
+      expect(result).not.toContain(SECRET);
+      expect(result).toContain('[REDACTED]');
+    });
+
+    // @spec APP-DIAG-SCRUB-003
+    it('should redact the review-reported triple-nested payload', () => {
+      const line = JSON.stringify({ message: JSON.stringify({ payload: JSON.stringify({ botToken: SECRET }) }) });
+
+      expect(scrubSecrets(line)).not.toContain(SECRET);
+    });
+
+    // @spec APP-DIAG-SCRUB-003, APP-DIAG-SCRUB-004
+    it('should leave unlabeled and short values untouched under deep nesting', () => {
+      const neighbour = 'abcdefghijklmnopqrstuvwxyz0123';
+      const inner = JSON.stringify({ id: neighbour, apiKey: 'short', tokenCount: '12' });
+      const line = JSON.stringify({ message: JSON.stringify({ payload: inner }) });
+
+      expect(scrubSecrets(line)).toBe(line);
+    });
+
+    // @spec APP-DIAG-SCRUB-003
+    it('should not backtrack catastrophically on a long run of backslashes after a label', () => {
+      const line = `token${'\\'.repeat(50_000)}x${'"'.repeat(1000)}`;
+      const start = performance.now();
+
+      expect(scrubSecrets(line)).toBe(line);
+      expect(performance.now() - start).toBeLessThan(1000);
+    });
+
     // @spec APP-DIAG-SCRUB-003, APP-DIAG-SCRUB-004
     it('should leave a short JSON-quoted labeled value untouched', () => {
       const line = '{"apiKey":"short","tokenCount":"12"}';
