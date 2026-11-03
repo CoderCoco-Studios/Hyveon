@@ -233,3 +233,38 @@ describe('FollowupLambda: list', () => {
     expect(body.content).toMatch(/don't have permission/);
   });
 });
+
+describe('FollowupLambda: failure handling', () => {
+  // @spec DISCORD-RUN-010
+  it('should still PATCH an error reply when the effective-config read throws', async () => {
+    getEffectiveDiscordConfigMock.mockRejectedValue(new Error('dynamo down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(handler(baseEvent('status', 'palworld'))).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    expect(body.content).toMatch(/Command failed/);
+  });
+
+  // @spec DISCORD-RUN-010, DISCORD-RUN-014
+  it('should resolve without throwing when the final PATCH rejects', async () => {
+    ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
+    fetchMock.mockRejectedValue(new Error('network down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(handler(baseEvent('status', 'palworld'))).resolves.toBeUndefined();
+  });
+
+  // @spec DISCORD-RUN-011
+  it('should never write the interaction token to the logs on a handler failure', async () => {
+    getEffectiveDiscordConfigMock.mockRejectedValue(new Error('dynamo down'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const event = { ...baseEvent('status', 'palworld'), interactionToken: 'SECRET-TOKEN-xyz' };
+
+    await handler(event);
+
+    expect(errorSpy).toHaveBeenCalled();
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('SECRET-TOKEN-xyz');
+  });
+});

@@ -117,8 +117,13 @@ Failure modes:
 - DynamoDB write fails (for `start`) → logged, PATCH still happens so user
   sees "starting"; but update-dns won't later PATCH with the final IP
   because the pending row doesn't exist.
-- Discord PATCH fails (stale token, network) → logged; user's deferred
-  message is not edited.
+- Config read fails (or any other step throws) → the handler still PATCHes
+  a generic "Command failed" reply, so the invocation never errors and
+  Lambda's async retry does not re-run it.
+- Discord PATCH fails (stale token, network) → logged and swallowed; user's
+  deferred message is not edited.
+- Logs carry `kind`, `game`, `guildId` and the error message only, never
+  the event: it holds the interaction token, a 15-minute webhook credential.
 
 ## update-dns
 
