@@ -31,7 +31,7 @@ CLAUDE.md invariants that live here:
 - **Watchdog state lives in ECS task tags**, not DynamoDB or SSM. Holds: the only state read or written is the `idle_checks` tag (`handler.ts:148-162`).
 - **DNS records are Lambda-managed** by update-dns, never by the watchdog. Holds: the handler has no Route 53 client (`handler.ts:19-39`).
 - **Lambda env vars use `AWS_REGION_`.** Holds: `region()` reads `AWS_REGION_` first (`handler.ts:53-61`) and the infra program sets it (`lambdas.ts:578`).
-- **TLS terminates in-task; no ALB.** Holds: no ELBv2 call in the handler and no `elasticloadbalancing` grant in the watchdog policy (`iam.ts:445-457`), as `openspec/specs/in-task-tls-termination/spec.md:56` requires.
+- **TLS terminates in-task; no ALB.** Holds: no ELBv2 call in the handler and no `elasticloadbalancing` grant in the watchdog policy (`iam.ts:445-457`), as the in-task TLS invariant requires (no load balancer, target registration or `elasticloadbalancing` grant in any runtime Lambda).
 
 ## Run Lifecycle
 
@@ -68,7 +68,7 @@ Total idle time before shutdown is `watchdogIntervalMinutes * watchdogIdleChecks
 
 ## Verdict Sources
 
-`openspec/specs/game-health-checks/spec.md:12-20` requires that a game with a declared health check is judged by that check alone and every other game by the network-traffic measurement, never a combination. The handler implements this as a single branch on `HEALTH_CHECKS[game]` (`handler.ts:211-228`); tests pin the exclusivity in both directions (`app/packages/lambda/watchdog/src/handler.test.ts:200-227`).
+A game with a declared health check is judged by that check alone and every other game by the network-traffic measurement, never a combination, so an operator reading a log can attribute a shutdown to a single cause. The handler implements this as a single branch on `HEALTH_CHECKS[game]` (`handler.ts:211-228`); tests pin the exclusivity in both directions (`app/packages/lambda/watchdog/src/handler.test.ts:200-227`).
 
 | | CloudWatch heuristic | Health-check invoke |
 |---|---|---|
@@ -93,7 +93,7 @@ Container Insights metrics are billed as CloudWatch custom metrics for the hours
 
 ### Health-check invoke
 
-The watchdog forwards the game's declaration verbatim, including any `auth.secretArn`, and never resolves the secret itself; it holds no `secretsmanager` permission (`iam.ts:445-457`). This boundary is the rationale recorded in `openspec/changes/add-pluggable-health-checks/design.md` ("Verdict routing lives in the watchdog, keyed by an env-var map").
+The watchdog forwards the game's declaration verbatim, including any `auth.secretArn`, and never resolves the secret itself; it holds no `secretsmanager` permission (`iam.ts:445-457`). An ARN is a reference, not a credential, so the watchdog gains no new network reach or credential-value access; only the health-check Lambda resolves the secret and issues the request (`health-check-design.md`, Decisions: "How the watchdog learns opt-ins").
 
 Fail-active is applied at the watchdog layer as well as inside the health-check Lambda, because the most important failure (the function absent or unreachable) is one where no lower layer runs (`handler.ts:104-112`; same design.md, "Fail-active is implemented at every layer"). This satisfies `game-health-checks/spec.md:152-158`. A failure-derived verdict is logged twice at warn level, once in `invokeHealthCheck` (`handler.ts:141`) and once in the loop (`:219-221`), which is how the watchdog meets the "distinguishable severity" clause of `spec.md:292-301`.
 
@@ -128,8 +128,8 @@ Operator-side validation is positive-integer only for the three tunables (`app/p
 
 ### Where documentation diverges
 
-- `docs/docs/app/settings.md:250` says DNS TTL applies to "records the watchdog Lambda writes"; the watchdog writes no DNS records. This contradicts `openspec/specs/operator-documentation/spec.md:57`.
-- `openspec/specs/desktop-only-operator-surface/spec.md:44,51-54` has `ConfigService` reading and writing watchdog tunables in `server_config.json`; no such code exists, and the tunables live in `deployment-config.json` (`deploymentConfig.ts:240-242`).
+- `docs/docs/app/settings.md:250` says DNS TTL applies to "records the watchdog Lambda writes"; the watchdog writes no DNS records. Documentation must not describe the watchdog as deleting DNS records; update-dns owns every DNS write.
+- `watchdog-panel.component.tsx:4` still names `server_config.json` as history; the tunables live in `deployment-config.json` (`deploymentConfig.ts:240-242`) and `ConfigService` has no watchdog code.
 
 ## Decisions & Alternatives
 
@@ -139,10 +139,10 @@ Operator-side validation is positive-integer only for the three tunables (`app/p
 | Who deletes DNS on idle stop | update-dns, via the `STOPPED` event | watchdog deletes the record before `StopTask` | Stated in `handler.ts:13-17`: deleting first would orphan a running task if `StopTask` failed. |
 | Default idle signal | Container Insights `NetworkRxBytes` per `{game}-server` family, `Average` over one window, compared with `MIN_BYTES_PER_SECOND` | `AWS/EC2` `NetworkPacketsIn` by ENI; a mandatory health check for every game; VPC Flow Logs on the task ENI | `AWS/EC2` per-ENI metrics are never published for Fargate tasks, so that source returns no data. A mandatory health check gives the most accurate signal at no AWS cost, but most game servers expose no HTTP status endpoint, so every game would need an adapter. Flow Logs work for any protocol but aggregate over 1 to 10 minutes, add log ingestion cost that grows with game traffic, and need a parsing step. Container Insights works for any protocol from metrics the platform already collects, at a cost proportional to game-hours. |
 | Behaviour on missing or failed metrics | fail-active | treat as idle, skip task | A brand-new task has no datapoints yet and must not be stopped. |
-| Game-aware liveness | separate, conditionally provisioned health-check Lambda invoked synchronously | check inside the watchdog; one Lambda per game | `add-pluggable-health-checks/design.md` "A separate Lambda rather than checking inside the watchdog": keeps VPC access and secrets out of the function every shutdown depends on. |
-| How the watchdog learns which games opted in | `HEALTH_CHECKS` JSON env var built at apply time | read `DeploymentConfig` from S3 at runtime; always invoke and let health-check decide | Same design.md, "Verdict routing lives in the watchdog": avoids S3 access and an unconditional network hop. |
-| Combining verdict sources | exactly one source per game | combine packets and health check | `game-health-checks/spec.md:17-20`: one source so an operator can read why a server stopped. |
-| Fail-active on failed invoke | handled in the watchdog too | rely on the health-check Lambda | design.md "Fail-active is implemented at every layer"; `handler.ts:104-112`. |
+| Game-aware liveness | separate, conditionally provisioned health-check Lambda invoked synchronously | check inside the watchdog; one Lambda per game | Giving the watchdog a `vpcConfig`, game-network egress and `GetSecretValue` for every opted-in credential would widen the blast radius of the one function every shutdown depends on and add ENI cold-start latency to a tight schedule; a Lambda per game multiplies functions and roles for an identically shaped check. Full rationale: `health-check-design.md`, Decisions: "Where the check runs". |
+| How the watchdog learns which games opted in | `HEALTH_CHECKS` JSON env var built at apply time | read `DeploymentConfig` from S3 at runtime; always invoke and let health-check decide | Avoids giving the watchdog S3 access and an unconditional network hop in every deployment (`health-check-design.md`, Decisions: "How the watchdog learns opt-ins"). |
+| Combining verdict sources | exactly one source per game | combine packets and health check | One source so an operator can read why a server stopped. |
+| Fail-active on failed invoke | handled in the watchdog too | rely on the health-check Lambda | The absent or unreachable function is the failure where no lower layer runs, so each layer handles its own failure mode (`health-check-design.md`, "Fail-active Layering"; `handler.ts:104-112`). |
 | Verdict type sharing | local duplicate `HealthCheckInvokeResult` | import from `@hyveon/lambda-health-check` | `handler.ts:67`: keeps the two Lambda packages independently deployable. |
 | Which tasks are eligible | `{game}-server` families from `GAME_NAMES` | tag-based selection, all tasks in cluster | `[inferred]`: the family naming convention is already the cross-package contract (`env.ts:51-63`); excludes helper tasks for free. |
 | Check window vs schedule | one tunable drives both `CHECK_WINDOW_MINUTES` and the rate | separate tunables | `[inferred]`: each run looks back exactly one interval, so windows neither overlap nor leave gaps. |
@@ -154,14 +154,14 @@ Operator-side validation is positive-integer only for the three tunables (`app/p
 
 ### Resolved
 
-1. Routing, fail-active layering, and secret-handling boundary for health-checked games: resolved by `openspec/changes/add-pluggable-health-checks/design.md` and shipped in `handler.ts:104-144,211-228`.
+1. Routing, fail-active layering, and secret-handling boundary for health-checked games: resolved as `health-check-design.md` Decisions record and shipped in `handler.ts:104-144,211-228`.
 
 ### Deferred
 
 1. Should `DescribeTasks` be chunked into batches of 100 so a cluster with more than 100 RUNNING tasks does not fail the run (`handler.ts:200`)?
 2. Should `StopTask` be wrapped per task so one failure does not abort evaluation of the remaining tasks (`handler.ts:239-245`)?
-3. How should health-check time be bounded per run? Sequential `RequestResponse` invokes against a 30 s health-check timeout (`lambdas.ts:547`) can exceed the watchdog's 60 s timeout (`lambdas.ts:568`) with two hung checks (`handler.ts:203-255`).
-4. Should `openspec/specs/desktop-only-operator-surface/spec.md:44,51-54` drop the `server_config.json` watchdog scenario, and `watchdog-panel.component.tsx:4` its historical reference?
+3. How should health-check time be bounded per run? Sequential `RequestResponse` invokes against a 30 s health-check timeout (`lambdas.ts:563`) can exceed the watchdog's 60 s timeout (`lambdas.ts:584`) with two hung checks (`handler.ts:203-255`).
+4. Should `watchdog-panel.component.tsx:4` drop its historical `server_config.json` reference?
 5. Should `docs/docs/app/settings.md:250` stop attributing DNS writes to the watchdog, 
 6. Should the now-unused `ec2:DescribeNetworkInterfaces` grant (`iam.ts:452`) be dropped, and are the `@aws-sdk/client-route-53` and `@smithy/core` devDependencies in `app/packages/lambda/watchdog/package.json` used?
 7. Should the `AWS_REGION_` fallback chain (`handler.ts:53-61`) move into one shared helper used by every Lambda?
@@ -177,7 +177,5 @@ Operator-side validation is positive-integer only for the three tunables (`app/p
 
 - Arrow doc: `docs/arrows/game-runtime/watchdog.md`
 - EARS specs (future): `docs/intent/game-runtime/watchdog/watchdog-specs.md`
-- OpenSpec fragments carried: `openspec/specs/game-health-checks/spec.md`, `openspec/specs/in-task-tls-termination/spec.md`, `openspec/specs/operator-documentation/spec.md`, `openspec/specs/desktop-only-operator-surface/spec.md`
-- OpenSpec design rationale: `openspec/changes/add-pluggable-health-checks/design.md`
 - Docs pages: `docs/docs/components/lambdas.md` (watchdog section), `docs/docs/architecture.md` (control loops, invariant 7), `docs/docs/guides/user.md` ("When the watchdog will stop you"), `docs/docs/app/settings.md`, `docs/docs/guides/maintainer.md` (watchdog state in task tags)
 - Neighbouring leaf designs: `docs/intent/game-runtime/health-check/health-check-design.md`, `docs/intent/game-runtime/task-and-dns/task-and-dns-design.md`, `docs/intent/iac/program/program-design.md`, `docs/intent/deployment-config/deployment-config-design.md`

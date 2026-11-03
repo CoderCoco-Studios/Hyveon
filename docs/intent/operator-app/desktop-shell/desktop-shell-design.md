@@ -7,7 +7,7 @@ prefix: APP-SHELL
 
 ## Context and Design Philosophy
 
-Hyveon's operator surface is a single Electron window; there is no web console and no HTTP API (`openspec/specs/desktop-only-operator-surface`, CLAUDE.md "The desktop app has no HTTP transport").
+Hyveon's operator surface is a single Electron window; there is no web console and no HTTP API (APP-IPC-XPORT-001, CLAUDE.md "The desktop app has no HTTP transport").
 This leaf exists to give the operator that one window: start Electron, build the Nest container every IPC controller lives in, open a `BrowserWindow` whose title bar is the app's own header, gate the renderer on the first-run wizard, and then render a routed shell (sidebar, top bar, Settings) on top of an app-wide polling registry.
 
 The leaf owns six strands:
@@ -78,7 +78,7 @@ Every store receives a lazy resolver closure rather than a resolved config, so t
 
 ## Window Chrome
 
-The title bar is the app's own header on every platform, with each OS keeping its native control convention (`openspec/specs/custom-title-bar/spec.md`; archived design `2026-08-14-add-custom-title-bar/design.md` D1-D7).
+The title bar is the app's own header on every platform, with each OS keeping its native control convention (APP-SHELL-CHROME-001 to APP-SHELL-CHROME-014; the choices are in Decisions & Alternatives).
 
 | Platform | `BrowserWindow` options (`electron-entry.ts:104-117`) | Window controls | Renderer reservation |
 |---|---|---|---|
@@ -128,7 +128,7 @@ Once past the gate, `App` renders `PollingProvider` > `GameStatusProvider` > `Ha
 | `/settings` | `SettingsPage` | Configuration > Settings (`:58`) |
 | `/games/:name`, `/games/:name/files`, `/iac/history`, `/iac/history/:runId` | detail pages | none (reached from their parent page) |
 
-Every top-level route has a sidebar entry, which satisfies the `desktop-only-operator-surface` requirement "Every routed screen is reachable from the sidebar". Active state is exact-or-prefix for top-level items (`app-nav.component.tsx:90,110`) and exact for the log children (`:102`). For Dashboard the prefix test is `startsWith('//')`, which never matches, so Dashboard is active only on `/`; the outcome is right but the expression is accidental, and the Monitoring list indexes `monitoringItems[0]` and `[1]` by position (`:87-113`).
+Every top-level route has a sidebar entry, which satisfies APP-SHELL-NAV-003. Active state is exact-or-prefix for top-level items (`app-nav.component.tsx:90,110`) and exact for the log children (`:102`). For Dashboard the prefix test is `startsWith('//')`, which never matches, so Dashboard is active only on `/`; the outcome is right but the expression is accidental, and the Monitoring list indexes `monitoringItems[0]` and `[1]` by position (`:87-113`).
 
 `AppLayout` (`app-layout.component.tsx:18-125`) renders a 240 px desktop sidebar (`hidden md:flex w-60`, `:57`) and an always-mounted mobile drawer that is open only while `menuOpenForPath` equals the current path, so navigation closes it without an effect (`:21-26,98-125`). The brand block markup is duplicated between sidebar and drawer (`:77-82`, `:108-113`) and reads "Game Servers", while the top bar heading reads "Hyveon" (`app-topbar.component.tsx:112`).
 
@@ -177,11 +177,11 @@ The icon pipeline is a build-time script: `npm run icons:generate` (root `packag
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
 | Native dialogs | One `NativeDialogService` in a standalone `NativeDialogModule` | Each consumer lazily requires `electron` itself (the earlier `DiagnosticsController.showSaveDialog` pattern) | Shared, guarded import for every dialog consumer (`native-dialog.module.ts:4-7`, `NativeDialogService.ts:11-14`). |
-| Title bar placement | Merge into the existing top header | Separate ~32 px strip above the header | Saves vertical space for dashboards and logs (archived `add-custom-title-bar/design.md` D1). |
-| macOS window controls | Native traffic lights repositioned into the header, re-positioned at runtime across the 768 px breakpoint and on zoom | App-drawn buttons on every platform | Matches macOS expectations and keeps OS zoom, hover and accessibility behaviour (D2). |
-| Windows and Linux controls | Native `titleBarOverlay` on Windows; app-drawn buttons on Linux | One shared custom button set on both | Keeps the Windows 11 snap flyout; Linux app-drawn for implementation simplicity, native overlay left to a future change (D3). |
-| Window IPC shape | `WindowController`/`WindowService` with four request/response channels plus a `window.maximizedChange` push | Raw `ipcMain.handle` in `electron-entry.ts`; separate maximize/unmaximize channels | Keeps the single controller pattern and the log-on-entry rule; `toggleMaximize` spares the renderer from tracking state (D4, D5). |
-| Platform detection in the renderer | Preload exposes `platform` from `process.platform`; renderer feature-detects `window.hyveon?.window` | IPC round-trip for platform; build-time `IS_ELECTRON` flag | Platform is static per session; one bundle serves Electron and the chromium e2e tier (D6, D7). |
+| Title bar placement | Merge into the existing top header | Separate ~32 px strip above the header | Saves vertical space for dashboards and logs, and the header already carries the branding most of a title bar needs; a separate strip is cleaner in separation of concerns but costs a second UI row in an app whose main content already competes for height. |
+| macOS window controls | Native traffic lights repositioned into the header, re-positioned at runtime across the 768 px breakpoint and on zoom | App-drawn buttons on every platform | Matches macOS expectations and keeps double-click-to-zoom, hover states and accessibility the OS already provides. `trafficLightPosition` is relative to the whole window, whose top-left corner is the 240 px sidebar, so the x offset is 240 plus a 12 px inset; below the 768 px breakpoint the sidebar is hidden, and because the option is constructor-time only, `electron-entry.ts` re-positions the buttons at runtime on `resize`. |
+| Windows and Linux controls | Native `titleBarOverlay` on Windows; app-drawn buttons on Linux | One shared custom button set on both | Keeps the Windows 11 snap flyout; Linux app-drawn for implementation simplicity, native overlay left to a future change. `titleBarOverlay` is the least code for the most native fidelity on Windows, a primary target; fully custom buttons on both would forfeit the snap flyout for no benefit. Linux visibly differs from the OS-native platforms, which mirrors Electron's capabilities rather than fighting them. |
+| Window IPC shape | `WindowController`/`WindowService` with four request/response channels plus a `window.maximizedChange` push | Raw `ipcMain.handle` in `electron-entry.ts`; separate maximize/unmaximize channels | Keeps the single controller pattern and the log-on-entry rule; `toggleMaximize` spares the renderer from tracking state, since `WindowService` asks the `BrowserWindow` itself and toggles. A bespoke `ipcMain.handle` outside the controller pattern would be the only one in the codebase and would skip the log-on-entry rule. The `window.maximizedChange` push keeps the Linux maximize/restore icon correct when state changes by double-clicking the header or an OS snap. |
+| Platform detection in the renderer | Preload exposes `platform` from `process.platform`; renderer feature-detects `window.hyveon?.window` | IPC round-trip for platform; build-time `IS_ELECTRON` flag | Platform is static per session; one bundle serves Electron and the chromium e2e tier, which runs against a plain `vite preview` server with no `window.hyveon`. The preload already runs in Node, so a round-trip for a static value would be pure overhead. A build-time flag would need a second Vite config path the e2e project lacks, and the codebase has no precedent for build-time Electron/browser branching. |
 | Router | `HashRouter` | `BrowserRouter` | `BrowserRouter` fails to match routes under a Windows `file://` drive-letter path (`app.component.tsx:72-78`). |
 | First-run gate failure policy | Fail open: skip the wizard when the bridge is missing or `getState()` rejects | Fail closed (show the wizard or an error) | A failed IPC call must never lock a working install out of its dashboard (`app.component.tsx:22-26`). |
 | Application menu | `Menu.setApplicationMenu(null)` | Electron's default File/Edit/View/Window menu | Single-purpose operator console with no document actions (`electron-entry.ts:206-207`). |
@@ -189,15 +189,17 @@ The icon pipeline is a build-time script: `npm run icons:generate` (root `packag
 | Cloud binding seam | `CLOUD_BINDINGS` registry keyed by `getActiveCloud()`, factories receive lazy config resolvers | Inject concrete AWS classes directly | Adding a cloud is one registry entry, not a call-site hunt (`cloud-provider.module.ts:186-192,228-240`); lazy resolvers let the container build before any stack exists `[inferred]`. |
 | Polling model | One app-wide named-poller registry with split action/state contexts and a shared 1 Hz heartbeat | Per-component `setInterval` | Avoids per-consumer timers and re-render storms (`polling-provider.component.tsx:34-38,210-215`); global Refresh-all and the LIVE pill need one registry `[inferred]`. |
 | Staleness threshold | 2 x interval without success | Fixed wall-clock threshold | Scales with each poller's cadence `[inferred]`; the 2x factor itself is undocumented (`polling-provider.component.tsx:66`). |
-| Overlay colours and traffic-light geometry | Hard-coded literals in `electron-entry.ts` matched by hand to `index.css` and Tailwind classes | Read from the renderer at runtime | "No runtime theme switching yet" (`electron-entry.ts:98-100`). |
+| Overlay colours and traffic-light geometry | Hard-coded literals in `electron-entry.ts` matched by hand to `index.css` and Tailwind classes | Read from the renderer at runtime | "No runtime theme switching yet" (`electron-entry.ts:98-100`). The overlay colour and height must stay in sync with the header's CSS or the native Windows buttons clash with the custom header. |
+| Drag-region scoping | `no-drag` on every interactive header child | A drag region without exclusions | `-webkit-app-region: drag` swallows clicks aimed at interactive children (nav toggle, Refresh, LIVE pill, avatar) unless each is explicitly excluded. |
+| Title-bar configurability | One-way visual change | A preference to opt back into the OS-default title bar; app-specific menu content | The app has exactly one `BrowserWindow`; no theming option or menu replacement is in scope. |
 | Settings page composition | Host page rendering sections owned by other leaves; update rows call `window.hyveon.iac.settings` directly | Route every call through `api.*`; one component per section owning its own bridge calls | Unknown; direct calls predate or bypass the facade `[inferred]`. |
 
 ## Open Questions & Future Decisions
 
 ### Resolved
 
-1. ✅ Windows `titleBarOverlay` height: 56 px, matching the header's `h-14` (archived `add-custom-title-bar/design.md` Open Questions; implemented at `electron-entry.ts:113`).
-2. ✅ Linux button glyphs: `lucide-react` `Minus`, `Square`/`Copy`, `X` (same Open Questions; `window-chrome.component.tsx:2,96-116`).
+1. ✅ Windows `titleBarOverlay` height: 56 px, matching the header's `h-14` (`electron-entry.ts:113`).
+2. ✅ Linux button glyphs: `lucide-react` `Minus`, `Square`/`Copy`, `X`, for consistency with the rest of the app's icon set (`window-chrome.component.tsx:2,96-116`).
 3. ✅ Region source for the cloud bindings: every store resolves its region through `config.getRegion()`, never `outputs.awsRegion`, because an install has one region (`IAC-ENGINE-REGION-002`; `docs/high-level-design.md`, decision 10).
 
 ### Deferred
@@ -211,7 +213,7 @@ The icon pipeline is a build-time script: `npm run icons:generate` (root `packag
 7. Pre-apply run lock: `cloud-provider.module.ts:174-175` lets `AwsRunRecordStore` resolve its table before the first apply, but whether `RunService` takes the lock pre-apply is open in `iac/run`. Is the store-side fallback sufficient?
 8. Should the secrets-store binding resolve credentials once per call instead of twice (`cloud-provider.module.ts:199-200`)?
 9. Test gaps: `resolveDiscordConfigStoreConfig` has no test in `cloud-provider.module.test.ts`, and `electron-entry.test.ts` asserts neither the external-link redirect nor the `zoom-changed` re-position. Should they be covered?
-10. Stale comments: `app.module.ts:43-53` (engine module "no controller yet", missing `FolderUploadModule`, `NativeDialogModule`, `VolumeFilesModule`, `VolumeFilesApiModule`), `polling-provider.component.tsx:256` (`tick` vs `now`), `window-chrome.component.tsx:7` (cites archived design "(D2)"), `electron-clean-quit.spec.ts:11-14` (says `@cdktf/hcl2json` is still external). Fix in place?
+10. Stale comments: `app.module.ts:43-53` (engine module "no controller yet", missing `FolderUploadModule`, `NativeDialogModule`, `VolumeFilesModule`, `VolumeFilesApiModule`), `polling-provider.component.tsx:256` (`tick` vs `now`), `window-chrome.component.tsx:7` (cites a design decision "(D2)" from a document that no longer exists), `electron-clean-quit.spec.ts:11-14` (says `@cdktf/hcl2json` is still external). Fix in place?
 11. Duplicate poller names: should `register()` warn or throw instead of silently replacing a same-name poller (`polling-provider.component.tsx:154-157`)? Relatedly, after a same-name re-registration the old run's `finally` clears `inFlight` on the new entry (`:146-148`), which appears able to admit a concurrent fetch `[inferred]`.
 12. Should polling pause while the window is hidden or minimised? No visibility handling exists in `polling-provider.component.tsx`.
 13. Drag regions: collapse the inline `WebkitAppRegion` styles and `useAppRegionStyle` into one mechanism, and rename the helper since it is not a hook (`use-app-region-style.hook.ts:16-18`; `app-layout.component.tsx:51,71-75`; `window-chrome.component.tsx:89`)? The inline `no-drag` styles also skip the bridge check the helper performs.
@@ -220,17 +222,13 @@ The icon pipeline is a build-time script: `npm run icons:generate` (root `packag
 16. Dead and duplicated primitives: remove `dropdown-menu.component.tsx` (no importer) and merge `button.component.tsx`'s `stop` into `destructive` (`:13-14,25-26`)? Sweep-2 also reports the input class string copied into `native-select` and `textarea` `[unverified]`.
 17. Relative-time formatting: `polling-indicator.component.tsx:96-102` has its own formatter separate from `use-log-tail.hook.ts`; should they share one helper (`lib/format.utils.ts`)?
 18. Should the Settings update rows go through the `api.*` facade like the rest of the renderer instead of calling `window.hyveon.iac.settings` directly (`settings.page.tsx:150,161,181,205,222,237`)?
-19. Linux native title bar: the archived design names migrating Linux to Electron's native `titleBarOverlay` as a future change (D3). Is that still planned, and would it retire `WindowControls` and the `window.*` request channels?
+19. Linux native title bar: migrating Linux to Electron's native `titleBarOverlay` is deferred (APP-SHELL-CHROME-012). Is that still planned, and would it retire `WindowControls` and the `window.*` request channels?
 20. Is the decorative "OP" avatar (`app-topbar.component.tsx:122-129`) compatible with "the chrome exposes no non-functional controls"? It is `aria-hidden` and not a control, but it implies an account feature that does not exist.
 
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/desktop-shell.md`
 - EARS specs: `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md`
-- OpenSpec (owned): `openspec/specs/custom-title-bar/spec.md`, `openspec/specs/app-icon/spec.md`
-- OpenSpec (cited, UI-integrity requirements only): `openspec/specs/desktop-only-operator-surface/spec.md`
-- Archived design: `openspec/changes/archive/2026-08-14-add-custom-title-bar/design.md`
-- Active change touching the Settings host: `openspec/changes/add-user-initiated-update-install/` (primary leaf `app-update-and-release`)
 - Rules: `.claude/rules/logging.md`
 - Design system: `app/packages/web/DESIGN.md`, `app/packages/web/src/index.css`
 - Docs pages: `docs/docs/components/management-app.md`, `docs/docs/app/index.md`, `docs/docs/app/settings.md`, `docs/docs/architecture.md`

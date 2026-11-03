@@ -72,10 +72,6 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 - `app/packages/shared/src/errors.ts:82` (`errMessage`), `app/packages/shared/src/types.ts:47` (`RedactedDiscordConfig`).
 - `helper-task`: `app/packages/desktop-main/src/controllers/volume-files.controller.ts` (the only `forwardToWindows` caller, `:105-106`), `app/packages/shared/src/volumeFiles/types.ts` (`VOLUME_FILES_SESSION_CHANNEL` / `VOLUME_FILES_TRANSFER_CHANNEL`, `:96-99`, and the `Volume*` result types the `volumeFiles` namespace carries), and the volume-files tests that call `expectNoSecretFields` / `findSecretFields` (`volume-files.controller.test.ts:292`, `VolumeFilesService.test.ts:526,553,649`, `web/e2e/specs/volume-files*.spec.ts`).
 
-### OpenSpec sources
-- `openspec/specs/preload-bridge-naming/spec.md` (whole capability). No active change.
-- `openspec/specs/desktop-only-operator-surface/spec.md`, transport half only: "Desktop-main exposes no HTTP transport", "Test harnesses do not depend on the removed HTTP surface", "Streamed IPC channels work across the context bridge". The UI-integrity requirements are carried by `operator-app/desktop-shell`; the repo/docs/config requirements are cited from there too. No active change.
-
 ## Architecture
 
 **Purpose:** Give the renderer one typed `window.hyveon` object whose every method crosses Electron's `contextBridge` to an `ipcMain.handle` registration that dispatches into a Nest `@MessagePattern` handler, with errors normalised to a plain cloneable `Error`, streams wrapped so they survive structured clone, no HTTP transport anywhere, and a test-mode mock seam.
@@ -100,7 +96,7 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 
 | OpenSpec capability | requirements | scenarios | notes |
 |---|---|---|---|
-| `preload-bridge-naming` | 3 | 3 | Implemented: `exposeInMainWorld('hyveon', …)` (`preload.ts:686`), `Hyveon*` type names (`index.ts:1-4`), `globals.d.ts` side-effect import, `__test` gated on `HYVEON_TEST_MODE`. Bridge also exposes `folderUpload` and `volumeFiles`, not listed in the scenario's namespace list; the scenario still lists `files`, which the bridge no longer exposes (finding 16). |
+| `preload-bridge-naming` | 3 | 3 | Implemented: `exposeInMainWorld('hyveon', …)` (`preload.ts:686`), `Hyveon*` type names (`index.ts:1-4`), `globals.d.ts` side-effect import, `__test` gated on `HYVEON_TEST_MODE`. The bridge exposes `folderUpload` and `volumeFiles` and no `files` namespace (APP-IPC-NAME-003). |
 | `desktop-only-operator-surface` (transport half) | 3 of 11 | 13 of 31 | No HTTP: no `*-http.controller.ts`, no `express` in `app/packages/desktop-main/package.json`, `createMicroservice` at `main.ts:45`. Streaming: five channels wrapped in `HyveonStreamHandle`. Gaps: "A test guards the real bridge boundary ... with no mock registered" is not met (finding 7); "Cancellation stops the stream" is only true for the per-call style (finding 5). Remaining 8 requirements are carried by `desktop-shell`. |
 
 **OpenSpec summary:** 6 OpenSpec requirements carried, 2 scenarios appear unmet.
@@ -136,8 +132,7 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 13. **Stale counts and references in doc comments**: `stream-bridge.ts:7-13,80` says `createBufferedStream` is called four times (it is five; `preload.ts:45` is right); `preload.ts:362` says "three generators"; `openBufferedStream`'s `@param` (`preload.ts:383`) omits `streamUpdateDownload`; `hyveon-api.ts:2645` shows an `@hyveon/desktop-preload/hyveon-api` import path the `package.json` exports map does not provide; `electron-ipc-roundtrip.spec.ts:10-12` cites a preload invoke timeout that does not exist; "tfstate" wording in `hyveon-api.ts:464-478,697-716,2143,2668`.
 14. **Secrets-to-renderer invariant now holds without exception**: Discord and health-check secrets cross only as `botTokenSet` / `publicKeySet` / `secretSet` booleans (`hyveon-api.ts:238-239`). The former `files` namespace, whose `files.start` returned plaintext FileBrowser credentials for one-time display, is gone from `preload.ts`, `hyveon-api.ts` and `api.service.ts`; its replacement `volumeFiles` (`hyveon-api.ts:1570`, `preload.ts:488-526`) returns only session state, listings, text content and transfer ids. The guarantee is enforced by tests only (`expectNoSecretFields` / `findSecretFields`, a regex over keys and string values, `secretFields.ts:2`), not by a runtime check at the bridge.
 15. **Chromium tier fakes `window.hyveon` over a fictional `/api/*` map**: `app/packages/web/e2e/fixtures/hyveon-http-bridge.ts:44` installs an HTTP-forwarding `window.hyveon`; renderer code carries guards that exist only for that stub (`app.component.tsx:34-43`). Consistent with the spec, which keeps the five chromium specs on this shim.
-16. **`preload-bridge-naming` scenario names a namespace that no longer exists**: `openspec/specs/preload-bridge-naming/spec.md:16` lists `files` among the namespaces `window.hyveon` exposes; the bridge object has no `files` key at `5c55a380` (`preload.ts:419-652`), and `volumeFiles` is unlisted. The OpenSpec text needs updating; the bridge itself is correct.
-17. **Dropped files reach main as paths resolved in preload**: `volumeFiles.uploadDropped` maps each renderer `File` through `webUtils.getPathForFile` inside preload (`preload.ts:513-521`) so the renderer never handles local path strings, and the push channel names are string literals in preload because the sandboxed preload cannot load `@hyveon/shared/volumeFiles` at runtime (`preload.ts:143-148`); `preload.test.ts:340-341` pins them to the shared constants.
+16. **Dropped files reach main as paths resolved in preload**: `volumeFiles.uploadDropped` maps each renderer `File` through `webUtils.getPathForFile` inside preload (`preload.ts:513-521`) so the renderer never handles local path strings, and the push channel names are string literals in preload because the sandboxed preload cannot load `@hyveon/shared/volumeFiles` at runtime (`preload.ts:143-148`); `preload.test.ts:340-341` pins them to the shared constants.
 
 ## Work Required
 
@@ -148,7 +143,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/ipc-bridge
 2. Route self-bridged `ipcMain.handle` registrations through the same normalisation as the generic bridge, ideally one shared helper instead of nine hand-written registrations (finding 2). (specs: `APP-IPC-ERR-005`)
 
 ### Should Fix
-3. Add one unmocked streaming e2e through the real main process (for example `logs.lambda.stream` or `iac.runs.logs` against a finished run) to satisfy the spec scenario (finding 7). (specs: `APP-IPC-STREAM-011`)
+3. Add one unmocked streaming e2e through the real main process (for example `logs.lambda.stream` or `iac.runs.logs` against a finished run) to satisfy the requirement (finding 7). (specs: `APP-IPC-STREAM-011`)
 4. Decide whether shared-side-channel streams need a main-side cancel, or narrow the cancellation scenario to the per-call style (finding 5). (specs: `APP-IPC-STREAM-009`)
 5. Close the per-call listener-after-ack window, or confirm Electron ordering makes it impossible (finding 6). (specs: `APP-IPC-STREAM-013`)
 6. Replace hand-mirrored preload types with `@hyveon/shared` imports where a shared type exists, starting with `GameServerPort`, `GameServer`, `RedactedDiscordConfig`, `LogChunk` (finding 9). (specs: `APP-IPC-CONTRACT-003`)
@@ -159,4 +154,3 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/ipc-bridge
 9. Add skip-case tests for the four uncovered `SELF_BRIDGED_PATTERNS` entries (finding 12). (specs: `APP-IPC-CALL-010`)
 10. Consolidate the bridge-unavailable strings and decide whether direct `window.hyveon` callers should move behind `api.service.ts` (finding 8). (specs: `APP-IPC-CONTRACT-004`)
 11. Sweep the stale counts and references in finding 13.
-12. Update the `preload-bridge-naming` scenario's namespace list: drop `files`, add `folderUpload` and `volumeFiles` (finding 16).

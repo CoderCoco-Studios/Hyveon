@@ -5,7 +5,7 @@ The app's own winston log, the Settings → Diagnostics live tail and "Export di
 ## Status
 
 **MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
-All five `app-diagnostics-logging` requirements have working code and tests; the main gaps are a log scrubber that misses JSON-shaped secrets, a renderer forwarder that can wedge, and an audit trail with no spec.
+All five `app-diagnostics-logging` requirements have working code and tests; the main gaps are a log scrubber that misses JSON-shaped secrets, a renderer forwarder that can wedge, and an audit trail whose EARS are derived from its code alone.
 
 ## References
 
@@ -80,12 +80,6 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 - `app/packages/shared/src/types.ts:95-98` (`game-runtime/task-and-dns`): `RendererConsoleLevel` / `RendererLogEntry`.
 - `app/packages/desktop-main/src/controllers/iac-settings.controller.ts:235` (`app-update-and-release`): also calls `readAppVersion`.
 
-### OpenSpec sources
-- `openspec/specs/app-diagnostics-logging/spec.md`: main spec, 5 requirements, 22 scenarios. Built from the archived changes `2026-08-10-add-app-logging-debugging`, `2026-08-10-ansi-log-rendering`, `2026-08-14-add-diagnostics-export`, `2026-08-21-remove-log-level-filter`.
-- Active change `add-pinned-hostname` (owned by `game-server`): task 4.0 added `hasPinnedHostname` to the bundle allowlist. Shipped (#692), not synced, unarchived.
-- Active change `embed-file-browser` (owned by `helper-task`): `game-volume-folder-upload` delta asks for an operator-requested stray-helper cleanup "from Diagnostics"; the button is already rendered in this leaf's panel.
-- Audit has no OpenSpec capability.
-
 ## Architecture
 
 **Purpose:** Give the operator (and anyone they send a support bundle to) a local, secret-free record of what the app did: the main-process winston log, renderer errors and console output folded into it, a live tail in Settings, a one-click zip export, and a DynamoDB-backed audit trail of game and IaC mutations.
@@ -108,7 +102,7 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 | OpenSpec capability | requirements | scenarios | notes |
 |---|---|---|---|
 | `app-diagnostics-logging` | 5 | 22 | Console forwarding (5 scenarios), service-layer logging (2), bundle export (6), panel pause/search/autoscroll (5), ANSI rendering (4). ANSI rendering is implemented by `infra-logs` files (`ansi.utils.ts`, `log-line-display.component.tsx`). Service-layer logging is a cross-cutting rule over every `desktop-main/src/services/*.ts`, not just this leaf; `AuditService` itself deviates (findings 7, 8). |
-| (audit trail) | 0 | 0 | No OpenSpec capability; EARS will be authored from code. |
+| (audit trail) | 0 | 0 | No earlier requirement source; EARS are derived from code. |
 
 **OpenSpec summary:** All 5 OpenSpec requirements have implementing code.
 
@@ -133,7 +127,7 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 
 1. **Log scrubber misses JSON-quoted keys**: `LABELED_SECRET_VALUE_PATTERN` (`diagnosticsLogScrubber.ts:15-16`) requires `[:=]` right after the label, so `"botToken":"…"` (production `winston.format.json()`, `logger.ts:37,42`) and `"apiKey": "…"` (dev `devPrintf` meta, `logger.ts:14`) pass through unredacted. Verified by running the regex; the tests (`diagnosticsLogScrubber.test.ts:14-29`) only cover unquoted `label: value` / `label=value`. Short or unlabeled secrets are also not caught (scrubber is defense-in-depth by its own doc, `:18-23`).
 2. **Console forwarder can wedge permanently**: `flush()` returns early while `flushInFlight` is true (`report-renderer-error.utils.ts:98-100`) and only clears it when the IPC promise settles (`:127-137`). A `reportLog` promise that never settles stops all forwarding for the session, contradicting the doc's "or otherwise never resolves ... the batch is requeued" (`:94-95`).
-3. **Effective queue cap is below 200 while a batch is in flight**: `enqueue` drops when `queue.length + inFlightCount >= 200` (`report-renderer-error.utils.ts:68`), so up to 50 entries of headroom are reserved for requeue. This is the intended contract (APP-DIAG-CONS-007); the OpenSpec wording "only once the 200-entry pending-queue cap is already full" is superseded.
+3. **Effective queue cap is below 200 while a batch is in flight**: `enqueue` drops when `queue.length + inFlightCount >= 200` (`report-renderer-error.utils.ts:68`), so up to 50 entries of headroom are reserved for requeue. This is the intended contract (APP-DIAG-CONS-007).
 4. **Global error reporting is not idempotent and disagrees with itself on Error detection**: `installGlobalErrorReporting` has no install guard (`report-renderer-error.utils.ts:165-174`, unlike `installConsoleForwarding` at `:191`), uses `instanceof Error` (`:171-172`) where `formatConsoleArgs` deliberately uses cross-realm `isErrorLike` (`:4-11`), and the flush `setInterval` is never cleared (`:208`).
 5. **ErrorBoundary fallback misses falsy throws and points to a non-existent "Logs" settings section**: `if (this.state.error)` (`error-boundary.component.tsx:55`) re-renders the children when a descendant throws `0`/`''`/`null`; the copy says "Check Settings → Logs" (`:61`) but the section is titled "Diagnostics" (`settings.page.tsx:381`), and the fallback offers no reset or reload action.
 6. **Panel error state hides the export button**: when `diagnostics.tail` fails, `DiagnosticsPanel` returns only an `ErrorBanner` (`DiagnosticsPanel.tsx:43-47`), so `ExportBundleButton` and `StrayHelpersButton` (`:74-76`) disappear exactly when an operator most needs a bundle. The bundle itself treats a log failure as one recoverable section (`DiagnosticsBundleService.ts:123`).
@@ -142,7 +136,7 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 9. **Audit trail outgrew its "game_servers" framing**: IaC entries are recorded with `game: ''`, `before/after: null` (`iac.controller.ts:755,885,1029`), yet `AuditEntry`'s doc (`audit.ts:29-33`), `AuditController`'s doc (`audit.controller.ts:8-11`), and the page subtitle "Who changed which game's configuration" (`audit.page.tsx:84`) still describe only game mutations; IaC rows render an empty Game cell and a null/null diff.
 10. **Audit page shows a polling indicator for a page that never polls**: `<PollingIndicator />` defaults to the global `status` poller (`audit.page.tsx:85`, `polling-indicator.component.tsx:18`) while the page fetches once on mount (`audit.page.tsx:43-61`). The inventory's "error rendered twice" (`audit.page.tsx:89-115`) is refuted: `AsyncContent` shows the error only when the list is empty (`async-content.component.tsx:49`), and the trailing line covers the non-empty "Load more" failure.
 11. **Log directory computed twice**: `main.ts:26` and `app.module.ts:109` each build `path.join(app.getPath('userData'), 'logs')` independently, while `electronRuntime.ts:17` already offers `resolveUserDataPath()`. `readAppVersion` (`app-version.ts:12-21`) likewise re-implements the lazy-require pattern of `electronRuntime.ts` and its doc says it "mirrors `CloudHealthService.readIsPackaged`" (`:5-6`), which now delegates to `electronRuntime.ts` (`CloudHealthService.ts:12`).
-12. **Stale doc pointers**: `DiagnosticsService`'s class doc says "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`; there is no HTTP transport); `DiagnosticsBundleService` cites `openspec/changes/add-diagnostics-export` (`DiagnosticsBundleService.ts:64`), now archived as `2026-08-14-add-diagnostics-export`; `diagnosticsBundle.ts:3` says `DiagnosticsPanel` switches on the result, but `ExportBundleButton` does (`export-bundle-button.component.tsx:41-47`).
+12. **Stale doc pointers**: `DiagnosticsService`'s class doc says "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`; there is no HTTP transport); `DiagnosticsBundleService`'s class doc names a change directory that no longer exists (`DiagnosticsBundleService.ts:64`); `diagnosticsBundle.ts:3` says `DiagnosticsPanel` switches on the result, but `ExportBundleButton` does (`export-bundle-button.component.tsx:41-47`).
 13. **Per-game ECS failures are folded into the snapshot, not `errors.json`**: `gatherAwsSnapshot` models a failed `getStatus` as `{ state: 'error', message }` in `games` (`DiagnosticsBundleService.ts:192-199`); only a whole-section failure reaches `errors.json`. Arguably within the spec ("MAY be incomplete"), but the per-game message is not passed through `scrubSecrets` the way section errors are (`:149`).
 14. **Polling and constants live outside shared seams**: `useDiagnosticsTail` runs its own `setInterval` (`use-diagnostics-tail.hook.ts:83`) instead of the polling registry, and re-fetches the log path every 5 s (`:56`); the 500-line tail is hard-coded in the controller (`diagnostics.controller.ts:50`); `DiagnosticsService.test.ts:17-18` duplicates `TAIL_READ_BYTES`; `AwsAuditLogStore` resolves `getConfig()` twice per operation (`AwsAuditLogStore.ts:65,83`).
 15. **Test hygiene**: `logger.test.ts:16,27,99` builds real `DailyRotateFile` transports under `/tmp`; there is no dedicated test file for `export-bundle-button.component.tsx` or `use-diagnostics-tail.hook.ts` (covered indirectly via `DiagnosticsPanel.test.tsx`); `DiagnosticsPanel.tsx` is the lone PascalCase component filename (§6).
@@ -160,7 +154,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/diagnostic
 4. Catch, normalize and log `AuditService.list` store failures; normalize the error in `record()` and move the stack-outputs read inside the try (findings 7, 8). (specs: `APP-DIAG-AUDR-004`, `APP-DIAG-SVC-003`, `APP-DIAG-AUDIT-004`)
 5. Fix `ErrorBoundary`'s falsy-throw check, correct the "Settings → Logs" copy, and consider a reload action (finding 5). (specs: `APP-DIAG-RERR-006`, `APP-DIAG-RERR-007`)
 6. Add an install guard and `isErrorLike` to `installGlobalErrorReporting` (finding 4). (specs: `APP-DIAG-RERR-008`, `APP-DIAG-RERR-009`)
-7. Decide whether audit gets its own OpenSpec capability, and update audit docs and page copy for IaC actions (finding 9). (specs: `APP-DIAG-AUDUI-008`)
+7. Decide whether audit gets its own leaf, and update audit docs and page copy for IaC actions (finding 9). (specs: `APP-DIAG-AUDUI-008`)
 
 ### Nice to Have
 8. Drop or rewire the `/audit` polling indicator (finding 10).

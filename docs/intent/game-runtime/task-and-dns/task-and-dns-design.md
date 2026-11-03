@@ -31,7 +31,7 @@ CLAUDE.md invariants that live here:
 
 - **No persistent ECS Service.** Holds: the only launch is `RunTaskCommand` with `count: 1` (`AwsCloudProvider.ts:432-443`); the class doc restates it (`EcsService.ts:175-177`).
 - **DNS records are Lambda-managed.** Holds: `stopWorkload` does no DNS work and defers to the STOPPED event (`AwsCloudProvider.ts:457-458`); the Lambda owns UPSERT/DELETE (`update-dns/src/handler.ts:98-170`).
-- **TLS terminates in-task; no ALB.** Holds: update-dns has one path for every game, HTTPS or not (`update-dns/src/handler.ts:6-9,217-240`), as `openspec/specs/in-task-tls-termination/spec.md:56-58` requires.
+- **TLS terminates in-task; no ALB.** Holds: update-dns has one path for every game, HTTPS or not (`update-dns/src/handler.ts:6-9,217-240`), as the in-task TLS invariant requires: an HTTPS game needs no load balancer registration or separate DNS step.
 - **Lambda env vars use `AWS_REGION_`.** Holds: `region()` reads `AWS_REGION_` first (`update-dns/src/handler.ts:51-59`) and the infra program sets it (`lambdas.ts:646`).
 - **`@hyveon/shared` stays free of SDK imports.** Holds for this leaf's shared code: `ecsTask.ts` uses hand-rolled structural types and a caller-supplied describe callback (`ecsTask.ts:1-16,68-107`).
 
@@ -101,7 +101,7 @@ Other statuses return `no_action` (`:239`), though the rule already filters them
 
 ## Cost Estimates
 
-The `cost-visibility` capability forbids Cost Explorer calls and requires estimates derived from task-definition CPU/memory and static Fargate constants (`openspec/specs/cost-visibility/spec.md:10-42`). No Cost Explorer client exists in this leaf; the Costs page links out to the console instead (`app/packages/web/src/pages/costs.page.tsx:40`).
+The app makes no AWS Cost Explorer calls; per-game estimates derive only from task-definition CPU/memory (via `DescribeTaskDefinition`, not a billed API) and static Fargate on-demand constants, so they need no billed-cost data. The same constants drive the live hourly estimate in the add-game wizard's Resources step. No Cost Explorer client exists in this leaf; the Costs page links out to the console instead (`app/packages/web/src/pages/costs.page.tsx:40`).
 
 The live path is `costs.estimate`: read `gameNames` from stack outputs (zeros if none), call `EcsService.getTaskDefinition` per game sequentially, and feed `CostService.estimateForSpec` (`costs.controller.ts:28-48`). That function returns:
 
@@ -115,7 +115,7 @@ The live path is `costs.estimate`: read `gameNames` from stack outputs (zeros if
 
 Missing data is handled at two levels with different numbers: a task definition without `cpu`/`memory` defaults to 1024/2048 (`EcsService.ts:372-373`), while a failed describe defaults to 2048/8192 in the controller (`costs.controller.ts:39`).
 
-The dashboard derives its KPI tiles from the same estimate: "Current run rate" sums `costPerHour` over `running` games and "Est. month cap" is `totalPerHourIfAllOn × 24 × days in the current month` (`app/packages/web/src/components/kpi-strip.component.tsx:58-69`), matching `cost-visibility/spec.md:62-68`. The Costs page's "$/month" column is the 4 h/day projection, so the two "month" numbers measure different things by design of the spec. `GameStatusProvider` fetches the estimate once on mount because polling it would add steady ECS traffic (`game-status-provider.component.tsx:54-58,84-86`); the Costs page fetches it again on its own mount (`costs.page.tsx:172-180`). Both swallow errors.
+The dashboard derives its KPI tiles from the same estimate: "Current run rate" sums `costPerHour` over `running` games and "Est. month cap" is `totalPerHourIfAllOn × 24 × days in the current month` (`app/packages/web/src/components/kpi-strip.component.tsx:58-69`), using only free data. The Costs page's "$/month" column is the 4 h/day projection, so the two "month" numbers measure different things by design. `GameStatusProvider` fetches the estimate once on mount because polling it would add steady ECS traffic (`game-status-provider.component.tsx:54-58,84-86`); the Costs page fetches it again on its own mount (`costs.page.tsx:172-180`). Both swallow errors.
 
 A second implementation exists on the provider: `getCostEstimate` describes each task definition with a 2048/8192 fallback and its own copy of the hourly formula (`AwsCloudProvider.ts:285-317,603-623`). It returns a `CostBreakdown` (`shared/src/cloud.ts:37-43`) and is not called by any production path; `costs.estimate` bypasses it.
 
@@ -125,13 +125,13 @@ A second implementation exists on the provider: `getCostEstimate` describes each
 |---|---|---|---|
 | How a game runs | One-off `RunTask` per Start, `StopTask` per Stop | Persistent ECS Service scaled 0/1 | Cost model: a long-running Service "destroys the cost model" (CLAUDE.md; `EcsService.ts:171-177`). |
 | Who owns DNS records | update-dns Lambda on ECS state-change events | Pulumi-managed per-game records; desktop app writes DNS on start | Records follow ephemeral task IPs "without fighting state" (`update-dns/src/handler.ts:242-246`); the desktop path cannot see watchdog or Discord starts [inferred]. |
-| HTTPS games and DNS | Same A-record path as every game | ALB with target registration | Required by `openspec/specs/in-task-tls-termination/spec.md:56-58`; the ALB was removed when TLS moved in-task. |
+| HTTPS games and DNS | Same A-record path as every game | ALB with target registration | TLS terminates in-task via a Caddy sidecar, so there is no ALB, target group or ACM certificate to register against; the same A-record lifecycle serves every game. |
 | DNS cleanup ordering | Delete on STOPPED event, never in `stopWorkload` | App or watchdog deletes before `StopTask` | Deleting first would orphan a running task if `StopTask` failed (watchdog header, cited in `docs/intent/game-runtime/watchdog/watchdog-design.md`); `AwsCloudProvider.ts:457-458`. |
 | Duplicate-start prevention | In-process per-game promise lock plus a `ListTasks` check | DynamoDB conditional lock; ECS `startedBy` idempotency token | Comment says `ListTasks` is eventually consistent and the lock is the real guard (`AwsCloudProvider.ts:319-347`); cross-process races not addressed [inferred]. |
 | Cloud abstraction | `CloudProvider` interface in `@hyveon/shared`, AWS impl in `@hyveon/cloud-aws`, `EcsService` as adapter | Calling the ECS SDK directly from `EcsService` | Interface excludes SDK shapes so providers are swappable (`shared/src/cloud.ts:45-49`; `EcsService.ts:179-186`). |
 | Public IP lookup | ENI from task attachments, then `DescribeNetworkInterfaces`, via a shared callback helper | Each caller re-implements; `shared` imports the EC2 SDK | Keeps `shared` free of SDK dependencies and lets each caller choose error handling (`ecsTask.ts:1-16,82-100`). |
 | ENI-lag handling in update-dns | 5 attempts, 3 s apart, then give up | Longer backoff; re-queue the event | ENI association lags the RUNNING event (`update-dns/src/handler.ts:67-70`); the budget fits the 60 s timeout [inferred]. |
-| Cost data source | Task-definition CPU/memory times static Fargate prices | Cost Explorer `GetCostAndUsage` | Required by `cost-visibility/spec.md:10-42`; Cost Explorer calls are billed per request [inferred from the archived `remove-cost-explorer-calls` change name]. |
+| Cost data source | Task-definition CPU/memory times static Fargate prices | Cost Explorer `GetCostAndUsage` | The app makes no Cost Explorer calls, so it needs no billed-cost data and no Cost Explorer permission; real billed spend is one click away because the Costs page links out to the AWS console. Cost Explorer calls are billed per request [inferred]. |
 | Estimate refresh cadence | Once per mount | Every status poll | Avoids per-game `DescribeTaskDefinition` traffic every 20 s for data that only changes on apply (`game-status-provider.component.tsx:54-58`). |
 | Status poll cadence | 20 s, build-time override, 1 s floor | Push via EventBridge to the app | The app has no inbound transport (desktop-only, no HTTP) [inferred]; override documented at `game-status-provider.component.tsx:16-21`. |
 | Region for the provider | `ConfigService.getRegion()`, the install's one region | `outputs.awsRegion`; a game region from `DeploymentConfig.awsRegion` separate from the wizard region | One region per install (`docs/high-level-design.md`, decision 10); the outputs echo the same region once the program takes it from the wizard, so reading them adds a second source for one value. The provider still reads `outputs.awsRegion` (`EcsService.ts:72`, `IAC-ENGINE-REGION-002`). |
@@ -141,9 +141,9 @@ A second implementation exists on the provider: `getCostEstimate` describes each
 
 ### Resolved
 
-1. ✅ Cost Explorer is not used; estimates are static and the console link covers billed spend (`openspec/specs/cost-visibility/spec.md:10-30,79-90`, archived change `2026-08-06-remove-cost-explorer-calls`).
-2. ✅ Running tasks carry the `Game` tag through `propagateTags: 'TASK_DEFINITION'` on both start paths (`cost-visibility/spec.md:120-136`; `AwsCloudProvider.ts:441`, `followup/src/handler.ts:136`).
-3. ✅ HTTPS games use the shared Lambda DNS lifecycle with no load balancer (`openspec/specs/in-task-tls-termination/spec.md:56-58`).
+1. ✅ Cost Explorer is not used; estimates are static and the console link covers billed spend (the Costs page links out to the AWS console for billed spend).
+2. ✅ Running tasks carry the `Game` tag through `propagateTags: 'TASK_DEFINITION'` on both start paths (`AwsCloudProvider.ts:441`, `followup/src/handler.ts:136`).
+3. ✅ HTTPS games use the shared Lambda DNS lifecycle with no load balancer (`update-dns/src/handler.ts:6-9,217-240`).
 4. ✅ Every desktop ECS call, the provider's start, stop and status included, takes its region from `ConfigService.getRegion()`, not `outputs.awsRegion` (`IAC-ENGINE-REGION-002`; `docs/high-level-design.md`, decision 10).
 
 ### Deferred
@@ -161,13 +161,12 @@ A second implementation exists on the provider: `getCostEstimate` describes each
 11. Remove `EcsService.findRunningTask` (`EcsService.ts:281-287`, no production caller; the helper task uses the fail-closed `findRunningTaskOrThrow` at `:242-268`), the unused `_ec2` parameter (`:197-200`) and the dynamic import in `registerTaskDefinition` (`:388-390`)?
 12. Should a status read that fails inside `findRunningTask` surface as `error` rather than `stopped` (`AwsCloudProvider.ts:371-374`)?
 13. Should an UPSERT failure in update-dns be caught so the pending Discord message still gets an error PATCH (`update-dns/src/handler.ts:231-232`)?
-14. Fix stale references: `openspec/changes/remove-cost-explorer-calls` (now archived) in `CostService.ts:22`, `costs.controller.ts:12`, `shared/src/cloud.ts:35`, `kpi-strip.component.tsx:56`; "tfstate" in `costs.controller.ts:25-26`; `update_dns.py` in `update-dns/src/handler.ts:69`; the `CostsPage` page object's sidebar note (`app/packages/web/e2e/pages/CostsPage.ts:12,22-23`).
+14. Fix stale references: the retired `remove-cost-explorer-calls` change name cited in code comments at `CostService.ts:23`, `costs.controller.ts:13`, `shared/src/cloud.ts:35`, `AwsCloudProvider.ts:183`, `kpi-strip.component.tsx:57`, `costs.page.tsx:167,190` and `costs.spec.ts:18` (restate the rationale in the comment instead); "tfstate" in `costs.controller.ts:25-26`; `update_dns.py` in `update-dns/src/handler.ts:69`; the `CostsPage` page object's sidebar note (`app/packages/web/e2e/pages/CostsPage.ts:12,22-23`).
 15. Renderer gaps: cost-fetch failures are silent and fetched twice (`game-status-provider.component.tsx:85`, `costs.page.tsx:172-180`); `refreshGame` cannot add a missing game (`game-status-provider.component.tsx:88-91`); Undo does not set `busy` (`use-game-actions.hook.ts:89-97`); the card's clipboard write is fire-and-forget (`game-card.component.tsx:195`).
 
 ## References
 
 - Arrow doc: `docs/arrows/game-runtime/task-and-dns.md`
 - EARS specs: `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md`
-- OpenSpec: `openspec/specs/cost-visibility/spec.md` (carried); `openspec/specs/in-task-tls-termination/spec.md` (requirement "HTTPS games use the Lambda-managed DNS lifecycle")
 - Docs pages: `docs/docs/architecture.md`, `docs/docs/components/lambdas.md`, `docs/docs/components/management-app.md`, `docs/docs/app/dashboard.md`, `docs/docs/app/costs.md`
 - Neighbouring leaves: `docs/intent/game-runtime/watchdog/watchdog-design.md`, `docs/intent/game-runtime/health-check/health-check-design.md`, `docs/intent/iac/program/program-design.md`; `game-server`, `discord-bot`, `helper-task`, `iac/engine` design docs (paths per the tree-mirrored layout, not all written yet)
