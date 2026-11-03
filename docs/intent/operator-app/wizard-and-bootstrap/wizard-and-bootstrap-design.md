@@ -14,7 +14,7 @@ It also owns credential custody, which is the durable product of the wizard: the
 Guiding principles visible in the code:
 
 - **Main-process SDK only.** Every AWS call in this leaf runs in `desktop-main`; the renderer reaches it only through `wizard.*` and `cloudHealth.*` request/response IPC channels (`wizard.controller.ts:153-429`, `cloud-health.controller.ts:25-55`), and `@aws-sdk/*` imports are banned in `@hyveon/web` by lint (`app/eslint.config.js:114-198`, owned outside this leaf).
-- **Idempotent, per-resource steps.** Each bootstrap resource is its own service method and IPC call returning `created | exists | failed` (`BootstrapService.ts:69-75`), so the UI renders per-resource status and retries one resource at a time (archived `add-first-run-wizard/design.md` Decision 6).
+- **Idempotent, per-resource steps.** Each bootstrap resource is its own service method and IPC call returning `created | exists | failed` (`BootstrapService.ts:69-75`), so the UI renders per-resource status and retries one resource at a time rather than through one combined bootstrap call.
 - **Never persist a secret in plaintext.** Every writer of pasted or guided credentials refuses to run when the keychain is unavailable (`AwsProfileService.ts:183,270`, `GuidedIamService.ts:416-418`).
 - **Resumable, but only non-secret progress.** The resumable progress file records step and guided-IAM sub-state plus a `hasBootstrapKey` boolean, never the key itself (`FirstRunWizardService.ts:33-41,110-116`).
 
@@ -32,7 +32,7 @@ What this leaf deliberately does not own:
 
 ### Where state lives
 
-Wizard state is split across two stores by lifetime (archived `add-first-run-wizard/design.md` Decision 4):
+Wizard state is split across two stores by lifetime, which keeps ephemeral flow state out of the durable config file:
 
 | Store | Contents | Owner |
 |---|---|---|
@@ -46,7 +46,6 @@ Wizard state is split across two stores by lifetime (archived `add-first-run-wiz
 `getProgress()` returns `{ step: 'pick-cloud' }` when the file is missing, unparseable or names an unknown step, and drops a guided-IAM sub-state that fails validation (`FirstRunWizardService.ts:43-44,68-80`).
 `recordStep()` rejects unknown steps and sub-states and deliberately never echoes `hasBootstrapKey` into an error message (`:103-116`).
 
-Divergence: `openspec/specs/wizard-flow/spec.md:25` names `userData/wizard-state.json`, but its own scenario at `:34` and the archived design's Decision 4 say `userData/state.json`; code matches `:25`.
 
 ### Gate and completion
 
@@ -78,10 +77,10 @@ Three paths end in the same place: `aws.profile` and `aws.region` set in electro
 
 ### Guided IAM provisioning
 
-Guided IAM replaces manual IAM console work with a reviewable CloudFormation template handed to the operator's existing console session (archived `add-one-click-aws-bootstrap/design.md` Decision 1).
+Guided IAM replaces manual IAM console work with a reviewable CloudFormation template handed to the operator's existing console session. The constraint is that an app with no credentials cannot create credentials: no AWS API authenticates as the root user, so any automated setup has to bounce through a browser session the human already owns.
 
 1. **Template.** `prepareTemplate` reads `resources/cloudformation/iam-bootstrap.yaml`, substitutes `__HYVEON_DEPLOY_ALL_POLICY_DOCUMENT__` and `__HYVEON_SELF_ROTATE_POLICY_DOCUMENT__` with `generateHyveonDeployAllPolicy()` and `generateHyveonSelfRotatePolicy()` (`shared/src/iamPolicy.ts:200,243`), and writes the result under `userData` (`GuidedIamService.ts:200-215`). Substitution uses single-occurrence `String.replace` (`:210-212`). The template creates the `HyveonDeployAll` and `HyveonSelfRotate` managed policies, an IAM user, and an access key with `DeletionPolicy: RetainExceptOnCreate`, and publishes `AccessKeyId` and `SecretAccessKey` as stack outputs (`iam-bootstrap.yaml:30-89`).
-2. **Console handoff.** `openConsole` opens `https://<region>.console.aws.amazon.com/cloudformation/home?region=<region>#/stacks/create` (`GuidedIamService.ts:242,275`); the operator uploads the file (Decision 2: no hosted template).
+2. **Console handoff.** `openConsole` opens `https://<region>.console.aws.amazon.com/cloudformation/home?region=<region>#/stacks/create` (`GuidedIamService.ts:242,275`); the operator uploads the file (there is no hosted template; see Decisions & Alternatives, "Template delivery").
 3. **Intake.** The operator pastes the stack-output key into the renderer; `intakeBootstrapKey` validates it with `sts:GetCallerIdentity` and rethrows the raw SDK error so the UI can explain it (`GuidedIamService.ts:325-343`). The bootstrap key is held in renderer React state (`use-guided-iam.hook.ts:146-147`) and cleared after submit (`:409`).
 4. **Mandatory rotation** (`rotate`, `GuidedIamService.ts:414-514`), in a documented load-bearing order: keychain gate; `iam:CreateAccessKey` with the bootstrap key; stage the new pair as `hyveon-guided` without activating it; verify with `sts:GetCallerIdentity` through `verifyAccessKeyWithRetry` (delays `[1000, 2000, 4000, 8000, 8000]`, six attempts, `verifyAccessKeyWithRetry.ts:12,46-78`); on failure, best-effort delete the new key and the staged entry and return `verification-failed`; on success set `aws.profile = 'hyveon-guided'`; finally delete the bootstrap key with the new credentials, returning `delete-failed` plus the IAM security-credentials console URL if that fails (`:500-506,661`).
 5. **Manual revoke.** `revokeBootstrapKey` (`GuidedIamService.ts:567`) backs the delete-failed screen's retry.
@@ -89,12 +88,12 @@ Guided IAM replaces manual IAM console work with a reviewable CloudFormation tem
 Sub-state progresses `not-started → template-written → awaiting-key-intake → rotation-pending → complete` (`FirstRunWizardService.ts:21`, persisted from `use-guided-iam.hook.ts:278,326,358,410,442`).
 A `rotation-pending` resume lands back on intake because the bootstrap key itself is never persisted (`use-guided-iam.hook.ts:201-240`).
 
-Divergence: the archived design specifies `DeletionPolicy: Retain` (Decision 3), the template uses `RetainExceptOnCreate` with an in-file rationale (`iam-bootstrap.yaml:66-73`).
+The access key's `DeletionPolicy` is `RetainExceptOnCreate` (in-file rationale at `iam-bootstrap.yaml:66-73`), so a failed initial create still rolls back cleanly while a later stack deletion does not fail on a key CloudFormation no longer owns.
 
 ### Region selection
 
-The guided path's region dropdown reads the committed, generated `shared/src/awsRegions.ts` (regenerated by `build/generate-aws-regions.mjs`), with a manual-entry fallback (`guided-region-selection` spec; archived `first-run-wizard-region-dropdown/design.md` D1, D2).
-The data set includes `eusc-de-east-1`, "AWS European Sovereign Cloud (Germany)" (`awsRegions.ts:36`); the spec excludes only the `us-gov-` and `cn-` prefixes (`guided-region-selection/spec.md:13-24`), so this is spec-compliant but is a separate partition where commercial credentials do not authenticate.
+The guided path's region dropdown reads the committed, generated `shared/src/awsRegions.ts` (regenerated by `build/generate-aws-regions.mjs`), with a manual-entry fallback (APP-WIZARD-REGION-001 to APP-WIZARD-REGION-004).
+The data set includes `eusc-de-east-1`, "AWS European Sovereign Cloud (Germany)" (`awsRegions.ts:36`); the generator excludes only the `us-gov-` and `cn-` prefixes (APP-WIZARD-REGION-002), so this is consistent with that rule but is a separate partition where commercial credentials do not authenticate.
 
 The region chosen on either path is the install's one AWS region (`docs/high-level-design.md`, decision 10): bootstrap creates the buckets and runs table in it, and every other leaf resolves its region from it through `ConfigService.getRegion()`.
 Once bootstrap has completed for the install, the wizard refuses to store a different region, from the credentials step or the guided-IAM region screen, and tells the operator that moving regions means destroying the stack, deleting the bootstrap resources and resetting the app (`APP-WIZARD-REGLOCK-001`).
@@ -113,7 +112,7 @@ Today neither write path checks: `wizard.state.save` merges any `aws.region` (`w
 | `wizard.bootstrap.deploymentConfig` | `ensureDeploymentConfig` (`:313`) | seeds `withDeploymentConfigDefaults({ hostedZoneName: '', gameServers: {} })` as `deployment-config.json` only if absent (`:316-332,343-366`) |
 | `wizard.bootstrap.runsTable` | `ensureRunsTable` (`:408`) | run-history DynamoDB table with `status-index` GSI and point-in-time recovery, waits for `ACTIVE` (`:369-400`) |
 
-Settings are re-applied on the `exists` path so older buckets are brought up to standard (`cloud-bootstrap/spec.md:54-66`; archived Decision 5).
+Settings are re-applied on the `exists` path so older buckets are brought up to standard (APP-WIZARD-BOOT-005, APP-WIZARD-BOOT-008): `ensureConfigurationBucket` applies the same idempotent default encryption as `ensureStateBucket` on both the `created` and `exists` paths.
 Default names are `<project>-tfstate` and `<project>-config` and are operator-editable (`wizard.utils.ts:44-49`); the runs table name is always `resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, '')` regardless of what the operator typed (`wizard.controller.ts:307-310`).
 The renderer runs the four calls concurrently (`use-bootstrap-resources.hook.ts:219`).
 
@@ -126,13 +125,13 @@ Result is `passed | missing | warning` with an `origin` of `guided | pasted | pr
 Any STS or simulation failure degrades to a non-blocking `warning` (`:133,140-156,179-183`).
 For missing actions it emits a suggested policy with `Resource: '*'` for every action (`:306-315`), broader than the scoped statements in `iamPolicy.ts:79`.
 
-Divergence: `cloud-bootstrap/spec.md:93,110-113` requires the check to run automatically after guided rotation and a guided `missing` result to block progression.
+Divergence: the intended behaviour is that the check runs automatically after guided rotation and a guided `missing` result blocks progression (APP-WIZARD-IAMCHK-008, APP-WIZARD-IAMCHK-009).
 In the renderer the check runs only when the operator presses the button (`use-bootstrap-resources.hook.ts:223-239`, `bootstrap-step.component.tsx:121`), and no renderer code reads `blocking`; the bootstrap step's advance condition is resource status only (`first-run-wizard.component.tsx:237-238`). The service computes the gate; nothing enforces it.
 
 ### Cloud Health
 
-`CloudHealthService` (`CloudHealthService.ts:63`) holds a typed check list seeded with one entry, `ecs-service-linked-role` (`:74,94-110`), surfaced as an always-visible Settings checklist rather than a silent self-heal (archived `aws-cloud-health-checks/design.md` D1, D2).
-`cloudHealth.fix` calls `iam:CreateServiceLinkedRole` for `ecs.amazonaws.com` (`:133-136`) and degrades to a downloadable policy JSON and a console link (`cloudHealth.downloadPolicy`, `cloudHealth.openPolicyConsole`, `cloud-health.controller.ts:48-55`; D3).
+`CloudHealthService` (`CloudHealthService.ts:63`) holds a typed check list seeded with one entry, `ecs-service-linked-role` (`:74,94-110`), surfaced as an always-visible Settings checklist rather than a silent self-heal (see Decisions & Alternatives, "Cloud Health placement").
+`cloudHealth.fix` calls `iam:CreateServiceLinkedRole` for `ecs.amazonaws.com` (`:133-136`) and degrades to a downloadable policy JSON and a console link (`cloudHealth.downloadPolicy`, `cloudHealth.openPolicyConsole`, `cloud-health.controller.ts:48-55`). The fallback exists because a stack deployed before the permission existed has an out-of-date `HyveonDeployAll`, and code changes to the policy generator do not retroactively update a CloudFormation-managed policy.
 `cloudHealth.list` wraps the checks in a bare `Promise.all` (`cloud-health.controller.ts:28-33`), so one throwing check rejects the list; `writePolicyToDisk` has no try/catch (`CloudHealthService.ts:200-204`).
 The service is provided by `WizardModule` (`wizard.module.ts:38`) and carries helpers documented as mirroring `GuidedIamService` (`CloudHealthService.ts:193-212,240-291`).
 
@@ -159,27 +158,27 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 
 ### Rotation for non-guided keys
 
-`AwsProfileService.rotateActiveCredentials()` (`AwsProfileService.ts:267`) implements mint, verify, swap and revoke for the active pasted key, satisfying `aws-credentials/spec.md:47-59` at the service layer, but no controller channel or UI calls it.
+`AwsProfileService.rotateActiveCredentials()` (`AwsProfileService.ts:267`) implements mint, verify, swap and revoke for the active pasted key, satisfying APP-WIZARD-ROTKEY-001 to APP-WIZARD-ROTKEY-004 at the service layer, but no controller channel or UI calls it.
 
 ## Decisions & Alternatives
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| Guided IAM mechanism | CloudFormation template + console handoff | IAM Identity Center device flow; root keys; shell script against the CLI; docs-only | Archived `add-one-click-aws-bootstrap/design.md` Decision 1: declarative, reviewable, deletable, works without Organizations. |
-| Template delivery | Local file written under `userData`, operator uploads | Hosted S3 template for a `?templateURL=` quick-create link | Same design, Decision 2: `CreateStack` needs an S3 URL; hosting adds permanently-online project infrastructure for one saved click. |
-| Bootstrap secret in stack outputs | Accepted, mitigated by mandatory immediate rotation | Operator mints key by hand; key in Secrets Manager; assumed role | Same design, Decision 3: alternatives are circular or lose the no-console-navigation property. |
+| Guided IAM mechanism | CloudFormation template + console handoff | IAM Identity Center device flow; root keys; shell script against the CLI; docs-only | The artifact is declarative and reviewable before execution, idempotent, deletable as a unit, and works for a solo account without Organizations. IAM Identity Center is strictly better when already enabled (short-lived credentials, no stored secret) but needs Organizations plus a permission set, more console work than it replaces, so it stays a possible later additive path. AWS blocks root access keys on new accounts, and a root key in a keychain is the worst credential to hold. A shell script presupposes a working `aws configure`, the thing being bootstrapped, and moves the trust boundary to "paste this into your shell". Docs-only does not address the problem. |
+| Template delivery | Local file written under `userData`, operator uploads | Hosted S3 template for a `?templateURL=` quick-create link | `CreateStack`'s `TemplateURL` must point to an S3 object or Systems Manager document (max 1 MB), so a raw GitHub URL does not work. A one-click link would need a project-owned public S3 bucket, published to on every release and kept alive indefinitely, because every new operator's setup would depend on it; that buys one saved file-picker interaction and ties setup to a maintainer's personal AWS account. The upload flow has to exist anyway as the offline and fallback path, and no dead branch anticipating hosting is carried. The template lives at `desktop-main/resources/cloudformation/iam-bootstrap.yaml`, shipped through `extraResources` (the mechanism that already ships the icon), beside its only reader, because `shared` ships pure TypeScript and has no plumbing for a static asset to survive into a packaged app. |
+| Bootstrap secret in stack outputs | Accepted, mitigated by mandatory immediate rotation | Operator mints key by hand; key in Secrets Manager; assumed role | `SecretAccessKey` lands in stack outputs, readable by anything holding `cloudformation:DescribeStacks`, so rotation is a hard requirement: on first authentication the app mints its own key, stores it in the keychain, verifies it with `sts:GetCallerIdentity`, then deletes the bootstrap key, after which the output authenticates nothing. Having the operator mint the key by hand removes the output but loses the no-console-navigation property, and remains the documented fallback. A Secrets Manager secret is circular (reading it needs credentials the operator lacks), as is an assumed role (it needs a trusted principal that does not exist yet). |
 | Access key deletion policy | `RetainExceptOnCreate` | `Retain` (as the design specified) | In-file comment `iam-bootstrap.yaml:66-73`: a failed initial create still rolls back cleanly. |
-| IAM check gating | Blocking only for guided `missing`; advisory elsewhere; failures are warnings | Advisory everywhere (original wizard) | Same design, Decision 4; note the renderer does not enforce it today. |
-| Progress vs answers storage | `wizard-state.json` for flow progress, electron-store for durable answers | Everything in electron-store | Archived `add-first-run-wizard/design.md` Decision 4: keeps ephemeral flow state out of the durable config file. |
-| Bootstrap granularity | One IPC call per resource, `created/exists/failed` result | One combined bootstrap call | Same design, Decision 6: per-resource status and retry. |
-| Bootstrap transport | SDK-direct in `desktop-main` before any stack exists | Provision buckets/table from the Pulumi program | `cloud-bootstrap` spec "SDK-only bootstrap" (`:7`); runs table moved here to break a circular dependency (`BootstrapService.ts:369-384`). |
+| IAM check gating | Blocking only for guided `missing`; advisory elsewhere; failures are warnings | Advisory everywhere (original wizard) | After guided provisioning the permission set is known by construction, so a failed simulation means something concrete went wrong: wrong account, a partially failed stack, or an SCP denying actions. It stays advisory on the manual and profile paths, where an operator may deliberately run a narrower policy, and a simulation that is itself unavailable never blocks on any path. Rotation runs before the check so the credential verified is the one the app keeps. The renderer does not enforce the gate today. |
+| Progress vs answers storage | `wizard-state.json` for flow progress, electron-store for durable answers | Everything in electron-store | Keeps ephemeral flow state out of the durable config file; corrupt or missing progress simply restarts at the first step. |
+| Bootstrap granularity | One IPC call per resource, `created/exists/failed` result | One combined bootstrap call | Per-resource status and retry of a single failed resource; idempotency maps `BucketAlreadyOwnedByYou` and `ResourceInUseException` to success. |
+| Bootstrap transport | SDK-direct in `desktop-main` before any stack exists | Provision buckets/table from the Pulumi program | No stack, state backend or credentials-bearing engine exists yet, so bootstrap uses SDK clients directly (APP-WIZARD-BOOT-001); the runs table is created here to break a circular dependency (`BootstrapService.ts:369-384`). |
 | Credential source discriminator | Profile name lookup: pasted entry wins, else `~/.aws` profile | Explicit `kind` field in the store | `[inferred]` from the doc comment at `BootstrapService.ts:695-700`, which states the behaviour but not why a discriminator was rejected. |
 | Client cache key | Region + credentials signature string | Compare credential objects; region only | Doc comment `awsCredentialSource.ts:160-176`: `fromIni` identity changes per call; region-only missed rotations. |
-| Keychain unavailable on write | Refuse (`SafeStorageUnavailableError`) | Store plaintext | `guided-iam-provisioning` "Keychain requirement" (`spec.md:90`); `GuidedIamService.ts` rotate doc comment step 0. |
+| Keychain unavailable on write | Refuse (`SafeStorageUnavailableError`) | Store plaintext | No credential is ever stored in plaintext (APP-WIZARD-CUSTODY-008); `GuidedIamService.ts` rotate doc comment step 0. |
 | Keychain unavailable on read | Pass the stored value through unchanged | Throw | `[inferred]`: appears to exist for non-Electron test/integration runs where `isAvailable()` is false (`SafeStorageService.ts:30-33`); the doc comment at `:78-79` acknowledges the consequence without a rationale. |
-| Cloud Health placement | Always-visible Settings checklist | Silent self-heal in `EcsService.start()`; collapsed summary card | Archived `aws-cloud-health-checks/design.md` D1. |
+| Cloud Health placement | Always-visible Settings checklist | Silent self-heal in `EcsService.start()`; collapsed summary card | The operator wants visibility and control rather than the app silently auto-fixing account-level problems on `start()`, which would also couple an account-config concern to a per-action code path; an always-visible list generalises to future checks without a new UI each time. The check list is a typed array so a second check is one entry, while only the ECS service-linked-role check ships. Checks run on Settings mount and manual Refresh, with no polling, because the role's existence essentially never changes on its own. The Fix attempts the real remediation first and falls back to the policy JSON only on `AccessDenied`, so only operators with an out-of-date policy do manual work. The service-linked-role statement is scoped by resource path and `iam:AWSServiceName`, which is strictly narrower than the existing `iam:*` on `hyveon-*` resources. |
 | Cloud Health module home | Provided by `WizardModule` | Own module | `[inferred]`: shares IAM/STS client helpers with `GuidedIamService` (`CloudHealthService.ts:193-212`). |
-| Region data source | Committed generated `awsRegions.ts` + manual entry | Fetch region feed at runtime | Archived `first-run-wizard-region-dropdown/design.md` D1, D2. |
+| Region data source | Committed generated `awsRegions.ts` + manual entry | Fetch region feed at runtime | The guided-IAM region screen runs before any credentials exist, so no AWS call can supply the list: `DescribeRegions` needs credentials and returns country names rather than city-level locations, and the SSM public parameters are not anonymous and would need a new deploy-policy grant. Fetching the feed at runtime would add a network dependency and a failure state for data that changes on the order of months. The manual-entry item means a stale data set degrades to one extra click, never a block. A Radix `Select` with groups fits continent grouping better than a native `<optgroup>`. The data lives in `@hyveon/shared` because region labels are not web-specific, and the display is `{name} — {code}` so operators who know the code still see it. |
 | Region change after bootstrap | Refused once a `bootstrap` record is stored; moving regions is destroy the stack, delete the bootstrap resources, reset the app | Lock only while the game stack has resources, so a destroy frees the region; accept the new region and let the next apply rebuild there; migrate resources across regions | The state bucket, config bucket and runs table are created by bootstrap in the wizard region and survive a stack destroy, so a stack-only lock would let games land in a new region while state stays in the old one, breaking one region per install. The bootstrap record is a local check with no AWS lookup. "Start over" clears only local settings and leaves those resources in place, which is why deleting them is a separate step. |
 | Unset `wizardCompleted` default | `HYVEON_TEST_MODE` value | Always `false` | `[inferred]`: lets e2e boots skip the wizard without seeding the store (`wizard.controller.ts:168`). |
 
@@ -187,8 +186,9 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 
 ### Resolved
 
-1. ✅ The CloudFormation stack does not create the Pulumi state bucket, and no hosted template is published by the release pipeline (archived `add-one-click-aws-bootstrap/design.md`, Resolved Questions).
-2. ✅ The template keeps publishing `SecretAccessKey` as a stack output; mandatory immediate rotation makes the published key a temporary credential pending rotation, revoked once the replacement verifies; it stays active while rotation fails or retries (APP-WIZARD-ROTATE-004, APP-WIZARD-ROTATE-007) and when revocation fails, which the delete-failed path surfaces with a retry (APP-WIZARD-ROTATE-005, APP-WIZARD-ROTATE-006) (APP-WIZARD-TMPL-008; archived `add-one-click-aws-bootstrap/design.md` Decision 3).
+1. ✅ The CloudFormation stack provisions IAM only; `BootstrapService` stays the single implementation of the state and configuration buckets. Folding the bucket in would save one wizard step, once, while the bootstrap logic would exist in two places and drift (operators who skip guided provisioning still need it), the Pulumi state bucket would become a child of a stack with a Delete button (losing it leaves Pulumi unaware of what infrastructure exists), and the operator-editable bucket names would have to be fixed stack parameters before the bootstrap step is reached. No hosted template is published by the release pipeline.
+2. ✅ The template keeps publishing `SecretAccessKey` as a stack output; mandatory immediate rotation makes the published key a temporary credential pending rotation, revoked once the replacement verifies; it stays active while rotation fails or retries (APP-WIZARD-ROTATE-004, APP-WIZARD-ROTATE-007) and when revocation fails, which the delete-failed path surfaces with a retry (APP-WIZARD-ROTATE-005, APP-WIZARD-ROTATE-006) (APP-WIZARD-TMPL-008).
+3. ✅ The `HyveonDeploy` statement (wildcard grants across roughly a dozen services on `Resource: "*"`) is not tightened by guided provisioning. Tightening needs the specific actions per wildcard service enumerated, several of which (most `ec2:Describe*`, Cost Explorer, much of CloudFront) have no resource-level scoping, and is verifiable only by repeated `pulumi up` runs against a real account; bundling it would make a mid-apply `AccessDenied` ambiguous between the new policy and the new flow. Tightening does not break existing installs, because a simulation of a wider policy still passes a narrower check.
 
 ### Deferred
 
@@ -197,27 +197,23 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 3. Should the renderer first-run gate fail closed on a missing bridge or rejected `getState()` (`app.component.tsx:40-54`, desktop-shell)?
 4. Should `BootstrapService` build its client inside each `try` so a missing region returns `{ status: 'failed' }` (`BootstrapService.ts:125,187,315,410,701-708`) per `.claude/rules/logging.md` rule 2?
 5. Should the runs table name use the operator's project name rather than `DEPLOYMENT_CONFIG_DEFAULTS.projectName` (`wizard.controller.ts:310`)?
-6. Should `rotateActiveCredentials` get an IPC channel and UI, or should the `aws-credentials` "In-app access key rotation" requirement be dropped (`AwsProfileService.ts:267`, `aws-credentials/spec.md:47-59`)?
-7. Should the IAM check run automatically after guided rotation and its `blocking` flag gate the bootstrap step, as `cloud-bootstrap/spec.md:93,110-113` requires (`use-bootstrap-resources.hook.ts:223-239`, `first-run-wizard.component.tsx:237-238`)?
-8. Which is right for the `wizard-flow` spec: the state-file name at `:25` or `:34`, and the Reconfigure step order at `:100` or `wizardSteps.ts:9`?
-9. Does Reconfigure's `commitReconfigureAnswers` overwrite the guided profile when guided IAM was re-run (`use-reconfigure-answers.hook.ts:222-224` vs `first-run-wizard.component.tsx:307`)?
-10. Should `cloudHealth.list` use `Promise.allSettled` and `writePolicyToDisk` catch its errors (`cloud-health.controller.ts:28-33`, `CloudHealthService.ts:200-204`)?
-11. Should `awsClientCache.ts` be removed in favour of `cloud-aws/src/cachedClient.ts`, `GUIDED_PROFILE_NAME` be declared once (`GuidedIamService.ts:94`, `desktop-preload/src/hyveon-api.ts:2107`), and the Cloud Health helpers that mirror `GuidedIamService` be shared (`CloudHealthService.ts:193-212,240-291`)?
-12. Should the IAM-check suggested policy reuse the scoped `HYVEON_DEPLOY_ALL_STATEMENTS` instead of `Resource: '*'` (`IamCheckService.ts:306-315`)?
-13. Should wizard reset also clear `addGameWizardDraft` and `folderUpload`, or document why not (`FirstRunWizardService.ts:200-208`)?
-14. Should template substitution use `replaceAll` (`GuidedIamService.ts:210-212`), and should `awsClientCache.ts` get tests?
-15. Should the credential signature avoid embedding the access key id (`awsCredentialSource.ts:185`)?
-16. Should `CloudHealthService` move out of `WizardModule` into a Settings-owned module (`wizard.module.ts:38`)?
-17. `wizard.state.get` returns `this.store.get('aws')` typed as `WizardAwsChoice` (`wizard.controller.ts:61-64,172`), but the stored `aws` schema also carries `accessKeyId` and `secretAccessKey` blobs (`ElectronStoreService.ts:204-209`); their setters (`:397,423`) have no production caller today, so this is latent. Should the controller project only `profile` and `region`, and should the unused setters be removed?
-18. On a Reconfigure that re-runs guided IAM, `rotate` overwrites the existing `hyveon-guided` entry before verifying the new key and deletes it on verification failure (`GuidedIamService.ts:434-438,478`) while `aws.profile` may still name `hyveon-guided`; the resolver would then treat it as a `~/.aws` profile `[inferred]`. Should staging use a temporary name?
-19. Should the region list drop `eusc-de-east-1` (`awsRegions.ts:36`), a separate partition, and should the spec exclusion rule name it (`guided-region-selection/spec.md:13-24`)?
-20. `aws-cloud-health/spec.md:4` Purpose is still TBD; what is the capability's stated purpose?
+6. Should `rotateActiveCredentials` get an IPC channel and UI, or should APP-WIZARD-ROTKEY-001 to APP-WIZARD-ROTKEY-004 be dropped (`AwsProfileService.ts:267`)?
+7. Should the IAM check run automatically after guided rotation and its `blocking` flag gate the bootstrap step, as APP-WIZARD-IAMCHK-009 requires (`use-bootstrap-resources.hook.ts:223-239`, `first-run-wizard.component.tsx:237-238`)?
+8. Does Reconfigure's `commitReconfigureAnswers` overwrite the guided profile when guided IAM was re-run (`use-reconfigure-answers.hook.ts:222-224` vs `first-run-wizard.component.tsx:307`)?
+9. Should `cloudHealth.list` use `Promise.allSettled` and `writePolicyToDisk` catch its errors (`cloud-health.controller.ts:28-33`, `CloudHealthService.ts:200-204`)?
+10. Should `awsClientCache.ts` be removed in favour of `cloud-aws/src/cachedClient.ts`, `GUIDED_PROFILE_NAME` be declared once (`GuidedIamService.ts:94`, `desktop-preload/src/hyveon-api.ts:2107`), and the Cloud Health helpers that mirror `GuidedIamService` be shared (`CloudHealthService.ts:193-212,240-291`)?
+11. Should the IAM-check suggested policy reuse the scoped `HYVEON_DEPLOY_ALL_STATEMENTS` instead of `Resource: '*'` (`IamCheckService.ts:306-315`)?
+12. Should wizard reset also clear `addGameWizardDraft` and `folderUpload`, or document why not (`FirstRunWizardService.ts:200-208`)?
+13. Should template substitution use `replaceAll` (`GuidedIamService.ts:210-212`), and should `awsClientCache.ts` get tests?
+14. Should the credential signature avoid embedding the access key id (`awsCredentialSource.ts:185`)?
+15. Should `CloudHealthService` move out of `WizardModule` into a Settings-owned module (`wizard.module.ts:38`)?
+16. `wizard.state.get` returns `this.store.get('aws')` typed as `WizardAwsChoice` (`wizard.controller.ts:61-64,172`), but the stored `aws` schema also carries `accessKeyId` and `secretAccessKey` blobs (`ElectronStoreService.ts:204-209`); their setters (`:397,423`) have no production caller today, so this is latent. Should the controller project only `profile` and `region`, and should the unused setters be removed?
+17. On a Reconfigure that re-runs guided IAM, `rotate` overwrites the existing `hyveon-guided` entry before verifying the new key and deletes it on verification failure (`GuidedIamService.ts:434-438,478`) while `aws.profile` may still name `hyveon-guided`; the resolver would then treat it as a `~/.aws` profile `[inferred]`. Should staging use a temporary name?
+18. Should the region list drop `eusc-de-east-1` (`awsRegions.ts:36`), a separate partition, and should the generator's exclusion rule (APP-WIZARD-REGION-002) name it?
 
 ## References
 
 - Arrow doc: `docs/arrows/operator-app/wizard-and-bootstrap.md`
 - EARS specs: `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md`
-- OpenSpec: `openspec/specs/wizard-flow/spec.md`, `openspec/specs/guided-iam-provisioning/spec.md`, `openspec/specs/guided-region-selection/spec.md`, `openspec/specs/aws-credentials/spec.md`, `openspec/specs/cloud-bootstrap/spec.md`, `openspec/specs/aws-cloud-health/spec.md`
-- Archived designs: `openspec/changes/archive/2026-07-26-add-first-run-wizard/design.md`, `2026-08-05-first-run-wizard-region-dropdown/design.md`, `2026-08-10-add-one-click-aws-bootstrap/design.md`, `2026-08-11-aws-cloud-health-checks/design.md`
 - Docs: `docs/docs/app/first-run-wizard.md`, `docs/docs/app/settings.md`, `docs/docs/components/management-app.md`, `docs/docs/setup.md` (`HyveonDeployAll` source of truth)
 - Neighbouring leaves: `docs/intent/iac/engine/engine-design.md`, `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`, `docs/intent/operator-app/ipc-bridge/ipc-bridge-design.md`, `docs/intent/deployment-config/deployment-config-design.md`, `docs/intent/game-server/game-server-design.md`, `docs/intent/helper-task/helper-task-design.md`
