@@ -67,7 +67,7 @@ Candidate subtree tenets the children surface, for the user to confirm or reject
 
 - "History must never fail a good run, but the marker that blocks blind retries must never be skipped" (`run-design.md`, persistence failure policy).
 - "Never reclaim a lock without proof that it is our own dead orphan" (`engine-design.md`, lock reclaim; `IAC-ENGINE-LOCK-*`).
-- "A UI check is defence in depth, never the only barrier" (`run-design.md`, destroy confirmation, citing `add-terraform-run-ui/design.md`, Decision 8).
+- "A UI check is defence in depth, never the only barrier" (`run-design.md`, destroy confirmation: the server-minted single-use token is what the backend trusts, and the typed phrase is checked in the renderer before minting).
 
 ## System Design
 
@@ -168,7 +168,7 @@ Each decision below is recorded here because its substance crosses at least two 
 
 1. **Pulumi Automation API, driven in-process, with an inline program and an app-provisioned exact-pinned engine.**
    Spans `iac/engine` (engine source, version policy, program form) and `iac/program` (IaC tool, program form).
-   Rationale `[stated]`: multi-cloud optionality, no HCL round-trip because program and app share TypeScript types, and no operator-installed binary (`docs/docs/architecture.md`, "Why Pulumi"); a `workDir` program is hostile to asar and would put editable infra source on disk (`program-design.md` and `engine-design.md`, "Program form", citing `migrate-iac-to-pulumi/design.md`).
+   Rationale `[stated]`: multi-cloud optionality, no HCL round-trip because program and app share TypeScript types, and no operator-installed binary (`docs/docs/architecture.md`, "Why Pulumi"); a `workDir` program is hostile to asar and would put editable infra source on disk (`program-design.md` and `engine-design.md`, Decisions & Alternatives, "Program form").
    Alternatives rejected `[stated]`: CDK for Terraform, AWS CDK and auto-downloaded OpenTofu with HCL; a host-installed `pulumi` on `PATH`; a `workDir` project with `Pulumi.yaml` (`program-design.md`, `engine-design.md`, Decisions & Alternatives).
 
 2. **Review before mutate: plan, approve, then a plan-hash-gated apply, enforced server-side.**
@@ -239,8 +239,7 @@ Questions whose answer crosses more than one child, or where the children's desi
 Leaf-only questions stay in each leaf's Open Questions.
 
 1. **Is a mid-operation `null` from the outputs reader acceptable at the subtree boundary?** While any operation is in flight `getStackOutputs` returns `null`, which `ConfigService` caches for 20 s, so every downstream consumer reads "not deployed" during and just after a run (`engine-design.md`, Deferred 13). The answer is a contract with `task-and-dns`, `discord-bot` and `helper-task`, not only an engine detail.
-2. **Who corrects the stale "machine-bound" passphrase sentence in `openspec/specs/pulumi-infra-program/spec.md:70`?** `engine-design.md` Deferred 5 asks for an owner; `program-design.md` Deferred 18 says the fix is owned by `iac/engine`. The two readings should be reconciled to one owner.
-3. **Does the "no ACM certificate" invariant need a Discord-domain carve-out?** The program declares an ACM certificate for `discord.{zone}` (`program-design.md`, Deferred 5), which the CLAUDE.md wording does not allow for.
+2. **Does the "no ACM certificate" invariant need a Discord-domain carve-out?** The program declares an ACM certificate for `discord.{zone}` (`program-design.md`, Deferred 5), which the CLAUDE.md wording does not allow for.
 
 ## References
 
@@ -249,4 +248,3 @@ Leaf-only questions stay in each leaf's Open Questions.
 - Arrow docs: `docs/arrows/iac/run.md`, `docs/arrows/iac/engine.md`, `docs/arrows/iac/program.md`; `docs/arrows/index.yaml` (`iac`, `run`, `engine`, `program` entries)
 - Parent: `docs/high-level-design.md`
 - Project docs: `docs/docs/architecture.md`, `docs/docs/components/infra.md`, `docs/docs/app/iac.md`, `CLAUDE.md` ("Invariants that hurt to break")
-- OpenSpec design history: `openspec/changes/archive/2026-08-10-migrate-iac-to-pulumi/design.md`, `openspec/changes/archive/2026-07-26-add-terraform-run-ui/design.md`, `openspec/changes/archive/2026-08-10-add-run-lock-recovery/design.md`, `openspec/changes/archive/2026-08-13-pulumi-portable-passphrase/design.md`
