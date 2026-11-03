@@ -249,7 +249,7 @@ arrows:
     # backs interaction signature verification.
     blockedBy: [program, task-and-dns, health-check]
     detail: discord-bot.md
-    next: "Stop DiscordConfigService.load() caching an empty config on read failure, and stop mutators saving over a failed read."
+    next: "Wrap the followup Lambda config read and final PATCH so every deferred interaction gets a reply, and stop logging the interaction token."
     drift: null
 
   helper-task:

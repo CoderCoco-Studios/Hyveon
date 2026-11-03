@@ -142,6 +142,67 @@ describe('DiscordConfigService construction', () => {
   });
 });
 
+// @spec DISCORD-DESK-004
+describe('DiscordConfigService failed config read', () => {
+  const realConfig = () => ({
+    clientId: 'app-1',
+    allowedGuilds: ['G1'],
+    admins: { userIds: ['U1'], roleIds: ['R1'] },
+    gamePermissions: { palworld: { userIds: ['U2'], roleIds: [], actions: ['start' as const] } },
+  });
+  const REAL_CONFIG = realConfig();
+
+  it('should not cache the empty fallback, so the next read recovers the real row', async () => {
+    getConfigMock.mockRejectedValueOnce(new Error('ProvisionedThroughputExceededException'));
+    getConfigMock.mockImplementationOnce(async () => realConfig());
+    const svc = makeService();
+
+    expect((await svc.getConfig()).allowedGuilds).toEqual([]);
+    expect(await svc.getConfig()).toEqual(REAL_CONFIG);
+    expect(getConfigMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['setAllowedGuilds', (s: DiscordConfigService) => s.setAllowedGuilds(['G9'])],
+    ['addAllowedGuild', (s: DiscordConfigService) => s.addAllowedGuild('G9')],
+    ['removeAllowedGuild', (s: DiscordConfigService) => s.removeAllowedGuild('G1')],
+    ['setAdmins', (s: DiscordConfigService) => s.setAdmins({ userIds: ['U9'] })],
+    ['setGamePermission', (s: DiscordConfigService) => s.setGamePermission('palworld', { userIds: ['U9'] })],
+    ['deleteGamePermission', (s: DiscordConfigService) => s.deleteGamePermission('palworld')],
+    ['setCredentials', (s: DiscordConfigService) => s.setCredentials({ clientId: 'new-app' })],
+  ])('should refuse %s and write nothing when the preceding read failed', async (_name, mutate) => {
+    getConfigMock.mockRejectedValue(new Error('ThrottlingException'));
+    const svc = makeService();
+    await svc.getConfig();
+
+    await expect(mutate(svc)).rejects.toThrow('ThrottlingException');
+    expect(putConfigMock).not.toHaveBeenCalled();
+  });
+
+  it('should save over the real row once the read succeeds again', async () => {
+    getConfigMock.mockRejectedValueOnce(new Error('ThrottlingException'));
+    getConfigMock.mockImplementation(async () => realConfig());
+    const svc = makeService();
+    await expect(svc.addAllowedGuild('G2')).rejects.toThrow();
+
+    await svc.addAllowedGuild('G2');
+
+    expect(putConfigMock).toHaveBeenCalledWith(expect.objectContaining({
+      allowedGuilds: ['G1', 'G2'],
+      admins: REAL_CONFIG.admins,
+      gamePermissions: REAL_CONFIG.gamePermissions,
+    }));
+  });
+
+  it('should still store secrets without reading the row when no clientId is submitted', async () => {
+    getConfigMock.mockRejectedValue(new Error('ThrottlingException'));
+    const svc = makeService();
+
+    expect(await svc.setCredentials({ botToken: 'tok' })).toBe(true);
+    expect(secretsPutMock).toHaveBeenCalledWith('arn:bot-token', 'tok');
+  });
+});
+
 describe('DiscordConfigService.getRedacted', () => {
   // @spec DISCORD-DESK-002
   it('should indicate when both secrets are configured and return the DDB config body', async () => {
