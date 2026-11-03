@@ -184,6 +184,28 @@ describe('watchdog handler: shutdown threshold', () => {
     expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(1);
   });
 
+  // @spec RT-WATCHDOG-STOP-004
+  it('should log a failed StopTask and still evaluate and stop the remaining tasks', async () => {
+    const failing = 'arn:task/failing';
+    const next = 'arn:task/next';
+    ecsMock.on(ListTasksCommand).resolves({ taskArns: [failing, next] });
+    ecsMock.on(DescribeTasksCommand).resolves({
+      tasks: [runningTask({ taskArn: failing, game: 'palworld' }), runningTask({ taskArn: next, game: 'foundryvtt' })],
+    });
+    cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Average: 0 }] });
+    ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [{ key: 'idle_checks', value: '3' }] });
+    ecsMock.on(StopTaskCommand, { task: failing }).rejects(new Error('ThrottlingException: rate exceeded'));
+    ecsMock.on(StopTaskCommand, { task: next }).resolves({});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(handler()).resolves.toEqual({ checked: 2 });
+
+    const stopped = ecsMock.commandCalls(StopTaskCommand).map((c) => c.args[0]!.input.task);
+    expect(stopped).toEqual([failing, next]);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('palworld'), expect.anything());
+    errorSpy.mockRestore();
+  });
+
   // @spec RT-WATCHDOG-CW-005
   it('should treat missing CloudWatch datapoints as active (no shutdown of brand-new tasks)', async () => {
     const taskArn = 'arn:task/new';

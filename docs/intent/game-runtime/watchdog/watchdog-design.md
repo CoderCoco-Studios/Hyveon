@@ -44,7 +44,7 @@ Each invocation is a stateless pass over the cluster, triggered by `${projectNam
 5. **Verdict.** Exactly one source per task, described in the next section (`handler.ts:211-228`).
 6. **Transition.** Read the current count with `getIdleCount()` (`handler.ts:230`), then apply the state machine below.
 
-Tasks are processed strictly sequentially (`for ... await`, `handler.ts:203-255`). There is no per-task try/catch around the loop body, so an exception from any un-caught call (`StopTask`, `DescribeTasks`) aborts the remaining tasks in that run; the next scheduled run starts over from scratch.
+Tasks are processed strictly sequentially (`for ... await`, `handler.ts:203-255`). `StopTask` is caught per task (see below), but there is no catch around the loop body as a whole, so an exception from any other un-caught call (for example `DescribeTasks`) aborts the remaining tasks in that run; the next scheduled run starts over from scratch.
 
 ### Idle-count state machine
 
@@ -61,7 +61,7 @@ Properties that follow from the tag being the state:
 
 - **Fresh tasks start at zero.** A new `RunTask` produces a new task ARN with no tag; `getIdleCount()` returns 0 for a missing tag, a non-numeric value, or any `ListTagsForResource` error (`handler.ts:146-155`). Restarting a stopped server therefore never inherits an old count.
 - **Tag writes are best-effort.** `setIdleCount()` swallows failures with a `console.warn` (`handler.ts:165-167`). A failed increment silently delays shutdown by one window; a failed reset leaves a stale count that the next idle window builds on.
-- **`StopTask` is not best-effort.** It is awaited with no try/catch (`handler.ts:239-245`), unlike the tag writes (arrow finding 4).
+- **`StopTask` failures are isolated per task.** A failed `StopTask` is logged with `console.error` (game, task ARN, error message) and the loop continues with the next task, so one failing stop cannot leave later tasks unevaluated (`RT-WATCHDOG-STOP-004`). The handler returns normally; a task that could not be stopped is retried on the next scheduled run.
 - **Single writer.** Only the watchdog reads or writes `idle_checks`, so the read-modify-write is not guarded. Overlapping invocations are possible in principle when `watchdogIntervalMinutes` is 1 and a run approaches the 60 s timeout `[inferred]`; nothing prevents that.
 
 Total idle time before shutdown is `watchdogIntervalMinutes * watchdogIdleChecks` (`deploymentConfig.ts:85-97`), 60 minutes with the defaults. The log line and stop reason compute it as `idleCount * CHECK_WINDOW_MINUTES` (`handler.ts:237,243`), which equals that product only because the infra program sets `CHECK_WINDOW_MINUTES` from the same `watchdogIntervalMinutes` that drives the schedule (`lambdas.ts:577,598`).
@@ -146,7 +146,7 @@ Operator-side validation is positive-integer only for the three tunables (`app/p
 | Verdict type sharing | local duplicate `HealthCheckInvokeResult` | import from `@hyveon/lambda-health-check` | `handler.ts:67`: keeps the two Lambda packages independently deployable. |
 | Which tasks are eligible | `{game}-server` families from `GAME_NAMES` | tag-based selection, all tasks in cluster | `[inferred]`: the family naming convention is already the cross-package contract (`env.ts:51-63`); excludes helper tasks for free. |
 | Check window vs schedule | one tunable drives both `CHECK_WINDOW_MINUTES` and the rate | separate tunables | `[inferred]`: each run looks back exactly one interval, so windows neither overlap nor leave gaps. |
-| Per-run concurrency | sequential task loop, no per-task error isolation for `StopTask` | parallel evaluation, per-task try/catch | Unknown; no rationale in code or docs `[inferred: simplicity]`. |
+| Per-run concurrency | sequential task loop, per-task try/catch around `StopTask` | parallel evaluation, per-task try/catch | Unknown; no rationale in code or docs `[inferred: simplicity]`. |
 | Threshold unit | mean inbound bytes per second (`watchdogMinBytesPerSecond`); the earlier `watchdogMinPackets` key is dropped without migration | keep a packet count; carry the old key forward | Container Insights publishes bytes per second, not packets. Hyveon has no released install, so no stored `deployment-config.json` needs the old key translated. |
 | Tunable delivery | env vars, applied on next infra apply | runtime read of `deployment-config.json` | `[inferred]`: keeps the watchdog free of S3 permissions; `WatchdogPanel` documents the apply requirement. |
 
@@ -159,7 +159,7 @@ Operator-side validation is positive-integer only for the three tunables (`app/p
 ### Deferred
 
 1. Should `DescribeTasks` be chunked into batches of 100 so a cluster with more than 100 RUNNING tasks does not fail the run (`handler.ts:200`)?
-2. Should `StopTask` be wrapped per task so one failure does not abort evaluation of the remaining tasks (`handler.ts:239-245`)?
+2. ~~Should `StopTask` be wrapped per task~~ Resolved: it is wrapped, and the handler does not rethrow (`RT-WATCHDOG-STOP-004`). Should a persistent `StopTask` failure also raise a Lambda error or metric so an alarm fires?
 3. How should health-check time be bounded per run? Sequential `RequestResponse` invokes against a 30 s health-check timeout (`lambdas.ts:563`) can exceed the watchdog's 60 s timeout (`lambdas.ts:584`) with two hung checks (`handler.ts:203-255`).
 4. Should `watchdog-panel.component.tsx:4` drop its historical `server_config.json` reference?
 5. Should `docs/docs/app/settings.md:250` stop attributing DNS writes to the watchdog, 

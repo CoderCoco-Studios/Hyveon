@@ -91,7 +91,7 @@ arrows:
     blocks: []
     blockedBy: []
     detail: ../intent/game-runtime/game-runtime-design.md
-    next: "Chunk the watchdog's DescribeTasks and guard StopTask per task (RT-WATCHDOG-SCOPE-005, RT-WATCHDOG-STOP-004)."
+    next: "Chunk the watchdog's DescribeTasks (RT-WATCHDOG-SCOPE-005)."
     drift: null
 
   task-and-dns:
