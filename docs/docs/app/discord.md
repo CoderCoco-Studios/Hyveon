@@ -384,6 +384,8 @@ and Secrets Manager ARNs the app needs — no apply has succeeded yet.
 Any failed change produces a toast titled **Action failed** with the reason as
 its description.
 
+A change is refused, with the DynamoDB error as the reason, when the app could not read the stored configuration first. This prevents an edit from overwriting your saved allowlists and permissions with an empty configuration after a transient read failure. Retry once the read succeeds.
+
 ## What a working bot actually requires
 
 The badge covers three of these. The rest are on you.
