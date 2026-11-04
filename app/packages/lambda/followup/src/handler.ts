@@ -235,7 +235,7 @@ function recheck(event: FollowupEvent, cfg: DiscordConfig, action: DiscordAction
   });
 }
 
-// @spec DISCORD-RUN-001, DISCORD-RUN-009, DISCORD-RUN-013, DISCORD-MSG-006
+// @spec DISCORD-RUN-001, DISCORD-RUN-009, DISCORD-RUN-010, DISCORD-RUN-011, DISCORD-RUN-013, DISCORD-MSG-006
 /**
  * Async-invoked by the interactions Lambda after it has already deferred the reply
  * (Discord's 3-second budget doesn't leave room for ECS calls). Does the slow work —
@@ -245,11 +245,10 @@ function recheck(event: FollowupEvent, cfg: DiscordConfig, action: DiscordAction
  * the task reaches RUNNING and an IP/hostname is resolved.
  */
 export const handler = async (event: FollowupEvent): Promise<void> => {
-  const tableName = requireEnv('TABLE_NAME');
-  const cfg = await getEffectiveDiscordConfig(tableName);
-
   let content: string;
   try {
+    const tableName = requireEnv('TABLE_NAME');
+    const cfg = await getEffectiveDiscordConfig(tableName);
     if (event.kind === 'list') {
       content = await handleList(event, cfg);
     } else if (event.kind === 'status') {
@@ -274,7 +273,13 @@ export const handler = async (event: FollowupEvent): Promise<void> => {
       content = `Unknown action: ${String((event as { kind: string }).kind)}`;
     }
   } catch (err) {
-    console.error('Followup handler failed', { err, event });
+    // Log identifiers only — `event` carries the 15-minute interaction token.
+    console.error('Followup handler failed', {
+      error: err instanceof Error ? err.message : String(err),
+      kind: event.kind,
+      game: event.game,
+      guildId: event.guildId,
+    });
     content = '❌ Command failed. Check server logs.';
   }
 

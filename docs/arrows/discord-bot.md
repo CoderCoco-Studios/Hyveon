@@ -128,7 +128,7 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 | Ingress and signature verification | `DISCORD-AUTH-001` to `DISCORD-AUTH-008` | 7 | 0 | 1 |
 | Command handling (interactions Lambda) | `DISCORD-CMD-001` to `DISCORD-CMD-013` | 12 | 0 | 1 |
 | Permission evaluation (canRun) | `DISCORD-PERM-001` to `DISCORD-PERM-005` | 5 | 0 | 0 |
-| Followup Lambda | `DISCORD-RUN-001` to `DISCORD-RUN-015` | 11 | 0 | 4 |
+| Followup Lambda | `DISCORD-RUN-001` to `DISCORD-RUN-015` | 14 | 0 | 1 |
 | Pending interactions | `DISCORD-PEND-001` to `DISCORD-PEND-004` | 4 | 0 | 0 |
 | Message rendering | `DISCORD-MSG-001` to `DISCORD-MSG-006` | 6 | 0 | 0 |
 | Configuration model | `DISCORD-CFG-001` to `DISCORD-CFG-006` | 6 | 0 | 0 |
@@ -137,14 +137,14 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 | Command registration | `DISCORD-REG-001` to `DISCORD-REG-005` | 5 | 0 | 0 |
 | Discord page | `DISCORD-UI-001` to `DISCORD-UI-010` | 7 | 0 | 3 |
 
-**Summary:** 81 of 92 active specs implemented; 0 deferred; 11 gaps.
+**Summary:** 84 of 92 active specs implemented; 0 deferred; 8 gaps.
 
 ## Key Findings
 
 1. **Failed config reads are not cached or saved over** — `DiscordConfigService.loadStrict()` throws on a read failure and caches nothing; every mutator uses it, so a transient DynamoDB failure surfaces as an error instead of overwriting the real `CONFIG#discord` row. The display path (`load()`, used by `getConfig` and `getRedacted`) still degrades to an uncached empty config, which is why the Discord page cannot tell a failed load from an empty one (`DISCORD-UI-008`).
-2. **`patchInteractionOriginal` doc contradicts code** — the TSDoc says it "swallows and logs failures rather than throwing" (`shared/src/discord/patchOriginal.ts:9-11`), but `fetch` is not wrapped (`:23`); a network rejection throws. In update-dns this skips `deletePending` (`update-dns/handler.ts:193-194`), leaving cleanup to the TTL.
-3. **Followup can leave a deferred interaction unresolved** — `getEffectiveDiscordConfig` runs before the `try` (`followup/handler.ts:240`) and the final PATCH runs after it (`:272`); a failure in either leaves Discord showing "thinking..." until the token expires.
-4. **Followup logs the interaction token** — `console.error('Followup handler failed', { err, event })` (`followup/handler.ts:268`) logs the whole event, which carries `interactionToken` (a 15-minute webhook credential). Conflicts with `.claude/rules/logging.md` rule 3 [inferred: the rule targets desktop-main, but the intent applies].
+2. **`patchInteractionOriginal` doc contradicts code** [resolved: fetch is wrapped, `DISCORD-RUN-014`] — the TSDoc says it "swallows and logs failures rather than throwing" (`shared/src/discord/patchOriginal.ts:9-11`), but `fetch` is not wrapped (`:23`); a network rejection throws. In update-dns this skips `deletePending` (`update-dns/handler.ts:193-194`), leaving cleanup to the TTL.
+3. **Followup can leave a deferred interaction unresolved** [resolved: config read moved inside the `try`, `DISCORD-RUN-010`] — `getEffectiveDiscordConfig` runs before the `try` (`followup/handler.ts:240`) and the final PATCH runs after it (`:272`); a failure in either leaves Discord showing "thinking..." until the token expires.
+4. **Followup logs the interaction token** [resolved: logs identifiers only, `DISCORD-RUN-011`] — `console.error('Followup handler failed', { err, event })` (`followup/handler.ts:268`) logs the whole event, which carries `interactionToken` (a 15-minute webhook credential). Conflicts with `.claude/rules/logging.md` rule 3 [inferred: the rule targets desktop-main, but the intent applies].
 5. **Raw exception text is sent to Discord users** — `String(err)` is embedded in user-facing replies (`followup/handler.ts:114`, `:146`, `:160`).
 6. **Deferred ack waits on the async invoke** — `handleApplicationCommand` awaits `invokeFollowup` before returning type 5 (`interactions/handler.ts:198-206`, `:210-218`, `:227-236`), so Lambda-invoke latency counts against Discord's 3-second budget. No timestamp freshness check on `x-signature-timestamp` either (`:269-280`); only the signature is verified (`:88`). `hex.substr` is deprecated (`:72`).
 7. **Two `DiscordEventReceiver` implementations, neither used** — `shared/src/discord/awsLambdaDiscordReceiver.ts:32` (reads `discord_interactions_url`) has no consumer outside its test and the barrel export (`shared/src/index.ts:37`). The bound `AwsDiscordEventReceiver` is constructed with no config callback (`cloud-provider.module.ts:204`), so it would always return `null` (`AwsDiscordEventReceiver.ts:44-45`), and nothing injects `DISCORD_RECEIVER`; the controller reads `outputs.interactionsInvokeUrl` directly instead (`discord.controller.ts:39`, `:77`). `StackOutputs` also carries two identical URL fields (`stackOutputs.ts:147`, `:156`; `infra/src/program.ts:448-451`).
@@ -161,8 +161,8 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/discord-bot/discord-bot-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-2. Wrap the followup's config read and final PATCH so every deferred interaction gets a reply; make `patchInteractionOriginal` actually swallow fetch rejections or fix its doc and callers (findings 2, 3). (specs: `DISCORD-RUN-010`, `DISCORD-RUN-014`)
-3. Stop logging the full followup event, which includes the interaction token (finding 4). (specs: `DISCORD-RUN-011`)
+2. Wrap the followup's config read and final PATCH so every deferred interaction gets a reply; make `patchInteractionOriginal` actually swallow fetch rejections or fix its doc and callers (findings 2, 3). (specs: `DISCORD-RUN-010`, `DISCORD-RUN-014`) Done.
+3. Stop logging the full followup event, which includes the interaction token (finding 4). (specs: `DISCORD-RUN-011`) Done.
 
 ### Should Fix
 4. Replace `String(err)` in user-facing Discord replies with a generic message plus a server-side log (finding 5). (specs: `DISCORD-RUN-012`)

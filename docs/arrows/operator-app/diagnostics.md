@@ -109,16 +109,16 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 | Diagnostics Panel | `APP-DIAG-PANEL-001` to `APP-DIAG-PANEL-010` | 9 | 0 | 1 |
 | ANSI Log Line Rendering | owned by `infra-logs` (`APP-LOGS-RENDER-001`, `-002`) | — | — | — |
 | Diagnostics Bundle Export | `APP-DIAG-BNDL-001` to `APP-DIAG-BNDL-018` | 17 | 0 | 1 |
-| Log Secret Scrubbing | `APP-DIAG-SCRUB-001` to `APP-DIAG-SCRUB-004` | 3 | 0 | 1 |
+| Log Secret Scrubbing | `APP-DIAG-SCRUB-001` to `APP-DIAG-SCRUB-004` | 4 | 0 | 0 |
 | Audit Trail Recording | `APP-DIAG-AUDIT-001` to `APP-DIAG-AUDIT-008` | 7 | 0 | 1 |
 | Audit Trail Reading | `APP-DIAG-AUDR-001` to `APP-DIAG-AUDR-004` | 3 | 0 | 1 |
 | Audit Page | `APP-DIAG-AUDUI-001` to `APP-DIAG-AUDUI-008` | 7 | 0 | 1 |
 
-**Summary:** 84 of 99 active specs implemented; 0 deferred; 15 gaps.
+**Summary:** 85 of 99 active specs implemented; 0 deferred; 14 gaps.
 
 ## Key Findings
 
-1. **Log scrubber misses JSON-quoted keys**: `LABELED_SECRET_VALUE_PATTERN` (`diagnosticsLogScrubber.ts:15-16`) requires `[:=]` right after the label, so `"botToken":"…"` (production `winston.format.json()`, `logger.ts:37,42`) and `"apiKey": "…"` (dev `devPrintf` meta, `logger.ts:14`) pass through unredacted. Verified by running the regex; the tests (`diagnosticsLogScrubber.test.ts:14-29`) only cover unquoted `label: value` / `label=value`. Short or unlabeled secrets are also not caught (scrubber is defense-in-depth by its own doc, `:18-23`).
+1. **Log scrubber covers JSON-quoted keys**: `LABELED_SECRET_VALUE_PATTERN` (`diagnosticsLogScrubber.ts:19-20`) accepts a closing quote (plain or backslash-escaped) between the label and the `:`/`=` and an opening quote before the value, so the production `winston.format.json()` shape (`"botToken":"…"`, `logger.ts:37,42`) and the dev `devPrintf` meta shape (`"apiKey": "…"`, `logger.ts:14`) are redacted. Short or unlabeled secrets are still not caught (scrubber is defense-in-depth by its own doc).
 2. **Console forwarder can wedge permanently**: `flush()` returns early while `flushInFlight` is true (`report-renderer-error.utils.ts:98-100`) and only clears it when the IPC promise settles (`:127-137`). A `reportLog` promise that never settles stops all forwarding for the session, contradicting the doc's "or otherwise never resolves ... the batch is requeued" (`:94-95`).
 3. **Effective queue cap is below 200 while a batch is in flight**: `enqueue` drops when `queue.length + inFlightCount >= 200` (`report-renderer-error.utils.ts:68`), so up to 50 entries of headroom are reserved for requeue. This is the intended contract (APP-DIAG-CONS-007).
 4. **Global error reporting is not idempotent and disagrees with itself on Error detection**: `installGlobalErrorReporting` has no install guard (`report-renderer-error.utils.ts:165-174`, unlike `installConsoleForwarding` at `:191`), uses `instanceof Error` (`:171-172`) where `formatConsoleArgs` deliberately uses cross-realm `isErrorLike` (`:4-11`), and the flush `setInterval` is never cleared (`:208`).
@@ -139,18 +139,17 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/diagnostics/diagnostics-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-1. Extend `scrubSecrets` to redact JSON-quoted labeled values (`"key":"value"`, `"key": "value"`) and add tests using real production and dev log line shapes (finding 1). (specs: `APP-DIAG-SCRUB-003`)
-2. Make the console forwarder recover from a never-settling `reportLog` call (timeout or settle guard) so forwarding cannot stop for the session (finding 2). (specs: `APP-DIAG-CONS-012`)
+1. Make the console forwarder recover from a never-settling `reportLog` call (timeout or settle guard) so forwarding cannot stop for the session (finding 2). (specs: `APP-DIAG-CONS-012`)
 
 ### Should Fix
-3. Keep `ExportBundleButton` reachable when the tail fails (finding 6). (specs: `APP-DIAG-PANEL-010`)
-4. Catch, normalize and log `AuditService.list` store failures; normalize the error in `record()` and move the stack-outputs read inside the try (findings 7, 8). (specs: `APP-DIAG-AUDR-004`, `APP-DIAG-SVC-003`, `APP-DIAG-AUDIT-004`)
-5. Fix `ErrorBoundary`'s falsy-throw check, correct the "Settings → Logs" copy, and consider a reload action (finding 5). (specs: `APP-DIAG-RERR-006`, `APP-DIAG-RERR-007`)
-6. Add an install guard and `isErrorLike` to `installGlobalErrorReporting` (finding 4). (specs: `APP-DIAG-RERR-008`, `APP-DIAG-RERR-009`)
-7. Decide whether audit gets its own leaf, and update audit docs and page copy for IaC actions (finding 9). (specs: `APP-DIAG-AUDUI-008`)
+2. Keep `ExportBundleButton` reachable when the tail fails (finding 6). (specs: `APP-DIAG-PANEL-010`)
+3. Catch, normalize and log `AuditService.list` store failures; normalize the error in `record()` and move the stack-outputs read inside the try (findings 7, 8). (specs: `APP-DIAG-AUDR-004`, `APP-DIAG-SVC-003`, `APP-DIAG-AUDIT-004`)
+4. Fix `ErrorBoundary`'s falsy-throw check, correct the "Settings → Logs" copy, and consider a reload action (finding 5). (specs: `APP-DIAG-RERR-006`, `APP-DIAG-RERR-007`)
+5. Add an install guard and `isErrorLike` to `installGlobalErrorReporting` (finding 4). (specs: `APP-DIAG-RERR-008`, `APP-DIAG-RERR-009`)
+6. Decide whether audit gets its own leaf, and update audit docs and page copy for IaC actions (finding 9). (specs: `APP-DIAG-AUDUI-008`)
 
 ### Nice to Have
-8. Drop or rewire the `/audit` polling indicator (finding 10).
-9. Route log-dir and app-version lookups through `electronRuntime.ts` (finding 11). (specs: `APP-DIAG-LOG-008`)
-10. Refresh stale doc pointers (finding 12); scrub per-game snapshot messages (finding 13). (specs: `APP-DIAG-BNDL-013`)
-11. Move the diagnostics tail onto the polling registry, export shared constants, and tidy tests (findings 14, 15).
+7. Drop or rewire the `/audit` polling indicator (finding 10).
+8. Route log-dir and app-version lookups through `electronRuntime.ts` (finding 11). (specs: `APP-DIAG-LOG-008`)
+9. Refresh stale doc pointers (finding 12); scrub per-game snapshot messages (finding 13). (specs: `APP-DIAG-BNDL-013`)
+10. Move the diagnostics tail onto the polling registry, export shared constants, and tidy tests (findings 14, 15).

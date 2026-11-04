@@ -117,8 +117,13 @@ Failure modes:
 - DynamoDB write fails (for `start`) → logged, PATCH still happens so user
   sees "starting"; but update-dns won't later PATCH with the final IP
   because the pending row doesn't exist.
-- Discord PATCH fails (stale token, network) → logged; user's deferred
-  message is not edited.
+- Config read fails (or any other step throws) → the handler still PATCHes
+  a generic "Command failed" reply, so the invocation never errors and
+  Lambda's async retry does not re-run it.
+- Discord PATCH fails (stale token, network) → logged and swallowed; user's
+  deferred message is not edited.
+- Logs carry `kind`, `game`, `guildId` and the error message only, never
+  the event: it holds the interaction token, a 15-minute webhook credential.
 
 ## update-dns
 
@@ -299,7 +304,7 @@ Failure modes:
 | **Trigger** | Synchronous invoke (`InvocationType: RequestResponse`) from the watchdog Lambda, once per running task belonging to a game that declares a `healthCheck`. Not exposed externally, and invocable only by the watchdog — no Function URL, no resource-based `aws.lambda.Permission`; the grant is an IAM identity-policy statement on the watchdog's own role. |
 | **Pulumi** | `app/packages/infra/src/lambdas.ts` (`healthCheckFunction`, `healthCheckLogGroup`). **A single shared function, conditionally created** — provisioned only when at least one game declares `healthCheck` (`iam.ts`'s `gamesWithHealthChecks`), unlike efs-seeder's one-function-per-game shape. A deployment where no game opts in gets no health-check function, role, security group, or log group. |
 | **IAM** | Single shared role: `logs:CreateLogGroup`/`CreateLogStream`/`PutLogEvents`, `ec2:CreateNetworkInterface`/`DescribeNetworkInterfaces`/`DeleteNetworkInterface` (required for Lambda VPC networking), `ecs:DescribeTasks` scoped to the deployed cluster, and — only when at least one opted-in game references a credential — `secretsmanager:GetSecretValue` scoped to exactly those `auth.secretArn` values. |
-| **Env vars** | `AWS_REGION_` only. Everything else it needs (`game`, `taskArn`, the full `healthCheck` declaration) arrives in the invocation payload from the watchdog. |
+| **Env vars** | `AWS_REGION_` and `ECS_CLUSTER` (the handler requires it at module load, to resolve the task's private IP via `DescribeTasks`). Everything else it needs (`game`, `taskArn`, the full `healthCheck` declaration) arrives in the invocation payload from the watchdog. |
 
 ### Behaviour
 
