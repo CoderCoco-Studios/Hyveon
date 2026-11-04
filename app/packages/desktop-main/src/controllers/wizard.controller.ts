@@ -22,7 +22,7 @@ import {
 } from '../services/GuidedIamService.js';
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
 import { logger } from '../logger.js';
-import { assertInstallRegionUnlocked } from '../services/install-region-lock.js';
+import { assertInstallRegionUnlocked, lockInstallRegion } from '../services/install-region-lock.js';
 
 /** Payload accepted by {@link WizardController.bootstrapStateBucket}. */
 export interface BootstrapStateBucketInput {
@@ -252,10 +252,15 @@ export class WizardController {
    * Idempotently creates/ensures the Pulumi S3 state bucket (versioning +
    * default encryption). See `BootstrapService.ensureStateBucket` for the
    * full idempotency mapping.
+   *
+   * @remarks
+   * Every `wizard.bootstrap.*` handler first engages the install-region lock
+   * ({@link lockInstallRegion}) and creates nothing if it cannot be persisted.
    */
   @MessagePattern('wizard.bootstrap.stateBucket')
-  bootstrapStateBucket(@Payload() body: BootstrapStateBucketInput): Promise<BootstrapResult> {
+  async bootstrapStateBucket(@Payload() body: BootstrapStateBucketInput): Promise<BootstrapResult> {
     logger.debug('WizardController: wizard.bootstrap.stateBucket invoked', { bucketName: body.bucketName });
+    lockInstallRegion(this.store);
     return this.bootstrap.ensureStateBucket(body.bucketName);
   }
 
@@ -275,8 +280,9 @@ export class WizardController {
    * consistent with versioning/lifecycle).
    */
   @MessagePattern('wizard.bootstrap.configurationBucket')
-  bootstrapConfigurationBucket(@Payload() body: BootstrapConfigurationBucketInput): Promise<BootstrapResult> {
+  async bootstrapConfigurationBucket(@Payload() body: BootstrapConfigurationBucketInput): Promise<BootstrapResult> {
     logger.debug('WizardController: wizard.bootstrap.configurationBucket invoked', { bucketName: body.bucketName });
+    lockInstallRegion(this.store);
     return this.bootstrap.ensureConfigurationBucket(body.bucketName);
   }
 
@@ -291,8 +297,9 @@ export class WizardController {
    * durably persisted until the operator advances past this wizard step).
    */
   @MessagePattern('wizard.bootstrap.deploymentConfig')
-  bootstrapDeploymentConfig(@Payload() body: BootstrapDeploymentConfigInput): Promise<BootstrapResult> {
+  async bootstrapDeploymentConfig(@Payload() body: BootstrapDeploymentConfigInput): Promise<BootstrapResult> {
     logger.debug('WizardController: wizard.bootstrap.deploymentConfig invoked', { bucketName: body.bucketName });
+    lockInstallRegion(this.store);
     return this.bootstrap.ensureDeploymentConfig(body.bucketName);
   }
 
@@ -312,8 +319,9 @@ export class WizardController {
    * `RunRecordService`'s pre-apply fallback apply.
    */
   @MessagePattern('wizard.bootstrap.runsTable')
-  bootstrapRunsTable(): Promise<BootstrapResult> {
+  async bootstrapRunsTable(): Promise<BootstrapResult> {
     logger.debug('WizardController: wizard.bootstrap.runsTable invoked');
+    lockInstallRegion(this.store);
     return this.bootstrap.ensureRunsTable(resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, ''));
   }
 
@@ -399,8 +407,9 @@ export class WizardController {
    * displaying it as plain text.
    */
   @MessagePattern('wizard.guidedIam.openConsole')
-  openGuidedIamConsole(@Payload() body: OpenGuidedIamConsoleInput): Promise<OpenConsoleResult> {
+  async openGuidedIamConsole(@Payload() body: OpenGuidedIamConsoleInput): Promise<OpenConsoleResult> {
     logger.debug('WizardController: wizard.guidedIam.openConsole invoked', { region: body.region });
+    assertInstallRegionUnlocked(this.store, body.region);
     const url = this.guidedIam.buildCloudFormationConsoleUrl(body.region);
     return this.guidedIam.openConsole(url);
   }
@@ -412,8 +421,9 @@ export class WizardController {
    * fine — but is never echoed back in the result.
    */
   @MessagePattern('wizard.guidedIam.submitBootstrapKey')
-  submitGuidedIamBootstrapKey(@Payload() body: BootstrapKeyIntakeInput): Promise<BootstrapKeyIntakeResult> {
+  async submitGuidedIamBootstrapKey(@Payload() body: BootstrapKeyIntakeInput): Promise<BootstrapKeyIntakeResult> {
     logger.debug('WizardController: wizard.guidedIam.submitBootstrapKey invoked');
+    assertInstallRegionUnlocked(this.store, body.region);
     return this.guidedIam.intakeBootstrapKey(body);
   }
 

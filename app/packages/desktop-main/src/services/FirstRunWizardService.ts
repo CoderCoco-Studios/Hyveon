@@ -208,6 +208,7 @@ export class FirstRunWizardService {
     this.store.delete('activeCloud');
     this.store.delete('aws');
     this.store.delete('bootstrap');
+    this.store.delete('installRegionLock');
     this.store.delete('creds');
     logger.warn('FirstRunWizardService: wizard state reset (operator-initiated)');
   }

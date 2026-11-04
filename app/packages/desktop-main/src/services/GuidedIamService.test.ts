@@ -406,12 +406,33 @@ describe('GuidedIamService', () => {
     it('should refuse a different region and never call iam:CreateAccessKey once bootstrap has completed', async () => {
       const lockedStore = makeStore({ region: 'eu-west-1' });
       vi.mocked(lockedStore.get).mockImplementation(((key: string) =>
-        key === 'aws' ? { region: 'eu-west-1' } : { stateBucket: 's', configurationBucket: 'c' }) as never);
+        key === 'aws' ? { region: 'eu-west-1' } : key === 'installRegionLock' ? 'eu-west-1' : undefined) as never);
       service = new TestableGuidedIamService(lockedStore, safeStorage);
 
       await expect(service.rotate(ROTATION_INPUT)).rejects.toThrow(/destroying the stack.*resetting the app/);
       expect(iamMock.commandCalls(CreateAccessKeyCommand)).toHaveLength(0);
       expect(lockedStore.set).not.toHaveBeenCalled();
+    });
+
+    // @spec APP-WIZARD-REGLOCK-001
+    it('should re-check the lock before activating and revoke the minted key when a lock engaged during rotation', async () => {
+      const lockedStore = makeStore(undefined);
+      let locked = false;
+      vi.mocked(lockedStore.get).mockImplementation(((key: string) =>
+        key === 'installRegionLock' && locked ? 'eu-west-1' : key === 'aws' ? { region: 'eu-west-1' } : undefined) as never);
+      service = new TestableGuidedIamService(lockedStore, safeStorage);
+      iamMock.on(CreateAccessKeyCommand).callsFake(() => {
+        locked = true;
+        return { AccessKey: { UserName: 'hyveon-bootstrap', AccessKeyId: NEW_ACCESS_KEY_ID, SecretAccessKey: NEW_SECRET, Status: 'Active' } };
+      });
+      stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+
+      await expect(service.rotate({ ...ROTATION_INPUT, region: 'us-west-2' })).rejects.toThrow(/locked to eu-west-1/);
+
+      expect(lockedStore.set).not.toHaveBeenCalled();
+      expect(iamMock.commandCalls(DeleteAccessKeyCommand).map((c) => c.args[0].input.AccessKeyId)).toEqual([NEW_ACCESS_KEY_ID]);
+      expect(lockedStore.deletePastedCredentials).toHaveBeenCalledWith('hyveon-guided');
     });
 
     it('should log a debug entry line (never the bootstrap secret) when starting rotation', async () => {

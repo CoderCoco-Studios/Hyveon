@@ -287,8 +287,8 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     };
   }, [preparingTemplate, persistProgress]);
 
-  // @spec APP-WIZARD-REGION-005
-  /** Validates the region input and moves from `region` to `template`, persisting `not-started` first per the plan's call-site list. */
+  // @spec APP-WIZARD-REGION-005, APP-WIZARD-REGLOCK-001
+  /** Validates the region input (including the install-region lock) and moves from `region` to `template`, persisting `not-started` first per the plan's call-site list. */
   async function onChooseGuided() {
     const trimmed = region.trim();
     if (!trimmed) {
@@ -297,6 +297,18 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     }
     setRegionError(null);
     setRegion(trimmed);
+    // Validate against the install-region lock before any CloudFormation handoff: saving the
+    // region runs the main-process guard, so a refused region stops here instead of after the
+    // stack and bootstrap key exist.
+    try {
+      if (!window.hyveon) throw new Error(BRIDGE_UNAVAILABLE);
+      await window.hyveon.wizard.saveState({ aws: { region: trimmed } });
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setRegionError(err instanceof Error ? err.message : 'Failed to save the AWS region.');
+      return;
+    }
+    if (!mountedRef.current) return;
     await persistProgress({ subState: 'not-started', hasBootstrapKey: false });
     if (!mountedRef.current) return;
     setPhase('template');

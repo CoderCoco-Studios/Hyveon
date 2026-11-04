@@ -131,7 +131,7 @@ EARS requirements for prefix `APP-WIZARD`; design in `wizard-and-bootstrap-desig
 
 ## One region per install
 
-- [x] **APP-WIZARD-REGLOCK-001**: Once bootstrap has completed for the install (a `bootstrap` record is stored), the wizard shall refuse to store an `aws.region` other than the stored one, whether the region comes from the credentials step or the guided-IAM region screen, and shall tell the operator that moving to another region means destroying the stack, deleting the bootstrap resources and resetting the app. (`install-region-lock.ts`, used by `wizard.controller.ts` `saveState` and `GuidedIamService.rotate`)
+- [x] **APP-WIZARD-REGLOCK-001**: From the first bootstrap call onward, the wizard shall lock the install to its region. Before any `wizard.bootstrap.*` handler creates a resource it shall persist the wizard region as `installRegionLock`, and shall create nothing if that write fails. While the lock is set (or, on installs that predate it, a `bootstrap` record is stored) the wizard shall refuse a region other than the locked one: from the credentials step (`saveState`), at the guided-IAM region screen, at the CloudFormation console handoff and key intake, and again immediately before `GuidedIamService.rotate` activates the minted key (which it then deletes). The refusal shall tell the operator that moving to another region means destroying the stack, deleting the bootstrap resources and resetting the app, and that Start over clears the lock when bootstrap created nothing. Start over (`wizard.reset`) shall clear `installRegionLock`. (`install-region-lock.ts`, used by `wizard.controller.ts`, `GuidedIamService.rotate`, `FirstRunWizardService.reset`, and `use-guided-iam.hook.ts`)
 
 ## AWS credentials step
 

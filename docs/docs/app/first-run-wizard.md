@@ -215,7 +215,7 @@ back to plaintext:
 The region is mandatory in both modes because Pulumi's self-managed S3 backend
 has no region default to fall back on.
 
-Once the bootstrap step has run, the region is locked for the install: every AWS resource lives in it. Reconfigure and guided rotation refuse to store a different region and tell you that moving regions means destroying the stack, deleting the bootstrap resources and resetting the app.
+The region locks the moment the bootstrap step first runs, even if it then fails: every AWS resource lives in it. The guided-setup region screen, Reconfigure and guided rotation refuse a different region, and the region screen shows the refusal instead of moving on. The message tells you that moving regions means destroying the stack, deleting the bootstrap resources and resetting the app. If bootstrap failed before creating anything, Start over clears the lock.
 
 ## Step 4 — Bootstrap AWS resources
 

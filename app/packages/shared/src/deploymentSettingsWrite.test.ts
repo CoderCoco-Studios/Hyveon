@@ -30,6 +30,13 @@ describe('validateDeploymentSettingsPatch', () => {
     ]);
   });
 
+  // @spec CONFIG-SET-012
+  it('should report an issue on awsRegion when the key is present with an undefined value', () => {
+    expect(validateDeploymentSettingsPatch({ awsRegion: undefined })).toEqual([
+      { path: 'awsRegion', message: expect.stringContaining('wizard') },
+    ]);
+  });
+
   it('should return no issues for an empty patch', () => {
     expect(validateDeploymentSettingsPatch({})).toEqual([]);
   });
