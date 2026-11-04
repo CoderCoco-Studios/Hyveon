@@ -8,6 +8,8 @@ import {
   type Task,
   type ECSClientConfig,
 } from '@aws-sdk/client-ecs';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import type {
@@ -19,6 +21,7 @@ import type {
   WorkloadStatus,
 } from '@hyveon/shared';
 import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR, getTaskEniId, resolveEniPublicIp } from '@hyveon/shared';
+import { startInProgressMessage, startWithLease } from '@hyveon/shared/aws/startLease';
 import { createCachedAwsClient } from './cachedClient.js';
 
 /**
@@ -131,6 +134,8 @@ export interface AwsCloudProviderConfig {
   subnetIds: string;
   /** Security group ID attached to game-server tasks. */
   securityGroupId: string;
+  /** Discord single-table name (`outputs.discordTableName`) hosting the cross-process start lease. */
+  discordTableName: string;
   /** Root domain used to build a game's public hostname (`{game}.{domain}`). */
   domainName?: string;
   /**
@@ -202,6 +207,14 @@ export class AwsCloudProvider implements CloudProvider {
       credentials: AwsCloudProviderConfig['credentials'];
       credentialsSignature: AwsCloudProviderConfig['credentialsSignature'];
     }) => new CloudWatchLogsClient({ region: config.region, credentials: config.credentials }),
+  );
+
+  private readonly getCachedDocClient = createCachedAwsClient(
+    (config: {
+      region: string;
+      credentials: AwsCloudProviderConfig['credentials'];
+      credentialsSignature: AwsCloudProviderConfig['credentialsSignature'];
+    }) => DynamoDBDocumentClient.from(new DynamoDBClient({ region: config.region, credentials: config.credentials })),
   );
 
   /**
@@ -355,24 +368,32 @@ export class AwsCloudProvider implements CloudProvider {
     game: string,
   ): Promise<Task | null> {
     try {
-      const client = this.getEcsClient(region, credentials, credentialsSignature);
-      const listResp = await client.send(
-        new ListTasksCommand({ cluster, family: `${game}-server`, desiredStatus: 'RUNNING' }),
-      );
-      if (!listResp.taskArns?.length) return null;
-
-      const descResp = await client.send(
-        new DescribeTasksCommand({ cluster, tasks: listResp.taskArns }),
-      );
-      return (
-        descResp.tasks?.find(
-          (t) => t.lastStatus !== 'STOPPED' && t.lastStatus !== 'DEPROVISIONING',
-        ) ?? null
-      );
+      return await this.findRunningTaskOrThrow(region, credentials, credentialsSignature, cluster, game);
     } catch (err) {
       this.logger?.error('Failed to find running task', err);
       return null;
     }
+  }
+
+  /**
+   * Same lookup as {@link findRunningTask} but SDK errors propagate, for the start guard that must fail closed
+   * (RT-TASK-LAUNCH-010) instead of mistaking an outage for "stopped".
+   */
+  private async findRunningTaskOrThrow(
+    region: string,
+    credentials: AwsCloudProviderConfig['credentials'],
+    credentialsSignature: AwsCloudProviderConfig['credentialsSignature'],
+    cluster: string,
+    game: string,
+  ): Promise<Task | null> {
+    const client = this.getEcsClient(region, credentials, credentialsSignature);
+    const listResp = await client.send(
+      new ListTasksCommand({ cluster, family: `${game}-server`, desiredStatus: 'RUNNING' }),
+    );
+    if (!listResp.taskArns?.length) return null;
+
+    const descResp = await client.send(new DescribeTasksCommand({ cluster, tasks: listResp.taskArns }));
+    return descResp.tasks?.find((t) => t.lastStatus !== 'STOPPED' && t.lastStatus !== 'DEPROVISIONING') ?? null;
   }
 
   /**
@@ -399,6 +420,7 @@ export class AwsCloudProvider implements CloudProvider {
   }
 
   // @spec RT-TASK-LAUNCH-001, RT-TASK-LAUNCH-002, RT-TASK-LAUNCH-003, RT-TASK-LAUNCH-005, RT-TASK-LAUNCH-008
+  // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
   // @spec RT-TASK-LAUNCH-011
   /**
    * Launches a game workload on AWS.
@@ -423,33 +445,45 @@ export class AwsCloudProvider implements CloudProvider {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    return this.withGameLock(game, async () => {
-      const existing = await this.findRunningTask(region, credentials, credentialsSignature, cluster, game);
-      if (existing) throw new WorkloadGuardError(`${game} is already running.`);
+    if (!config.discordTableName) {
+      throw new WorkloadGuardError('Infrastructure is out of date (no start-lease table). Run Apply on the IaC page first.');
+    }
+    const doc = this.getCachedDocClient({ region, credentials, credentialsSignature });
 
-      // Deliberately no try/catch here: RunTask failures (including non-`Error`
-      // throws from the SDK) propagate to the caller unchanged, so
-      // `EcsService`'s `describeError`'s `String(err)` fallback renders
-      // identically to the pre-migration `EcsService.start` (a raw string
-      // throw must surface unprefixed, not wrapped as `'Error: <string>'`).
-      const resp = await this.getEcsClient(region, credentials, credentialsSignature).send(
-        new RunTaskCommand({
-          cluster,
-          taskDefinition: `${game}-server`,
-          count: 1,
-          launchType: 'FARGATE',
-          networkConfiguration: {
-            awsvpcConfiguration: { subnets, securityGroups: [sg], assignPublicIp: 'ENABLED' },
-          },
-          propagateTags: 'TASK_DEFINITION',
-        }),
-      );
-      if (resp.tasks?.length) {
-        const taskArn = resp.tasks[0]!.taskArn!;
-        return { workloadId: taskArn };
-      }
-      const reason = resp.failures?.[0]?.reason ?? 'unknown';
-      throw new WorkloadLaunchError(`Failed to start ${game}: ${reason}`);
+    return this.withGameLock(game, async () => {
+      const outcome = await startWithLease<string>({
+        put: (input) => doc.send(new PutCommand(input)),
+        tableName: config.discordTableName,
+        game,
+        findRunning: async () =>
+          (await this.findRunningTaskOrThrow(region, credentials, credentialsSignature, cluster, game)) !== null,
+        launch: async (clientToken) => {
+          // Deliberately no try/catch here: RunTask failures (including non-`Error`
+          // throws from the SDK) propagate to the caller unchanged, so
+          // `EcsService`'s `describeError`'s `String(err)` fallback renders
+          // identically to the pre-migration `EcsService.start` (a raw string
+          // throw must surface unprefixed, not wrapped as `'Error: <string>'`).
+          const resp = await this.getEcsClient(region, credentials, credentialsSignature).send(
+            new RunTaskCommand({
+              cluster,
+              taskDefinition: `${game}-server`,
+              count: 1,
+              launchType: 'FARGATE',
+              clientToken,
+              networkConfiguration: {
+                awsvpcConfiguration: { subnets, securityGroups: [sg], assignPublicIp: 'ENABLED' },
+              },
+              propagateTags: 'TASK_DEFINITION',
+            }),
+          );
+          if (resp.tasks?.length) return { launched: true, value: resp.tasks[0]!.taskArn! };
+          const reason = resp.failures?.[0]?.reason ?? 'unknown';
+          throw new WorkloadLaunchError(`Failed to start ${game}: ${reason}`);
+        },
+      });
+      if (outcome.status === 'in-progress') throw new WorkloadGuardError(startInProgressMessage(game));
+      if (outcome.status === 'already-running') throw new WorkloadGuardError(`${game} is already running.`);
+      return { workloadId: outcome.value };
     });
   }
 

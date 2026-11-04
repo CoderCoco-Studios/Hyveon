@@ -282,7 +282,12 @@ called out again in the `WindowController` row below.
   `EcsService` routes ECS run/stop/status calls through the injected
   `CLOUD_PROVIDER` token (a `CloudProvider` implementation from
   `@hyveon/cloud-aws`) rather than instantiating an `@aws-sdk/client-ecs`
-  client directly; `Ec2Service` / `LogsService` / `SchedulerService` still
+  client directly. A Start also takes a 120 s DynamoDB start lease
+  (`LAUNCH#{game}`) in the Discord table (`outputs.discordTableName`, passed
+  through `buildProviderConfig`) via `startWithLease`, shared with the Discord
+  followup Lambda, so a desktop Start and a `/server-start` launch at most one
+  task; an overlapping start is refused with
+  `"A start for {game} is already in progress."`; `Ec2Service` / `LogsService` / `SchedulerService` still
   call the AWS SDK v3 clients (EC2, CloudWatch Logs, EventBridge Scheduler)
   directly, since those aren't yet behind a cloud-agnostic contract.
   `FileManagerService` composes `EcsService`/`Ec2Service`/`SchedulerService`
