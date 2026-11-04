@@ -319,6 +319,7 @@ enforces — the same rule can never be phrased differently in the two places.
 | Field(s) | Rule |
 |---|---|
 | Hosted zone name, project name | Must not be blank |
+| AWS region | Any patch carrying `awsRegion` is rejected: *"The AWS region is chosen in the setup wizard and cannot be changed here."* The Settings page shows the region read-only |
 | VPC CIDR | Must look like an IPv4 CIDR block, e.g. `10.0.0.0/16` |
 | DNS TTL, the three watchdog fields | Must be a positive whole number |
 | The three Discord ID lists | Each entry must be a 17-20 digit Discord snowflake |
