@@ -4,7 +4,7 @@ Let players start, stop and check games from Discord slash commands, under the o
 
 ## Status
 
-**MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited. Fully serverless path (Function URL → interactions Lambda → followup Lambda → update-dns PATCH) works end to end; a failed config read is never cached or saved over the real row.
+**MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited. Fully serverless path (Function URL → interactions Lambda → followup Lambda → update-dns PATCH) works end to end; direct dynamic configuration writes reject failed reads without using a fallback.
 
 ## References
 
@@ -141,7 +141,7 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 
 ## Key Findings
 
-1. **Failed config reads are not cached or saved over** — `DiscordConfigService.loadStrict()` throws on a read failure and caches nothing; every mutator uses it, so a transient DynamoDB failure surfaces as an error instead of overwriting the real `CONFIG#discord` row. The display path (`load()`, used by `getConfig` and `getRedacted`) still degrades to an uncached empty config, which is why the Discord page cannot tell a failed load from an empty one (`DISCORD-UI-008`).
+1. **Failed dynamic config reads are not cached or saved over** — `DiscordConfigService.loadStrict()` throws on a failed `CONFIG#discord` read and caches nothing, so the dynamic row is never written on the basis of a failed read. The display path (`load()`, used by `getConfig` and `getRedacted`) still returns an uncached empty config (`DISCORD-UI-008`). `loadBase()` separately caches an empty base config after a failed `BASE#discord` read. `setCredentials()` calls `loadStrict()` only when updating `clientId`; secrets-only updates skip the dynamic read.
 2. **`patchInteractionOriginal` doc contradicts code** [resolved: fetch is wrapped, `DISCORD-RUN-014`] — the TSDoc says it "swallows and logs failures rather than throwing" (`shared/src/discord/patchOriginal.ts:9-11`), but `fetch` is not wrapped (`:23`); a network rejection throws. In update-dns this skips `deletePending` (`update-dns/handler.ts:193-194`), leaving cleanup to the TTL.
 3. **Followup can leave a deferred interaction unresolved** [resolved: config read moved inside the `try`, `DISCORD-RUN-010`] — `getEffectiveDiscordConfig` runs before the `try` (`followup/handler.ts:240`) and the final PATCH runs after it (`:272`); a failure in either leaves Discord showing "thinking..." until the token expires.
 4. **Followup logs the interaction token** [resolved: logs identifiers only, `DISCORD-RUN-011`] — `console.error('Followup handler failed', { err, event })` (`followup/handler.ts:268`) logs the whole event, which carries `interactionToken` (a 15-minute webhook credential). Conflicts with `.claude/rules/logging.md` rule 3 [inferred: the rule targets desktop-main, but the intent applies].

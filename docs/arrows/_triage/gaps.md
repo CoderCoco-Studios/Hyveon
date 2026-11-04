@@ -15,7 +15,7 @@ Each `[ ]` spec has one class:
 
 Impact applies to class **b** (and is noted on a few **c** items): **high** = operator-visible failure, data loss, wrong infrastructure, unbounded cost or a secret leak; **med** = a degraded or misleading path with a workaround; **low** = logging, refactor, test coverage or cosmetic. Evidence cites repo-relative `file:line` at `84c1fe0a`; where a spec's own `(gap: …)` note cites older line numbers, the evidence here uses the current ones.
 
-`node bin/coherence-check.mjs` reports 179 `[ ]` specs and 178 "uncovered"; the one covered `[ ]` spec is `CONFIG-FORM-003`, which carries an `@spec` annotation (`app/packages/web/src/hooks/use-deployment-settings.hook.ts`, `deployment-settings-form.component.test.tsx`) while the behaviour it requires is still unbuilt.
+`node bin/coherence-check.mjs` reports 179 `[ ]` specs and 178 "uncovered" (the classification below covers the 188 specs open at the audit; the difference is specs closed since, e.g. `DISCORD-RUN-010`, `DISCORD-RUN-011`, `DISCORD-RUN-014`, `DISCORD-DESK-004`); the one covered `[ ]` spec is `CONFIG-FORM-003`, which carries an `@spec` annotation (`app/packages/web/src/hooks/use-deployment-settings.hook.ts`, `deployment-settings-form.component.test.tsx`) while the behaviour it requires is still unbuilt.
 
 ## Summary
 
