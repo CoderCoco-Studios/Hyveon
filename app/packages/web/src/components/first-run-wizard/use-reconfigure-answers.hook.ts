@@ -201,7 +201,7 @@ export function useReconfigureAnswers({
     });
   }
 
-  // @spec APP-WIZARD-RECONF-006
+  // @spec APP-WIZARD-RECONF-006, APP-WIZARD-RECONF-009
   /**
    * Commits whichever answers were actually opened via Edit in one
    * `wizard.state.save` call, passed to `StackInitializationStep` as
@@ -223,7 +223,11 @@ export function useReconfigureAnswers({
       payload.activeCloud = selectedCloud;
     }
     if (!completedSteps.has('credentials')) {
-      payload.aws = credentials.toStatePayload();
+      // A guided install opens Edit onto the satisfied summary, which leaves
+      // the form empty; sending that would overwrite the guided
+      // `aws.profile` with ''. Only a real chosen profile is committed.
+      const aws = credentials.toStatePayload();
+      if (aws.profile) payload.aws = aws;
     }
     if (!completedSteps.has('bootstrap')) {
       payload.bootstrap = resourceNames;

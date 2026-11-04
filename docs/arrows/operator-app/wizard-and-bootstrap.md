@@ -138,13 +138,13 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 | Pick-cloud step | `APP-WIZARD-CLOUD-001` to `APP-WIZARD-CLOUD-003` | 3 | 0 | 0 |
 | Wizard shell layout and sidebar | `APP-WIZARD-SHELL-001` to `APP-WIZARD-SHELL-008` | 8 | 0 | 0 |
 | Start over (first-run reset) | `APP-WIZARD-RESET-001` to `APP-WIZARD-RESET-003` | 3 | 0 | 0 |
-| Reconfigure | `APP-WIZARD-RECONF-001` to `APP-WIZARD-RECONF-009` | 6 | 0 | 3 |
+| Reconfigure | `APP-WIZARD-RECONF-001` to `APP-WIZARD-RECONF-009` | 7 | 0 | 2 |
 | Stack initialization step (code owned by iac/engine) | `APP-WIZARD-STACK-001` to `APP-WIZARD-STACK-004` | 4 | 0 | 0 |
 | Guided IAM step in the wizard | `APP-WIZARD-GSTEP-001` to `APP-WIZARD-GSTEP-006` | 5 | 0 | 1 |
 | Guided IAM CloudFormation template | `APP-WIZARD-TMPL-001` to `APP-WIZARD-TMPL-011` | 10 | 0 | 1 |
 | Guided IAM console handoff | `APP-WIZARD-CONSOLE-001` to `APP-WIZARD-CONSOLE-006` | 5 | 1 | 0 |
 | Guided IAM bootstrap key intake | `APP-WIZARD-INTAKE-001` to `APP-WIZARD-INTAKE-006` | 5 | 0 | 1 |
-| Guided IAM mandatory rotation | `APP-WIZARD-ROTATE-001` to `APP-WIZARD-ROTATE-008` | 7 | 0 | 1 |
+| Guided IAM mandatory rotation | `APP-WIZARD-ROTATE-001` to `APP-WIZARD-ROTATE-008` | 8 | 0 | 0 |
 | Keychain requirement for guided and pasted credentials | `APP-WIZARD-KEYCH-001` to `APP-WIZARD-KEYCH-003` | 2 | 0 | 1 |
 | Region selection (guided IAM) | `APP-WIZARD-REGION-001` to `APP-WIZARD-REGION-005` | 5 | 0 | 0 |
 | One region per install | `APP-WIZARD-REGLOCK-001` | 1 | 0 | 0 |
@@ -189,7 +189,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/wizard-and
 5. Resolve the runs table name from the operator's project name (finding 7). (specs: `APP-WIZARD-BOOT-012`)
 6. Either wire `rotateActiveCredentials` to an IPC channel and UI, or drop `APP-WIZARD-ROTKEY-001` to `APP-WIZARD-ROTKEY-004` (finding 3). (specs: `APP-WIZARD-ROTKEY-005`)
 7. Use `Promise.allSettled` in `cloudHealth.list`; guard `writePolicyToDisk` (finding 11). (specs: `APP-WIZARD-HEALTH-011`)
-8. Verify and, if real, fix the Reconfigure guided-credentials overwrite (finding 15). (specs: `APP-WIZARD-RECONF-009`)
+8. Resolve the Reconfigure paste-submit credential overwrite (`APP-WIZARD-RECONF-007`); the guided-credentials overwrite (finding 15, `APP-WIZARD-RECONF-009`) and the guided re-run key deletion (`APP-WIZARD-ROTATE-008`) are fixed. (specs: `APP-WIZARD-RECONF-007`)
 
 ### Nice to Have
 9. Collapse `awsClientCache.ts` into `cloud-aws/src/cachedClient.ts`; share `GUIDED_PROFILE_NAME` and the Cloud Health/Guided IAM helpers (finding 8).
