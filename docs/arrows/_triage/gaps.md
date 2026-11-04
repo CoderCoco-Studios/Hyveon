@@ -19,9 +19,9 @@ Impact applies to class **b** (and is noted on a few **c** items): **high** = op
 
 ## Summary
 
-No `[ ]` spec is implemented-but-unmarked: every gap note still describes the current code. 132 are real gaps (3 since closed: `DISCORD-RUN-010`, `DISCORD-RUN-011`, `DISCORD-RUN-014`), 28 should be deferred and 26 need their spec text fixed.
+No `[ ]` spec is implemented-but-unmarked: every gap note still describes the current code. 132 are real gaps (5 since closed: `DISCORD-RUN-010`, `DISCORD-RUN-011`, `DISCORD-RUN-014`, `APP-WIZARD-RECONF-009`, `APP-WIZARD-ROTATE-008`), 28 should be deferred and 26 need their spec text fixed.
 
-The 14 high-impact specs reduce to 8 root causes: five single-spec ones (`RT-TASK-LAUNCH-010`, `IAC-RUN-STORE-007`, `APP-WIZARD-RECONF-009`, `APP-DIAG-SCRUB-003`, `DISCORD-DESK-004`), the health-check Lambda environment (`RT-HEALTH-PROV-003`, `IAC-PROGRAM-LAMBDA-011`), the health-check Lambda network path (`RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-012`), and the install-region set of five (`IAC-ENGINE-REGION-001`, `CONFIG-SET-012`, `CONFIG-FORM-003`, `CONFIG-FORM-007`, `APP-WIZARD-REGLOCK-001`), since closed.
+The 14 high-impact specs reduce to 8 root causes: five single-spec ones (`RT-TASK-LAUNCH-010`, `IAC-RUN-STORE-007`, `APP-WIZARD-RECONF-009`, `APP-DIAG-SCRUB-003`, `DISCORD-DESK-004`), the health-check Lambda environment (`RT-HEALTH-PROV-003`, `IAC-PROGRAM-LAMBDA-011`), the health-check Lambda network path (`RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-012`), and the install-region set of five (`IAC-ENGINE-REGION-001`, `CONFIG-SET-012`, `CONFIG-FORM-003`, `CONFIG-FORM-007`, `APP-WIZARD-REGLOCK-001`), since closed; `APP-WIZARD-RECONF-009` is also since closed (with `APP-WIZARD-ROTATE-008`).
 
 Totals count specs, one class per spec. `APP-WIZARD-HEALTH-008` is counted once, as class d; its guided-install remediation-copy gap is listed as a second row in its segment and is not counted again.
 

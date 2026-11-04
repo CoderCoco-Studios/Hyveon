@@ -403,8 +403,10 @@ one of them already has a real answer on record:
 
 Press **Edit** to expand that step's real form. Steps you never expand stay
 collapsed all the way through.
-If you open **Edit** on the credentials step of a guided install and choose nothing, Finish setup leaves your guided credential as it is. (There is no way to re-collapse a step once
+(There is no way to re-collapse a step once
 expanded — press **Cancel** and start again if you change your mind.)
+
+If you open **Edit** on the credentials step of a guided install and choose nothing, Finish setup leaves your guided credential as it is.
 
 **Provision AWS access starts collapsed only conditionally.** Unlike its
 three siblings above, this step is pre-marked completed only when your

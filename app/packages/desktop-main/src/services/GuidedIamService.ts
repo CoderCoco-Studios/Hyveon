@@ -375,7 +375,9 @@ export class GuidedIamService {
    *    {@link VERIFY_ACCESS_KEY_RETRY_DELAYS_MS}) to absorb IAM key
    *    propagation delay. Once all attempts are exhausted, best-effort
    *    deletes the orphaned new key and its step-2 staged entry (using the
-   *    still-untouched *bootstrap* key), then returns
+   *    still-untouched *bootstrap* key; when step 2 held the pair in memory
+   *    because {@link GUIDED_PROFILE_NAME} was already active, there is no
+   *    staged entry and nothing stored is deleted), then returns
    *    `{ status: 'verification-failed', error }` without touching
    *    `aws.profile` or the bootstrap key — this cleanup is what makes a
    *    retry safe, since an orphaned new key would otherwise hit IAM's

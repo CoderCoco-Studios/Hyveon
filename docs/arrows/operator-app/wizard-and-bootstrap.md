@@ -156,7 +156,7 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 | Cloud Health (Settings) | `APP-WIZARD-HEALTH-001` to `APP-WIZARD-HEALTH-011` | 9 | 0 | 2 |
 | Credential custody | `APP-WIZARD-CUSTODY-001` to `APP-WIZARD-CUSTODY-008` | 7 | 0 | 1 |
 
-**Summary:** 130 of 150 active specs implemented; 1 deferred; 19 gaps.
+**Summary:** 132 of 150 active specs implemented; 1 deferred; 17 gaps.
 
 ## Key Findings
 
@@ -174,7 +174,7 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 12. **IAM check suggests an over-broad policy** — `IamCheckService.buildPolicyJson` emits `Resource: '*'` for every missing action (`IamCheckService.ts:306-315`), unlike the scoped statements in `iamPolicy.ts:79`.
 13. **Credential signature embeds the access key id** — `resolveAwsClientCredentialsWithSignature` returns `pasted:<profile>:<accessKeyId>` (`awsCredentialSource.ts:185`); not a secret, but it travels into every cache comparison. `awsClientCache.ts` has no tests.
 14. **Template placeholder substitution is single-shot** — `GuidedIamService.renderTemplate` uses `String.replace` (first occurrence only, `:210-212`); safe today because each placeholder occurs once in `iam-bootstrap.yaml:38,55`, but latent.
-15. **Reconfigure commit vs guided credentials** `[inferred]` — `commitReconfigureAnswers` sends `credentials.toStatePayload()` whenever `credentials` is not pre-completed (`use-reconfigure-answers.hook.ts:222-224`) without the `!guidedCredentials` guard the first-run path has (`first-run-wizard.component.tsx:307`), so a Reconfigure that re-runs guided IAM may overwrite the guided profile with the untouched form. Not reproduced.
+15. **Reconfigure commit vs guided credentials** `[inferred]` — `commitReconfigureAnswers` sends `credentials.toStatePayload()` whenever `credentials` is not pre-completed (`use-reconfigure-answers.hook.ts:222-224`) without the `!guidedCredentials` guard the first-run path has (`first-run-wizard.component.tsx:307`), so a Reconfigure that re-runs guided IAM may overwrite the guided profile with the untouched form. Not reproduced. **CLOSED** by APP-WIZARD-RECONF-009 (the commit omits `aws` when the form yields no profile), and the related `hyveon-guided` overwrite-before-verify hazard by APP-WIZARD-ROTATE-008.
 
 ## Work Required
 
