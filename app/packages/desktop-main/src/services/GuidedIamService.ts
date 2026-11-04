@@ -403,8 +403,9 @@ export class GuidedIamService {
    * @param input - The validated bootstrap key pair (from
    *   {@link intakeBootstrapKey}) and the region to build every client
    *   against.
-   * @throws `Error` if bootstrap has completed and `input.region` differs from the stored install region
-   *   (`assertInstallRegionUnlocked`); nothing is attempted in that case.
+   * @throws `Error` if the install-region lock has engaged and `input.region` differs from the locked region
+   *   (`assertInstallRegionUnlocked`). Checked up front (nothing is attempted) and again immediately before
+   *   step 4, where the minted key is deleted and nothing is activated.
    * @throws {@link SafeStorageUnavailableError} if the OS keychain is
    *   unavailable — nothing is attempted in that case.
    * @throws `Error` if `iam:CreateAccessKey` (step 1) succeeds but its
@@ -479,25 +480,19 @@ export class GuidedIamService {
         accessKeyId: newKey.AccessKeyId,
         error: message,
       });
-      // Best-effort cleanup: delete the orphaned new key using the
-      // still-untouched bootstrap key, so a caller-driven retry (which
-      // re-runs from step 1) doesn't hit IAM's 2-access-key-per-user limit.
-      // A failure here does not change the outcome — the original
-      // verification error is still what gets returned.
-      try {
-        await bootstrapClient.send(new DeleteAccessKeyCommand({ AccessKeyId: newKey.AccessKeyId }));
-        this.store.deletePastedCredentials(GUIDED_PROFILE_NAME);
-      } catch (cleanupErr) {
-        const cleanupMessage = errMessage(cleanupErr);
-        logger.warn('GuidedIamService.rotate: failed to clean up orphaned new key after verification failure — may need manual cleanup', {
-          accessKeyId: newKey.AccessKeyId,
-          error: cleanupMessage,
-        });
-      }
+      await this.discardMintedKey(bootstrapClient, newKey.AccessKeyId);
       return { status: 'verification-failed', error: message };
     }
 
-    // Step 4: verification succeeded — activate the new key.
+    // Step 4: verification succeeded — activate the new key. The lock may have engaged on another
+    // region while this rotation ran (e.g. the operator went Back and bootstrapped elsewhere), so
+    // re-check immediately before the write and discard the minted key rather than overwrite it.
+    try {
+      assertInstallRegionUnlocked(this.store, input.region);
+    } catch (err) {
+      await this.discardMintedKey(bootstrapClient, newKey.AccessKeyId);
+      throw err;
+    }
     const currentAws = this.store.get('aws') ?? {};
     this.store.set('aws', { ...currentAws, profile: GUIDED_PROFILE_NAME, region: input.region });
     logger.info('GuidedIamService.rotate: activated rotated key as the credential source', {
@@ -522,6 +517,27 @@ export class GuidedIamService {
       bootstrapAccessKeyId: input.bootstrapAccessKeyId,
     });
     return { status: 'complete' };
+  }
+
+  /**
+   * Best-effort cleanup of a minted-but-unused key: deletes it with the still-untouched bootstrap
+   * client and drops its staged credentials, so a caller-driven retry (which re-runs from step 1)
+   * doesn't hit IAM's 2-access-key-per-user limit. A failure is logged and swallowed; the caller's
+   * own outcome is unchanged.
+   *
+   * @param bootstrapClient - IAM client built from the bootstrap key.
+   * @param accessKeyId - The newly minted, not-yet-activated key to delete.
+   */
+  private async discardMintedKey(bootstrapClient: IAMClient, accessKeyId: string): Promise<void> {
+    try {
+      await bootstrapClient.send(new DeleteAccessKeyCommand({ AccessKeyId: accessKeyId }));
+      this.store.deletePastedCredentials(GUIDED_PROFILE_NAME);
+    } catch (cleanupErr) {
+      logger.warn('GuidedIamService.rotate: failed to clean up orphaned new key — may need manual cleanup', {
+        accessKeyId,
+        error: errMessage(cleanupErr),
+      });
+    }
   }
 
   // @spec APP-WIZARD-ROTATE-006, APP-WIZARD-INTAKE-006

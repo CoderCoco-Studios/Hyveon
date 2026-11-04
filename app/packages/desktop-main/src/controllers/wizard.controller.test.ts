@@ -38,6 +38,7 @@ function makeStore(
     activeCloud?: 'aws';
     aws?: { profile?: string; region?: string };
     bootstrap?: { stateBucket: string; configurationBucket: string };
+    installRegionLock?: string;
   } = {},
 ): ElectronStoreService {
   const data: Record<string, unknown> = { ...seed };
@@ -54,6 +55,7 @@ function makeBootstrap(result: BootstrapResult = { status: 'created' }): Bootstr
   return {
     ensureStateBucket: vi.fn().mockResolvedValue(result),
     ensureConfigurationBucket: vi.fn().mockResolvedValue(result),
+    ensureDeploymentConfig: vi.fn().mockResolvedValue(result),
     ensureRunsTable: vi.fn().mockResolvedValue(result),
   } as Partial<BootstrapService> as BootstrapService;
 }
@@ -327,6 +329,92 @@ describe('WizardController', () => {
         controller.saveState({ aws: { region: 'eu-west-1' } });
 
         expect(store.set).toHaveBeenCalledWith('aws', { region: 'eu-west-1' });
+      });
+    });
+
+    // @spec APP-WIZARD-REGLOCK-001
+    describe('region lock engaged by the first bootstrap call', () => {
+      const STARTED = { wizardCompleted: false, aws: { region: 'us-east-1' }, installRegionLock: 'us-east-1' };
+
+      it('should refuse a different aws.region once bootstrap has started, even with no bootstrap record', () => {
+        const store = makeStore(STARTED);
+        const controller = makeController({ store });
+
+        expect(() => controller.saveState({ aws: { region: 'eu-west-1' } })).toThrow(/locked to us-east-1/);
+        expect(store.set).not.toHaveBeenCalled();
+      });
+
+      it('should accept the locked region again once bootstrap has started', () => {
+        const controller = makeController({ store: makeStore(STARTED) });
+
+        expect(() => controller.saveState({ aws: { region: 'us-east-1' } })).not.toThrow();
+      });
+    });
+
+    // @spec APP-WIZARD-REGLOCK-001
+    describe('bootstrap handlers persist the lock before creating anything', () => {
+      const handlers: Array<[string, (c: WizardController) => Promise<unknown>, keyof BootstrapService]> = [
+        ['stateBucket', (c) => c.bootstrapStateBucket({ bucketName: 'b' }), 'ensureStateBucket'],
+        ['configurationBucket', (c) => c.bootstrapConfigurationBucket({ bucketName: 'b' }), 'ensureConfigurationBucket'],
+        ['deploymentConfig', (c) => c.bootstrapDeploymentConfig({ bucketName: 'b' }), 'ensureDeploymentConfig'],
+        ['runsTable', (c) => c.bootstrapRunsTable(), 'ensureRunsTable'],
+      ];
+
+      it.each(handlers)('should record installRegionLock before calling %s', async (_name, invoke, method) => {
+        const store = makeStore({ aws: { region: 'eu-west-1' } });
+        const bootstrap = makeBootstrap();
+        vi.mocked(bootstrap[method] as () => Promise<unknown>).mockImplementation(async () => {
+          expect(store.get('installRegionLock')).toBe('eu-west-1');
+          return { status: 'created' };
+        });
+
+        await invoke(makeController({ store, bootstrap }));
+
+        expect(bootstrap[method]).toHaveBeenCalledOnce();
+      });
+
+      it.each(handlers)('should not call %s when the lock cannot be persisted', async (_name, invoke, method) => {
+        const store = makeStore({ aws: { region: 'eu-west-1' } });
+        vi.mocked(store.set).mockImplementation(() => {
+          throw new Error('disk full');
+        });
+        const bootstrap = makeBootstrap();
+
+        await expect(invoke(makeController({ store, bootstrap }))).rejects.toThrow(/region lock.*no resources were created/);
+        expect(bootstrap[method]).not.toHaveBeenCalled();
+        expect(loggerMock.error).toHaveBeenCalled();
+      });
+
+      it('should not overwrite an existing lock on a later bootstrap call', async () => {
+        const store = makeStore({ aws: { region: 'us-east-1' }, installRegionLock: 'us-east-1' });
+
+        await makeController({ store }).bootstrapStateBucket({ bucketName: 'b' });
+
+        expect(store.set).not.toHaveBeenCalled();
+      });
+    });
+
+    // @spec APP-WIZARD-REGLOCK-001
+    describe('guided-IAM region validation before the CloudFormation handoff', () => {
+      const STARTED = { aws: { region: 'us-east-1' }, installRegionLock: 'us-east-1' };
+
+      it('should refuse openConsole for a different region without building the URL', async () => {
+        const guidedIam = makeGuidedIam();
+        const controller = makeController({ store: makeStore(STARTED), guidedIam });
+
+        await expect(controller.openGuidedIamConsole({ region: 'eu-west-1' })).rejects.toThrow(/locked to us-east-1/);
+        expect(guidedIam.buildCloudFormationConsoleUrl).not.toHaveBeenCalled();
+        expect(guidedIam.openConsole).not.toHaveBeenCalled();
+      });
+
+      it('should refuse submitBootstrapKey for a different region without validating the key', async () => {
+        const guidedIam = makeGuidedIam();
+        const controller = makeController({ store: makeStore(STARTED), guidedIam });
+
+        await expect(
+          controller.submitGuidedIamBootstrapKey({ accessKeyId: 'AKIA', secretAccessKey: 's', region: 'eu-west-1' }),
+        ).rejects.toThrow(/locked to us-east-1/);
+        expect(guidedIam.intakeBootstrapKey).not.toHaveBeenCalled();
       });
     });
 

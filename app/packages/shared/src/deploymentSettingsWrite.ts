@@ -55,7 +55,7 @@ export function validateDeploymentSettingsPatch(
 
   checkStringField(patch, 'hostedZoneName', issues, { requireNonEmpty: true });
   checkStringField(patch, 'projectName', issues, { requireNonEmpty: true });
-  if (patch.awsRegion !== undefined) {
+  if ('awsRegion' in patch) {
     issues.push({
       path: 'awsRegion',
       message: 'The AWS region is chosen in the setup wizard and cannot be changed here.',

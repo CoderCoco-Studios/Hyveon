@@ -314,6 +314,13 @@ describe('FirstRunWizardService', () => {
       expect(store.delete).toHaveBeenCalledWith('creds');
     });
 
+    // @spec APP-WIZARD-REGLOCK-001
+    it('should clear the install region lock so a failed bootstrap does not strand the operator', async () => {
+      await service.reset();
+
+      expect(store.delete).toHaveBeenCalledWith('installRegionLock');
+    });
+
     // @spec APP-WIZARD-RESET-003
     it('should never touch pulumi state — passphrase and lock-ownership records belong to an already-provisioned stack, not wizard progress', async () => {
       await service.reset();
