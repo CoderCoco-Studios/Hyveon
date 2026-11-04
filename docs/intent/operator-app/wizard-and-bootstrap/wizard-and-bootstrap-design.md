@@ -97,7 +97,6 @@ The data set includes `eusc-de-east-1`, "AWS European Sovereign Cloud (Germany)"
 
 The region chosen on either path is the install's one AWS region (`docs/high-level-design.md`, decision 10): bootstrap creates the buckets and runs table in it, and every other leaf resolves its region from it through `ConfigService.getRegion()`.
 The lock engages at the first bootstrap call: each `wizard.bootstrap.*` handler persists the wizard region as `installRegionLock` before it creates anything, and creates nothing if that write fails. From then on the wizard refuses a different region at the credentials step, at the guided-IAM region screen (before the CloudFormation handoff), at console handoff and key intake, and again just before rotation activates the minted key. The refusal tells the operator that moving regions means destroying the stack, deleting the bootstrap resources and resetting the app. Because a bootstrap that fails part-way must not strand the operator, Start over (`wizard.reset`) clears the lock (`APP-WIZARD-REGLOCK-001`).
-Today neither write path checks: `wizard.state.save` merges any `aws.region` (`wizard.controller.ts:202-205`) and guided rotation stores `input.region` (`GuidedIamService.ts:491`), so a Reconfigure can point the app at a region its bootstrap resources and stack are not in.
 
 ## Bootstrap Resources and IAM Check
 
