@@ -108,7 +108,7 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 
 **Key Components:**
 1. `lambda/interactions/src/handler.ts:268` — Function URL entry: Ed25519 verify (`:279`), PING/PONG, autocomplete filtered by `canRun` (`:152`), allowlist + `canRun` gate (`:189`, `:223`), async `InvokeCommand` with `InvocationType: 'Event'` (`:249`), deferred ack (type 5).
-2. `lambda/followup/src/handler.ts:238` — defensive `canRun` re-check (`:220`), `RunTask` against `{game}-server` with `propagateTags` (`:128`), `StopTask` (`:156`), status/list, `putPending` on start (`:192`), final `patchInteractionOriginal` (`:272`).
+2. `lambda/followup/src/handler.ts:261` — defensive `canRun` re-check (`:242`), start under the DynamoDB start lease via `startWithLease` (`:134`), `RunTask` against `{game}-server` with `clientToken` and `propagateTags` (`:141-151`), `StopTask` (`:175`), status/list, `putPending` on start (`:214`), final `patchInteractionOriginal` (`:300`).
 3. `shared/src/canRun.ts:19` — the single permission evaluator: guild allowlist → admin user → admin role → per-game entry with action → deny.
 4. `shared/src/ddb/configStore.ts` — `CONFIG#discord` (operator-edited) and `BASE#discord` (infra-seeded) rows; `getEffectiveDiscordConfig` (`:105`) merges them for both Lambdas.
 5. `shared/src/ddb/pendingStore.ts` — `PENDING#{taskArn}` rows with 15-minute `expiresAt` TTL (`:6`, `:17`), matching the interaction-token lifetime.

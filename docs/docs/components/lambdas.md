@@ -103,6 +103,7 @@ type FollowupPayload = {
      If successful, call `putPending()`
      (`PENDING#{taskArn}` with 15-min TTL); then PATCH the original
      interaction with "starting …".
+     The lease is what stops a desktop Start and a Discord `/server-start` for the same game from racing into two tasks.
    - **`stop`** — find the running task via `findRunningTask()`, call
      `ecs.stopTask`, PATCH "stopping …".
    - **`status`** — single-game `getStatus()` (ListTasks → DescribeTasks →
