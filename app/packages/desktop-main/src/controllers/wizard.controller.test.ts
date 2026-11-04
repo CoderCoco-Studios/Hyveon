@@ -302,6 +302,15 @@ describe('WizardController', () => {
         expect(store.set).not.toHaveBeenCalled();
       });
 
+      it('should keep the stored aws.region when the payload carries region: undefined', () => {
+        const store = makeStore(LOCKED);
+        const controller = makeController({ store });
+
+        controller.saveState({ aws: { profile: 'other', region: undefined } });
+
+        expect(store.set).toHaveBeenCalledWith('aws', { profile: 'other', region: 'us-east-1' });
+      });
+
       it('should accept the same aws.region after bootstrap', () => {
         const store = makeStore(LOCKED);
         const controller = makeController({ store });

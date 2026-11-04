@@ -205,7 +205,9 @@ export class WizardController {
     if (body.aws !== undefined) {
       assertInstallRegionUnlocked(this.store, body.aws.region);
       const current = this.store.get('aws') ?? {};
-      this.store.set('aws', { ...current, ...body.aws });
+      // An explicit `region: undefined` must not erase the stored region.
+      const defined = Object.fromEntries(Object.entries(body.aws).filter(([, v]) => v !== undefined));
+      this.store.set('aws', { ...current, ...defined });
     }
     if (body.bootstrap !== undefined) {
       this.store.set('bootstrap', body.bootstrap);
