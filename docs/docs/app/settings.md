@@ -244,7 +244,7 @@ values without hand-editing the JSON object in S3.
 | Field | What it is |
 |---|---|
 | **Project name** | Prefix used to derive default resource names, e.g. `${projectName}-audit` |
-| **AWS region** | Read-only. The region you chose in the setup wizard, which is fixed for the install once bootstrap completes. Moving to another region means destroying the stack, deleting the bootstrap resources and resetting the app |
+| **AWS region** | Read-only. The region you chose in the setup wizard, which is fixed for the install from the first bootstrap call. Moving to another region means destroying the stack, deleting the bootstrap resources and resetting the app |
 | **VPC CIDR** | CIDR block for the VPC, e.g. `10.0.0.0/16` |
 | **Hosted zone name** | The Route 53 hosted zone domain (must already exist). Required — there is no default |
 | **DNS TTL (seconds)** | TTL on the per-game DNS A records the watchdog Lambda writes |
