@@ -129,8 +129,8 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 
 ## Install region
 
-- [ ] **IAC-ENGINE-REGION-001**: When `PulumiService` builds the infrastructure program for a preview or apply, it shall set the program's `awsRegion` input to the wizard region that `ConfigService.getRegion()` returns, ignoring any `awsRegion` stored in `deployment-config.json`. (gap: `PulumiService.ts:1601,1619` and `:2266,2278` pass the parsed `DeploymentConfig` unchanged, so the program provisions in the stored `awsRegion` or its `us-east-1` default, `deploymentConfig.ts:237,327`)
-- [ ] **IAC-ENGINE-REGION-002**: Every desktop-app AWS client and store shall take its region from `ConfigService.getRegion()`, never from the stack outputs' `awsRegion` or from `DeploymentConfig.awsRegion`. (gap: the cloud provider for start, stop and status uses `outputs.awsRegion`, `EcsService.ts:72`; the audit, Discord-config and run-record stores prefer `outputs.awsRegion`, `cloud-provider.module.ts:109,131,180`)
+- [x] **IAC-ENGINE-REGION-001**: When `PulumiService` builds the infrastructure program for a preview or apply, it shall set the program's `awsRegion` input to the wizard region that `ConfigService.getRegion()` returns, ignoring any `awsRegion` stored in `deployment-config.json`. (`PulumiService.withInstallRegion`, `PulumiService.ts`)
+- [x] **IAC-ENGINE-REGION-002**: Every desktop-app AWS client and store shall take its region from `ConfigService.getRegion()`, never from the stack outputs' `awsRegion` or from `DeploymentConfig.awsRegion`. (`EcsService.ts` `buildProviderConfig`, `cloud-provider.module.ts`)
 
 ## Electron runtime guard
 

@@ -402,6 +402,18 @@ describe('GuidedIamService', () => {
       expect(store.setPastedCredentials).not.toHaveBeenCalled();
     });
 
+    // @spec APP-WIZARD-REGLOCK-001
+    it('should refuse a different region and never call iam:CreateAccessKey once bootstrap has completed', async () => {
+      const lockedStore = makeStore({ region: 'eu-west-1' });
+      vi.mocked(lockedStore.get).mockImplementation(((key: string) =>
+        key === 'aws' ? { region: 'eu-west-1' } : { stateBucket: 's', configurationBucket: 'c' }) as never);
+      service = new TestableGuidedIamService(lockedStore, safeStorage);
+
+      await expect(service.rotate(ROTATION_INPUT)).rejects.toThrow(/destroying the stack.*resetting the app/);
+      expect(iamMock.commandCalls(CreateAccessKeyCommand)).toHaveLength(0);
+      expect(lockedStore.set).not.toHaveBeenCalled();
+    });
+
     it('should log a debug entry line (never the bootstrap secret) when starting rotation', async () => {
       stubCreateAccessKeySuccess();
       stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });

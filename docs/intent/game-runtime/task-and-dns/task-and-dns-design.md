@@ -65,7 +65,7 @@ The Discord followup Lambda repeats this status assembly and the find-running-ta
 
 ### Region
 
-Every ECS call this leaf makes in the desktop app resolves its region through `ConfigService.getRegion()`, the install's one region (`IAC-ENGINE-REGION-002`, owned by `iac/engine`; `docs/high-level-design.md`, decision 10). `EcsService.getClient`, used by `getTaskDefinition` and every helper-task ECS call, already does (`EcsService.ts:213-217`). `buildProviderConfig` still gives the provider `outputs.awsRegion` (`EcsService.ts:72`), so start, stop and status read the region from the stack outputs; that is the open gap in `IAC-ENGINE-REGION-002`. The Lambdas in this leaf take their region from `AWS_REGION_`, which the program sets from its `awsRegion` input.
+Every ECS call this leaf makes in the desktop app resolves its region through `ConfigService.getRegion()`, the install's one region (`IAC-ENGINE-REGION-002`, owned by `iac/engine`; `docs/high-level-design.md`, decision 10). `EcsService.getClient`, used by `getTaskDefinition` and every helper-task ECS call, does, and so does `buildProviderConfig`, which gives the provider the same region for start, stop and status. The Lambdas in this leaf take their region from `AWS_REGION_`, which the program sets from its `awsRegion` input.
 
 ### Renderer polling and actions
 
@@ -134,7 +134,7 @@ A second implementation exists on the provider: `getCostEstimate` describes each
 | Cost data source | Task-definition CPU/memory times static Fargate prices | Cost Explorer `GetCostAndUsage` | The app makes no Cost Explorer calls, so it needs no billed-cost data and no Cost Explorer permission; real billed spend is one click away because the Costs page links out to the AWS console. Cost Explorer calls are billed per request [inferred]. |
 | Estimate refresh cadence | Once per mount | Every status poll | Avoids per-game `DescribeTaskDefinition` traffic every 20 s for data that only changes on apply (`game-status-provider.component.tsx:54-58`). |
 | Status poll cadence | 20 s, build-time override, 1 s floor | Push via EventBridge to the app | The app has no inbound transport (desktop-only, no HTTP) [inferred]; override documented at `game-status-provider.component.tsx:16-21`. |
-| Region for the provider | `ConfigService.getRegion()`, the install's one region | `outputs.awsRegion`; a game region from `DeploymentConfig.awsRegion` separate from the wizard region | One region per install (`docs/high-level-design.md`, decision 10); the outputs echo the same region once the program takes it from the wizard, so reading them adds a second source for one value. The provider still reads `outputs.awsRegion` (`EcsService.ts:72`, `IAC-ENGINE-REGION-002`). |
+| Region for the provider | `ConfigService.getRegion()`, the install's one region | `outputs.awsRegion`; a game region from `DeploymentConfig.awsRegion` separate from the wizard region | One region per install (`docs/high-level-design.md`, decision 10); the outputs echo the same region because the program takes it from the wizard, so reading them would add a second source for one value (`IAC-ENGINE-REGION-002`). |
 | Message strings as contract | Guard/launch errors carry operator-facing text, passed through unprefixed | Error codes mapped in the renderer | Preserves the pre-provider `EcsService` message contract (`EcsService.ts:108-125`; `AwsCloudProvider.ts:427-431`). |
 
 ## Open Questions & Future Decisions

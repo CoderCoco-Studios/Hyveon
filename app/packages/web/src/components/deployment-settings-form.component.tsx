@@ -20,11 +20,12 @@ function messagesForField(issues: DeploymentSettingsValidationIssue[], field: st
   return issues.filter((issue) => issue.path === field || issue.path.startsWith(`${field}[`)).map((issue) => issue.message);
 }
 
-// @spec CONFIG-FORM-006
+// @spec CONFIG-FORM-006, CONFIG-FORM-007
 /** Self-contained deployment-settings form — see the module doc for the full contract. */
 export function DeploymentSettingsForm() {
   const {
     draft,
+    installRegion,
     loadState,
     loadMessage,
     issues,
@@ -89,11 +90,14 @@ export function DeploymentSettingsForm() {
             <Input {...fieldProps} value={draft.projectName} onChange={(e) => patchDraft({ projectName: e.target.value })} />
           )}
         </FormField>
-        <FormField id="settings-aws-region" label="AWS region" errors={messagesForField(issues, 'awsRegion')}>
-          {(fieldProps) => (
-            <Input {...fieldProps} value={draft.awsRegion} onChange={(e) => patchDraft({ awsRegion: e.target.value })} />
-          )}
-        </FormField>
+        <div className="space-y-1">
+          <div className="text-sm font-medium">AWS region</div>
+          <div className="text-sm">{installRegion ?? '—'}</div>
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            Chosen in the setup wizard and fixed for this install. Moving to another region means destroying the stack,
+            deleting the bootstrap resources and resetting the app.
+          </p>
+        </div>
         <FormField id="settings-vpc-cidr" label="VPC CIDR" errors={messagesForField(issues, 'vpcCidr')}>
           {(fieldProps) => (
             <Input

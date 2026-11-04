@@ -112,7 +112,6 @@ Start and stop a game's container on demand, publish its address in DNS while it
 
 ## Key Findings
 
-1. **Start, stop and status read the region from stack outputs.** `buildProviderConfig` gives the provider `outputs.awsRegion` (`EcsService.ts:72`), while `EcsService.getClient`, used by `getTaskDefinition` (the cost estimate) and every helper-task ECS call, uses `ConfigService.getRegion()` (`EcsService.ts:214`). An install has one region, resolved only through `getRegion()` (`docs/high-level-design.md`, decision 10; `IAC-ENGINE-REGION-002`, owned by `iac/engine`); the provider is the call site in this leaf that does not yet comply.
 2. **DNS DELETE can orphan a record.** `deleteDns` reads the record's current IP but sends the Lambda's current `DNS_TTL` (`update-dns/handler.ts:141-170`). Route 53 DELETE must match the record exactly, so a `DNS_TTL` change between UPSERT and DELETE makes the delete fail; the failure is only logged as a warning (`:167-169`) and the stale A record stays.
 3. **DNS DELETE has no owner check.** On any STOPPED event for a known family the record is deleted (`handler.ts:235-238`) without comparing its IP to the stopping task's; a stale STOPPED event for an old task arriving after a new task's RUNNING UPSERT would remove the live record [inferred from code; not reproduced].
 4. **Pending Discord row is not cleared on STOPPED.** `notifyDiscordIfPending` runs only on RUNNING (`handler.ts:224-233`); a task that stops before reaching RUNNING leaves its `PENDING#{taskArn}` row behind.
@@ -136,7 +135,6 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-runtime/task-and-d
 1. Make update-dns DELETE robust: send the record's stored TTL (from `ListResourceRecordSets`) instead of the current `DNS_TTL`, and skip the delete when the record's IP does not belong to the stopping task (findings 2, 3). (specs: `RT-TASK-DNS-009`, `RT-TASK-DNS-010`)
 
 ### Should Fix
-2. Give the provider its region from `ConfigService.getRegion()` instead of `outputs.awsRegion` in `buildProviderConfig` (finding 1). The spec is owned by `iac/engine` and tracked in `docs/arrows/iac/engine.md`, Work Required. (specs: `IAC-ENGINE-REGION-002`)
 3. Clear the pending Discord row on STOPPED (finding 4). (specs: `RT-TASK-NOTIFY-005`)
 4. Collapse the Fargate cost formula onto `estimateFargateHourlyCost` and unify the task-definition fallback values (findings 6, 8); either route `costs.estimate` through `CloudProvider.getCostEstimate` or drop that interface method (finding 7). (specs: `RT-TASK-COST-010`, `RT-TASK-COST-011`, `RT-TASK-COST-012`)
 5. Normalise logged errors to messages in `EcsService` and stop logging the full event in update-dns (finding 11). (specs: `RT-TASK-LAUNCH-014`, `RT-TASK-DNS-014`)

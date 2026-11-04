@@ -281,11 +281,12 @@ describe('resolveCloudBindings', () => {
       });
     });
 
-    it('should prefer the deployed stack outputs awsRegion over getRegion() once a stack is deployed', async () => {
+    // @spec IAC-ENGINE-REGION-002
+    it('should take the region from getRegion(), ignoring the deployed stack outputs awsRegion', async () => {
       const config = makeConfig('aws', 'test-config-bucket', 'my-audit-table', 'test-runs-table', 'eu-west-1');
       await expect(resolveAuditLogStoreConfig(config, makeStore())).resolves.toEqual({
         tableName: 'my-audit-table',
-        region: 'eu-west-1',
+        region: 'us-east-1',
         credentials: undefined,
         credentialsSignature: 'none',
       });
@@ -335,12 +336,13 @@ describe('resolveCloudBindings', () => {
       });
     });
 
-    it('should prefer the deployed stack outputs awsRegion over getRegion() once a stack is deployed', async () => {
+    // @spec IAC-ENGINE-REGION-002
+    it('should take the region from getRegion(), ignoring the deployed stack outputs awsRegion', async () => {
       const config = makeConfig('aws', 'my-config-bucket', 'test-audit-table', 'my-runs-table', 'ap-southeast-2');
       await expect(resolveRunRecordStoreConfig(config, throwingRemoteFileStore, makeStore())).resolves.toEqual({
         tableName: 'my-runs-table',
         bucket: 'my-config-bucket',
-        region: 'ap-southeast-2',
+        region: 'us-east-1',
         credentials: undefined,
         credentialsSignature: 'none',
       });

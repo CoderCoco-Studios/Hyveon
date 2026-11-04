@@ -286,6 +286,41 @@ describe('WizardController', () => {
       expect(store.set).not.toHaveBeenCalled();
     });
 
+    // @spec APP-WIZARD-REGLOCK-001
+    describe('region lock', () => {
+      const LOCKED = {
+        wizardCompleted: false,
+        aws: { profile: 'dev', region: 'us-east-1' },
+        bootstrap: { stateBucket: 's', configurationBucket: 'c' },
+      };
+
+      it('should refuse a different aws.region and write nothing once bootstrap has completed', () => {
+        const store = makeStore(LOCKED);
+        const controller = makeController({ store });
+
+        expect(() => controller.saveState({ aws: { region: 'eu-west-1' } })).toThrow(/destroying the stack.*resetting the app/);
+        expect(store.set).not.toHaveBeenCalled();
+      });
+
+      it('should accept the same aws.region after bootstrap', () => {
+        const store = makeStore(LOCKED);
+        const controller = makeController({ store });
+
+        controller.saveState({ aws: { profile: 'other', region: 'us-east-1' } });
+
+        expect(store.set).toHaveBeenCalledWith('aws', { profile: 'other', region: 'us-east-1' });
+      });
+
+      it('should accept a different aws.region before bootstrap', () => {
+        const store = makeStore({ wizardCompleted: false, aws: { region: 'us-east-1' } });
+        const controller = makeController({ store });
+
+        controller.saveState({ aws: { region: 'eu-west-1' } });
+
+        expect(store.set).toHaveBeenCalledWith('aws', { region: 'eu-west-1' });
+      });
+    });
+
     it('should persist the aws credential choice and return the updated state', () => {
       const store = makeStore({ wizardCompleted: false });
       const controller = makeController({ store });

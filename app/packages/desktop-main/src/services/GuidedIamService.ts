@@ -15,6 +15,7 @@ import { SafeStorageUnavailableError } from './AwsProfileService.js';
 import { resolveAwsCredentialSource, type AwsCredentialSource } from './awsCredentialSource.js';
 import { verifyAccessKeyWithRetry } from './verifyAccessKeyWithRetry.js';
 import { sleep } from './sleep.js';
+import { assertInstallRegionUnlocked } from './install-region-lock.js';
 
 /**
  * Absolute path to the directory containing this module at runtime.
@@ -402,6 +403,8 @@ export class GuidedIamService {
    * @param input - The validated bootstrap key pair (from
    *   {@link intakeBootstrapKey}) and the region to build every client
    *   against.
+   * @throws `Error` if bootstrap has completed and `input.region` differs from the stored install region
+   *   (`assertInstallRegionUnlocked`); nothing is attempted in that case.
    * @throws {@link SafeStorageUnavailableError} if the OS keychain is
    *   unavailable — nothing is attempted in that case.
    * @throws `Error` if `iam:CreateAccessKey` (step 1) succeeds but its
@@ -420,6 +423,7 @@ export class GuidedIamService {
    */
   async rotate(input: RotationInput): Promise<RotationResult> {
     logger.debug('GuidedIamService.rotate: starting bootstrap key rotation', { region: input.region });
+    assertInstallRegionUnlocked(this.store, input.region);
     if (!this.safeStorage.isAvailable()) {
       throw new SafeStorageUnavailableError();
     }

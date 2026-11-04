@@ -22,6 +22,7 @@ import {
 } from '../services/GuidedIamService.js';
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
 import { logger } from '../logger.js';
+import { assertInstallRegionUnlocked } from '../services/install-region-lock.js';
 
 /** Payload accepted by {@link WizardController.bootstrapStateBucket}. */
 export interface BootstrapStateBucketInput {
@@ -175,7 +176,7 @@ export class WizardController {
     };
   }
 
-  // @spec APP-WIZARD-GATE-006, APP-WIZARD-CLOUD-003, APP-WIZARD-CREDS-008, APP-WIZARD-RECONF-006
+  // @spec APP-WIZARD-GATE-006, APP-WIZARD-CLOUD-003, APP-WIZARD-CREDS-008, APP-WIZARD-RECONF-006, APP-WIZARD-REGLOCK-001
   /**
    * Persists wizard-flow answers into `ElectronStoreService`. `activeCloud`
    * (pick-cloud step), `aws` (credentials step, #192 — the chosen
@@ -202,6 +203,7 @@ export class WizardController {
       this.store.set('activeCloud', body.activeCloud);
     }
     if (body.aws !== undefined) {
+      assertInstallRegionUnlocked(this.store, body.aws.region);
       const current = this.store.get('aws') ?? {};
       this.store.set('aws', { ...current, ...body.aws });
     }

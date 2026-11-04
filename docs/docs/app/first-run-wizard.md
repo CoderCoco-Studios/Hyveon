@@ -215,6 +215,8 @@ back to plaintext:
 The region is mandatory in both modes because Pulumi's self-managed S3 backend
 has no region default to fall back on.
 
+Once the bootstrap step has run, the region is locked for the install: every AWS resource lives in it. Reconfigure and guided rotation refuse to store a different region and tell you that moving regions means destroying the stack, deleting the bootstrap resources and resetting the app.
+
 ## Step 4 — Bootstrap AWS resources
 
 ![The bootstrap step showing two editable resource-name fields plus two read-only status rows for the run-history table and deployment-config seed, all with status badges, a Bootstrap AWS resources button, and an IAM permission check section](/img/app/wizard-bootstrap.png)
@@ -385,7 +387,7 @@ The window reloads once the reset completes.
 ## Reconfigure
 
 The same wizard is reachable later from **Settings → Cloud Setup →
-Reconfigure**. Use it to switch AWS profiles, change region, or re-point
+Reconfigure**. Use it to switch AWS profiles or re-point
 Pulumi at differently-named bootstrap resources.
 
 It behaves differently in a few ways. The header reads **Reconfigure Hyveon**

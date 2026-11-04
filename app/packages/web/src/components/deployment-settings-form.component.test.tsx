@@ -37,7 +37,7 @@ const SETTINGS = {
 
 describe('DeploymentSettingsForm', () => {
   beforeEach(() => {
-    hyveonMock.iac.settings.get.mockReset().mockResolvedValue({ ok: true, settings: SETTINGS, etag: 'etag-1' });
+    hyveonMock.iac.settings.get.mockReset().mockResolvedValue({ ok: true, settings: SETTINGS, etag: 'etag-1', region: 'ap-south-1' });
     hyveonMock.iac.settings.update.mockReset();
     toastMock.success.mockClear();
     toastMock.error.mockClear();
@@ -55,11 +55,20 @@ describe('DeploymentSettingsForm', () => {
 
     expect(await screen.findByLabelText('Hosted zone name')).toHaveValue('example.com');
     expect(screen.getByLabelText('Project name')).toHaveValue('hyveon');
-    expect(screen.getByLabelText('AWS region')).toHaveValue('us-east-1');
     expect(screen.getByLabelText('VPC CIDR')).toHaveValue('10.0.0.0/16');
     expect(screen.getByLabelText('DNS TTL (seconds)')).toHaveValue(30);
     expect(screen.getByLabelText('Check interval (minutes)')).toHaveValue(15);
     expect(screen.getByText('123456789012345678')).toBeInTheDocument();
+  });
+
+  // @spec CONFIG-FORM-007
+  it('should show the wizard region as read-only text with the move-regions note and no region input', async () => {
+    render(<DeploymentSettingsForm />);
+
+    await screen.findByLabelText('Hosted zone name');
+    expect(screen.getByText('ap-south-1')).toBeInTheDocument();
+    expect(screen.queryByLabelText('AWS region')).not.toBeInTheDocument();
+    expect(screen.getByText(/destroying the stack.*resetting the app/i)).toBeInTheDocument();
   });
 
   it('should still populate settings after StrictMode double-invokes the mount effect', async () => {
@@ -221,6 +230,7 @@ describe('DeploymentSettingsForm', () => {
         ),
       );
       expect(toastMock.success).toHaveBeenCalledWith('Deployment settings saved');
+      expect(hyveonMock.iac.settings.update.mock.calls[0]![0].patch).not.toHaveProperty('awsRegion');
     });
 
     // @spec CONFIG-FORM-005

@@ -30,6 +30,8 @@ import { PulumiEngineService } from '../services/PulumiEngineService.js';
 // Same value-import requirement as `PulumiEngineService` above — see that
 // import's doc comment.
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
+// Value import for the same Nest DI metadata reason as `PulumiEngineService` above.
+import { ConfigService } from '../services/ConfigService.js';
 
 /** Fixed side-channel {@link IacSettingsController.downloadAutoUpdate} pushes download progress on. */
 const UPDATE_DOWNLOAD_CHUNK_CHANNEL = 'iac.settings.autoUpdate.download.chunk';
@@ -100,6 +102,7 @@ export class IacSettingsController implements OnModuleInit {
     private readonly deploymentConfig: DeploymentConfigService,
     private readonly engine?: PulumiEngineService,
     private readonly store?: ElectronStoreService,
+    private readonly config?: ConfigService,
   ) {}
 
   // @spec APP-UPDATE-IPC-005
@@ -122,7 +125,7 @@ export class IacSettingsController implements OnModuleInit {
     );
   }
 
-  // @spec CONFIG-SET-001, CONFIG-SET-002, CONFIG-SET-010
+  // @spec CONFIG-SET-001, CONFIG-SET-002, CONFIG-SET-010, CONFIG-FORM-007
   /**
    * Returns the current top-level deployment settings plus the etag to
    * round-trip as {@link update}'s `expectedVersionId` — see
@@ -134,7 +137,7 @@ export class IacSettingsController implements OnModuleInit {
     logger.debug('IacSettingsController: iac.settings.get invoked');
     try {
       const { settings, etag } = await this.deploymentConfig.getTopLevelSettings();
-      return { ok: true, settings, etag };
+      return { ok: true, settings, etag, region: this.config?.getRegion() };
     } catch (err) {
       if (err instanceof ConfigurationNotConfiguredError) {
         logger.warn('Deployment settings read rejected — no configuration bucket configured', { err: err.message });

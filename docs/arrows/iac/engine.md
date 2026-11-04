@@ -73,8 +73,8 @@ Engine provisioning, the workspace seam, credential exclusivity and provable-own
 - `operator-app/wizard-and-bootstrap`: `ElectronStoreService.ts` (bootstrap bucket names, `aws.region`, legacy `pulumi.passphrase`, `stackInitialized`, lock-attempt records, orphaned-rollback record), `awsCredentialSource.ts` (source resolution behind `PulumiCredentialResolver`), `SafeStorageService.ts`.
 - `deployment-config`: `iac-settings.controller.ts` (`iac.settings.engineVersion` at `iac-settings.controller.ts:210`), `DeploymentConfigService.ts` (reads `ConfigService.readEnvConfigCacheTtlMs()` at `DeploymentConfigService.ts:301`; `restoreRawConfig` behind `DEPLOYMENT_CONFIG_SERVICE`).
 - `operator-app/app-update-and-release`: `app/test/packaging-manifest-pins.test.ts` (pins `PULUMI_ENGINE_VERSION` against the `@pulumi/pulumi` manifests).
-- `operator-app/desktop-shell`: `settings.page.tsx` (engine-version row), top-bar env pill (consumer of `env.get`), `cloud-provider.module.ts` (store region resolvers `:80,109,131,180,198`, governed by `IAC-ENGINE-REGION-002`).
-- `game-runtime/task-and-dns`: `EcsService.ts` (`buildProviderConfig` region at `:72` and `getClient` at `:213-217`, governed by `IAC-ENGINE-REGION-002`).
+- `operator-app/desktop-shell`: `settings.page.tsx` (engine-version row), top-bar env pill (consumer of `env.get`), `cloud-provider.module.ts` (store region resolvers, governed by `IAC-ENGINE-REGION-002`).
+- `game-runtime/task-and-dns`: `EcsService.ts` (`buildProviderConfig` and `getClient` regions, governed by `IAC-ENGINE-REGION-002`).
 - `app/packages/desktop-main/src/electron-entry.ts` (quit lifecycle; see finding 2).
 
 ## Architecture
@@ -111,10 +111,10 @@ Engine provisioning, the workspace seam, credential exclusivity and provable-own
 | Leaked-promise recovery | `IAC-ENGINE-LEAK-001` to `IAC-ENGINE-LEAK-003` | 3 | 0 | 0 |
 | Stack initialization | `IAC-ENGINE-INIT-001` to `IAC-ENGINE-INIT-007` | 6 | 0 | 1 |
 | Stack outputs | `IAC-ENGINE-OUT-001` to `IAC-ENGINE-OUT-011` | 10 | 0 | 1 |
-| Install region | `IAC-ENGINE-REGION-001` to `IAC-ENGINE-REGION-002` | 0 | 0 | 2 |
+| Install region | `IAC-ENGINE-REGION-001` to `IAC-ENGINE-REGION-002` | 2 | 0 | 0 |
 | Electron runtime guard | `IAC-ENGINE-RT-001` to `IAC-ENGINE-RT-003` | 2 | 0 | 1 |
 
-**Summary:** 79 of 94 active specs implemented; 0 deferred; 15 gaps.
+**Summary:** 81 of 94 active specs implemented; 0 deferred; 13 gaps.
 
 ## Key Findings
 
@@ -132,7 +132,7 @@ Engine provisioning, the workspace seam, credential exclusivity and provable-own
 12. **Stale comments in the orchestrator and its modules**: Terraform-era `plan()`/`spawnAndStream` references (`PulumiService.ts:1566,1635,1671,1685,1698,1737`); "no `PulumiController` yet" (`:1854,2700,3893`) although `IacController` drives the service; `:2114-2115` says destroy never touches `RunLockService` but destroy calls `createRun` (`:2960`). `PulumiWorkspaceService.ts:800-801` says "three constructor dependencies" (two, `:335-338`). `pulumi-workspace.module.ts:10-11` describes an "encrypted passphrase accessor pair" that "gates generating one", though the passphrase is now derived. `ConfigService.ts:102-104` cites `/api/games`/`/api/status` handlers that no longer exist; `:27` lists only `AWS_DEFAULT_REGION` though `CONFIG_CACHE_TTL_MS` and `HYVEON_CONFIG_BUCKET` are also read; `:9-13` documents the TTL as `DeploymentConfigService`'s.
 13. **Dead code**: `ConfigService.readResourcesPath` (`ConfigService.ts:213-215`) has no caller in desktop-main (only `PulumiService.ts:4401` uses its own delegate). `getActiveCloud()` is hard-coded `'aws'` (`:276-278`).
 14. **Test double drift**: `PulumiServiceStub` has no `mintLockClearConfirmationToken` (`pulumi-mock.ts:119-191`) though `iac.controller.ts:956` calls it, and `PulumiOperationName` re-declares `getOperationInFlight`'s union by hand (`pulumi-mock.ts:10-11`). `ConfigService.test.ts:279-283` is titled "should default to 30000 and warn" but never asserts the warn (sweep-4) `[unverified]`.
-15. **The program provisions in the stored `awsRegion`, not the install region, and phase attribution can mislabel**: preview and apply pass the parsed `deployment-config.json` to `createInfraProgram` unchanged (`PulumiService.ts:1601,1619,2266,2278`), so the program's region is the stored `awsRegion` or its `us-east-1` default (`deploymentConfig.ts:237,327`) rather than the wizard region every backend URL uses (`PulumiService.ts:988,1126,1611,2270,2928,3709`); a Settings edit of that field replaces the whole stack on the next apply. The cloud provider (`EcsService.ts:72`) and the audit, Discord-config and run-record stores (`cloud-provider.module.ts:109,131,180`) read `outputs.awsRegion` instead of `ConfigService.getRegion()`. The state bucket itself is in the wizard region, because bootstrap creates it there (`BootstrapService.ts:605-617`). Separately, failures inside `getOrCreateStack` after the engine phase has ended (STS, migration, `createOrSelect`) are classified `'operation'` (`PulumiService.ts:1346-1354`) before any `'operation'` start event, while the wizard marks the last-started row, the already-finished `engine` row, as failed (`stack-init-step.component.tsx:129,140,149`) [inferred].
+15. **Phase attribution can mislabel**: failures inside `getOrCreateStack` after the engine phase has ended (STS, migration, `createOrSelect`) are classified `'operation'` (`PulumiService.ts:1346-1354`) before any `'operation'` start event, while the wizard marks the last-started row, the already-finished `engine` row, as failed (`stack-init-step.component.tsx:129,140,149`) [inferred].
 
 ## Work Required
 
@@ -142,10 +142,8 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/engine/engine-specs
 1. Route destroy output through `redactEnvironmentValues` like preview and apply, and add the missing destroy redaction test (finding 1). (specs: `IAC-ENGINE-REDACT-002`)
 2. Abort in-flight Pulumi operations on app quit (a `before-quit` handler or a Nest shutdown hook), or amend the spec scenario if exit-without-termination is accepted (finding 2). (specs: `IAC-ENGINE-LIFE-009`)
 3. Make `initializeStack` cancellable and run its `refresh()` through the same cancellation, leaked-promise and lock-classification wrappers as up and destroy (finding 4). (specs: `IAC-ENGINE-LIFE-007`, `IAC-ENGINE-LOCK-010`)
-4. Set the program's `awsRegion` input from `ConfigService.getRegion()` before every preview and apply, ignoring the stored `DeploymentConfig.awsRegion`, so a stored value can never move or rebuild the stack (finding 15). Lands with `deployment-config`'s Must Fix for the Settings region field. (specs: `IAC-ENGINE-REGION-001`)
 
 ### Should Fix
-5. Resolve every desktop AWS client's region through `ConfigService.getRegion()`: the cloud provider in `EcsService.ts:72` (code owned by `game-runtime/task-and-dns`) and the audit, Discord-config and run-record stores in `cloud-provider.module.ts:109,131,180` (code owned by `operator-app/desktop-shell`) stop reading `outputs.awsRegion` (finding 15). (specs: `IAC-ENGINE-REGION-002`)
 6. Correct `PulumiOperationEscalatedError`'s message and the escalation log to say the promise was abandoned, not the process killed (finding 3). (specs: `IAC-ENGINE-LIFE-004`)
 8. Extract the triplicated streaming setup, outcome switches and destroy-token gate; reuse `LockClearConfirmationGate` for destroy (finding 11).
 9. Move raw `process.env` reads behind stubbable accessors and remove the duplicated `getConfigurationBucket` once the import cycle allows it (finding 10).
