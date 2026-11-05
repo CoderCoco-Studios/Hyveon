@@ -83,15 +83,13 @@ export function resolveDeploymentConfigFileStoreConfig(
   };
 }
 
+// @spec IAC-ENGINE-REGION-002
 /**
  * Resolves the `{ tableName, region }` config the AWS `AuditLogStore`'s
  * `getConfig` callback needs: table name from `ConfigService.getStackOutputs()`'s
  * `auditTableName` (falls back to `''` when nothing is deployed yet, so
  * `AwsAuditLogStore` surfaces its own "not configured" error), region from
- * `outputs.awsRegion` once a stack is deployed — preferred over
- * `getRegion()`'s wizard-configured value because `DeploymentConfig.awsRegion`
- * is operator-edited and is the value actually provisioned into; nothing
- * keeps it in sync with the wizard's credentials-step region.
+ * `getRegion()`, the install's one region (never `outputs.awsRegion`).
  *
  * Passed to `AwsAuditLogStore` as a lazy `getConfig` closure (not awaited by
  * the synchronous `useFactory` provider itself), so being `async` here costs
@@ -106,7 +104,7 @@ export async function resolveAuditLogStoreConfig(
   const { credentials, signature } = resolveAwsClientCredentialsWithSignature(store);
   return {
     tableName: outputs?.auditTableName ?? '',
-    region: outputs?.awsRegion ?? config.getRegion(),
+    region: config.getRegion(),
     credentials,
     credentialsSignature: signature,
   };
@@ -128,7 +126,7 @@ export async function resolveDiscordConfigStoreConfig(
   const { credentials, signature } = resolveAwsClientCredentialsWithSignature(store);
   return {
     tableName: outputs?.discordTableName ?? '',
-    region: outputs?.awsRegion ?? config.getRegion(),
+    region: config.getRegion(),
     credentials,
     credentialsSignature: signature,
   };
@@ -178,7 +176,7 @@ export async function resolveRunRecordStoreConfig(
   return {
     tableName: tableName ?? '',
     bucket: config.getConfigurationBucket() ?? '',
-    region: outputs?.awsRegion ?? config.getRegion(),
+    region: config.getRegion(),
     credentials,
     credentialsSignature: signature,
   };

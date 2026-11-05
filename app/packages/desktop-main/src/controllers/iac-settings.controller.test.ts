@@ -6,6 +6,7 @@ import { IacSettingsController } from './iac-settings.controller.js';
 import { ConfigurationNotConfiguredError, RunsTableRenameError } from '../services/DeploymentConfigService.js';
 import type { DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import type { PulumiEngineService } from '../services/PulumiEngineService.js';
+import type { ConfigService } from '../services/ConfigService.js';
 import type { ElectronStoreService } from '../services/ElectronStoreService.js';
 import { deploymentConfigStub } from '../testing/deployment-config.fixture.js';
 import { expectChannels } from '../testing/message-pattern.test-utils.js';
@@ -79,6 +80,13 @@ describe('IacSettingsController', () => {
       const deploymentConfig = makeDeploymentConfig();
       const result = await new IacSettingsController(deploymentConfig).get();
       expect(result).toEqual({ ok: true, settings: SETTINGS, etag: 'etag-1' });
+    });
+
+    // @spec CONFIG-FORM-007
+    it('should return the install region from ConfigService.getRegion() alongside the settings', async () => {
+      const config = { getRegion: vi.fn().mockReturnValue('eu-west-1') } as unknown as ConfigService;
+      const result = await new IacSettingsController(makeDeploymentConfig(), undefined, undefined, config).get();
+      expect(result).toMatchObject({ ok: true, region: 'eu-west-1' });
     });
 
     // @spec CONFIG-SET-002

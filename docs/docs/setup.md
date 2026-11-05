@@ -352,8 +352,9 @@ steps, none of them a CLI command:
 Progress is saved on every step change, so you can close the app and pick up
 where you left off. Full detail, screenshot-by-screenshot, is in
 [First-run wizard](/app/first-run-wizard). Settings has a "Reconfigure" flow
-that re-runs this wizard later if you need to switch AWS profiles, regions,
-or bucket names.
+that re-runs this wizard later if you need to switch AWS profiles or bucket
+names. It cannot switch regions after bootstrap has started.
+The region locks at the first bootstrap call, before any bucket or table is created, including when that attempt later fails. The wizard then refuses to store a different region because the stack and the bootstrap resources live in the original one. If bootstrap failed before creating anything and you want a different region, use Start over in the wizard to clear the lock.
 
 Finishing the wizard only creates the **backend** — the buckets Pulumi
 stores state and configuration in. Your actual game-server infrastructure

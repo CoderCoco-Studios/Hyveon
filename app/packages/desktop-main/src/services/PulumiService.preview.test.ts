@@ -55,6 +55,15 @@ vi.mock('node:crypto', async (importOriginal) => {
 
 vi.mock('../logger.js', () => ({ logger: loggerMock }));
 
+const { createInfraProgramMock } = vi.hoisted(() => ({ createInfraProgramMock: vi.fn() }));
+
+// Spy that delegates to the real `createInfraProgram`, so tests can assert on the config it receives.
+vi.mock('@hyveon/infra', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hyveon/infra')>();
+  createInfraProgramMock.mockImplementation(actual.createInfraProgram);
+  return { ...actual, createInfraProgram: createInfraProgramMock };
+});
+
 import {
   PulumiService,
   PulumiPreviewError,
@@ -1039,5 +1048,26 @@ describe('PulumiService.preview leaked-promise recovery', () => {
 
     expect(result?.changeSummary).toEqual({ create: 1 });
     expect(result?.planHash).toEqual(expect.any(String));
+  });
+});
+
+// @spec IAC-ENGINE-REGION-001
+describe('PulumiService.preview install region', () => {
+  it('should build the program with the wizard region, ignoring a differing stored awsRegion', async () => {
+    createInfraProgramMock.mockClear();
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(JSON.stringify({ hostedZoneName: 'example.com', awsRegion: 'eu-west-1', gameServers: {} })),
+        etag: 'etag-1',
+      }),
+    });
+    const service = makeService({ workspace: makeWorkspace(makeHappyPathPreview()), remoteFileStore });
+
+    await collectPreviewChunks(service.preview());
+
+    expect(createInfraProgramMock).toHaveBeenCalledWith(
+      expect.objectContaining({ awsRegion: 'us-east-1' }),
+      expect.anything(),
+    );
   });
 });

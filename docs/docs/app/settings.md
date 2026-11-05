@@ -126,7 +126,7 @@ it is a plain constant, not something the app needs to look up.
 The **Reconfigure** button relaunches the setup wizard. It swaps out the whole
 Settings page immediately, with no confirmation.
 
-Use it to switch AWS profiles, change region, or re-point the deployment at
+Use it to switch AWS profiles or re-point the deployment at
 differently-named bootstrap resources. It runs a shortened, pre-filled variant
 of the first-run flow — the same five steps, with Choose your cloud, AWS
 credentials, and Bootstrap AWS resources always collapsed to a summary with an
@@ -244,7 +244,7 @@ values without hand-editing the JSON object in S3.
 | Field | What it is |
 |---|---|
 | **Project name** | Prefix used to derive default resource names, e.g. `${projectName}-audit` |
-| **AWS region** | Region the stack deploys into |
+| **AWS region** | Read-only. The region you chose in the setup wizard, which is fixed for the install from the first bootstrap call. Moving to another region means destroying the stack, deleting the bootstrap resources and resetting the app |
 | **VPC CIDR** | CIDR block for the VPC, e.g. `10.0.0.0/16` |
 | **Hosted zone name** | The Route 53 hosted zone domain (must already exist). Required — there is no default |
 | **DNS TTL (seconds)** | TTL on the per-game DNS A records the watchdog Lambda writes |
@@ -318,7 +318,8 @@ enforces — the same rule can never be phrased differently in the two places.
 
 | Field(s) | Rule |
 |---|---|
-| Hosted zone name, project name, AWS region | Must not be blank |
+| Hosted zone name, project name | Must not be blank |
+| AWS region | Any patch carrying `awsRegion` is rejected: *"The AWS region is chosen in the setup wizard and cannot be changed here."* The Settings page shows the region read-only |
 | VPC CIDR | Must look like an IPv4 CIDR block, e.g. `10.0.0.0/16` |
 | DNS TTL, the three watchdog fields | Must be a positive whole number |
 | The three Discord ID lists | Each entry must be a 17-20 digit Discord snowflake |

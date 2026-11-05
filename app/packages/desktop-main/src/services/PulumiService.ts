@@ -1626,7 +1626,7 @@ export class PulumiService {
         );
       }
       const stack = await this.workspace.getOrCreateStack({
-        program: createInfraProgram(deploymentConfig, { lambdaBundlesDir: this.getLambdaBundlesDir() }),
+        program: createInfraProgram(PulumiService.withInstallRegion(deploymentConfig, stateBucketRegion), { lambdaBundlesDir: this.getLambdaBundlesDir() }),
         stateBucket,
         stateBucketRegion,
         backendReady: true,
@@ -2290,7 +2290,7 @@ export class PulumiService {
           );
         }
         const stack = await this.workspace.getOrCreateStack({
-          program: createInfraProgram(deploymentConfig, { lambdaBundlesDir: this.getLambdaBundlesDir() }),
+          program: createInfraProgram(PulumiService.withInstallRegion(deploymentConfig, stateBucketRegion), { lambdaBundlesDir: this.getLambdaBundlesDir() }),
           stateBucket,
           stateBucketRegion,
           backendReady: true,
@@ -3423,6 +3423,20 @@ export class PulumiService {
   }
 
   // @spec GAME-HTTPS-010
+  // @spec IAC-ENGINE-REGION-001
+  /**
+   * Returns `config` with `awsRegion` forced to the install's wizard region, ignoring any value stored in
+   * `deployment-config.json`, so a stored region can never move or replace the stack. `region` is the
+   * electron-store `aws.region`, the value `ConfigService.getRegion()` resolves and the state-backend region.
+   *
+   * @param config - The parsed deployment configuration.
+   * @param region - The install's wizard region.
+   * @returns A copy of `config` whose `awsRegion` is `region`.
+   */
+  private static withInstallRegion(config: DeploymentConfig, region: string): DeploymentConfig {
+    return { ...config, awsRegion: region };
+  }
+
   /**
    * Decodes the raw S3 configuration object for a preview/apply. Normalises the deprecated legacy https
    * shape because this read bypasses `DeploymentConfigService`, and the infra program requires `webPort`.

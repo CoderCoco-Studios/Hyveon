@@ -23,6 +23,20 @@ function wirePayload(patch: Record<string, unknown>): Partial<TopLevelDeployment
 
 // @spec CONFIG-SET-011
 describe('validateDeploymentSettingsPatch', () => {
+  // @spec CONFIG-SET-012
+  it('should report an issue on awsRegion when the patch carries one, even a valid region', () => {
+    expect(validateDeploymentSettingsPatch({ awsRegion: 'eu-west-1' })).toEqual([
+      { path: 'awsRegion', message: expect.stringContaining('wizard') },
+    ]);
+  });
+
+  // @spec CONFIG-SET-012
+  it('should report an issue on awsRegion when the key is present with an undefined value', () => {
+    expect(validateDeploymentSettingsPatch({ awsRegion: undefined })).toEqual([
+      { path: 'awsRegion', message: expect.stringContaining('wizard') },
+    ]);
+  });
+
   it('should return no issues for an empty patch', () => {
     expect(validateDeploymentSettingsPatch({})).toEqual([]);
   });
@@ -31,7 +45,6 @@ describe('validateDeploymentSettingsPatch', () => {
     expect(
       validateDeploymentSettingsPatch({
         projectName: 'hyveon',
-        awsRegion: 'us-east-1',
         vpcCidr: '10.0.0.0/16',
         hostedZoneName: 'example.com',
         dnsTtl: 30,
@@ -49,7 +62,7 @@ describe('validateDeploymentSettingsPatch', () => {
   });
 
   describe('required non-empty strings', () => {
-    it.each(['hostedZoneName', 'projectName', 'awsRegion'] as const)(
+    it.each(['hostedZoneName', 'projectName'] as const)(
       'should reject a blank %s',
       (field) => {
         const issues = validateDeploymentSettingsPatch({ [field]: '   ' });
@@ -58,7 +71,7 @@ describe('validateDeploymentSettingsPatch', () => {
     );
 
     it('should not flag hostedZoneName when omitted from the patch (a PATCH, not a full document)', () => {
-      expect(validateDeploymentSettingsPatch({ awsRegion: 'us-east-1' })).toEqual([]);
+      expect(validateDeploymentSettingsPatch({ projectName: 'hyveon' })).toEqual([]);
     });
   });
 
@@ -147,7 +160,7 @@ describe('validateDeploymentSettingsPatch', () => {
   });
 
   describe('should reject wrong-typed values without silently skipping them', () => {
-    it.each(['hostedZoneName', 'projectName', 'awsRegion', 'discordApplicationId', 'auditTableName', 'runsTableName'] as const)(
+    it.each(['hostedZoneName', 'projectName', 'discordApplicationId', 'auditTableName', 'runsTableName'] as const)(
       'should reject a number for the string field %s instead of silently passing it through',
       (field) => {
         const issues = validateDeploymentSettingsPatch(wirePayload({ [field]: 42 }));
@@ -155,7 +168,7 @@ describe('validateDeploymentSettingsPatch', () => {
       },
     );
 
-    it.each(['hostedZoneName', 'projectName', 'awsRegion'] as const)(
+    it.each(['hostedZoneName', 'projectName'] as const)(
       'should reject an object for the required string field %s',
       (field) => {
         const issues = validateDeploymentSettingsPatch(wirePayload({ [field]: { a: 1 } }));

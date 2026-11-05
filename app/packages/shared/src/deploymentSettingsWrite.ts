@@ -32,7 +32,7 @@ export interface DeploymentSettingsValidationIssue {
 }
 
 // @spec RT-WATCHDOG-CFG-005
-// @spec CONFIG-SET-011
+// @spec CONFIG-SET-011, CONFIG-SET-012
 /**
  * Validates a proposed {@link TopLevelDeploymentSettings} patch — the single source of truth for
  * both `@hyveon/web`'s live, before-submit form validation and `IacSettingsController.update`
@@ -55,7 +55,12 @@ export function validateDeploymentSettingsPatch(
 
   checkStringField(patch, 'hostedZoneName', issues, { requireNonEmpty: true });
   checkStringField(patch, 'projectName', issues, { requireNonEmpty: true });
-  checkStringField(patch, 'awsRegion', issues, { requireNonEmpty: true });
+  if ('awsRegion' in patch) {
+    issues.push({
+      path: 'awsRegion',
+      message: 'The AWS region is chosen in the setup wizard and cannot be changed here.',
+    });
+  }
   checkStringField(patch, 'discordApplicationId', issues, { requireNonEmpty: false });
   checkStringField(patch, 'auditTableName', issues, { requireNonEmpty: false });
   checkStringField(patch, 'runsTableName', issues, { requireNonEmpty: false });
@@ -174,6 +179,8 @@ export interface DeploymentSettingsGetSuccess {
   ok: true;
   settings: TopLevelDeploymentSettings;
   etag?: string;
+  /** The install's AWS region (the wizard region), shown read-only; it is not an editable setting. */
+  region?: string;
 }
 
 /**

@@ -17,6 +17,7 @@ if (!Element.prototype.scrollIntoView) {
 const hyveonMock = {
   wizard: {
     getState: vi.fn(),
+    saveState: vi.fn(),
     saveProgress: vi.fn(),
     guidedIamPrepareTemplate: vi.fn(),
     guidedIamOpenConsole: vi.fn(),
@@ -32,6 +33,7 @@ import { GuidedIamStep } from './guided-iam-step.component.js';
 /** Reasonable default resolved values so a happy-path flow can run end to end without each test re-stubbing every call. */
 function stubHappyPathDefaults() {
   hyveonMock.wizard.saveProgress.mockResolvedValue(undefined);
+  hyveonMock.wizard.saveState.mockResolvedValue({});
   hyveonMock.wizard.guidedIamPrepareTemplate.mockResolvedValue({ path: '/tmp/iam-bootstrap-rendered.yaml' });
   hyveonMock.wizard.guidedIamOpenConsole.mockResolvedValue({ opened: true });
   hyveonMock.wizard.guidedIamSubmitBootstrapKey.mockResolvedValue({ accountId: '123456789012' });
@@ -109,6 +111,22 @@ describe('GuidedIamStep', () => {
         }),
       );
       await waitFor(() => expect(hyveonMock.wizard.guidedIamPrepareTemplate).toHaveBeenCalledTimes(1));
+    });
+
+    // @spec APP-WIZARD-REGLOCK-001
+    it('should surface a refused region on the region screen and neither advance nor persist progress', async () => {
+      stubHappyPathDefaults();
+      hyveonMock.wizard.saveState.mockRejectedValue(new Error('The AWS region is locked to eu-west-1 because bootstrap has started.'));
+      render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
+
+      await chooseRegion('US East (N. Virginia) — us-east-1');
+      await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/locked to eu-west-1/);
+      expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({ aws: { region: 'us-east-1' } });
+      expect(hyveonMock.wizard.guidedIamPrepareTemplate).not.toHaveBeenCalled();
+      expect(hyveonMock.wizard.saveProgress).not.toHaveBeenCalled();
+      expect(screen.getByLabelText('AWS region')).toBeInTheDocument();
     });
 
     // @spec APP-WIZARD-REGION-003

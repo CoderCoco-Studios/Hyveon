@@ -223,6 +223,13 @@ export interface AppStoreSchema {
     stateBucket: string;
     configurationBucket: string;
   };
+  // @spec APP-WIZARD-REGLOCK-001
+  /**
+   * The region the install is locked to, recorded before the first bootstrap call so a region
+   * change is refused even if bootstrap fails part-way. Cleared only by the wizard's start-over
+   * reset. Absent while the install is still unlocked.
+   */
+  installRegionLock?: string;
   /**
    * Pasted-credentials profiles from the wizard's credentials step, keyed by
    * profile name (default `hyveon-pasted` — see `AwsProfileService`). Separate

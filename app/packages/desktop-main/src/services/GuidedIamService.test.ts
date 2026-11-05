@@ -402,6 +402,39 @@ describe('GuidedIamService', () => {
       expect(store.setPastedCredentials).not.toHaveBeenCalled();
     });
 
+    // @spec APP-WIZARD-REGLOCK-001
+    it('should refuse a different region and never call iam:CreateAccessKey once bootstrap has completed', async () => {
+      const lockedStore = makeStore({ region: 'eu-west-1' });
+      vi.mocked(lockedStore.get).mockImplementation(((key: string) =>
+        key === 'aws' ? { region: 'eu-west-1' } : key === 'installRegionLock' ? 'eu-west-1' : undefined) as never);
+      service = new TestableGuidedIamService(lockedStore, safeStorage);
+
+      await expect(service.rotate(ROTATION_INPUT)).rejects.toThrow(/destroying the stack.*resetting the app/);
+      expect(iamMock.commandCalls(CreateAccessKeyCommand)).toHaveLength(0);
+      expect(lockedStore.set).not.toHaveBeenCalled();
+    });
+
+    // @spec APP-WIZARD-REGLOCK-001
+    it('should re-check the lock before activating and revoke the minted key when a lock engaged during rotation', async () => {
+      const lockedStore = makeStore(undefined);
+      let locked = false;
+      vi.mocked(lockedStore.get).mockImplementation(((key: string) =>
+        key === 'installRegionLock' && locked ? 'eu-west-1' : key === 'aws' ? { region: 'eu-west-1' } : undefined) as never);
+      service = new TestableGuidedIamService(lockedStore, safeStorage);
+      iamMock.on(CreateAccessKeyCommand).callsFake(() => {
+        locked = true;
+        return { AccessKey: { UserName: 'hyveon-bootstrap', AccessKeyId: NEW_ACCESS_KEY_ID, SecretAccessKey: NEW_SECRET, Status: 'Active' } };
+      });
+      stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+
+      await expect(service.rotate({ ...ROTATION_INPUT, region: 'us-west-2' })).rejects.toThrow(/locked to eu-west-1/);
+
+      expect(lockedStore.set).not.toHaveBeenCalled();
+      expect(iamMock.commandCalls(DeleteAccessKeyCommand).map((c) => c.args[0].input.AccessKeyId)).toEqual([NEW_ACCESS_KEY_ID]);
+      expect(lockedStore.deletePastedCredentials).toHaveBeenCalledWith('hyveon-guided');
+    });
+
     it('should log a debug entry line (never the bootstrap secret) when starting rotation', async () => {
       stubCreateAccessKeySuccess();
       stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
@@ -658,6 +691,54 @@ describe('GuidedIamService', () => {
       expect(result).toEqual({ status: 'verification-failed', error: verifyError.message });
       expect(store.set).not.toHaveBeenCalled();
       expect(store.deletePastedCredentials).not.toHaveBeenCalled();
+    });
+
+    describe('re-run while hyveon-guided is already the active credential', () => {
+      beforeEach(() => {
+        store = makeStore({ profile: GUIDED_PROFILE_NAME, region: REGION });
+        service = new TestableGuidedIamService(store, safeStorage);
+      });
+
+      // @spec APP-WIZARD-ROTATE-008
+      it('should neither overwrite nor delete the active creds.aws.hyveon-guided entry when the new key fails verification', async () => {
+        stubCreateAccessKeySuccess();
+        const verifyError = new Error('The security token included in the request is invalid');
+        verifyError.name = 'InvalidClientTokenId';
+        stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+        iamMock.on(DeleteAccessKeyCommand).resolves({});
+
+        const result = await service.rotate(ROTATION_INPUT);
+
+        expect(result).toEqual({ status: 'verification-failed', error: verifyError.message });
+        expect(store.setPastedCredentials).not.toHaveBeenCalled();
+        expect(store.deletePastedCredentials).not.toHaveBeenCalled();
+        // The orphaned new IAM key is still cleaned up with the bootstrap key.
+        expect(iamMock.commandCalls(DeleteAccessKeyCommand)[0]!.args[0].input).toEqual({ AccessKeyId: NEW_ACCESS_KEY_ID });
+      });
+
+      // @spec APP-WIZARD-ROTATE-008
+      it('should write the new key into creds.aws.hyveon-guided only after it verifies', async () => {
+        const order: string[] = [];
+        stubCreateAccessKeySuccess();
+        stsMock.on(GetCallerIdentityCommand).callsFake(() => {
+          order.push('GetCallerIdentity');
+          return { Account: '123456789012' };
+        });
+        iamMock.on(DeleteAccessKeyCommand).resolves({});
+        vi.mocked(store.setPastedCredentials).mockImplementation(() => {
+          order.push('setPastedCredentials');
+        });
+
+        const result = await service.rotate(ROTATION_INPUT);
+
+        expect(result).toEqual({ status: 'complete' });
+        expect(order).toEqual(['GetCallerIdentity', 'setPastedCredentials']);
+        expect(store.setPastedCredentials).toHaveBeenCalledWith(GUIDED_PROFILE_NAME, {
+          accessKeyId: NEW_ACCESS_KEY_ID,
+          secretAccessKey: NEW_SECRET,
+          region: REGION,
+        });
+      });
     });
 
     // @spec APP-WIZARD-ROTATE-005

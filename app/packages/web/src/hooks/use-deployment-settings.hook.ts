@@ -52,7 +52,6 @@ import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
  */
 export interface SettingsDraft {
   projectName: string;
-  awsRegion: string;
   vpcCidr: string;
   hostedZoneName: string;
   dnsTtl: string;
@@ -74,6 +73,8 @@ export type LoadState = 'loading' | 'loaded' | 'setup_incomplete' | 'error';
 export interface UseDeploymentSettingsResult {
   /** Current editable draft, or `null` before the initial load resolves. */
   draft: SettingsDraft | null;
+  /** The install's AWS region from the last load, shown read-only; `null` before load or when unreported. */
+  installRegion: string | null;
   /** Outcome of the initial (or last retried) load. */
   loadState: LoadState;
   /** User-facing message for `loadState === 'setup_incomplete' | 'error'`. */
@@ -116,7 +117,6 @@ export interface UseDeploymentSettingsResult {
 function draftFromSettings(settings: TopLevelDeploymentSettings): SettingsDraft {
   return {
     projectName: settings.projectName ?? DEPLOYMENT_CONFIG_DEFAULTS.projectName,
-    awsRegion: settings.awsRegion ?? DEPLOYMENT_CONFIG_DEFAULTS.awsRegion,
     vpcCidr: settings.vpcCidr ?? DEPLOYMENT_CONFIG_DEFAULTS.vpcCidr,
     // hostedZoneName has no default in DEPLOYMENT_CONFIG_DEFAULTS (required in
     // every real deployment) — an absent value falls back to '', which the form's own
@@ -152,7 +152,6 @@ function draftFromSettings(settings: TopLevelDeploymentSettings): SettingsDraft 
 function draftToPatch(draft: SettingsDraft): Partial<TopLevelDeploymentSettings> {
   return {
     projectName: draft.projectName.trim(),
-    awsRegion: draft.awsRegion.trim(),
     vpcCidr: draft.vpcCidr.trim(),
     hostedZoneName: draft.hostedZoneName.trim(),
     dnsTtl: Number(draft.dnsTtl),
@@ -183,11 +182,12 @@ function hasSettingsBridge(): boolean {
   return !!window.hyveon?.iac?.settings;
 }
 
-// @spec CONFIG-FORM-001, CONFIG-FORM-002, CONFIG-FORM-003, CONFIG-FORM-004, CONFIG-FORM-005
+// @spec CONFIG-FORM-001, CONFIG-FORM-002, CONFIG-FORM-003, CONFIG-FORM-004, CONFIG-FORM-005, CONFIG-FORM-007
 /** Owns the deployment-settings load/save state machine — see the module doc for the full contract. */
 export function useDeploymentSettings(): UseDeploymentSettingsResult {
   const [etag, setEtag] = useState<string | undefined>(undefined);
   const [draft, setDraft] = useState<SettingsDraft | null>(null);
+  const [installRegion, setInstallRegion] = useState<string | null>(null);
   // The "no bridge" case is settled synchronously via the lazy initial
   // value, rather than a `setLoadState('error')` call inside the mount
   // effect below — this avoids both a throwaway render and the
@@ -223,6 +223,7 @@ export function useDeploymentSettings(): UseDeploymentSettingsResult {
     if (!mountedRef.current) return;
     if (result.ok) {
       setEtag(result.etag);
+      setInstallRegion(result.region ?? null);
       setDraft(draftFromSettings(result.settings));
       setLoadState('loaded');
       setConflictMessage(null);
@@ -354,5 +355,5 @@ export function useDeploymentSettings(): UseDeploymentSettingsResult {
     }
   }, [draft, etag]);
 
-  return { draft, loadState, loadMessage, issues, submitting, submitError, conflictMessage, saveDisabled, patchDraft, save, reload };
+  return { draft, installRegion, loadState, loadMessage, issues, submitting, submitError, conflictMessage, saveDisabled, patchDraft, save, reload };
 }

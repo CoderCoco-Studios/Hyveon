@@ -747,11 +747,10 @@ describe('buildProviderConfig', () => {
     await expect(buildProviderConfig(makeConfig(null), makeStore())).resolves.toBeNull();
   });
 
-  it('should prefer the deployed stack outputs awsRegion over ConfigService.getRegion() once deployed', async () => {
+  // @spec IAC-ENGINE-REGION-002
+  it('should take the region from ConfigService.getRegion(), ignoring the deployed stack outputs awsRegion', async () => {
     const config = makeConfig({ ...DEFAULT_OUTPUTS, awsRegion: 'eu-central-1' });
-    // getRegion() stays 'us-east-1' (the makeConfig stub default) — proving
-    // the resolved config prefers the stack's own deployed region, not the
-    // wizard-configured fallback, once a stack actually exists.
-    await expect(buildProviderConfig(config, makeStore())).resolves.toMatchObject({ region: 'eu-central-1' });
+    // getRegion() stays 'us-east-1' (the makeConfig stub default).
+    await expect(buildProviderConfig(config, makeStore())).resolves.toMatchObject({ region: 'us-east-1' });
   });
 });

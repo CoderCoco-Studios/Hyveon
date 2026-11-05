@@ -70,11 +70,11 @@ The module's doc comment is stale in two places: it says `PulumiEngineModule`/`P
 | `SECRETS_STORE` | `AwsSecretsStore` | inline closures | `config.getRegion()` (`:198`) |
 | `REMOTE_FILE_STORE` | `AwsRemoteFileStore` | `resolveDeploymentConfigFileStoreConfig` (`:73-80`) | `config.getRegion()` (`:80`) |
 | `DISCORD_RECEIVER` | `AwsDiscordEventReceiver` | none | n/a |
-| `AUDIT_LOG_STORE` | `AwsAuditLogStore` | `resolveAuditLogStoreConfig` (`:101-109`) | `outputs.awsRegion ?? getRegion()` (`:109`) |
-| `DISCORD_CONFIG_STORE` | `AwsDiscordConfigStore` | `resolveDiscordConfigStoreConfig` (`:123-131`) | `outputs.awsRegion ?? getRegion()` (`:131`) |
-| `RUN_RECORD_STORE` | `AwsRunRecordStore` | `resolveRunRecordStoreConfig` (`:163-184`) | `outputs.awsRegion ?? getRegion()` (`:180`) |
+| `AUDIT_LOG_STORE` | `AwsAuditLogStore` | `resolveAuditLogStoreConfig` (`:101-109`) | `config.getRegion()` (`:107`) |
+| `DISCORD_CONFIG_STORE` | `AwsDiscordConfigStore` | `resolveDiscordConfigStoreConfig` (`:123-131`) | `config.getRegion()` (`:129`) |
+| `RUN_RECORD_STORE` | `AwsRunRecordStore` | `resolveRunRecordStoreConfig` (`:163-184`) | `config.getRegion()` (`:179`) |
 
-Every store receives a lazy resolver closure rather than a resolved config, so the container builds on a fresh install with no stack outputs. `RUN_RECORD_STORE` injects `REMOTE_FILE_STORE` so its resolver can fall back to `resolvePreApplyRunsTableName(remoteFileStore)` before the first apply (`:174-175`, `:285-293`). Every row's region resolves through `config.getRegion()`, the install's one region (`IAC-ENGINE-REGION-002`, owned by `iac/engine`; `docs/high-level-design.md`, decision 10); the audit, Discord-config and run-record rows still prefer `outputs.awsRegion`, which is that spec's open gap. The secrets-store binding resolves credentials twice per call, once for credentials and once for the signature (`:199-200`).
+Every store receives a lazy resolver closure rather than a resolved config, so the container builds on a fresh install with no stack outputs. `RUN_RECORD_STORE` injects `REMOTE_FILE_STORE` so its resolver can fall back to `resolvePreApplyRunsTableName(remoteFileStore)` before the first apply (`:174-175`, `:285-293`). Every row's region resolves through `config.getRegion()`, the install's one region (`IAC-ENGINE-REGION-002`, owned by `iac/engine`; `docs/high-level-design.md`, decision 10), the audit, Discord-config and run-record rows included. The secrets-store binding resolves credentials twice per call, once for credentials and once for the signature (`:199-200`).
 
 ## Window Chrome
 

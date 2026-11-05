@@ -915,6 +915,43 @@ describe('FirstRunWizard', () => {
     });
   });
 
+  describe('reconfigure mode — guided credentials Edit', () => {
+    // @spec APP-WIZARD-RECONF-009
+    it('should not send an empty aws payload on commit when Edit was opened on the credentials step of a guided install', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: GUIDED_PROFILE_NAME, region: 'us-east-1' },
+        bootstrap: { stateBucket: 'existing-tfstate', configurationBucket: 'existing-config' },
+      });
+      hyveonMock.iac.stack.initialize.mockImplementation(toStreamHandleMock(async function* () {}));
+      hyveonMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
+
+      render(<FirstRunWizard mode="reconfigure" onCancel={vi.fn()} />);
+      await screen.findByText(/choose your cloud is already configured/i);
+      await waitFor(() => expect(hyveonMock.wizard.getState).toHaveBeenCalled());
+
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      // guided-iam is pre-completed for a guided profile; advance past it.
+      await userEvent.click(await screen.findByRole('button', { name: /^next$/i }));
+      // credentials: open Edit but change nothing.
+      await screen.findByText(/aws credentials is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      await userEvent.click(await screen.findByRole('button', { name: /^next$/i }));
+      await screen.findByText(/bootstrap aws resources is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+      await screen.findByRole('button', { name: /finish setup/i });
+      hyveonMock.wizard.saveState.mockClear();
+      await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
+
+      await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalled());
+      for (const call of hyveonMock.wizard.saveState.mock.calls) {
+        expect(call[0]).not.toHaveProperty('aws');
+      }
+    });
+  });
+
   describe('reconfigure mode — layout', () => {
     // @spec APP-WIZARD-SHELL-006
     it('should not render the step-progress sidebar in reconfigure mode', async () => {

@@ -31,6 +31,7 @@ import { errMessage } from '@hyveon/shared';
 /** `DescribeTasks` accepts at most 100 task ARNs per call. */
 const DESCRIBE_TASKS_BATCH = 100;
 
+// @spec IAC-ENGINE-REGION-002
 /**
  * Maps `ConfigService`'s stack-outputs shape onto the narrow config
  * {@link AwsCloudProvider} expects. Returns `null` before anything has been
@@ -43,12 +44,8 @@ const DESCRIBE_TASKS_BATCH = 100;
  * invoke it) is already async or an async generator, so awaiting it needs no
  * NestJS async-factory-provider changes.
  *
- * `region` reads `outputs.awsRegion` — the deployed stack's own region —
- * rather than `ConfigService.getRegion()`'s wizard-configured fallback,
- * since `outputs` is already guaranteed non-null by this point. The region
- * ECS/EC2/CloudWatch clients actually need to target is wherever the stack
- * was really provisioned, which can drift from the wizard's credentials-step
- * region if `DeploymentConfig.awsRegion` was edited independently.
+ * `region` is `ConfigService.getRegion()`, the install's one region; the
+ * stack outputs' `awsRegion` is never read.
  *
  * `credentials` comes from `resolveAwsClientCredentialsWithSignature(store)`
  * — omitting it left every ECS/EC2/CloudWatch Logs call falling back to the
@@ -69,7 +66,7 @@ export async function buildProviderConfig(
   if (!outputs) return null;
   const { credentials, signature } = resolveAwsClientCredentialsWithSignature(store);
   return {
-    region: outputs.awsRegion,
+    region: config.getRegion(),
     credentials,
     credentialsSignature: signature,
     ecsClusterName: outputs.ecsClusterName,
