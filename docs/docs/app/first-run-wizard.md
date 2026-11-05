@@ -122,7 +122,7 @@ by running through the CloudFormation stack again, or use **Start over**
 
 | State | What you see | Recovery |
 |---|---|---|
-| **Verification failed** | An error message and a **Retry rotation** button | Retrying reuses the same in-memory bootstrap key — no need to re-paste anything |
+| **Verification failed** | An error message and a **Retry rotation** button | Retrying reuses the same in-memory bootstrap key — no need to re-paste anything. When this is a Reconfigure re-run, the guided key you were already using stays stored and active throughout |
 | **Deletion failed** | An amber warning that the new key is already active but the bootstrap key is too, a direct IAM console link, and a **Revoke now** button | The new key is already your active credential; this state only needs the leftover bootstrap key cleaned up. Pressing **Revoke now** finishes the step the same as a clean rotation |
 
 ### Resuming mid-flow
@@ -402,8 +402,11 @@ one of them already has a real answer on record:
 > ✓ AWS credentials is already configured.  **[Edit]**
 
 Press **Edit** to expand that step's real form. Steps you never expand stay
-collapsed all the way through. (There is no way to re-collapse a step once
+collapsed all the way through.
+(There is no way to re-collapse a step once
 expanded — press **Cancel** and start again if you change your mind.)
+
+If you open **Edit** on the credentials step of a guided install and choose nothing, Finish setup leaves your guided credential as it is.
 
 **Provision AWS access starts collapsed only conditionally.** Unlike its
 three siblings above, this step is pre-marked completed only when your

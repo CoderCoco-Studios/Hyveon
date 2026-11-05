@@ -693,6 +693,54 @@ describe('GuidedIamService', () => {
       expect(store.deletePastedCredentials).not.toHaveBeenCalled();
     });
 
+    describe('re-run while hyveon-guided is already the active credential', () => {
+      beforeEach(() => {
+        store = makeStore({ profile: GUIDED_PROFILE_NAME, region: REGION });
+        service = new TestableGuidedIamService(store, safeStorage);
+      });
+
+      // @spec APP-WIZARD-ROTATE-008
+      it('should neither overwrite nor delete the active creds.aws.hyveon-guided entry when the new key fails verification', async () => {
+        stubCreateAccessKeySuccess();
+        const verifyError = new Error('The security token included in the request is invalid');
+        verifyError.name = 'InvalidClientTokenId';
+        stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+        iamMock.on(DeleteAccessKeyCommand).resolves({});
+
+        const result = await service.rotate(ROTATION_INPUT);
+
+        expect(result).toEqual({ status: 'verification-failed', error: verifyError.message });
+        expect(store.setPastedCredentials).not.toHaveBeenCalled();
+        expect(store.deletePastedCredentials).not.toHaveBeenCalled();
+        // The orphaned new IAM key is still cleaned up with the bootstrap key.
+        expect(iamMock.commandCalls(DeleteAccessKeyCommand)[0]!.args[0].input).toEqual({ AccessKeyId: NEW_ACCESS_KEY_ID });
+      });
+
+      // @spec APP-WIZARD-ROTATE-008
+      it('should write the new key into creds.aws.hyveon-guided only after it verifies', async () => {
+        const order: string[] = [];
+        stubCreateAccessKeySuccess();
+        stsMock.on(GetCallerIdentityCommand).callsFake(() => {
+          order.push('GetCallerIdentity');
+          return { Account: '123456789012' };
+        });
+        iamMock.on(DeleteAccessKeyCommand).resolves({});
+        vi.mocked(store.setPastedCredentials).mockImplementation(() => {
+          order.push('setPastedCredentials');
+        });
+
+        const result = await service.rotate(ROTATION_INPUT);
+
+        expect(result).toEqual({ status: 'complete' });
+        expect(order).toEqual(['GetCallerIdentity', 'setPastedCredentials']);
+        expect(store.setPastedCredentials).toHaveBeenCalledWith(GUIDED_PROFILE_NAME, {
+          accessKeyId: NEW_ACCESS_KEY_ID,
+          secretAccessKey: NEW_SECRET,
+          region: REGION,
+        });
+      });
+    });
+
     // @spec APP-WIZARD-ROTATE-005
     it('should return delete-failed with a console URL and leave the new key active when DeleteAccessKey fails', async () => {
       stubCreateAccessKeySuccess();
