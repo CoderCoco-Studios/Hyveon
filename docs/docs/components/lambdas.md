@@ -93,11 +93,17 @@ type FollowupPayload = {
    Lambda already ran `canRun`, but config could change between the two
    invocations).
 2. Dispatch by `kind`:
-   - **`start`** — `runStart()`: `ecs.runTask` with the game's task
+   - **`start`** — `runStart()`: takes the 120 s `LAUNCH#{game}` start lease
+     in the Discord table (`startWithLease`, shared with the desktop app;
+     a held lease replies `"A start for {game} is already in progress."`, and a
+     DynamoDB or running-task check error fails the start without launching),
+     then `ecs.runTask` with the game's task
      definition family (`{game}-server`), public-IP-enabled network
-     config, the Fargate launch type. If successful, call `putPending()`
+     config, the Fargate launch type, and the lease id as `clientToken`.
+     If successful, call `putPending()`
      (`PENDING#{taskArn}` with 15-min TTL); then PATCH the original
      interaction with "starting …".
+     The lease is what stops a desktop Start and a Discord `/server-start` for the same game from racing into two tasks.
    - **`stop`** — find the running task via `findRunningTask()`, call
      `ecs.stopTask`, PATCH "stopping …".
    - **`status`** — single-game `getStatus()` (ListTasks → DescribeTasks →
@@ -385,7 +391,8 @@ Failure modes:
 User types /server-start palworld
   → Discord POSTs to interactions Function URL
     → interactions verifies + returns type:5 ack + async-invokes followup
-      → followup RunTask + put PENDING#{arn} + PATCH @original "starting"
+      → followup takes the LAUNCH#{game} start lease, RunTask (clientToken = lease id)
+        + put PENDING#{arn} + PATCH @original "starting"
         → ECS reaches RUNNING
           → EventBridge fires update-dns
             → update-dns resolves IP + UPSERT A + get+delete PENDING#{arn}

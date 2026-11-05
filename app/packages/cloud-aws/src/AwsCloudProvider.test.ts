@@ -8,6 +8,7 @@ import {
   RunTaskCommand,
   StopTaskCommand,
 } from '@aws-sdk/client-ecs';
+import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import {
@@ -26,6 +27,8 @@ import {
 const ecsMock = mockClient(ECSClient);
 /** Typed stand-in for the AWS EC2 SDK client. */
 const ec2Mock = mockClient(EC2Client);
+/** Typed stand-in for the DynamoDB document client hosting the start lease. */
+const ddbMock = mockClient(DynamoDBDocumentClient);
 /** Typed stand-in for the AWS CloudWatch Logs SDK client. */
 const logsMock = mockClient(CloudWatchLogsClient);
 
@@ -38,6 +41,7 @@ const DEFAULT_CONFIG: AwsCloudProviderConfig = {
   ecsClusterName: 'game-cluster',
   subnetIds: 'subnet-a, subnet-b',
   securityGroupId: 'sg-game',
+  discordTableName: 'discord-table',
   domainName: 'example.com',
 };
 
@@ -54,6 +58,8 @@ describe('AwsCloudProvider', () => {
   beforeEach(() => {
     ecsMock.reset();
     ec2Mock.reset();
+    ddbMock.reset();
+    ddbMock.on(PutCommand).resolves({});
     logsMock.reset();
   });
 
@@ -99,6 +105,54 @@ describe('AwsCloudProvider', () => {
       expect(input.networkConfiguration?.awsvpcConfiguration?.securityGroups).toEqual(['sg-game']);
       expect(input.networkConfiguration?.awsvpcConfiguration?.assignPublicIp).toBe('ENABLED');
       expect(input.propagateTags).toBe('TASK_DEFINITION');
+    });
+
+    // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
+    it('should take the LAUNCH#{game} lease and pass its id as the RunTask clientToken', async () => {
+      ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
+      ecsMock.on(RunTaskCommand).resolves({ tasks: [{ taskArn: 'arn-new' }] });
+
+      await makeProvider().startWorkload('minecraft', {});
+
+      const put = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
+      expect(put.TableName).toBe('discord-table');
+      expect(put.Item).toMatchObject({ pk: 'LAUNCH#minecraft', sk: 'LOCK' });
+      expect(put.ConditionExpression).toBe('attribute_not_exists(pk) OR expiresAt < :now');
+      expect(ecsMock.commandCalls(RunTaskCommand)[0]!.args[0].input.clientToken).toBe(put.Item!['leaseId']);
+    });
+
+    // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
+    it('should refuse with the shared in-progress message and not RunTask when the lease is held', async () => {
+      ddbMock.on(PutCommand).rejects(Object.assign(new Error('held'), { name: 'ConditionalCheckFailedException' }));
+
+      await expect(makeProvider().startWorkload('minecraft', {})).rejects.toThrow(WorkloadGuardError);
+      await expect(makeProvider().startWorkload('minecraft', {})).rejects.toThrow(
+        'A start for minecraft is already in progress.',
+      );
+      expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
+    });
+
+    // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
+    it('should fail closed without RunTask when the lease write errors', async () => {
+      ddbMock.on(PutCommand).rejects(new Error('ddb down'));
+
+      await expect(makeProvider().startWorkload('minecraft', {})).rejects.toThrow('ddb down');
+      expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
+    });
+
+    // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
+    it('should fail closed without RunTask when the running-task pre-check errors', async () => {
+      ecsMock.on(ListTasksCommand).rejects(new Error('ecs down'));
+
+      await expect(makeProvider().startWorkload('minecraft', {})).rejects.toThrow('ecs down');
+      expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
+    });
+
+    // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
+    it('should refuse when the stack outputs carry no lease table', async () => {
+      const provider = makeProvider({ ...DEFAULT_CONFIG, discordTableName: '' });
+      await expect(provider.startWorkload('minecraft', {})).rejects.toThrow(WorkloadGuardError);
+      expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
     });
 
     // @spec RT-TASK-LAUNCH-011

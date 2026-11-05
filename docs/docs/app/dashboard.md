@@ -99,6 +99,8 @@ call failed, so a transient error never leaves a card stuck.
 Starting shows a toast: `minecraft is starting`. Failures show an error toast
 with the underlying reason.
 
+Every Start first takes a 120-second per-game start lease in the Discord DynamoDB table, shared with the Discord `/server-start` command, so a desktop Start and a Discord start can never launch two tasks for one game. While another start holds the lease, the error toast reads `A start for {game} is already in progress.` (with the game's name in place of `{game}`). The lease is not released when a start succeeds, so pressing Stop and then Start again within 120 seconds is refused with that same toast until the lease expires; a start that fails or finds the game already running releases it immediately. If the stack was applied before the lease table existed, Start fails with `Infrastructure is out of date (no start-lease table). Run Apply on the IaC page first.` Run Apply on the Infrastructure page, then retry.
+
 Starting is refused while a file or folder upload into that game's volumes is in progress: the error toast reads `An upload into 'minecraft' is in progress. Wait for it to finish or cancel it, then start the server.` Start again once the upload ends or is cancelled. A download in progress does not block a start. This applies to the desktop app only; the Discord `/server-start` command does not see desktop uploads.
 
 Two more buttons sit alongside:

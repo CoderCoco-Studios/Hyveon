@@ -4,6 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockClient } from 'aws-sdk-client-mock';
+import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import {
   DescribeTasksCommand,
   ECSClient,
@@ -29,6 +30,7 @@ vi.mock('@hyveon/shared', async () => {
 
 const ecsMock = mockClient(ECSClient);
 const ec2Mock = mockClient(EC2Client);
+const ddbMock = mockClient(DynamoDBDocumentClient);
 
 process.env['TABLE_NAME'] = 'test-discord';
 process.env['ECS_CLUSTER'] = 'test-cluster';
@@ -68,6 +70,8 @@ function baseEvent(kind: 'start' | 'stop' | 'status' | 'list', game?: string) {
 beforeEach(() => {
   ecsMock.reset();
   ec2Mock.reset();
+  ddbMock.reset();
+  ddbMock.on(PutCommand).resolves({});
   fetchMock.mockReset();
   getEffectiveDiscordConfigMock.mockReset();
   putPendingMock.mockReset();
@@ -117,6 +121,52 @@ describe('FollowupLambda: start', () => {
     expect(putPendingMock).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toMatch(/Failed to start|capacity/);
+  });
+
+  // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
+  it('should take the LAUNCH#{game} lease and RunTask with the lease id as clientToken', async () => {
+    ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
+    ecsMock.on(RunTaskCommand).resolves({ tasks: [{ taskArn: 'arn:t1' }] });
+
+    await handler(baseEvent('start', 'palworld'));
+
+    const put = ddbMock.commandCalls(PutCommand)[0]!.args[0]!.input;
+    expect(put.TableName).toBe('test-discord');
+    expect(put.Item).toMatchObject({ pk: 'LAUNCH#palworld', sk: 'LOCK' });
+    expect(put.ConditionExpression).toBe('attribute_not_exists(pk) OR expiresAt < :now');
+    const token = ecsMock.commandCalls(RunTaskCommand)[0]!.args[0]!.input.clientToken;
+    expect(token).toBe(put.Item!['leaseId']);
+  });
+
+  // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
+  it('should refuse without RunTask when another start holds the lease', async () => {
+    ddbMock.on(PutCommand).rejects(Object.assign(new Error('held'), { name: 'ConditionalCheckFailedException' }));
+
+    await handler(baseEvent('start', 'palworld'));
+
+    expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
+    expect(putPendingMock).not.toHaveBeenCalled();
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toBe('❌ A start for palworld is already in progress.');
+  });
+
+  // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
+  it('should fail closed without RunTask when the lease write errors', async () => {
+    ddbMock.on(PutCommand).rejects(new Error('ddb down'));
+
+    await handler(baseEvent('start', 'palworld'));
+
+    expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toMatch(/Exception starting palworld/);
+  });
+
+  // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
+  it('should fail closed without RunTask when the running-task pre-check errors', async () => {
+    ecsMock.on(ListTasksCommand).rejects(new Error('ecs down'));
+
+    await handler(baseEvent('start', 'palworld'));
+
+    expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toMatch(/Exception starting palworld/);
   });
 
   // @spec DISCORD-RUN-001
