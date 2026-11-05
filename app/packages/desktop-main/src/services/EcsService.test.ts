@@ -14,6 +14,7 @@ import {
   type Task,
 } from '@aws-sdk/client-ecs';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
+import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -39,6 +40,8 @@ const ecsMock = mockClient(ECSClient);
  * `EC2Client` prototype globally.
  */
 const ec2Mock = mockClient(EC2Client);
+/** Stand-in for the DynamoDB document client hosting the start lease (always granted unless a test overrides). */
+const ddbMock = mockClient(DynamoDBDocumentClient);
 
 /**
  * A canonical set of stack outputs used by most tests. Individual tests
@@ -117,6 +120,8 @@ function makeService(config: ConfigService, ec2: Ec2Service): EcsService {
 describe('EcsService', () => {
   beforeEach(() => {
     ecsMock.reset();
+    ddbMock.reset();
+    ddbMock.on(PutCommand).resolves({});
     ec2Mock.reset();
   });
 

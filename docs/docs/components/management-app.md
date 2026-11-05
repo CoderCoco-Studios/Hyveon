@@ -45,6 +45,7 @@ types and permission logic.
 | `ddb/client.ts` | Lazy DynamoDB DocumentClient. Region fallback: `AWS_REGION_` → `AWS_REGION` → `AWS_DEFAULT_REGION` → `us-east-1`. |
 | `ddb/configStore.ts` | `getDiscordConfig()` / `putDiscordConfig()` for the `CONFIG#discord` row. |
 | `ddb/pendingStore.ts` | `getPending()` / `putPending()` / `deletePending()` for `PENDING#{taskArn}`. `putPending()` sets `expiresAt = now + 15 minutes` so DDB TTL reaps stale rows. |
+| `aws/startLease.ts` | `startWithLease()` — the cross-process start lease (`LAUNCH#{game}` / `LOCK`, 120 s) behind `AwsCloudProvider.startWorkload` and the followup Lambda's `runStart`: conditional put, strict running-task pre-check, then launch with the lease id as the ECS `clientToken`. Takes an injected `put` callback and pulls in no AWS SDK, so it is deep-imported (`@hyveon/shared/aws/startLease`), not part of the barrel. Also exports `START_LEASE_TTL_SECONDS` and `startInProgressMessage()`. |
 | `secrets/secretsStore.ts` | Secrets Manager wrapper with a 5-minute in-process cache. Recognises the infra program's `"placeholder"` seed value as "not configured". `invalidateSecretsCache()` is called by the Nest credentials endpoint. Also owns the app-owned health-check credential secret's full write lifecycle — `healthCheckAuthSecretName(gameId)` (deterministic name `hyveon-{gameId}-healthcheck-auth`, one per game), `upsertHealthCheckAuthSecret()` (tries `PutSecretValueCommand` first, falls back to `CreateSecretCommand` only on `ResourceNotFoundException` — no separate existence check; if the same name is still within its recovery window from a prior `deleteHealthCheckAuthSecret()`, both commands instead fail with `InvalidRequestException`, confirmed via `DescribeSecretCommand`'s `DeletedDate`, so this un-schedules the deletion with `RestoreSecretCommand` and retries the put once), and `deleteHealthCheckAuthSecret()` (default recovery window, no-op if already absent). See [Games](/app/games#health-check-optional) for the operator-facing credential-type model this backs. |
 | `deploymentConfig.ts` | `DeploymentConfig` — the app's configuration source of truth, persisted verbatim as `deployment-config.json` in the operator's S3 configuration bucket. `gameServers: Record<string, GameServerConfig>` is the single source of truth every per-game resource fans out from. |
 | `gameServerConfig.ts` | `GameServerConfig` (aliased `GameServer`) — the canonical per-game container configuration shape embedded in `DeploymentConfig.gameServers`; deliberately reuses `snake_case` field names already load-bearing across the validator, `DeploymentConfigService`'s JSON read/write paths, and the Games UI. |
@@ -283,9 +284,9 @@ called out again in the `WindowController` row below.
   `EcsService` routes ECS run/stop/status calls through the injected
   `CLOUD_PROVIDER` token (a `CloudProvider` implementation from
   `@hyveon/cloud-aws`) rather than instantiating an `@aws-sdk/client-ecs`
-  client directly; `Ec2Service` / `LogsService` / `SchedulerService` still
-  call the AWS SDK v3 clients (EC2, CloudWatch Logs, EventBridge Scheduler)
-  directly, since those aren't yet behind a cloud-agnostic contract.
+  client directly.
+  A Start also takes a 120 s DynamoDB start lease (`LAUNCH#{game}`) in the Discord table (`outputs.discordTableName`, passed through `buildProviderConfig`) via `startWithLease`, shared with the Discord followup Lambda, so a desktop Start and a `/server-start` launch at most one task; an overlapping start is refused with `"A start for {game} is already in progress."`.
+  `Ec2Service` / `LogsService` / `SchedulerService` still call the AWS SDK v3 clients (EC2, CloudWatch Logs, EventBridge Scheduler) directly, since those aren't yet behind a cloud-agnostic contract.
   `FileManagerService` composes `EcsService`/`Ec2Service`/`SchedulerService`
   rather than calling any SDK client itself. `CostService` is pure
   arithmetic — no AWS SDK client at all — since the Cost Explorer call

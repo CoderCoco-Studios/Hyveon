@@ -85,7 +85,7 @@ Start and stop a game's container on demand, publish its address in DNS while it
 **Purpose:** Turn the operator's Start/Stop click into an ECS `RunTask`/`StopTask` against the game's `{game}-server` task definition (no persistent ECS Service), keep `{game}.{domain}` pointed at the running task's public IP through a Lambda rather than the infra program, poll status into the dashboard, and estimate Fargate cost from task-definition CPU/memory without ever calling Cost Explorer.
 
 **Key Components:**
-1. `AwsCloudProvider` (app/packages/cloud-aws/src/AwsCloudProvider.ts) — the `CloudProvider` implementation: `startWorkload` `:412` (guarded by a running-task check, `RunTask` with `propagateTags: 'TASK_DEFINITION'` `:441`), `stopWorkload` `:462`, `getWorkloadStatus` `:503` (running/starting/stopped/not_deployed/error plus public IP and hostname), `streamWorkloadLogs` `:548`, `getCostEstimate` `:603`; per-game in-process lock `withGameLock` `:328`.
+1. `AwsCloudProvider` (app/packages/cloud-aws/src/AwsCloudProvider.ts) — the `CloudProvider` implementation: `startWorkload` `:437` (start lease and running-task pre-check through `startWithLease`, `RunTask` with the lease id as `clientToken` `:472` and `propagateTags: 'TASK_DEFINITION'` `:476`), `stopWorkload` `:500`, `getWorkloadStatus` `:543` (running/starting/stopped/not_deployed/error plus public IP and hostname), `streamWorkloadLogs` `:590`, `getCostEstimate` `:645`; per-game in-process lock `withGameLock` `:342`.
 2. `EcsService` (app/packages/desktop-main/src/services/EcsService.ts) — Nest facade: `getStatus`/`start`/`stop` `:295-356` delegate to the injected `CLOUD_PROVIDER`; also raw ECS helpers (`getTaskDefinition` `:363`, `registerTaskDefinition`, `runTask`, `stopTask`, `tagTask` `:490`, `listTasksByStartedBy*`, `describeStoppedReason`, and the fail-closed `findRunningTaskOrThrow` `:242`) that the helper task uses. `buildProviderConfig` `:64` and `createAwsCloudProvider` `:104` build the provider from stack outputs.
 3. `Ec2Service` (app/packages/desktop-main/src/services/Ec2Service.ts) — ENI and security-group ingress helpers; injected into `EcsService` but unused there (`EcsService.ts:195-200`).
 4. update-dns Lambda (app/packages/lambda/update-dns/src/handler.ts) — `handler` `:251` maps task family to game, UPSERTs the A record on RUNNING after up to five ENI lookups `:71-96`, DELETEs on STOPPED `:141-170`, then PATCHes any pending Discord interaction `:176-198`. Triggered by the EventBridge rule in `infra/src/lambdas.ts:660-675` (filtered to this cluster and `RUNNING`/`STOPPED`).
@@ -101,24 +101,24 @@ Start and stop a game's container on demand, publish its address in DNS while it
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
-| Start and Stop | `RT-TASK-LAUNCH-001` to `RT-TASK-LAUNCH-014` | 12 | 0 | 2 |
+| Start and Stop | `RT-TASK-LAUNCH-001` to `RT-TASK-LAUNCH-016` | 15 | 0 | 1 |
 | Status | `RT-TASK-STATUS-001` to `RT-TASK-STATUS-008` | 7 | 0 | 1 |
 | DNS Lifecycle | `RT-TASK-DNS-001` to `RT-TASK-DNS-015` | 12 | 0 | 3 |
 | Discord Follow-up on Task State | `RT-TASK-NOTIFY-001` to `RT-TASK-NOTIFY-006` | 4 | 0 | 2 |
 | Cost Estimates | `RT-TASK-COST-001` to `RT-TASK-COST-012` | 9 | 0 | 3 |
 | Dashboard and Costs Page | `RT-TASK-UI-001` to `RT-TASK-UI-016` | 13 | 0 | 3 |
 
-**Summary:** 57 of 71 active specs implemented; 0 deferred; 14 gaps.
+**Summary:** 60 of 73 active specs implemented; 0 deferred; 13 gaps.
 
 ## Key Findings
 
 2. **DNS DELETE can orphan a record.** `deleteDns` reads the record's current IP but sends the Lambda's current `DNS_TTL` (`update-dns/handler.ts:141-170`). Route 53 DELETE must match the record exactly, so a `DNS_TTL` change between UPSERT and DELETE makes the delete fail; the failure is only logged as a warning (`:167-169`) and the stale A record stays.
 3. **DNS DELETE has no owner check.** On any STOPPED event for a known family the record is deleted (`handler.ts:235-238`) without comparing its IP to the stopping task's; a stale STOPPED event for an old task arriving after a new task's RUNNING UPSERT would remove the live record [inferred from code; not reproduced].
 4. **Pending Discord row is not cleared on STOPPED.** `notifyDiscordIfPending` runs only on RUNNING (`handler.ts:224-233`); a task that stops before reaching RUNNING leaves its `PENDING#{taskArn}` row behind.
-5. **Per-game start/stop lock is in-process only.** `withGameLock` serialises calls within one `AwsCloudProvider` instance (`AwsCloudProvider.ts:328-336`); the Discord followup Lambda's independent `RunTask` (`followup/handler.ts:136`) is not covered, so a desktop Start and a Discord `/server-start` can race past the "already running" guard (`AwsCloudProvider.ts:424-425`).
-6. **Fargate pricing arithmetic exists three times.** `estimateFargateHourlyCost` (`shared/src/gameServerValidator.ts:426-431`), `CostService.estimateForSpec` (`CostService.ts:31-42`) and `AwsCloudProvider.estimateHourlyCost` (`AwsCloudProvider.ts:312-317`) repeat the same formula; `CostService` imports the constants through the cloud-aws re-export (`CostService.ts:2`, `AwsCloudProvider.ts:32`).
-7. **`CloudProvider.getCostEstimate` has no production caller.** It is declared in `shared/src/cloud.ts:55` and implemented at `AwsCloudProvider.ts:603-623`, but only tests call it; the Costs page goes through `costs.estimate`, which bypasses the provider and calls `EcsService.getTaskDefinition` directly (`costs.controller.ts:37-39`).
-8. **Two different task-definition fallbacks.** When a definition omits `cpu`/`memory`, `EcsService.getTaskDefinition` defaults to 1024/2048 (`EcsService.ts:372-373`); when the describe fails, `costs.controller` defaults to 2048/8192 (`costs.controller.ts:39`), as does the provider (`AwsCloudProvider.ts:297-302`). The same missing data yields different estimates.
+5. **Per-game start/stop lock is in-process only (resolved).** `withGameLock` still serialises calls within one `AwsCloudProvider` instance, and both launch paths (`AwsCloudProvider.startWorkload`, `followup/handler.ts` `runStart`) now also take a 120 s DynamoDB start lease through `startWithLease` (`shared/src/aws/startLease.ts`), so a desktop Start and a Discord `/server-start` cannot both launch (`RT-TASK-LAUNCH-010`, `RT-TASK-LAUNCH-015`, `RT-TASK-LAUNCH-016`). Stop is not covered by the lease.
+6. **Fargate pricing arithmetic exists three times.** `estimateFargateHourlyCost` (`shared/src/gameServerValidator.ts:426-431`), `CostService.estimateForSpec` (`CostService.ts:31-42`) and `AwsCloudProvider.estimateHourlyCost` (`AwsCloudProvider.ts:325-330`) repeat the same formula; `CostService` imports the constants through the cloud-aws re-export (`CostService.ts:2`, `AwsCloudProvider.ts:32`).
+7. **`CloudProvider.getCostEstimate` has no production caller.** It is declared in `shared/src/cloud.ts:55` and implemented at `AwsCloudProvider.ts:645-665`, but only tests call it; the Costs page goes through `costs.estimate`, which bypasses the provider and calls `EcsService.getTaskDefinition` directly (`costs.controller.ts:37-39`).
+8. **Two different task-definition fallbacks.** When a definition omits `cpu`/`memory`, `EcsService.getTaskDefinition` defaults to 1024/2048 (`EcsService.ts:372-373`); when the describe fails, `costs.controller` defaults to 2048/8192 (`costs.controller.ts:39`), as does the provider (`AwsCloudProvider.ts:310-311,315`). The same missing data yields different estimates.
 9. **Status and cost shapes are declared four and three times.** `GameStatus` in `shared/src/types.ts:61`, `EcsService.ts:148`, `desktop-preload/src/hyveon-api.ts:100`, `web/src/api.service.ts:121`; `StartResult` in three of those; `CostEstimates` in `CostService.ts:14`, `hyveon-api.ts:126`, `api.service.ts:147`.
 10. **Dead and vestigial code in `EcsService`.** The null-on-failure `findRunningTask` (`EcsService.ts:281-287`) has no production caller; its fail-closed sibling `findRunningTaskOrThrow` (`EcsService.ts:242-268`) does, from the helper task (`FolderUploadService.ts:292`, `volumeFiles/fileOps.ts:116`). The `_ec2` constructor parameter is unused (`EcsService.ts:197-200`); `registerTaskDefinition` dynamically imports a command class from a package the file already imports (`EcsService.ts:388-390`).
 11. **Raw error objects logged.** `EcsService.start`/`stop` log `{ err }` on the non-guard path (`EcsService.ts:330,352`), as do `getTaskDefinition` `:377` and `listTasksByStartedBy` `:477` (`findRunningTaskOrThrow` now normalises, `:264-266`), against the repo's logging rule to normalise to a message. update-dns logs the full EventBridge event (`handler.ts:252`).
@@ -139,9 +139,8 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-runtime/task-and-d
 4. Collapse the Fargate cost formula onto `estimateFargateHourlyCost` and unify the task-definition fallback values (findings 6, 8); either route `costs.estimate` through `CloudProvider.getCostEstimate` or drop that interface method (finding 7). (specs: `RT-TASK-COST-010`, `RT-TASK-COST-011`, `RT-TASK-COST-012`)
 5. Normalise logged errors to messages in `EcsService` and stop logging the full event in update-dns (finding 11). (specs: `RT-TASK-LAUNCH-014`, `RT-TASK-DNS-014`)
 6. Consolidate `GameStatus`/`StartResult`/`CostEstimates` onto the `@hyveon/shared` types (finding 9). (specs: `RT-TASK-STATUS-008`)
-7. Decide whether the desktop and Discord start paths need a cross-process guard (finding 5). (specs: `RT-TASK-LAUNCH-010`)
 
 ### Nice to Have
-8. Remove the caller-less `EcsService.findRunningTask` wrapper, the unused `_ec2` parameter and the dynamic import (finding 10).
-9. Fix stale comments and the `CostsPage` page-object TODO (finding 12).
-10. Surface cost-fetch failures, share one estimate fetch between dashboard and Costs page, let `refreshGame` add missing games, set `busy` on Undo (findings 13 to 15). (specs: `RT-TASK-UI-004`, `RT-TASK-UI-005`, `RT-TASK-UI-010`)
+7. Remove the caller-less `EcsService.findRunningTask` wrapper, the unused `_ec2` parameter and the dynamic import (finding 10).
+8. Fix stale comments and the `CostsPage` page-object TODO (finding 12).
+9. Surface cost-fetch failures, share one estimate fetch between dashboard and Costs page, let `refreshGame` add missing games, set `busy` on Undo (findings 13 to 15). (specs: `RT-TASK-UI-004`, `RT-TASK-UI-005`, `RT-TASK-UI-010`)

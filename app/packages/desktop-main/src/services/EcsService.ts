@@ -72,6 +72,7 @@ export async function buildProviderConfig(
     ecsClusterName: outputs.ecsClusterName,
     subnetIds: outputs.subnetIds.join(','),
     securityGroupId: outputs.securityGroupId,
+    discordTableName: outputs.discordTableName,
     domainName: outputs.domainName,
     gameNames: outputs.gameNames,
   };

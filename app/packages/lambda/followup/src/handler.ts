@@ -21,12 +21,15 @@ import {
   type Task,
 } from '@aws-sdk/client-ecs';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
+import { PutCommand } from '@aws-sdk/lib-dynamodb';
+import { startInProgressMessage, startWithLease } from '@hyveon/shared/aws/startLease';
 // @spec DISCORD-SVC-002
 // `canRun` is the single shared copy; never inline or fork it.
 import {
   canRun,
   formatGameStatus,
   gameNamesFromEnv,
+  getDocClient,
   getEffectiveDiscordConfig,
   getTaskEniId,
   parseGameMapEnv,
@@ -118,35 +121,46 @@ async function getStatus(game: string): Promise<GameStatus> {
   }
 }
 
-// @spec RT-TASK-LAUNCH-004
+// @spec RT-TASK-LAUNCH-004, RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
 // @spec DISCORD-RUN-002, DISCORD-RUN-003, DISCORD-RUN-004, DISCORD-RUN-005
 async function runStart(game: string): Promise<{ message: string; taskArn?: string }> {
   const cluster = requireEnv('ECS_CLUSTER');
   const subnets = requireEnv('SUBNET_IDS').split(',').map((s) => s.trim()).filter(Boolean);
   const sg = requireEnv('SECURITY_GROUP_ID');
 
-  const existing = await findRunningTask(cluster, game);
-  if (existing) return { message: `❌ ${game} is already running.` };
-
+  const doc = getDocClient();
+  type Launch = { message: string; taskArn?: string };
   try {
-    const resp = await getEcs().send(
-      new RunTaskCommand({
-        cluster,
-        taskDefinition: `${game}-server`,
-        count: 1,
-        launchType: 'FARGATE',
-        networkConfiguration: {
-          awsvpcConfiguration: { subnets, securityGroups: [sg], assignPublicIp: 'ENABLED' },
-        },
-        propagateTags: 'TASK_DEFINITION',
-      }),
-    );
-    const taskArn = resp.tasks?.[0]?.taskArn;
-    if (!taskArn) {
-      const reason = resp.failures?.[0]?.reason ?? 'unknown';
-      return { message: `❌ Failed to start ${game}: ${reason}` };
-    }
-    return { message: `✅ ${game} is starting. It may take 2–5 minutes.`, taskArn };
+    const outcome = await startWithLease<Launch>({
+      put: (input) => doc.send(new PutCommand(input)),
+      tableName: requireEnv('TABLE_NAME'),
+      game,
+      findRunning: async () => (await findRunningTask(cluster, game)) !== null,
+      launch: async (clientToken) => {
+        const resp = await getEcs().send(
+          new RunTaskCommand({
+            cluster,
+            taskDefinition: `${game}-server`,
+            count: 1,
+            launchType: 'FARGATE',
+            clientToken,
+            networkConfiguration: {
+              awsvpcConfiguration: { subnets, securityGroups: [sg], assignPublicIp: 'ENABLED' },
+            },
+            propagateTags: 'TASK_DEFINITION',
+          }),
+        );
+        const taskArn = resp.tasks?.[0]?.taskArn;
+        if (!taskArn) {
+          const reason = resp.failures?.[0]?.reason ?? 'unknown';
+          return { launched: false, value: { message: `❌ Failed to start ${game}: ${reason}` } };
+        }
+        return { launched: true, value: { message: `✅ ${game} is starting. It may take 2–5 minutes.`, taskArn } };
+      },
+    });
+    if (outcome.status === 'in-progress') return { message: `❌ ${startInProgressMessage(game)}` };
+    if (outcome.status === 'already-running') return { message: `❌ ${game} is already running.` };
+    return outcome.value;
   } catch (err) {
     return { message: `❌ Exception starting ${game}: ${String(err)}` };
   }

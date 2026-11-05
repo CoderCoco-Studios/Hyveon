@@ -22,7 +22,7 @@ The leaf owns:
 
 What it deliberately does not own:
 
-- The game live-tail poll loop itself: `AwsCloudProvider.streamWorkloadLogs` (`app/packages/cloud-aws/src/AwsCloudProvider.ts:548-589`) belongs to `game-runtime/task-and-dns`.
+- The game live-tail poll loop itself: `AwsCloudProvider.streamWorkloadLogs` (`app/packages/cloud-aws/src/AwsCloudProvider.ts:590-631`) belongs to `game-runtime/task-and-dns`.
 - The log groups: declared by `iac/program` (`infra/src/logGroups.ts`, `infra/src/lambdas.ts`, `infra/src/ecs.ts`). This leaf only reads them and never creates, deletes or changes retention.
 - `projectName`: read from `DeploymentConfigService.getTopLevelSettings()` (`LogsService.ts:597`), owned by `deployment-config`.
 - The `window.hyveon.logs` bridge, `createBufferedStream`, and `SELF_BRIDGED_PATTERNS` (`app/packages/desktop-preload/src/preload.ts:229-260,451-469`; `desktop-main/src/ipc-main-bridge.ts:28-29`), owned by `operator-app/ipc-bridge`.
@@ -39,7 +39,7 @@ CLAUDE.md invariants that live here:
 
 | Source | Log group | Resolver | Group missing (`ResourceNotFoundException`) |
 |---|---|---|---|
-| Game server | `/ecs/{game}-server` | inline string (`LogsService.ts:279,354,392`; `AwsCloudProvider.ts:557`) | No `notFound` hook: snapshot folds it into `Error fetching logs for {game}: …`; paging rethrows (`LogsService.ts:259-262`) |
+| Game server | `/ecs/{game}-server` | inline string (`LogsService.ts:279,354,392`; `AwsCloudProvider.ts:599`) | No `notFound` hook: snapshot folds it into `Error fetching logs for {game}: …`; paging rethrows (`LogsService.ts:259-262`) |
 | Lambda | `/aws/lambda/{projectName}-{functionKey}` | `resolveLambdaLogGroup` (`LogsService.ts:594-604`) | Snapshot returns one `No log group for {key} yet …` line (`:633-636`); paging throws the same text (`:661-664,697-700`); tail yields it once and ends (`:757-760`) |
 
 `resolveLambdaLogGroup` falls back to `DEPLOYMENT_CONFIG_DEFAULTS.projectName` both when the setting is unset and when the read itself fails, logging a `warn` in the second case (`LogsService.ts:595-602`).
@@ -106,7 +106,7 @@ The TSDoc gives the reasoning (`:407-441`): `'older'` walks newest-to-oldest; `'
 
 | Aspect | Game (`AwsCloudProvider.streamWorkloadLogs`) | Lambda (`LogsService.streamLambdaLogs`) |
 |---|---|---|
-| First `startTime` | `Date.now()` (`AwsCloudProvider.ts:558`) | `undefined`, i.e. whole retained group (`LogsService.ts:735`) |
+| First `startTime` | `Date.now()` (`AwsCloudProvider.ts:600`) | `undefined`, i.e. whole retained group (`LogsService.ts:735`) |
 | Page size / paging | `limit: 100`, one call per poll (`:564`) | no limit, drains every `nextToken` (`:739-754`) |
 | Cursor advance | `ts + 1` (`:573-575`) | `max(ts)` (`:747-749`) |
 | Dedupe key fallback | `` `${ts}-${msg}` `` (`:568`) | `` `${ts}:${msg}` `` (`:744`) |
@@ -116,8 +116,8 @@ The TSDoc gives the reasoning (`:407-441`): `'older'` walks newest-to-oldest; `'
 
 The Lambda tail's TSDoc says it copies the game loop's shape and cites a design decision for not sharing it (`LogsService.ts:705-713`); that decision argues only that Lambda naming should not enter the cloud-agnostic `CloudProvider` interface, not that the loops must differ.
 Because the first Lambda poll has no `startTime`, it yields every retained event, re-delivering the snapshot the renderer already rendered (`use-log-tail.hook.ts:340-344`); that departs from the requirement to stream newly-arriving lines only (APP-LOGS-TAIL-005).
-Both `seen` sets grow without bound for the life of a stream (`LogsService.ts:734`; `AwsCloudProvider.ts:559`) `[inferred]`.
-`AwsCloudProvider.ts:36` says its `sleepInterruptible` mirrors one in `LogsService`, which has none.
+Both `seen` sets grow without bound for the life of a stream (`LogsService.ts:734`; `AwsCloudProvider.ts:601`) `[inferred]`.
+`AwsCloudProvider.ts:39` says its `sleepInterruptible` mirrors one in `LogsService`, which has none.
 
 ## Renderer Tail Engine
 
@@ -193,7 +193,7 @@ The Lambda page defaults to `watchdog` and renders `LAMBDA_FUNCTION_KEYS` as `ar
 ### Deferred
 
 1. Should `streamLambdaLogs` seed its first `startTime` (now, or the snapshot's newest timestamp) so it stops replaying the whole group and duplicating the snapshot (`LogsService.ts:735`; `use-log-tail.hook.ts:340-344`)? No test pins the first-poll `startTime` (`LogsService.test.ts:797` onward).
-2. Should the two live-tail loops collapse into one implementation (`LogsService.ts:727-768` vs `AwsCloudProvider.ts:548-589`), and if not, should the Lambda loop at least use an abort-aware sleep and SDK call (`:766`) and log poll errors per `.claude/rules/logging.md` rule 2 (`:762-763`)?
+2. Should the two live-tail loops collapse into one implementation (`LogsService.ts:727-768` vs `AwsCloudProvider.ts:590-631`), and if not, should the Lambda loop at least use an abort-aware sleep and SDK call (`:766`) and log poll errors per `.claude/rules/logging.md` rule 2 (`:762-763`)?
 3. Should `eventId` synthesis be one helper so the snapshot (`:326`) and paging (`:519`) agree for message-less events?
 4. Should the four identical controller catch blocks be extracted, and should the controller stop re-logging at `error` what the service already logged at `warn` (`logs.controller.ts:88-95,112-119,248-255,272-279`; `LogsService.ts:359,397,660,696`)?
 5. Should the game snapshot read across streams (or across containers) so `https` games with a Caddy sidecar show both containers (`LogsService.ts:304-315`)? Record the decision in the EARS either way.
@@ -204,11 +204,11 @@ The Lambda page defaults to `watchdog` and renders `LAMBDA_FUNCTION_KEYS` as `ar
 10. Should `LiveBadge` and the footer buffer count reflect historical mode (`live-badge.component.tsx:19`, `log-tail-view.component.tsx:212`)?
 11. Is `jumpingToLatest` meant to drive a loading state in the view (`use-log-tail.hook.ts:613`)? It has no consumer.
 12. Should an ended or errored stream be reopened automatically (`use-log-tail.hook.ts:289-299`)?
-13. Should the `seen` dedupe sets in both tails be bounded (`LogsService.ts:734`, `AwsCloudProvider.ts:559`)?
+13. Should the `seen` dedupe sets in both tails be bounded (`LogsService.ts:734`, `AwsCloudProvider.ts:601`)?
 14. When the project-name read fails, should the Lambda viewer show an error instead of silently reading `hyveon-*` groups (`LogsService.ts:599-602`)?
 15. Should `LAMBDA_FUNCTION_KEYS` derive the union (or vice versa) so the "can never drift" comment is enforced (`lambdaFunctionKey.ts:15-26`)?
 16. Before a VPC flow-log view adds a third resolution family, should the game/Lambda method pairs collapse into one resolver-parameterized set (`LogsService.ts:277,352,385,624,653,684`)?
-17. Stale and history-narrating comments: `fetchRange` (`LogsService.ts:518`), "Bug 1" (`:478`), "pre-extraction call sites" (`:218-219,232-233`), the class TSDoc and controller TSDoc that describe only `/ecs/{game}-server` (`:150-154`; `logs.controller.ts:11-15`), and `AwsCloudProvider.ts:36`.
+17. Stale and history-narrating comments: `fetchRange` (`LogsService.ts:518`), "Bug 1" (`:478`), "pre-extraction call sites" (`:218-219,232-233`), the class TSDoc and controller TSDoc that describe only `/ecs/{game}-server` (`:150-154`; `logs.controller.ts:11-15`), and `AwsCloudProvider.ts:39`.
 18. Rendering debt: index keys on a prepend-heavy list (`log-line-display.component.tsx:116`); undeclared `--shadow-md` (`jump-to-latest-button.component.tsx:26`); duplicate mounted search inputs on mobile (`log-tail-view.component.tsx:150-166`); `formatAge` duplicated by `formatAgo` in `polling-indicator.component.tsx:96-102`, which rounds where `formatAge` floors (`use-log-tail.hook.ts:137-145`).
 19. Docs and CI say five Lambda *packages* where six exist (`docs/docs/components/management-app.md:14`, `.github/workflows/lint.yml:51`); the five-function wording in code and `docs/docs/app/index.md:111` is correct.
 20. If a VPC flow-log view is built and its toggle is later switched off, should the flow-log group be deleted or retained? A group the infra program stops declaring is deleted on the next apply unless it is marked retain-on-delete, which would also need a retention requirement and a docs note for manual cleanup.

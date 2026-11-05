@@ -39,8 +39,11 @@ allowed to run. Press enter and you'll see a deferred ack within 3 s, then
 an edit to "starting …", and finally (1–5 min later) a green
 "running — `{game}.yourdomain.com`".
 
+If a start for that game is already underway, from the desktop app or another `/server-start`, the reply is "A start for `{game}` is already in progress." and nothing is launched. The lease lasts 120 seconds, so a Stop followed by a Start inside that window gets the same reply.
+
 Behind the scenes: interactions Lambda verifies the signature and kicks off
-the followup Lambda; followup runs ECS `RunTask` and writes a 15-minute
+the followup Lambda; followup first takes a 120-second per-game start lease
+(the same one a desktop Start takes), then runs ECS `RunTask` and writes a 15-minute
 `PENDING#{taskArn}` row to DynamoDB; when EventBridge sees the task
 transition to RUNNING, the update-dns Lambda upserts the A record and PATCHes
 your original Discord message with the resolved hostname.

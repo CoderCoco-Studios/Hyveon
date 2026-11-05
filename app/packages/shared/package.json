@@ -27,6 +27,10 @@
       "types": "./dist/testing/secretFields.d.ts",
       "default": "./dist/testing/secretFields.js"
     },
+    "./aws/startLease": {
+      "types": "./dist/aws/startLease.d.ts",
+      "default": "./dist/aws/startLease.js"
+    },
     "./secrets/secretsStore": {
       "types": "./dist/secrets/secretsStore.d.ts",
       "default": "./dist/secrets/secretsStore.js"
