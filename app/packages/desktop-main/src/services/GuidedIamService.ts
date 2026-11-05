@@ -349,7 +349,7 @@ export class GuidedIamService {
     }
   }
 
-  // @spec APP-WIZARD-ROTATE-001, APP-WIZARD-ROTATE-002, APP-WIZARD-ROTATE-003, APP-WIZARD-ROTATE-004,
+  // @spec APP-WIZARD-ROTATE-001, APP-WIZARD-ROTATE-002, APP-WIZARD-ROTATE-003, APP-WIZARD-ROTATE-008, APP-WIZARD-ROTATE-004,
   // @spec APP-WIZARD-ROTATE-005, APP-WIZARD-KEYCH-001, APP-WIZARD-CUSTODY-008, APP-WIZARD-INTAKE-006,
   // @spec APP-WIZARD-IAMCHK-007
   /**
@@ -365,13 +365,19 @@ export class GuidedIamService {
    * 2. Stages the new key pair via
    *    {@link ElectronStoreService.setPastedCredentials} under
    *    {@link GUIDED_PROFILE_NAME}. This alone does **not** make the new key
-   *    active — `aws.profile` is untouched at this point.
+   *    active — `aws.profile` is untouched at this point. When
+   *    `aws.profile` already names {@link GUIDED_PROFILE_NAME} (a Reconfigure
+   *    re-run), nothing is written here: the stored entry is the key the app
+   *    still uses, so the new pair is held in memory and written only after
+   *    step 3 succeeds.
    * 3. Verifies the new key pair with `sts:GetCallerIdentity`, using an STS
    *    client built from the *new* key, retrying with backoff (see
    *    {@link VERIFY_ACCESS_KEY_RETRY_DELAYS_MS}) to absorb IAM key
    *    propagation delay. Once all attempts are exhausted, best-effort
    *    deletes the orphaned new key and its step-2 staged entry (using the
-   *    still-untouched *bootstrap* key), then returns
+   *    still-untouched *bootstrap* key; when step 2 held the pair in memory
+   *    because {@link GUIDED_PROFILE_NAME} was already active, there is no
+   *    staged entry and nothing stored is deleted), then returns
    *    `{ status: 'verification-failed', error }` without touching
    *    `aws.profile` or the bootstrap key — this cleanup is what makes a
    *    retry safe, since an orphaned new key would otherwise hit IAM's
@@ -442,12 +448,19 @@ export class GuidedIamService {
     }
     logger.info('GuidedIamService.rotate: minted new access key', { accessKeyId: newKey.AccessKeyId });
 
-    // Step 2: stage the new key pair — does not yet activate it.
-    this.store.setPastedCredentials(GUIDED_PROFILE_NAME, {
+    // Step 2: stage the new key pair — does not yet activate it. When
+    // `hyveon-guided` is already the active credential (a Reconfigure
+    // re-run), staging would overwrite the key the app still points at, so
+    // the pair is held in memory and written only once it verifies.
+    const guidedAlreadyActive = this.store.get('aws')?.profile === GUIDED_PROFILE_NAME;
+    const stagedKey = {
       accessKeyId: newKey.AccessKeyId,
       secretAccessKey: newKey.SecretAccessKey,
       region: input.region,
-    });
+    };
+    if (!guidedAlreadyActive) {
+      this.store.setPastedCredentials(GUIDED_PROFILE_NAME, stagedKey);
+    }
 
     const newCreds = { accessKeyId: newKey.AccessKeyId, secretAccessKey: newKey.SecretAccessKey, region: input.region };
 
@@ -480,7 +493,7 @@ export class GuidedIamService {
         accessKeyId: newKey.AccessKeyId,
         error: message,
       });
-      await this.discardMintedKey(bootstrapClient, newKey.AccessKeyId);
+      await this.discardMintedKey(bootstrapClient, newKey.AccessKeyId, !guidedAlreadyActive);
       return { status: 'verification-failed', error: message };
     }
 
@@ -490,9 +503,10 @@ export class GuidedIamService {
     try {
       assertInstallRegionUnlocked(this.store, input.region);
     } catch (err) {
-      await this.discardMintedKey(bootstrapClient, newKey.AccessKeyId);
+      await this.discardMintedKey(bootstrapClient, newKey.AccessKeyId, !guidedAlreadyActive);
       throw err;
     }
+    if (guidedAlreadyActive) this.store.setPastedCredentials(GUIDED_PROFILE_NAME, stagedKey);
     const currentAws = this.store.get('aws') ?? {};
     this.store.set('aws', { ...currentAws, profile: GUIDED_PROFILE_NAME, region: input.region });
     logger.info('GuidedIamService.rotate: activated rotated key as the credential source', {
@@ -527,11 +541,13 @@ export class GuidedIamService {
    *
    * @param bootstrapClient - IAM client built from the bootstrap key.
    * @param accessKeyId - The newly minted, not-yet-activated key to delete.
+   * @param dropStaged - Whether a staged `hyveon-guided` entry exists to drop; false on a re-run where the
+   *   active entry still holds the key the app points at and the new pair was only held in memory.
    */
-  private async discardMintedKey(bootstrapClient: IAMClient, accessKeyId: string): Promise<void> {
+  private async discardMintedKey(bootstrapClient: IAMClient, accessKeyId: string, dropStaged: boolean): Promise<void> {
     try {
       await bootstrapClient.send(new DeleteAccessKeyCommand({ AccessKeyId: accessKeyId }));
-      this.store.deletePastedCredentials(GUIDED_PROFILE_NAME);
+      if (dropStaged) this.store.deletePastedCredentials(GUIDED_PROFILE_NAME);
     } catch (cleanupErr) {
       logger.warn('GuidedIamService.rotate: failed to clean up orphaned new key — may need manual cleanup', {
         accessKeyId,
