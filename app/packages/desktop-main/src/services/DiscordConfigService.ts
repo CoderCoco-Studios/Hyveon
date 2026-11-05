@@ -116,11 +116,18 @@ export class DiscordConfigService {
     return a;
   }
 
-  /** Read the config from DynamoDB; subsequent calls return a cached copy until a write invalidates. */
-  private async load(): Promise<DiscordConfig> {
+  // @spec DISCORD-DESK-004
+  /**
+   * Read the config from DynamoDB; subsequent calls return a cached copy until a write invalidates.
+   * Unlike {@link load}, a failed read throws and caches nothing, so a transient failure can
+   * neither be mistaken for an empty config nor be saved over the real row.
+   *
+   * @throws Error carrying only the failure message.
+   */
+  private async loadStrict(): Promise<DiscordConfig> {
     if (this.cache) return this.cache;
     if (this.inflight) return this.inflight;
-    logger.debug('DiscordConfigService.load: reading Discord config from DynamoDB');
+    logger.debug('DiscordConfigService.loadStrict: reading Discord config from DynamoDB');
     this.inflight = (async () => {
       try {
         if (!(await this.tableName())) throw new Error('discordTableName not in the deployed stack outputs — deploy first.');
@@ -130,14 +137,21 @@ export class DiscordConfigService {
       } catch (err) {
         const message = errMessage(err);
         logger.error('Failed to load Discord config from DynamoDB', { error: message });
-        const empty = emptyConfig();
-        this.cache = empty;
-        return empty;
+        throw new Error(message);
       } finally {
         this.inflight = null;
       }
     })();
     return this.inflight;
+  }
+
+  /** Display-path read: degrades to an uncached empty config when {@link loadStrict} fails. Never use it before a write. */
+  private async load(): Promise<DiscordConfig> {
+    try {
+      return await this.loadStrict();
+    } catch {
+      return emptyConfig();
+    }
   }
 
   /**
@@ -297,9 +311,9 @@ export class DiscordConfigService {
     if (params.botToken !== undefined && typeof params.botToken !== 'string') return false;
     if (params.clientId !== undefined && typeof params.clientId !== 'string') return false;
     if (params.publicKey !== undefined && typeof params.publicKey !== 'string') return false;
-    const cfg = await this.load();
     const clientId = typeof params.clientId === 'string' ? params.clientId.trim() : '';
     if (clientId) {
+      const cfg = await this.loadStrict();
       cfg.clientId = clientId;
       await this.save(cfg);
     }
@@ -324,7 +338,7 @@ export class DiscordConfigService {
 
   /** Replace the entire guild allowlist (deduped, empty strings dropped). */
   async setAllowedGuilds(guildIds: string[]): Promise<void> {
-    const cfg = await this.load();
+    const cfg = await this.loadStrict();
     cfg.allowedGuilds = [...new Set(guildIds.filter(Boolean))];
     await this.save(cfg);
   }
@@ -332,7 +346,7 @@ export class DiscordConfigService {
   // @spec DISCORD-DESK-007
   /** Add a guild to the allowlist if not already present; otherwise no-op. */
   async addAllowedGuild(guildId: string): Promise<void> {
-    const cfg = await this.load();
+    const cfg = await this.loadStrict();
     if (!cfg.allowedGuilds.includes(guildId)) {
       cfg.allowedGuilds.push(guildId);
       await this.save(cfg);
@@ -353,7 +367,7 @@ export class DiscordConfigService {
         reason: `Guild ${guildId} is in the base config and cannot be removed via the UI. Edit "Base allowed guild IDs" on the Settings page and re-apply from the Infrastructure page.`,
       };
     }
-    const cfg = await this.load();
+    const cfg = await this.loadStrict();
     cfg.allowedGuilds = cfg.allowedGuilds.filter((g) => g !== guildId);
     await this.save(cfg);
     return { ok: true };
@@ -366,7 +380,7 @@ export class DiscordConfigService {
    * so a malformed API body (e.g. `userIds: "..."`) can't crash the handler.
    */
   async setAdmins(admins: { userIds?: unknown; roleIds?: unknown }): Promise<void> {
-    const cfg = await this.load();
+    const cfg = await this.loadStrict();
     cfg.admins = {
       userIds: [...new Set(asStringArray(admins.userIds).filter(Boolean))],
       roleIds: [...new Set(asStringArray(admins.roleIds).filter(Boolean))],
@@ -387,7 +401,7 @@ export class DiscordConfigService {
       logger.warn('Rejected setGamePermission with unsafe key', { game });
       return false;
     }
-    const cfg = await this.load();
+    const cfg = await this.loadStrict();
     cfg.gamePermissions[game] = {
       userIds: [...new Set(asStringArray(perm.userIds).filter(Boolean))],
       roleIds: [...new Set(asStringArray(perm.roleIds).filter(Boolean))],
@@ -414,7 +428,7 @@ export class DiscordConfigService {
       logger.warn('Rejected deleteGamePermission with unsafe key', { game });
       return false;
     }
-    const cfg = await this.load();
+    const cfg = await this.loadStrict();
     delete cfg.gamePermissions[game];
     await this.save(cfg);
     return true;

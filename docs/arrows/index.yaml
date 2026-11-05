@@ -249,7 +249,7 @@ arrows:
     # backs interaction signature verification.
     blockedBy: [program, task-and-dns, health-check]
     detail: discord-bot.md
-    next: "Stop DiscordConfigService.load() caching an empty config on read failure, and stop mutators saving over a failed read."
+    next: "Replace String(err) in user-facing Discord replies with a generic message plus a server-side log (DISCORD-RUN-012)."
     drift: null
 
   helper-task:

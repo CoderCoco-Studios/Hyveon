@@ -4,7 +4,7 @@ Let players start, stop and check games from Discord slash commands, under the o
 
 ## Status
 
-**MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited. Fully serverless path (Function URL → interactions Lambda → followup Lambda → update-dns PATCH) works end to end; the desktop config service has a cache-poisoning bug that can wipe the config row.
+**MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited. Fully serverless path (Function URL → interactions Lambda → followup Lambda → update-dns PATCH) works end to end; direct dynamic configuration writes reject failed reads without using a fallback.
 
 ## References
 
@@ -132,16 +132,16 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 | Pending interactions | `DISCORD-PEND-001` to `DISCORD-PEND-004` | 4 | 0 | 0 |
 | Message rendering | `DISCORD-MSG-001` to `DISCORD-MSG-006` | 6 | 0 | 0 |
 | Configuration model | `DISCORD-CFG-001` to `DISCORD-CFG-006` | 6 | 0 | 0 |
-| Desktop configuration service | `DISCORD-DESK-001` to `DISCORD-DESK-009` | 8 | 0 | 1 |
+| Desktop configuration service | `DISCORD-DESK-001` to `DISCORD-DESK-009` | 9 | 0 | 0 |
 | IPC surface | `DISCORD-IPC-001` to `DISCORD-IPC-006` | 5 | 0 | 1 |
 | Command registration | `DISCORD-REG-001` to `DISCORD-REG-005` | 5 | 0 | 0 |
 | Discord page | `DISCORD-UI-001` to `DISCORD-UI-010` | 7 | 0 | 3 |
 
-**Summary:** 83 of 92 active specs implemented; 0 deferred; 9 gaps.
+**Summary:** 84 of 92 active specs implemented; 0 deferred; 8 gaps.
 
 ## Key Findings
 
-1. **Desktop config cache poisoning can wipe the operator's Discord row** — `DiscordConfigService.load()` catches any read failure, caches `emptyConfig()` and returns it (`DiscordConfigService.ts:129-134`). Every mutator then edits that cached object in place and saves it (e.g. `setAllowedGuilds` `:322-325`, `addAllowedGuild` `:329-334`), so one transient DynamoDB failure followed by any edit overwrites the real `CONFIG#discord` row with an otherwise empty config. Cache is only cleared by `invalidateCache()` (`:415-418`), which also leaves `inflight` untouched.
+1. **Failed dynamic config reads are not cached or saved over** — `DiscordConfigService.loadStrict()` throws on a failed `CONFIG#discord` read and caches nothing, so the dynamic row is never written on the basis of a failed read. The display path (`load()`, used by `getConfig` and `getRedacted`) still returns an uncached empty config (`DISCORD-UI-008`). `loadBase()` separately caches an empty base config after a failed `BASE#discord` read. `setCredentials()` calls `loadStrict()` only when updating `clientId`; secrets-only updates skip the dynamic read.
 2. **`patchInteractionOriginal` doc contradicts code** [resolved: fetch is wrapped, `DISCORD-RUN-014`] — the TSDoc says it "swallows and logs failures rather than throwing" (`shared/src/discord/patchOriginal.ts:9-11`), but `fetch` is not wrapped (`:23`); a network rejection throws. In update-dns this skips `deletePending` (`update-dns/handler.ts:193-194`), leaving cleanup to the TTL.
 3. **Followup can leave a deferred interaction unresolved** [resolved: config read moved inside the `try`, `DISCORD-RUN-010`] — `getEffectiveDiscordConfig` runs before the `try` (`followup/handler.ts:240`) and the final PATCH runs after it (`:272`); a failure in either leaves Discord showing "thinking..." until the token expires.
 4. **Followup logs the interaction token** [resolved: logs identifiers only, `DISCORD-RUN-011`] — `console.error('Followup handler failed', { err, event })` (`followup/handler.ts:268`) logs the whole event, which carries `interactionToken` (a 15-minute webhook credential). Conflicts with `.claude/rules/logging.md` rule 3 [inferred: the rule targets desktop-main, but the intent applies].
@@ -161,7 +161,6 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/discord-bot/discord-bot-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-1. `DiscordConfigService.load()` must not cache an empty config on read failure; mutators must not save over a failed read (finding 1). (specs: `DISCORD-DESK-004`)
 2. Wrap the followup's config read and final PATCH so every deferred interaction gets a reply; make `patchInteractionOriginal` actually swallow fetch rejections or fix its doc and callers (findings 2, 3). (specs: `DISCORD-RUN-010`, `DISCORD-RUN-014`) Done.
 3. Stop logging the full followup event, which includes the interaction token (finding 4). (specs: `DISCORD-RUN-011`) Done.
 
