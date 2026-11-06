@@ -252,7 +252,9 @@ Rationale is marked `[stated]` when the cited source gives it and `[inferred]` w
 
 ## Success Metrics
 
-> The idle-stop metric is unmet until two gaps close. Games without a health check are never auto-stopped until the watchdog's Container Insights traffic measurement ships (`RT-WATCHDOG-CW-007`). Games with a health check are never auto-stopped until the health-check Lambda receives the environment it needs at load and a network path to the ECS and Secrets Manager APIs (`RT-HEALTH-PROV-003`, `RT-HEALTH-PROV-004`); until then every invoke is failure-derived and reads active.
+> The idle-stop metric is unmet until two gaps close. Games without a health check are never auto-stopped until the watchdog's Container Insights traffic measurement ships (`RT-WATCHDOG-CW-007`). Games with a health check are never auto-stopped until the watchdog passes the task's private IP to the health-check Lambda and, for checks that declare a credential, the Secrets Manager endpoint exists (`RT-HEALTH-PROV-004`); until then every invoke is failure-derived and reads active.
+>
+> The storage-and-state baseline has one opt-in exception: while any game declares `healthCheck.auth`, the deployment carries a single-subnet Secrets Manager interface endpoint that bills hourly whether or not a task runs (`docs/intent/game-runtime/health-check/health-check-design.md`, "Provisioning and Reachability").
 
 | Metric | Measures goal | Target |
 |---|---|---|

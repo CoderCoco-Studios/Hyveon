@@ -30,6 +30,10 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 
 - [x] **IAC-PROGRAM-NET-001**: The infrastructure program shall declare one VPC on `config.vpcCidr` with DNS support and hostnames enabled, an internet gateway, and exactly two public subnets carved as `/8`-bit extensions of `vpcCidr` with `mapPublicIpOnLaunch` (`network.ts:46`, `network.ts:100-136`). (observed)
 - [x] **IAC-PROGRAM-NET-002**: The infrastructure program shall route both public subnets to `0.0.0.0/0` through the internet gateway via one route table and shall declare no NAT gateway (`network.ts:140-160`). (observed)
+- [ ] **IAC-PROGRAM-NET-003**: While at least one game declares `healthCheck.auth.secretArn`, the infrastructure program shall declare one Secrets Manager interface VPC endpoint for the service `com.amazonaws.{region}.secretsmanager`.
+- [ ] **IAC-PROGRAM-NET-004**: While no game declares `healthCheck.auth.secretArn`, the infrastructure program shall declare no Secrets Manager interface VPC endpoint.
+- [ ] **IAC-PROGRAM-NET-005**: The Secrets Manager interface VPC endpoint shall occupy only the subnet at index 0 of the infrastructure program's declared public-subnet list.
+- [ ] **IAC-PROGRAM-NET-006**: The Secrets Manager interface VPC endpoint shall have private DNS enabled, relying on the VPC DNS support and DNS hostnames settings required by `IAC-PROGRAM-NET-001`.
 
 ## Security Groups
 
@@ -46,6 +50,13 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 - [x] **IAC-PROGRAM-SG-011**: Where at least one game declares `file_seeds`, the infrastructure program shall declare an efs-seeder security group with no in-line egress and a standalone egress rule allowing only NFS 2049/tcp to the EFS group (`securityGroups.ts:356-372`, `securityGroups.ts:410-422`). (observed)
 - [x] **IAC-PROGRAM-SG-012**: Where at least one game declares a `healthCheck`, the infrastructure program shall declare a health-check security group with one standalone egress rule per distinct health-check port to the game-servers group, and the game-servers group shall admit each such port only from the health-check group (`securityGroups.ts:286-314`, `securityGroups.ts:430-446`). (observed)
 - [x] **IAC-PROGRAM-SG-013**: Each infrastructure-program security group shall declare its rules either all in-line or all as standalone `SecurityGroupRule` resources, never both (`securityGroups.ts:19-38`). (observed)
+- [ ] **IAC-PROGRAM-SG-014**: While at least one game declares `healthCheck.auth.secretArn`, the infrastructure program shall declare a Secrets Manager endpoint security group attached to the Secrets Manager interface VPC endpoint.
+- [ ] **IAC-PROGRAM-SG-015**: The Secrets Manager endpoint security group shall admit ingress only on TCP 443 from `config.vpcCidr`.
+- [ ] **IAC-PROGRAM-SG-016**: The Secrets Manager endpoint security group shall carry no egress rule.
+- [ ] **IAC-PROGRAM-SG-017**: While at least one game declares `healthCheck.auth.secretArn`, the health-check security group shall carry one standalone TCP 443 egress rule toward the Secrets Manager endpoint security group.
+- [ ] **IAC-PROGRAM-SG-018**: While no game declares `healthCheck.auth.secretArn`, the infrastructure program shall declare no Secrets Manager endpoint security group.
+- [x] **IAC-PROGRAM-SG-019**: While no game declares `healthCheck.auth.secretArn`, the health-check security group shall carry no TCP 443 egress rule.
+- [ ] **IAC-PROGRAM-SG-020**: The Secrets Manager endpoint security group's TCP 443 ingress rule shall be a standalone `SecurityGroupRule` resource.
 
 ## IAM
 
@@ -57,8 +68,11 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 - [x] **IAC-PROGRAM-IAM-006**: Where the health-check Lambda exists, the watchdog Lambda policy shall grant `lambda:InvokeFunction` on that function only, as an identity-policy grant with no resource-based permission (`iam.ts:455-457`, `lambdas.ts:545-554`). (observed)
 - [x] **IAC-PROGRAM-IAM-007**: Where a game declares `file_seeds`, the infrastructure program shall declare that game's efs-seeder role and an inline policy granting logs, VPC ENI and `elasticfilesystem:ClientMount`/`ClientWrite` on the shared file system (`iam.ts:371-378`, `iam.ts:548-570`). (observed)
 - [x] **IAC-PROGRAM-IAM-008**: The infrastructure program shall declare a FileBrowser scheduler role trusted by `scheduler.amazonaws.com` whose policy grants only `ecs:StopTask` on tasks in the deployed cluster (`iam.ts:381-385`, `iam.ts:576-593`). (observed)
-- [x] **IAC-PROGRAM-IAM-009**: Where at least one game declares a `healthCheck`, the infrastructure program shall declare one shared health-check role and policy granting `ecs:DescribeTasks` on the cluster's tasks and, where any check declares `auth.secretArn`, `secretsmanager:GetSecretValue` on those ARNs only (`iam.ts:388-396`, `iam.ts:602-628`). (observed)
+- [x] **IAC-PROGRAM-IAM-009**: Where at least one game declares a `healthCheck`, the infrastructure program shall declare one shared health-check role with one inline policy (`iam.ts:388-396`, `iam.ts:602-628`). (observed)
 - [x] **IAC-PROGRAM-IAM-010**: No infrastructure-program IAM statement shall grant `elasticloadbalancing` actions (`iam.ts:423-641`).
+- [x] **IAC-PROGRAM-IAM-011**: Where any game's health check declares `auth.secretArn`, the health-check policy shall grant `secretsmanager:GetSecretValue` on those ARNs only (`iam.ts:602-628`). (observed)
+- [ ] **IAC-PROGRAM-IAM-012**: The health-check policy shall grant no action in the `ecs:` namespace.
+- [x] **IAC-PROGRAM-IAM-013**: While no game declares `healthCheck.auth.secretArn`, the health-check policy shall contain no statement granting a `secretsmanager:` action (`iam.ts:627-629`). (observed)
 
 ## EFS
 
@@ -124,12 +138,13 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 - [x] **IAC-PROGRAM-LAMBDA-008**: The followup Lambda environment shall carry `TABLE_NAME`, `ECS_CLUSTER`, comma-joined public `SUBNET_IDS`, the game-servers `SECURITY_GROUP_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `CONNECT_MESSAGES` and `GAME_PORTS` (`lambdas.ts:441-452`). (observed)
 - [x] **IAC-PROGRAM-LAMBDA-009**: The watchdog Lambda environment shall carry `ECS_CLUSTER`, `GAME_NAMES`, `IDLE_CHECKS`, `MIN_BYTES_PER_SECOND`, `CHECK_WINDOW_MINUTES`, `HEALTH_CHECKS` and `HEALTH_CHECK_FUNCTION_NAME`, the last empty when no health-check function exists.
 - [x] **IAC-PROGRAM-LAMBDA-010**: The dns-updater Lambda environment shall carry `HOSTED_ZONE_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `DNS_TTL`, `TABLE_NAME`, `CONNECT_MESSAGES` and `GAME_PORTS` (`lambdas.ts:657-668`). (observed)
-- [x] **IAC-PROGRAM-LAMBDA-011**: Where the health-check Lambda exists, its environment shall carry `ECS_CLUSTER`, which its handler requires at module load. (observed)
-- [ ] **IAC-PROGRAM-LAMBDA-012**: Where the health-check Lambda exists, its subnet and security-group placement shall give it a network path to the ECS and Secrets Manager APIs as well as to game tasks (gap: `securityGroups.ts:430-446` allows egress only to the game-servers group on health-check ports, in public subnets where a Lambda gets no public IP, `lambdas.ts:564-567`; reachability `[inferred]`). (observed)
+- [ ] **IAC-PROGRAM-LAMBDA-011**: Where the health-check Lambda exists, its environment shall carry `AWS_REGION_` as its only variable.
+- [ ] **IAC-PROGRAM-LAMBDA-012**: Where at least one game declares `healthCheck.auth.secretArn`, the health-check Lambda's subnet and security-group placement shall give it a TCP 443 network path to the Secrets Manager interface VPC endpoint. (gap: no VPC endpoint in `network.ts`; `securityGroups.ts:432-453` allows egress only to the game-servers group on health-check ports)
 - [x] **IAC-PROGRAM-LAMBDA-013**: Where a game declares `file_seeds`, its efs-seeder Lambda shall run in the public subnets with the efs-seeder security group, mount the game's first volume access point at `/mnt/efs`, and depend on its log group and every EFS mount target (`lambdas.ts:729-775`). (observed)
 - [x] **IAC-PROGRAM-LAMBDA-014**: Where at least one game declares `file_seeds` or `healthCheck`, `defineLambdas` shall reject a missing efs-seeder or health-check security-group id before constructing any resource (`lambdas.ts:415-427`). (observed)
 - [x] **IAC-PROGRAM-LAMBDA-015**: Every infrastructure-program Lambda log group shall be `/aws/lambda/{projectName}-{suffix}` with 7-day retention (`logGroups.ts:12`, `logGroups.ts:27-43`). (observed)
 - [x] **IAC-PROGRAM-LAMBDA-016**: Every infrastructure-program Lambda function shall depend on its own log group so Lambda never auto-creates the group without retention (`lambdas.ts` declares each log group before its function and passes it in `dependsOn`).
+- [x] **IAC-PROGRAM-LAMBDA-017**: Where the health-check Lambda exists, its `vpcConfig` shall list both public subnets (`lambdas.ts:564-567`). (observed)
 
 ## Lambda Environment Wire Format
 
