@@ -1,0 +1,5 @@
+
+## 20:14 | main
+Hyveon `main` hard-reset to `origin/main` (8fbc7bec) after stashing uncommitted `graphify-out/` and `.remember/` edits as `stash@{0}` (`drop-autocommits-2026-11-05`), removing the `auto: .remember HH:MM` autocommits whose source is still unidentified; the user ran the reset themselves, and the `.remember/` gitignore/`git rm --cached` PR is still pending, as is the worktree audit (`git worktree prune`, watchdog and gap-triage resume decisions).
+## 20:35 | wtask/legend-and-high-impact-r-jnvdj396
+Read-only task on hyveon `docs/arrows/_triage/gaps.md` (origin/main, audit at `84c1fe0a`): summarized the legend (a/b/c/d, high/med/low), listed 4 open high-impact b rows (IAC-RUN-STORE-007, IAC-PROGRAM-LAMBDA-012, RT-HEALTH-PROV-004, APP-DIAG-SCRUB-003) and 14 closed rows, with 4 Discord rows unread; ledger `wtask-mw4aw1br-jnvdj396` set to `review_requested` (rev 2) and result posted to mission channel, no PR.
