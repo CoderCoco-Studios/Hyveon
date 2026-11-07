@@ -104,8 +104,8 @@ EARS requirements for prefix `IAC-RUN`, the run-lifecycle leaf described in `doc
 - [x] **IAC-RUN-PART-001**: If a plan-constrained apply fails or is aborted after at least one resource step was applied, then the system shall settle the apply run with `partialApply: true` in addition to its `failed` or `aborted` status, rather than a fourth `RunStatus`.
 - [x] **IAC-RUN-PART-002**: Before `stack.up()` runs, the system shall write a pre-flight marker record (`kind: 'apply'`, `status: 'aborted'`, `exitCode: null`, `partialApply: true`) under the same `sk` the settlement will overwrite, and if that write fails, shall abort the apply instead of running unmarked. (observed: `PulumiService.ts:2213`, `RunRecordService.ts:392-475`)
 - [x] **IAC-RUN-PART-003**: When the live IaC page shows an apply run whose record has `partialApply: true`, the page shall show the partial-apply banner directing the operator to start over and re-plan, in place of a plain failure banner or retry.
-- [ ] **IAC-RUN-PART-004**: If an apply names a `planRunId` whose newest record is an apply with `partialApply: true`, then the system shall refuse it with `PulumiPartialApplyRetryBlockedError`.
-- [ ] **IAC-RUN-PART-005**: When history or run detail renders an apply record with `partialApply: true`, the system shall show a "partial" badge next to its status.
+- [x] **IAC-RUN-PART-004**: If an apply names a `planRunId` whose newest record is an apply with `partialApply: true`, then the system shall refuse it with `PulumiPartialApplyRetryBlockedError`.
+- [x] **IAC-RUN-PART-005**: When history or run detail renders an apply record with `partialApply: true`, the system shall show a "partial" badge next to its status.
 
 ## Destroy
 

@@ -377,6 +377,7 @@ describe('PulumiService.apply gate', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-PART-004
   it('should reject with PulumiPartialApplyRetryBlockedError, and never call getOrCreateStack, when a prior attempt left an apply-kind record with partialApply: true for this planRunId', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
     const runRecordPersister = makeRunRecordPersister(
@@ -543,6 +544,7 @@ describe('PulumiService.apply pre-flight marker (issue #399)', () => {
     expect(runRecordPersister.persist).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-PART-004
   it('should refuse a second apply() call for the same planRunId once the pre-flight marker from a first attempt is the newest record — reproducing the exact persist-failure retry gap issue #399 fixes, and proving stack.up() is never reached on the retry', async () => {
     // A stateful fake standing in for the real RunRecordStore: writePreflightMarker
     // durably lands a record; persist() (the settlement write) simulates the

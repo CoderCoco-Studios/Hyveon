@@ -329,6 +329,7 @@ export class AwsRunRecordStore implements RunRecordStore {
     return nextBefore ? { records, nextBefore } : { records };
   }
 
+  // @spec IAC-RUN-STORE-007
   /**
    * Maps a raw DynamoDB item from the `pk = RUN` partition back into a
    * {@link RunRecord}, restoring the optional fields {@link putRecord} wrote

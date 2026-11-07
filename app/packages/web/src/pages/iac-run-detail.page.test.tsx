@@ -223,6 +223,7 @@ describe('IacRunDetailPage', () => {
       expect(screen.queryByText('Change summary unavailable')).not.toBeInTheDocument();
     });
 
+    // @spec IAC-RUN-PART-005
     it('should render a partial badge when the record has partialApply true', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({
         records: [makeRecord({ logInline: 'log', partialApply: true })],
