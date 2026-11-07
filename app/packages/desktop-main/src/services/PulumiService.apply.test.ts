@@ -589,6 +589,37 @@ describe('PulumiService.apply pre-flight marker (issue #399)', () => {
     );
     expect(workspace.getOrCreateStack).toHaveBeenCalledTimes(1);
   });
+
+  // @spec IAC-RUN-PART-004
+  it('should re-read the record after acquiring the lock, refuse with PulumiPartialApplyRetryBlockedError, release the lock, and never call stack.up when a concurrent apply left a partial-apply record', async () => {
+    const plan = makeApprovedPlanRecord();
+    const concurrentApply: RunRecord = {
+      ...plan,
+      kind: 'apply',
+      status: 'aborted',
+      exitCode: null,
+      partialApply: true,
+    };
+    const getByRunId = vi.fn().mockResolvedValueOnce(plan).mockResolvedValueOnce(concurrentApply);
+    const runRecordPersister = {
+      getByRunId,
+      persist: vi.fn().mockResolvedValue(undefined),
+      writePreflightMarker: vi.fn().mockResolvedValue(undefined),
+    } as unknown as RunRecordPersister;
+    const workspace = makeWorkspace(makeHappyPathUp());
+    const runLockService = makeRunLockService();
+    const service = makeService({ workspace, runRecordPersister, runLockService });
+
+    await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toBeInstanceOf(
+      PulumiPartialApplyRetryBlockedError,
+    );
+
+    expect(getByRunId).toHaveBeenCalledTimes(2);
+    expect(runLockService.createRun).toHaveBeenCalledTimes(1);
+    expect(runLockService.releaseRun).toHaveBeenCalledWith(PLAN_RUN_ID);
+    expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
+    expect(runRecordPersister.writePreflightMarker).not.toHaveBeenCalled();
+  });
 });
 
 describe('PulumiService.apply spawning', () => {
@@ -1489,9 +1520,9 @@ describe('PulumiService.apply concurrency guard', () => {
     // existed BEFORE apply() was even called.
     let resolveGetByRunId!: (record: RunRecord) => void;
     const runRecordPersister = makeRunRecordPersister();
-    runRecordPersister.getByRunId.mockImplementation(
-      () => new Promise<RunRecord>((resolve) => { resolveGetByRunId = resolve; }),
-    );
+    runRecordPersister.getByRunId
+      .mockImplementationOnce(() => new Promise<RunRecord>((resolve) => { resolveGetByRunId = resolve; }))
+      .mockResolvedValue(makeApprovedPlanRecord());
 
     let resolvePreview!: () => void;
     const previewMock = vi.fn().mockImplementation(

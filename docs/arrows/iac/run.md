@@ -17,7 +17,7 @@ The run lifecycle works end to end through the IaC page and history, and `partia
 - `docs/intent/iac/run/run-design.md`
 
 ### EARS
-- `docs/intent/iac/run/run-specs.md` (129 specs)
+- `docs/intent/iac/run/run-specs.md` (133 specs)
 
 ### Tests
 - **cloud-aws**: `app/packages/cloud-aws/src/AwsRunRecordStore.test.ts`
@@ -70,23 +70,24 @@ The run lifecycle works end to end through the IaC page and history, and `partia
 | Run record and status | `IAC-RUN-REC-001` to `IAC-RUN-REC-009` | 9 | 0 | 0 |
 | Runs table and log storage | `IAC-RUN-STORE-001` to `IAC-RUN-STORE-009` | 7 | 0 | 2 |
 | Apply lock | `IAC-RUN-LOCK-001` to `IAC-RUN-LOCK-010` | 8 | 0 | 2 |
-| Run-lock recovery | `IAC-RUN-LCLR-001` to `IAC-RUN-LCLR-008` | 8 | 0 | 0 |
+| Run-lock recovery | `IAC-RUN-LCLR-001` to `IAC-RUN-LCLR-012` | 12 | 0 | 0 |
+| Operator cancel | `IAC-RUN-CANCEL-001` | 0 | 1 | 0 |
 | Plan submission and the IaC page | `IAC-RUN-PLAN-001` to `IAC-RUN-PLAN-010` | 10 | 0 | 0 |
 | Approval | `IAC-RUN-APPR-001` to `IAC-RUN-APPR-007` | 6 | 0 | 1 |
 | Apply gate | `IAC-RUN-GATE-001` to `IAC-RUN-GATE-015` | 15 | 0 | 0 |
 | Partial apply | `IAC-RUN-PART-001` to `IAC-RUN-PART-005` | 5 | 0 | 0 |
-| Destroy | `IAC-RUN-DSTR-001` to `IAC-RUN-DSTR-014` | 11 | 0 | 3 |
+| Destroy | `IAC-RUN-DSTR-001` to `IAC-RUN-DSTR-014` (no `-013`) | 11 | 0 | 2 |
 | Run history and listing | `IAC-RUN-HIST-001` to `IAC-RUN-HIST-009` | 8 | 0 | 1 |
 | Run detail | `IAC-RUN-DETL-001` to `IAC-RUN-DETL-004` | 3 | 0 | 1 |
 | Rollback | `IAC-RUN-RBK-001` to `IAC-RUN-RBK-010` | 9 | 0 | 1 |
 | IPC surface and streaming | `IAC-RUN-IPC-001` to `IAC-RUN-IPC-009` | 8 | 0 | 1 |
 | Integration coverage | `IAC-RUN-ITEST-001` to `IAC-RUN-ITEST-010` | 8 | 0 | 2 |
 
-**Summary:** 115 of 129 active specs implemented; 0 deferred; 14 gaps.
+**Summary:** 119 of 132 active specs implemented; 1 deferred; 13 gaps.
 
 ## Key Findings
 
-1. **`partialApply` round-trips through the DynamoDB store**: `AwsRunRecordStore.putRecord` writes it (`AwsRunRecordStore.ts:209`) and `toRunRecord` reads it (`:377`), so a pre-flight marker reads back as `aborted` with `partialApply: true`. The apply gate refuses a retry on it with `PulumiPartialApplyRetryBlockedError` (`PulumiService.ts:2054`), and history and run detail show the "partial" badge (`run-history-row.component.tsx:46`, `iac-run-detail.page.tsx:202`).
+1. **`partialApply` round-trips through the DynamoDB store**: `AwsRunRecordStore.putRecord` writes it (`AwsRunRecordStore.ts:209`) and `toRunRecord` reads it (`:377`), so a pre-flight marker reads back as `aborted` with `partialApply: true`. The apply gate refuses a retry on it with `PulumiPartialApplyRetryBlockedError` (`PulumiService.loadValidatedPlanRecord`, run once before and once after the apply lock is acquired, each reading the record with a strongly consistent `getRecordByRunId`), and history and run detail show the "partial" badge (`run-history-row.component.tsx:46`, `iac-run-detail.page.tsx:202`).
 2. **Durable run lock skipped before the first apply**: `RunService.createRun` mirrors the lock to DynamoDB only when `getStackOutputs().runsTableName` is set (`RunService.ts:179-194`), and `releaseRun` and the durable lock lookup likewise (`:231`, `:272`); it has no pre-apply fallback, whereas `RunRecordService.resolveRunsTableName` (`RunRecordService.ts:267-271`) and the store's own config (`cloud-provider.module.ts:174-175`) do. The store can reach the table (created at bootstrap) but `RunService` never asks it to, so the first apply on a fresh install is guarded by the in-memory lock only, while the pre-flight marker is written durably.
 3. **`listRuns` status query uses a reserved word unescaped**: `KeyConditionExpression: 'status = :status'` with no `ExpressionAttributeNames` (`AwsRunRecordStore.ts:302`); `status` is a DynamoDB reserved word, so the status-filtered path would be rejected by real DynamoDB. `[unverified]` against live AWS; the tests use a mocked client only (sweep 7 cites `AwsRunRecordStore.test.ts:544-552`).
 4. **`getRecordByRunId` is an unbounded filtered query**: it pages the whole `pk = RUN` partition with a `FilterExpression` on `runId` (`AwsRunRecordStore.ts:232-252`); acknowledged in its TSDoc as acceptable at current volume. The renderer's run-detail page does its own lookup by scanning the newest 200 records (`iac-run-detail.page.tsx:22`, `:49-53`), so runs older than that render as not found.

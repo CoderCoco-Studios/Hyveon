@@ -227,6 +227,9 @@ export class AwsRunRecordStore implements RunRecordStore {
    * — whether on the first page or a later one — is always the newest record
    * for that `runId`.
    *
+   * The query is a strongly consistent base-table read, so the apply gate and approval always observe a record
+   * written moments earlier (for example a pre-flight marker).
+   *
    * @param runId - Unique identifier of the run to look up (matches
    *   {@link RunRecord.runId}).
    * @returns The newest matching {@link RunRecord}, or `undefined` if no
@@ -243,6 +246,7 @@ export class AwsRunRecordStore implements RunRecordStore {
           ExpressionAttributeValues: { ':pk': PARTITION_KEY, ':runId': runId },
           ExclusiveStartKey: exclusiveStartKey,
           ScanIndexForward: false,
+          ConsistentRead: true,
         }),
       );
       const item = result.Items?.[0];
@@ -469,6 +473,7 @@ export class AwsRunRecordStore implements RunRecordStore {
       new GetCommand({
         TableName: await this.getTableName(),
         Key: { pk: LOCK_PK, sk: LOCK_SK },
+        ConsistentRead: true,
       }),
     );
     const item = result.Item;
