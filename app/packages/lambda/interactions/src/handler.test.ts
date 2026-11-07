@@ -148,6 +148,14 @@ describe('InteractionsLambda: timestamp freshness', () => {
   });
 
   // @spec DISCORD-AUTH-007
+  it('should verify the signature before checking timestamp freshness', async () => {
+    verifyAsyncMock.mockResolvedValueOnce(false);
+    const res = await handler(makeEvent({ type: 1 }, 'aa', ts(-3600)));
+    expect(parsed(res).statusCode).toBe(401);
+    expect(verifyAsyncMock).toHaveBeenCalledTimes(1);
+  });
+
+  // @spec DISCORD-AUTH-007
   it('should reject a stale request before parsing the body', async () => {
     verifyAsyncMock.mockResolvedValueOnce(true);
     const res = await handler({
