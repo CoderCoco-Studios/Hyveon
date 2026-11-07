@@ -70,7 +70,7 @@ The run lifecycle works end to end through the IaC page and history, but `partia
 | Run record and status | `IAC-RUN-REC-001` to `IAC-RUN-REC-009` | 9 | 0 | 0 |
 | Runs table and log storage | `IAC-RUN-STORE-001` to `IAC-RUN-STORE-009` | 6 | 0 | 3 |
 | Apply lock | `IAC-RUN-LOCK-001` to `IAC-RUN-LOCK-010` | 8 | 0 | 2 |
-| Run-lock recovery | `IAC-RUN-LCLR-001` to `IAC-RUN-LCLR-008` | 7 | 0 | 1 |
+| Run-lock recovery | `IAC-RUN-LCLR-001` to `IAC-RUN-LCLR-008` | 8 | 0 | 0 |
 | Plan submission and the IaC page | `IAC-RUN-PLAN-001` to `IAC-RUN-PLAN-010` | 10 | 0 | 0 |
 | Approval | `IAC-RUN-APPR-001` to `IAC-RUN-APPR-007` | 6 | 0 | 1 |
 | Apply gate | `IAC-RUN-GATE-001` to `IAC-RUN-GATE-015` | 15 | 0 | 0 |
@@ -82,7 +82,7 @@ The run lifecycle works end to end through the IaC page and history, but `partia
 | IPC surface and streaming | `IAC-RUN-IPC-001` to `IAC-RUN-IPC-009` | 8 | 0 | 1 |
 | Integration coverage | `IAC-RUN-ITEST-001` to `IAC-RUN-ITEST-010` | 8 | 0 | 2 |
 
-**Summary:** 111 of 129 active specs implemented; 0 deferred; 18 gaps.
+**Summary:** 112 of 129 active specs implemented; 0 deferred; 17 gaps.
 
 ## Key Findings
 
@@ -112,7 +112,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/run/run-specs.md`; 
 
 ### Should Fix
 4. Redact env values in destroy output and add a test (finding 5). (specs: `IAC-ENGINE-REDACT-002`, owned by `iac/engine`)
-5. Move the destroy token onto `LockClearConfirmationGate` and add a gate test (finding 6). (specs: `IAC-RUN-DSTR-014`, `IAC-RUN-LCLR-008`)
+5. Move the destroy token onto `LockClearConfirmationGate` (finding 6; the gate test exists). (specs: `IAC-RUN-DSTR-014`)
 6. Import `APPROVAL_WINDOW_MS`/`isApprovalExpired` from `@hyveon/shared` in `iac.page.tsx` (finding 7). (specs: `IAC-RUN-APPR-006`)
 7. Extract the shared streaming loop in `iac.controller.ts` and the chunk setup in `PulumiService` (finding 9). (specs: `IAC-RUN-IPC-008`)
 8. Decide whether rollback confirm should stream its plan or drop the unused chunk channel (finding 8). (specs: `IAC-RUN-RBK-010`)
