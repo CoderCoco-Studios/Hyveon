@@ -41,6 +41,9 @@ process.env['AWS_REGION_'] = 'us-east-1';
 // Import after env + mocks so the handler picks them up.
 const { handler } = await import('./handler.js');
 
+/** Fixed handler clock (Unix seconds); matches `makeEvent`'s default signature timestamp. */
+const NOW_SECONDS = 1700000000;
+
 function makeEvent(body: unknown, sig = 'deadbeef', ts = '1700000000'): APIGatewayProxyEventV2 {
   return {
     headers: {
@@ -66,6 +69,8 @@ function parsed(res: APIGatewayProxyResultV2): { statusCode: number; body: unkno
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(NOW_SECONDS * 1000);
   lambdaMock.reset();
   verifyAsyncMock.mockReset();
   getPublicKeyMock.mockReset();
@@ -83,7 +88,75 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.clearAllMocks();
+});
+
+describe('InteractionsLambda: timestamp freshness', () => {
+  const ts = (offsetSeconds: number): string => String(NOW_SECONDS + offsetSeconds);
+
+  // @spec DISCORD-AUTH-007
+  it.each([
+    ['fresh (now)', 0],
+    ['30s old (boundary)', -30],
+    ['30s in the future (boundary)', 30],
+  ])('should accept a signature-verified request that is %s', async (_label, offset) => {
+    verifyAsyncMock.mockResolvedValueOnce(true);
+    const res = await handler(makeEvent({ type: 1 }, 'aa', ts(offset)));
+    expect(parsed(res)).toEqual({ statusCode: 200, body: { type: 1 } });
+  });
+
+  // @spec DISCORD-AUTH-007
+  it.each([
+    ['stale by 31s', -31],
+    ['stale by an hour', -3600],
+    ['31s in the future', 31],
+  ])('should respond 401 when the timestamp is %s', async (_label, offset) => {
+    verifyAsyncMock.mockResolvedValueOnce(true);
+    const res = await handler(makeEvent({ type: 1 }, 'aa', ts(offset)));
+    expect(parsed(res).statusCode).toBe(401);
+  });
+
+  // @spec DISCORD-AUTH-007
+  it.each(['abc', '12.5', '1700000000abc', '-', '1e9', ' '])(
+    'should respond 401 when the timestamp is non-numeric (%j)',
+    async (badTs) => {
+      verifyAsyncMock.mockResolvedValue(true);
+      const res = await handler(makeEvent({ type: 1 }, 'aa', badTs));
+      expect(parsed(res).statusCode).toBe(401);
+    },
+  );
+
+  // @spec DISCORD-AUTH-007
+  it('should reject a stale request before the config table or followup Lambda is touched', async () => {
+    verifyAsyncMock.mockResolvedValueOnce(true);
+    const res = await handler(
+      makeEvent(
+        {
+          type: 2,
+          guild_id: 'G1',
+          member: { user: { id: 'U1' }, roles: [] },
+          data: { name: 'server-start', options: [{ type: 3, name: 'game', value: 'palworld' }] },
+        },
+        'aa',
+        ts(-31),
+      ),
+    );
+    expect(parsed(res).statusCode).toBe(401);
+    expect(getEffectiveDiscordConfigMock).not.toHaveBeenCalled();
+    expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(0);
+  });
+
+  // @spec DISCORD-AUTH-007
+  it('should reject a stale request before parsing the body', async () => {
+    verifyAsyncMock.mockResolvedValueOnce(true);
+    const res = await handler({
+      headers: { 'x-signature-ed25519': 'aa', 'x-signature-timestamp': ts(-31) },
+      body: 'not json',
+      isBase64Encoded: false,
+    } as unknown as APIGatewayProxyEventV2);
+    expect(parsed(res).statusCode).toBe(401);
+  });
 });
 
 describe('InteractionsLambda: signature verification', () => {

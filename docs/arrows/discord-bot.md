@@ -125,7 +125,7 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Serverless invariants | `DISCORD-SVC-001` to `DISCORD-SVC-005` | 4 | 0 | 1 |
-| Ingress and signature verification | `DISCORD-AUTH-001` to `DISCORD-AUTH-008` | 7 | 0 | 1 |
+| Ingress and signature verification | `DISCORD-AUTH-001` to `DISCORD-AUTH-008` | 8 | 0 | 0 |
 | Command handling (interactions Lambda) | `DISCORD-CMD-001` to `DISCORD-CMD-013` | 12 | 0 | 1 |
 | Permission evaluation (canRun) | `DISCORD-PERM-001` to `DISCORD-PERM-005` | 5 | 0 | 0 |
 | Followup Lambda | `DISCORD-RUN-001` to `DISCORD-RUN-015` | 14 | 0 | 1 |
@@ -137,7 +137,7 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 | Command registration | `DISCORD-REG-001` to `DISCORD-REG-005` | 5 | 0 | 0 |
 | Discord page | `DISCORD-UI-001` to `DISCORD-UI-010` | 7 | 0 | 3 |
 
-**Summary:** 84 of 92 active specs implemented; 0 deferred; 8 gaps.
+**Summary:** 85 of 92 active specs implemented; 0 deferred; 7 gaps.
 
 ## Key Findings
 
@@ -146,7 +146,7 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 3. **Followup can leave a deferred interaction unresolved** [resolved: config read moved inside the `try`, `DISCORD-RUN-010`] — `getEffectiveDiscordConfig` runs before the `try` (`followup/handler.ts:240`) and the final PATCH runs after it (`:272`); a failure in either leaves Discord showing "thinking..." until the token expires.
 4. **Followup logs the interaction token** [resolved: logs identifiers only, `DISCORD-RUN-011`] — `console.error('Followup handler failed', { err, event })` (`followup/handler.ts:268`) logs the whole event, which carries `interactionToken` (a 15-minute webhook credential). Conflicts with `.claude/rules/logging.md` rule 3 [inferred: the rule targets desktop-main, but the intent applies].
 5. **Raw exception text is sent to Discord users** — `String(err)` is embedded in user-facing replies (`followup/handler.ts:114`, `:146`, `:160`).
-6. **Deferred ack waits on the async invoke** — `handleApplicationCommand` awaits `invokeFollowup` before returning type 5 (`interactions/handler.ts:198-206`, `:210-218`, `:227-236`), so Lambda-invoke latency counts against Discord's 3-second budget. No timestamp freshness check on `x-signature-timestamp` either (`:269-280`); only the signature is verified (`:88`). `hex.substr` is deprecated (`:72`).
+6. **Deferred ack waits on the async invoke** — `handleApplicationCommand` awaits `invokeFollowup` before returning type 5 (`interactions/handler.ts:198-206`, `:210-218`, `:227-236`), so Lambda-invoke latency counts against Discord's 3-second budget. [resolved: timestamp freshness, `DISCORD-AUTH-007`] `hex.substr` is deprecated (`:72`).
 7. **Two `DiscordEventReceiver` implementations, neither used** — `shared/src/discord/awsLambdaDiscordReceiver.ts:32` (reads `discord_interactions_url`) has no consumer outside its test and the barrel export (`shared/src/index.ts:37`). The bound `AwsDiscordEventReceiver` is constructed with no config callback (`cloud-provider.module.ts:204`), so it would always return `null` (`AwsDiscordEventReceiver.ts:44-45`), and nothing injects `DISCORD_RECEIVER`; the controller reads `outputs.interactionsInvokeUrl` directly instead (`discord.controller.ts:39`, `:77`). `StackOutputs` also carries two identical URL fields (`stackOutputs.ts:147`, `:156`; `infra/src/program.ts:448-451`).
 8. **Sweep disagreement: autocomplete does honour the guild allowlist** — sweep-8 says autocomplete "skips allowedGuilds check" (`interactions/handler.ts:152-178`). The code filters through `canRun` (`:171`), whose first step is the allowlist (`canRun.ts:29`). Not a bug; it matches `docs/docs/app/discord.md:336-338`.
 9. **Sweep disagreement: `putPermission` actions cast is benign** — sweep-6 flags `actions as DiscordAction[]` (`discord.controller.ts:198`) as unvalidated. The service filters to `start|stop|status` before saving (`DiscordConfigService.ts:386-391`). The cast is cosmetic.
@@ -166,7 +166,7 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/discord-bot/discord-bot
 
 ### Should Fix
 4. Replace `String(err)` in user-facing Discord replies with a generic message plus a server-side log (finding 5). (specs: `DISCORD-RUN-012`)
-5. Return the deferred ack without awaiting a slow invoke path, or measure and document the budget; add a timestamp freshness check (finding 6). (specs: `DISCORD-CMD-009`, `DISCORD-AUTH-007`)
+5. Return the deferred ack without awaiting a slow invoke path, or measure and document the budget (finding 6). (specs: `DISCORD-CMD-009`) The timestamp freshness check is done (`DISCORD-AUTH-007`).
 6. Delete one of the two `DiscordEventReceiver` implementations and either wire the remaining one (with its config callback) or remove the `DISCORD_RECEIVER` token; collapse the duplicate `interactionsInvokeUrl`/`discordInteractionsUrl` outputs (finding 7). (specs: `DISCORD-SVC-005`)
 7. Make the Discord page distinguish "not deployed" from other load errors, and only clear secret inputs after a successful save (finding 10). (specs: `DISCORD-UI-008`, `DISCORD-UI-009`)
 8. Fix the CLAUDE.md ACM invariant wording and the "recoverable from IaC" copy (findings 11, 13).

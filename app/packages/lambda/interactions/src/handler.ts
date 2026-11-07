@@ -264,12 +264,36 @@ async function invokeFollowup(payload: FollowupPayload): Promise<void> {
   );
 }
 
-// @spec DISCORD-AUTH-001, DISCORD-AUTH-003, DISCORD-AUTH-004, DISCORD-AUTH-005, DISCORD-AUTH-006, DISCORD-CMD-001
+/** Maximum age or lead, in seconds, of a signed interaction timestamp relative to the Lambda clock. */
+const TIMESTAMP_FRESHNESS_WINDOW_SECONDS = 30;
+
+/**
+ * Reports whether a Discord `x-signature-timestamp` is within the freshness window.
+ *
+ * @remarks
+ * Discord signs the timestamp with the body, so without this bound a captured request
+ * stays replayable forever. The window applies symmetrically to past and future skew.
+ * Call only on a signature-verified timestamp.
+ *
+ * @param timestamp - Raw header value; Discord sends Unix seconds as a decimal integer.
+ * @param nowMs - Current time in epoch milliseconds.
+ * @returns `true` when the timestamp is a non-negative integer within the window.
+ */
+function isTimestampFresh(timestamp: string, nowMs: number): boolean {
+  if (!/^\d+$/.test(timestamp)) return false;
+  const skewSeconds = Math.abs(nowMs / 1000 - Number(timestamp));
+  if (skewSeconds <= TIMESTAMP_FRESHNESS_WINDOW_SECONDS) return true;
+  console.warn('Rejected interaction outside timestamp window', { skewSeconds: Math.round(skewSeconds) });
+  return false;
+}
+
+// @spec DISCORD-AUTH-001, DISCORD-AUTH-003, DISCORD-AUTH-004, DISCORD-AUTH-005, DISCORD-AUTH-006, DISCORD-AUTH-007, DISCORD-CMD-001
 // @spec DISCORD-CMD-012, DISCORD-CFG-006
 /**
  * Entry point for every Discord HTTP interaction, fronted by a Lambda Function URL.
  * Verifies the Ed25519 signature against the public key in Secrets Manager (Discord
- * rejects any unverified reply, so this gate is mandatory) and then either PONGs a
+ * rejects any unverified reply, so this gate is mandatory), rejects timestamps more than
+ * 30 seconds from the Lambda clock, and then either PONGs a
  * PING, answers autocomplete synchronously from the baked-in `GAME_NAMES` env var,
  * or deferred-acks a slash command (`type:5`) and async-invokes the followup Lambda
  * to do the slow ECS work within Discord's 3-second reply budget.
@@ -287,6 +311,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
 
   const ok = await verifySignature(publicKey, signature, timestamp, rawBody);
   if (!ok) return unauthorized();
+  if (!isTimestampFresh(timestamp, Date.now())) return unauthorized();
 
   let interaction: Interaction;
   try {

@@ -44,7 +44,9 @@ makes no AWS SDK calls (see below).
    headers, fetches the public key from Secrets Manager (5-minute cache via
    `@hyveon/shared/secrets`), and verifies with `@noble/ed25519` over
    `timestamp + rawBody`. Rejects 401 on mismatch; without a valid signature
-   Discord stops routing to the URL.
+   Discord stops routing to the URL. A verified request whose timestamp is
+   missing, non-numeric, or more than 30 seconds from the Lambda clock (past or
+   future) is also rejected 401, so a captured request cannot be replayed.
 2. **PING** (`type === 1`) → respond `{ type: 1 }` (PONG).
 3. **Autocomplete** (`type === 4`) → filter `GAME_NAMES` by the user's
    partial input, then filter by `canRun()` against the DynamoDB config,

@@ -18,7 +18,7 @@ EARS requirements for prefix `DISCORD`, the Discord Bot leaf described in `docs/
 - [x] **DISCORD-AUTH-004**: If the Ed25519 signature on a Discord interaction fails to parse or verify, then the interactions Lambda shall respond 401 (`interactions/src/handler.ts:279-280`, `:90-92`). (observed)
 - [x] **DISCORD-AUTH-005**: If a signature-verified Discord interaction body is not valid JSON, then the interactions Lambda shall respond 400 (`interactions/src/handler.ts:282-287`). (observed)
 - [x] **DISCORD-AUTH-006**: When a signature-verified Discord interaction is a PING, the interactions Lambda shall respond with PONG without reading the Discord config table (`interactions/src/handler.ts:289-291`). (observed)
-- [ ] **DISCORD-AUTH-007**: If the `x-signature-timestamp` of a Discord interaction is outside a bounded freshness window, then the interactions Lambda shall reject the request as a possible replay. (observed; arrow Should Fix 5) (gap: not implemented, `interactions/src/handler.ts:269-280` checks only the signature)
+- [x] **DISCORD-AUTH-007**: If the `x-signature-timestamp` of a signature-verified Discord interaction is missing, is not an integer number of Unix seconds, or differs from the interactions Lambda's current time by more than 30 seconds in either direction, then the interactions Lambda shall respond 401, as for a bad signature, before parsing the body or reading configuration. (observed; arrow Should Fix 5)
 - [x] **DISCORD-AUTH-008**: The Discord public key read by the interactions Lambda shall be cached per warm container for at most 5 minutes (`secretsStore.ts:43-54`). (observed)
 
 ## Command handling (interactions Lambda)
