@@ -597,7 +597,8 @@ describe('AwsRunRecordStore', () => {
       expect(result.records.map((r) => r.sk)).toEqual([first.sk, second.sk]);
     });
 
-    it('should query the status-index GSI with status = :status when a status filter is given', async () => {
+    // @spec IAC-RUN-HIST-004
+    it('should query the status-index GSI escaping the reserved word status when a status filter is given', async () => {
       ddbMock.on(QueryCommand).resolves({ Items: [] });
 
       const store = makeStore();
@@ -605,7 +606,8 @@ describe('AwsRunRecordStore', () => {
 
       const input = ddbMock.commandCalls(QueryCommand)[0]!.args[0].input;
       expect(input.IndexName).toBe('status-index');
-      expect(input.KeyConditionExpression).toBe('status = :status');
+      expect(input.KeyConditionExpression).toBe('#status = :status');
+      expect(input.ExpressionAttributeNames).toEqual({ '#status': 'status' });
       expect(input.ExpressionAttributeValues).toEqual({ ':status': 'failed' });
       expect(input.ScanIndexForward).toBe(false);
       expect(input.Limit).toBe(20);
@@ -622,7 +624,8 @@ describe('AwsRunRecordStore', () => {
       });
 
       const input = ddbMock.commandCalls(QueryCommand)[0]!.args[0].input;
-      expect(input.KeyConditionExpression).toBe('status = :status');
+      expect(input.KeyConditionExpression).toBe('#status = :status');
+      expect(input.ExpressionAttributeNames).toEqual({ '#status': 'status' });
       expect(input.ExpressionAttributeValues).toEqual({ ':status': 'failed' });
       expect(input.ExclusiveStartKey).toEqual({
         pk: 'RUN',

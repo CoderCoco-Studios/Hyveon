@@ -77,19 +77,19 @@ The run lifecycle works end to end through the IaC page and history, and `partia
 | Apply gate | `IAC-RUN-GATE-001` to `IAC-RUN-GATE-015` | 15 | 0 | 0 |
 | Partial apply | `IAC-RUN-PART-001` to `IAC-RUN-PART-005` | 5 | 0 | 0 |
 | Destroy | `IAC-RUN-DSTR-001` to `IAC-RUN-DSTR-014` (no `-013`) | 11 | 0 | 2 |
-| Run history and listing | `IAC-RUN-HIST-001` to `IAC-RUN-HIST-009` | 8 | 0 | 1 |
+| Run history and listing | `IAC-RUN-HIST-001` to `IAC-RUN-HIST-009` | 9 | 0 | 0 |
 | Run detail | `IAC-RUN-DETL-001` to `IAC-RUN-DETL-004` | 3 | 0 | 1 |
 | Rollback | `IAC-RUN-RBK-001` to `IAC-RUN-RBK-010` | 9 | 0 | 1 |
 | IPC surface and streaming | `IAC-RUN-IPC-001` to `IAC-RUN-IPC-009` | 8 | 0 | 1 |
 | Integration coverage | `IAC-RUN-ITEST-001` to `IAC-RUN-ITEST-010` | 8 | 0 | 2 |
 
-**Summary:** 119 of 132 active specs implemented; 1 deferred; 13 gaps.
+**Summary:** 120 of 133 active specs implemented; 1 deferred; 12 gaps.
 
 ## Key Findings
 
 1. **`partialApply` round-trips through the DynamoDB store**: `AwsRunRecordStore.putRecord` writes it (`AwsRunRecordStore.ts:209`) and `toRunRecord` reads it (`:377`), so a pre-flight marker reads back as `aborted` with `partialApply: true`. The apply gate refuses a retry on it with `PulumiPartialApplyRetryBlockedError` (`PulumiService.loadValidatedPlanRecord`, run once before and once after the apply lock is acquired, each reading the record with a strongly consistent `getRecordByRunId`), and history and run detail show the "partial" badge (`run-history-row.component.tsx:46`, `iac-run-detail.page.tsx:202`).
 2. **Durable run lock skipped before the first apply**: `RunService.createRun` mirrors the lock to DynamoDB only when `getStackOutputs().runsTableName` is set (`RunService.ts:179-194`), and `releaseRun` and the durable lock lookup likewise (`:231`, `:272`); it has no pre-apply fallback, whereas `RunRecordService.resolveRunsTableName` (`RunRecordService.ts:267-271`) and the store's own config (`cloud-provider.module.ts:174-175`) do. The store can reach the table (created at bootstrap) but `RunService` never asks it to, so the first apply on a fresh install is guarded by the in-memory lock only, while the pre-flight marker is written durably.
-3. **`listRuns` status query uses a reserved word unescaped**: `KeyConditionExpression: 'status = :status'` with no `ExpressionAttributeNames` (`AwsRunRecordStore.ts:302`); `status` is a DynamoDB reserved word, so the status-filtered path would be rejected by real DynamoDB. `[unverified]` against live AWS; the tests use a mocked client only (sweep 7 cites `AwsRunRecordStore.test.ts:544-552`).
+3. **`listRuns` escapes the reserved word `status`**: the status-filtered query uses `KeyConditionExpression: '#status = :status'` with `ExpressionAttributeNames: { '#status': 'status' }` (`AwsRunRecordStore.ts`), since `status` is a DynamoDB reserved word; the store test asserts the escaped expression against a mocked client.
 4. **`getRecordByRunId` is an unbounded filtered query**: it pages the whole `pk = RUN` partition with a `FilterExpression` on `runId` (`AwsRunRecordStore.ts:232-252`); acknowledged in its TSDoc as acceptable at current volume. The renderer's run-detail page does its own lookup by scanning the newest 200 records (`iac-run-detail.page.tsx:22`, `:49-53`), so runs older than that render as not found.
 5. **Destroy output is not env-redacted**: preview and apply push chunks through `redactEnvironmentValues` (`PulumiService.ts:1648`, `:2297`) but destroy's chunk setup pushes raw lines (`PulumiService.ts:3026-3037`). Whether destroy output actually contains game env values is `[inferred]`, not observed.
 6. **Destroy token is hand-rolled next to a generic gate**: `LockClearConfirmationGate` (`LockClearConfirmationGate.ts:1-12`, `:57`) was factored out for the Pulumi-lock and run-lock clears, but `mintDestroyConfirmationToken` (`PulumiService.ts:2734`) keeps its own single-use, target-bound token logic. `LockClearConfirmationGate` also has no co-located test.
@@ -108,19 +108,18 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/run/run-specs.md`; 
 
 ### Must Fix
 1. Give `RunService.createRun`, `releaseRun` and the durable lock lookup the same pre-apply runs-table fallback `RunRecordService` uses, so the first apply on a fresh install holds the durable lock (finding 2; `iac-design.md`, decision 4). (specs: `IAC-RUN-LOCK-009`)
-2. Escape `status` with `ExpressionAttributeNames` in the status-filtered `listRuns` query and verify against real DynamoDB (finding 3). (specs: `IAC-RUN-HIST-004`)
 
 ### Should Fix
-3. Redact env values in destroy output and add a test (finding 5). (specs: `IAC-ENGINE-REDACT-002`, owned by `iac/engine`)
-4. Move the destroy token onto `LockClearConfirmationGate` (finding 6; the gate test exists). (specs: `IAC-RUN-DSTR-014`)
-5. Import `APPROVAL_WINDOW_MS`/`isApprovalExpired` from `@hyveon/shared` in `iac.page.tsx` (finding 7). (specs: `IAC-RUN-APPR-006`)
-6. Extract the shared streaming loop in `iac.controller.ts` and the chunk setup in `PulumiService` (finding 9). (specs: `IAC-RUN-IPC-008`)
-7. Decide whether rollback confirm should stream its plan or drop the unused chunk channel (finding 8). (specs: `IAC-RUN-RBK-010`)
-8. Reconcile `orchestrator-integration-coverage` with the stub-replaces-`PulumiService` harness (finding 10). (specs: `IAC-RUN-ITEST-005`, `IAC-RUN-ITEST-007`)
-9. Replace the 200-record client-side lookup in run detail with a get-by-id call (finding 4). (specs: `IAC-RUN-DETL-004`)
-10. Split `PulumiService.ts` along the run/engine seam so this leaf's run gates, locking and run lifecycle sit in files separate from `iac/engine`'s plumbing, as its own pure-refactor change with no behaviour change; this removes the `run` <-> `engine` cycle in `docs/arrows/index.yaml` (`iac-design.md`, decision 10). Tracked with the matching Should Fix item in `docs/arrows/iac/engine.md`.
+2. Redact env values in destroy output and add a test (finding 5). (specs: `IAC-ENGINE-REDACT-002`, owned by `iac/engine`)
+3. Move the destroy token onto `LockClearConfirmationGate` (finding 6; the gate test exists). (specs: `IAC-RUN-DSTR-014`)
+4. Import `APPROVAL_WINDOW_MS`/`isApprovalExpired` from `@hyveon/shared` in `iac.page.tsx` (finding 7). (specs: `IAC-RUN-APPR-006`)
+5. Extract the shared streaming loop in `iac.controller.ts` and the chunk setup in `PulumiService` (finding 9). (specs: `IAC-RUN-IPC-008`)
+6. Decide whether rollback confirm should stream its plan or drop the unused chunk channel (finding 8). (specs: `IAC-RUN-RBK-010`)
+7. Reconcile `orchestrator-integration-coverage` with the stub-replaces-`PulumiService` harness (finding 10). (specs: `IAC-RUN-ITEST-005`, `IAC-RUN-ITEST-007`)
+8. Replace the 200-record client-side lookup in run detail with a get-by-id call (finding 4). (specs: `IAC-RUN-DETL-004`)
+9. Split `PulumiService.ts` along the run/engine seam so this leaf's run gates, locking and run lifecycle sit in files separate from `iac/engine`'s plumbing, as its own pure-refactor change with no behaviour change; this removes the `run` <-> `engine` cycle in `docs/arrows/index.yaml` (`iac-design.md`, decision 10). Tracked with the matching Should Fix item in `docs/arrows/iac/engine.md`.
 
 ### Nice to Have
-11. Remove stale issue numbers, `runs_table_name` and HTTP references (finding 12). (specs: `IAC-RUN-STORE-009`)
-12. Drop or honour the ignored `force` on `iac.output` (finding 11).
-13. Server-side kind filter or a clearer empty state on history (finding 13).
+10. Remove stale issue numbers, `runs_table_name` and HTTP references (finding 12). (specs: `IAC-RUN-STORE-009`)
+11. Drop or honour the ignored `force` on `iac.output` (finding 11).
+12. Server-side kind filter or a clearer empty state on history (finding 13).

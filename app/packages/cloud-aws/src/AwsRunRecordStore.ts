@@ -258,7 +258,7 @@ export class AwsRunRecordStore implements RunRecordStore {
     return undefined;
   }
 
-  // @spec IAC-RUN-HIST-001, IAC-RUN-HIST-003
+  // @spec IAC-RUN-HIST-001, IAC-RUN-HIST-003, IAC-RUN-HIST-004
   /**
    * Lists run records newest-first, optionally paginated and/or filtered to
    * a single {@link RunStatus}.
@@ -307,7 +307,8 @@ export class AwsRunRecordStore implements RunRecordStore {
           new QueryCommand({
             TableName: await this.getTableName(),
             IndexName: STATUS_INDEX_NAME,
-            KeyConditionExpression: 'status = :status',
+            KeyConditionExpression: '#status = :status',
+            ExpressionAttributeNames: { '#status': 'status' },
             ExpressionAttributeValues: { ':status': status },
             ExclusiveStartKey: before
               ? { pk: PARTITION_KEY, sk: before, status, startedAt: parseStartedAtFromSk(before) }
