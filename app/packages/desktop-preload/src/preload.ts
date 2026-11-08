@@ -123,6 +123,7 @@ import type {
   RendererLogEntry,
 } from './hyveon-api.js';
 import type { StackOutputs } from '@hyveon/shared';
+import { UPDATE_DOWNLOAD_CHUNK_CHANNEL, UPDATE_DOWNLOAD_END_CHANNEL } from '@hyveon/shared/updateChannels';
 import type {
   FolderOverwriteDecisionResult,
   FolderScanResult,
@@ -153,12 +154,6 @@ const STACK_INIT_CHUNK_CHANNEL = 'iac.stack.initialize.chunk';
 
 /** Fixed side-channel `IacController.initializeStack` sends its terminal message on. */
 const STACK_INIT_END_CHANNEL = 'iac.stack.initialize.end';
-
-/** Fixed side-channel `IacSettingsController.downloadAutoUpdate` pushes download progress on. */
-const UPDATE_DOWNLOAD_CHUNK_CHANNEL = 'iac.settings.autoUpdate.download.chunk';
-
-/** Fixed side-channel `IacSettingsController.downloadAutoUpdate` sends its terminal message on. */
-const UPDATE_DOWNLOAD_END_CHANNEL = 'iac.settings.autoUpdate.download.end';
 
 /** Fixed side-channel `IacRunsController.logs` pushes streamed run output on. */
 const IAC_RUNS_LOGS_CHUNK_CHANNEL = 'iac.runs.logs.chunk';

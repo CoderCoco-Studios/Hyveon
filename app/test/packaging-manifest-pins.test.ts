@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
+import { PULUMI_ENGINE_VERSION, RELEASE_REPO } from '@hyveon/shared';
 
 /**
  * Guards the one dependency invariant in this repo that nothing else can catch.
@@ -97,5 +97,14 @@ describe('packaging manifest pins', () => {
     // typecheck against one Automation API version while provisioning and
     // running a different engine binary at runtime.
     expect(PULUMI_ENGINE_VERSION).toBe(root.dependencies?.['@pulumi/pulumi']);
+  });
+
+  // @spec APP-UPDATE-PKG-004
+  it('should keep electron-builder.yml publish owner/repo equal to the shared RELEASE_REPO', () => {
+    const yml = readFileSync(`${repoRoot}electron-builder.yml`, 'utf8');
+    const publish = /^publish:\n((?: {2}.+\n)+)/m.exec(yml)?.[1] ?? '';
+
+    expect(/^ {2}owner: (\S+)$/m.exec(publish)?.[1]).toBe(RELEASE_REPO.owner);
+    expect(/^ {2}repo: (\S+)$/m.exec(publish)?.[1]).toBe(RELEASE_REPO.repo);
   });
 });

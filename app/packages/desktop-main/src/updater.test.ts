@@ -56,7 +56,13 @@ vi.mock('./updater-fallback.js', () => ({
 }));
 
 import { logger } from './logger.js';
-import { initUpdater, checkForUpdatesNow, downloadUpdateNow, installDownloadedUpdate } from './updater.js';
+import {
+  initUpdater,
+  checkForUpdatesNow,
+  downloadUpdateNow,
+  installDownloadedUpdate,
+  resetUpdateStateForTests,
+} from './updater.js';
 
 /** Builds a minimal `ElectronStoreService`-shaped stub for `initUpdater`'s single `get` call. */
 function makeStore(enableAutoUpdate: boolean | undefined): ElectronStoreService {
@@ -360,12 +366,22 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     setElectron('36.0.0');
     onMock.mockClear();
     removeListenerMock.mockClear();
-    checkForUpdatesMock.mockReset().mockResolvedValue(null);
+    resetUpdateStateForTests();
+    checkForUpdatesMock.mockReset().mockResolvedValue({ isUpdateAvailable: true });
     downloadUpdateMock.mockReset().mockResolvedValue([]);
     quitAndInstallMock.mockReset();
     resolveFallbackMock.mockReset().mockResolvedValue(null);
   });
   afterEach(() => setElectron(realElectronVersion));
+
+  /** Runs a check that finds an update, so the updater's cache is populated for a following download. */
+  const populateCheckCache = async (): Promise<void> => {
+    const pending = checkForUpdatesNow();
+    await vi.waitFor(() => expect(checkForUpdatesMock).toHaveBeenCalled());
+    mockAutoUpdater.emit('update-available', { version: '1.2.3' });
+    await pending;
+    checkForUpdatesMock.mockClear();
+  };
 
   /** Returns the handler registered via `autoUpdater.on(event, ...)`. */
   function handlerFor(event: string): (...args: unknown[]) => void {
@@ -417,21 +433,38 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     }
   });
 
-  // @spec APP-UPDATE-DL-004
-  it('should re-run the check once and retry when no check has populated electron-updater yet', async () => {
-    downloadUpdateMock
-      .mockRejectedValueOnce(new Error('Please check update first'))
-      .mockResolvedValueOnce([]);
-
+  // @spec APP-UPDATE-DL-004, APP-UPDATE-DL-005
+  it('should re-run the check once before downloading when no check has populated the cache, without reading error text', async () => {
     const result = await downloadUpdateNow(vi.fn());
 
     expect(checkForUpdatesMock).toHaveBeenCalledOnce();
-    expect(downloadUpdateMock).toHaveBeenCalledTimes(2);
+    expect(downloadUpdateMock).toHaveBeenCalledOnce();
     expect(result.ok).toBe(true);
+  });
+
+  // @spec APP-UPDATE-DL-005
+  it('should not re-check when a check already populated the cache', async () => {
+    await populateCheckCache();
+
+    await downloadUpdateNow(vi.fn());
+
+    expect(checkForUpdatesMock).not.toHaveBeenCalled();
+    expect(downloadUpdateMock).toHaveBeenCalledOnce();
+  });
+
+  // @spec APP-UPDATE-DL-005
+  it('should report no update to download when the pre-download check finds none', async () => {
+    checkForUpdatesMock.mockResolvedValue({ isUpdateAvailable: false });
+
+    const result = await downloadUpdateNow(vi.fn());
+
+    expect(result).toEqual({ ok: false, message: 'No update is available to download.' });
+    expect(downloadUpdateMock).not.toHaveBeenCalled();
   });
 
   // @spec APP-UPDATE-DL-006
   it('should resolve ok: false with the message when the download rejects, and remove listeners', async () => {
+    await populateCheckCache();
     downloadUpdateMock.mockRejectedValueOnce(new Error('code signature invalid'));
 
     const result = await downloadUpdateNow(vi.fn());
@@ -441,13 +474,43 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     expect(removeListenerMock).toHaveBeenCalledWith('error', expect.any(Function));
   });
 
-  // @spec APP-UPDATE-DL-008
+  // @spec APP-UPDATE-DL-008, APP-UPDATE-DL-009
   it('should quit and install with relaunch on installDownloadedUpdate', async () => {
+    await downloadUpdateNow(vi.fn());
+
     expect(await installDownloadedUpdate()).toEqual({ ok: true });
     expect(quitAndInstallMock).toHaveBeenCalledWith(false, true);
   });
 
+  // @spec APP-UPDATE-DL-009
+  it('should refuse to install, without calling quitAndInstall, when nothing was downloaded in this process', async () => {
+    const result = await installDownloadedUpdate();
+
+    expect(result).toEqual({ ok: false, message: 'No update has been downloaded yet.' });
+    expect(quitAndInstallMock).not.toHaveBeenCalled();
+  });
+
+  // @spec APP-UPDATE-DL-009
+  it('should refuse to install after a failed download', async () => {
+    downloadUpdateMock.mockRejectedValueOnce(new Error('network down'));
+    await downloadUpdateNow(vi.fn());
+
+    expect((await installDownloadedUpdate()).ok).toBe(false);
+    expect(quitAndInstallMock).not.toHaveBeenCalled();
+  });
+
+  // @spec APP-UPDATE-DL-009
+  it('should refuse to install after a failed download that follows a successful one', async () => {
+    await downloadUpdateNow(vi.fn());
+    downloadUpdateMock.mockRejectedValueOnce(new Error('network down'));
+    await downloadUpdateNow(vi.fn());
+
+    expect((await installDownloadedUpdate()).ok).toBe(false);
+    expect(quitAndInstallMock).not.toHaveBeenCalled();
+  });
+
   it('should report ok: false when quitAndInstall throws', async () => {
+    await downloadUpdateNow(vi.fn());
     quitAndInstallMock.mockImplementationOnce(() => {
       throw new Error('no update downloaded');
     });

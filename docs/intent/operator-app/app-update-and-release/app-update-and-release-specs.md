@@ -39,7 +39,7 @@ EARS requirements for prefix `APP-UPDATE`; design in [app-update-and-release-des
 - [x] **APP-UPDATE-FALL-004**: After an update-feed fallback retry succeeds or fails, the updater shall restore the primary `github` feed (`CoderCoco-Studios/Hyveon`) on the `autoUpdater` singleton.
 - [x] **APP-UPDATE-FALL-005**: The update-feed fallback shall never download or install an update.
 - [x] **APP-UPDATE-FALL-006**: When a manual check's primary attempt emits an `error` event and the fallback retry then succeeds, desktop-main shall resolve the manual check with the retry's availability result, not with the primary error.
-- [ ] **APP-UPDATE-FALL-007**: When looking up an update-feed fallback release, the updater shall consider every published release rather than only the newest page, so an eligible older release is found even when the most recent releases all lack the platform feed file. (observed) (gap: `app/packages/desktop-main/src/updater-fallback.ts:10` fetches `per_page=10` with no pagination)
+- [x] **APP-UPDATE-FALL-007**: When looking up an update-feed fallback release, the updater shall page the releases list, up to 10 pages, and stop at the first page that yields an eligible release, so an eligible older release is found even when the most recent releases all lack the platform feed file. (observed)
 
 ## Download and install
 
@@ -47,11 +47,11 @@ EARS requirements for prefix `APP-UPDATE`; design in [app-update-and-release-des
 - [x] **APP-UPDATE-DL-002**: While an operator-initiated update download is in progress, desktop-main shall forward every `download-progress` event as `{ percent, transferred, total, bytesPerSecond }`.
 - [x] **APP-UPDATE-DL-003**: When an operator-initiated update download completes, desktop-main shall return `{ ok: true, version }` with the version reported by `update-downloaded`, without restarting the app.
 - [x] **APP-UPDATE-DL-004**: If an operator-initiated update download is requested while `electron-updater` has no cached check result in this process, then desktop-main shall re-run the update check (with fallback) once and retry the download before reporting failure.
-- [ ] **APP-UPDATE-DL-005**: When deciding whether an operator-initiated download lacks a cached check result, desktop-main shall detect that condition from updater state rather than from `electron-updater`'s rejection message text. (observed) (gap: `app/packages/desktop-main/src/updater.ts:178`, `:225` compare against the literal `'Please check update first'`)
+- [x] **APP-UPDATE-DL-005**: When deciding whether an operator-initiated download lacks a cached check result, desktop-main shall detect that condition from updater state rather than from `electron-updater`'s rejection message text. (observed)
 - [x] **APP-UPDATE-DL-006**: If an operator-initiated update download fails, then desktop-main shall log the failure and return `{ ok: false, message }`, and shall remove its `download-progress`, `update-downloaded` and `error` listeners whether the download succeeded or failed.
 - [x] **APP-UPDATE-DL-007**: When an operator-initiated update download or install is requested outside a real Electron main process, desktop-main shall return `{ ok: false }` with an "only available in the packaged app" message without touching `electron-updater`.
 - [x] **APP-UPDATE-DL-008**: When the operator requests install of a downloaded update, desktop-main shall call `quitAndInstall(false, true)` so the app quits, runs the installer and relaunches, and shall return `{ ok: true }`.
-- [ ] **APP-UPDATE-DL-009**: If the operator requests install when no update has been downloaded in this process, then desktop-main shall return `{ ok: false, message }` instead of calling `quitAndInstall`. (observed: promised by the `UpdateInstallResult` doc, `app/packages/shared/src/autoUpdateSetting.ts:86-91`) (gap: `app/packages/desktop-main/src/updater.ts:251-265` calls `quitAndInstall` unconditionally)
+- [x] **APP-UPDATE-DL-009**: If the operator requests install when no update has been downloaded in this process, then desktop-main shall return `{ ok: false, message }` instead of calling `quitAndInstall`. (observed: promised by the `UpdateInstallResult` doc, `app/packages/shared/src/autoUpdateSetting.ts:86-91`)
 
 ## IPC channel contract
 
@@ -63,7 +63,7 @@ EARS requirements for prefix `APP-UPDATE`; design in [app-update-and-release-des
 - [x] **APP-UPDATE-IPC-006**: If the invoking renderer's `WebContents` is destroyed during an update download, then desktop-main shall stop sending chunk and end messages for that stream. (observed)
 - [x] **APP-UPDATE-IPC-007**: When the renderer invokes `iac.settings.autoUpdate.install`, desktop-main shall return the install step's `UpdateInstallResult`.
 - [x] **APP-UPDATE-IPC-008**: The preload bridge shall surface the update download as an async iterable of `UpdateDownloadProgress` that completes on a successful end message and throws with the end message's `error` on failure. (observed)
-- [ ] **APP-UPDATE-IPC-009**: The `iac.settings.autoUpdate.download.chunk` and `.download.end` channel names shall be declared in one shared place consumed by both desktop-main and preload. (observed) (gap: declared twice, `app/packages/desktop-main/src/controllers/iac-settings.controller.ts:35-38` and `app/packages/desktop-preload/src/preload.ts:156-160`)
+- [x] **APP-UPDATE-IPC-009**: The `iac.settings.autoUpdate.download.chunk` and `.download.end` channel names shall be declared in one shared place consumed by both desktop-main and preload. (observed)
 
 ## Settings page Updates section
 
@@ -82,11 +82,11 @@ EARS requirements for prefix `APP-UPDATE`; design in [app-update-and-release-des
 - [x] **APP-UPDATE-PKG-001**: `electron-builder.yml` shall declare `publish: github` for `CoderCoco-Studios/Hyveon` so every packaged target embeds electron-updater's `app-update.yml` feed metadata.
 - [x] **APP-UPDATE-PKG-002**: The `desktop:package` script shall run electron-builder with `--publish never`, so neither the PR / merge-queue Package workflow nor the release workflow's package job lets electron-builder publish to GitHub Releases.
 - [x] **APP-UPDATE-PKG-003**: Each packaging run shall upload its platform's electron-updater feed and installer assets: `latest-linux.yml` with the AppImage, `latest-mac.yml` with both the `dmg` and the `zip` that MacUpdater requires, `latest.yml` with the NSIS `exe`, and every `*.blockmap`. (observed)
-- [ ] **APP-UPDATE-PKG-004**: The release repository identity (`CoderCoco-Studios/Hyveon`) shall be declared in one source that electron-builder's `publish` block, the updater's primary and fallback feeds, and the Settings page "Download manually" link all derive from. (observed) (gap: written separately at `electron-builder.yml:16-18`, `app/packages/desktop-main/src/updater-fallback.ts:5`, `:8` and `app/packages/web/src/pages/settings.page.tsx:79`)
-- [ ] **APP-UPDATE-PKG-005**: The PR / merge-queue Package workflow and the release workflow's package job shall build from one shared platform matrix definition, so their artifact globs cannot drift. (observed) (gap: `.github/workflows/release.yml:325-354` repeats `.github/workflows/package.yml:35-64`, held together only by a "keep in sync" comment at `release.yml:319-321`)
-- [ ] **APP-UPDATE-PKG-006**: When `build-package` reinstalls the runner's `@tailwindcss/oxide` native binding, it shall install the version the lockfile resolves. (observed) (gap: `.github/actions/build-package/action.yml:18` hard-codes `4.3.0`; `package-lock.json:7053-7054` resolves `4.3.3`)
+- [x] **APP-UPDATE-PKG-004**: The release repository identity (`CoderCoco-Studios/Hyveon`) shall be declared once in `RELEASE_REPO` in `@hyveon/shared`, from which the updater's primary and fallback feeds and the Settings page "Download manually" link derive, and the `publish` block in `electron-builder.yml` shall be held equal to it by a failing check, because a YAML file cannot import a constant. (observed)
+- [x] **APP-UPDATE-PKG-005**: The platform matrix of the PR / merge-queue Package workflow and of the release workflow's package job shall be held equal by a failing check, so their artifact globs cannot drift. (observed)
+- [x] **APP-UPDATE-PKG-006**: When `build-package` reinstalls the runner's `@tailwindcss/oxide` native binding, it shall install the version the lockfile resolves. (observed)
 - [x] **APP-UPDATE-PKG-007**: The packaging manifest test shall fail when a root runtime dependency pin differs from `@hyveon/desktop-main`'s, when the root Pulumi pins differ from `@hyveon/infra`'s, or when `PULUMI_ENGINE_VERSION` differs from the root `@pulumi/pulumi` pin. (observed)
-- [ ] **APP-UPDATE-PKG-008**: A check shall fail when the `electron-builder.yml` `files` list omits a runtime dependency of the packages externalized from the main bundle (`@pulumi/*`, `class-validator`, `class-transformer`, `electron-updater`). (observed) (gap: `electron-builder.yml:20-216` is hand-maintained and `:45-47` warns new transitive deps are not picked up; no test guards it)
+- [x] **APP-UPDATE-PKG-008**: A check shall fail when the `electron-builder.yml` `files` list omits a runtime dependency of the packages externalized from the main bundle (`@pulumi/*`, `class-validator`, `class-transformer`, `electron-updater`). (observed)
 
 ## Release workflow: trigger and range
 
@@ -122,7 +122,7 @@ EARS requirements for prefix `APP-UPDATE`; design in [app-update-and-release-des
 - [x] **APP-UPDATE-DRAFT-001**: When a bump-mode release run's package jobs have all succeeded, the release workflow shall create a draft GitHub Release for the new tag carrying the release notes and every downloaded installer and feed asset, never a published release.
 - [x] **APP-UPDATE-DRAFT-002**: While a bump-mode release run is still building installers, no GitHub Release (draft or published) shall exist for the new tag.
 - [x] **APP-UPDATE-DRAFT-003**: When a draft release has been created, the release workflow shall fail if any of `latest.yml`, `latest-mac.yml`, `latest-linux.yml` or an `exe`, `dmg`, `zip` or `AppImage` asset is missing. (observed)
-- [ ] **APP-UPDATE-DRAFT-004**: If the release workflow's asset verification fails, then no draft release missing those assets shall remain for the tag. (gap: `.github/actions/publish-release/action.yml:24-32` creates the draft before verification at `:37-61` and never deletes it)
+- [x] **APP-UPDATE-DRAFT-004**: If the release workflow's asset verification fails, then no draft release missing those assets shall remain for the tag.
 - [x] **APP-UPDATE-DRAFT-005**: When the release workflow runs in replay mode for an existing tag, it shall regenerate the changelog and AI summary for the range ending at that tag and rewrite only that release's body, without bumping, committing, tagging, packaging or changing the release's draft/published state.
 - [x] **APP-UPDATE-DRAFT-006**: If the release workflow runs in replay mode and no GitHub Release exists for the supplied tag, then it shall fail without creating one. (observed)
 

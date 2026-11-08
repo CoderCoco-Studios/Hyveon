@@ -227,7 +227,7 @@ When a check reports `Update available`, a **Download & Install** button appears
 
 This is the only path that ever downloads or installs an update. The automatic boot-time check and the plain **Check for Updates** press stay detect-only, and an update you downloaded but did not restart into is simply not applied.
 
-If the download or install fails, the row shows the error with the **Download manually** link, and **Download & Install** is offered again as a retry. If the app was restarted since the check, the download transparently re-runs the check first.
+If the download or install fails, the row shows the error with the **Download manually** link, and **Download & Install** is offered again as a retry. If no available update is cached in this process (for example the app was restarted since the check), the download transparently re-runs the check first; if that check finds nothing, the row reports that no update is available. **Restart & Install** refuses with a message when no download has finished in this process.
 
 :::note
 Unsigned macOS builds can fail the download with a code-signature error. Use the **Download manually** link in that case.
