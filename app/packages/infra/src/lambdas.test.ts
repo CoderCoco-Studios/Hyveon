@@ -726,7 +726,7 @@ describe('defineLambdas', () => {
       });
       expect(fn.inputs.tags).toEqual({ Name: 'hyveon-efs-seeder-echo', Game: 'echo' });
 
-      const accessPointArn = await promiseOf(efs.gameAccessPoints['echo-saves'].arn);
+      const accessPointArn = await promiseOf(efs.gameAccessPoints['echo/saves'].arn);
       expect(fn.inputs.fileSystemConfig).toEqual({ arn: accessPointArn, localMountPath: '/mnt/efs' });
 
       const code = fn.inputs.code as pulumi.asset.AssetArchive;

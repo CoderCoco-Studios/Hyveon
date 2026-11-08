@@ -1,7 +1,7 @@
 import * as aws from '@pulumi/aws';
 import type { GameServerConfig } from '@hyveon/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { defineEfs } from './efs.js';
+import { accessPointKey, defineEfs } from './efs.js';
 import { FIXTURE_GAME_SERVERS } from './testing/fixtures.js';
 import { installPulumiMocks, promiseOf, type RecordedResource } from './testing/pulumiMocks.js';
 
@@ -86,9 +86,9 @@ describe('defineEfs', () => {
     });
 
     // Every FIXTURE_GAME_SERVERS entry declares exactly one "saves" volume.
-    expect(Object.keys(result.gameAccessPoints).sort()).toEqual(['alpha-saves', 'bravo-saves', 'charlie-saves', 'delta-saves']);
+    expect(Object.keys(result.gameAccessPoints).sort()).toEqual(['alpha/saves', 'bravo/saves', 'charlie/saves', 'delta/saves']);
 
-    const alphaAp = findByName(mocks.resources, 'alpha-saves');
+    const alphaAp = findByName(mocks.resources, 'alpha/saves');
     expect(alphaAp.type).toBe('aws:efs/accessPoint:AccessPoint');
     expect(alphaAp.inputs.fileSystemId).toBe(await promiseOf(result.fileSystem.id));
     expect(alphaAp.inputs.posixUser).toEqual({ uid: 1000, gid: 1000 });
@@ -96,7 +96,31 @@ describe('defineEfs', () => {
       path: '/alpha/saves',
       creationInfo: { ownerUid: 1000, ownerGid: 1000, permissions: '0755' },
     });
-    expect(alphaAp.inputs.tags).toEqual({ Name: 'alpha-saves' });
+    expect(alphaAp.inputs.tags).toEqual({ Name: 'alpha/saves' });
+  });
+
+  // @spec IAC-PROGRAM-EFS-004
+  it('should give game a-b volume c and game a volume b-c distinct access points', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const base = FIXTURE_GAME_SERVERS.alpha;
+    const result = await runDefineEfs({
+      projectName: 'hyveon',
+      gameServers: {
+        'a-b': { ...base, volumes: [{ name: 'c', container_path: '/data' }] },
+        a: { ...base, volumes: [{ name: 'b-c', container_path: '/data' }] },
+      },
+      publicSubnets: MOCK_PUBLIC_SUBNET_IDS,
+      efsSecurityGroupId: 'sg-efs-mock',
+      provider,
+    });
+
+    expect(Object.keys(result.gameAccessPoints)).toHaveLength(2);
+    expect(accessPointKey('a-b', 'c')).not.toBe(accessPointKey('a', 'b-c'));
+    const paths = mocks.resources
+      .filter((resource) => resource.type === 'aws:efs/accessPoint:AccessPoint')
+      .map((resource) => (resource.inputs.rootDirectory as { path: string }).path)
+      .sort();
+    expect(paths).toEqual(['/a-b/c', '/a/b-c']);
   });
 
   // @spec IAC-PROGRAM-FANOUT-002
@@ -124,14 +148,14 @@ describe('defineEfs', () => {
     });
 
     expect(Object.keys(result.gameAccessPoints).sort()).toEqual([
-      'alpha-saves',
-      'bravo-saves',
-      'charlie-saves',
-      'delta-saves',
-      'echo-mods',
-      'echo-saves',
+      'alpha/saves',
+      'bravo/saves',
+      'charlie/saves',
+      'delta/saves',
+      'echo/mods',
+      'echo/saves',
     ]);
-    const echoMods = findByName(mocks.resources, 'echo-mods');
+    const echoMods = findByName(mocks.resources, 'echo/mods');
     expect(echoMods.inputs.rootDirectory).toMatchObject({ path: '/echo/mods' });
   });
 

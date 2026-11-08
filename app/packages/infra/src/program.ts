@@ -22,7 +22,7 @@ import { resolveRunsTableName, type DeploymentConfig, type GameServerConfig, typ
 import { defineNetwork, type NetworkResources } from './network.js';
 import { defineSecurityGroups, type SecurityGroupResources } from './securityGroups.js';
 import { defineIamRoles, defineIamPolicies, type IamRoleResources, type IamPolicyResources } from './iam.js';
-import { defineEfs, type EfsResources } from './efs.js';
+import { accessPointKey, defineEfs, type EfsResources } from './efs.js';
 import { defineEcs, type EcsResources } from './ecs.js';
 import { defineLambdas, type LambdaResources } from './lambdas.js';
 import { defineDynamoDb, type DynamoDbResources } from './dynamodb.js';
@@ -411,13 +411,13 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   efsFileSystemId: pulumi.Output<string>;
   /**
    * Mirrors {@link StackOutputs.efsAccessPoints} — game name → that game's
-   * FIRST volume's access point id (`efs.gameAccessPoints["${game}-${firstVolumeName}"].id`)
+   * FIRST volume's access point id (`efs.gameAccessPoints[accessPointKey(game, firstVolumeName)].id`)
    * — NOT every `(game, volume)` access point `efs.gameAccessPoints` holds.
    */
   efsAccessPoints: pulumi.Output<Record<string, string>>;
   /**
    * Mirrors {@link StackOutputs.efsVolumeAccessPoints} — game name → volume name → that volume's access point id
-   * (`efs.gameAccessPoints["${game}-${volumeName}"].id`), every volume of every game.
+   * (`efs.gameAccessPoints[accessPointKey(game, volumeName)].id`), every volume of every game.
    */
   efsVolumeAccessPoints: pulumi.Output<Record<string, Record<string, string>>>;
   /** Mirrors {@link StackOutputs.domainName} — `config.hostedZoneName` directly. */
@@ -490,7 +490,7 @@ export function buildStackOutputs(resources: InfraResources, config: DeploymentC
     }
     const idsByVolume: Record<string, pulumi.Output<string>> = {};
     for (const volume of gameConfig.volumes) {
-      const key = `${game}-${volume.name}`;
+      const key = accessPointKey(game, volume.name);
       const accessPoint = resources.efs.gameAccessPoints[key];
       if (!accessPoint) {
         throw new Error(

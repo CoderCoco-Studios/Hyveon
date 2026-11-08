@@ -49,7 +49,7 @@ import {
   type GameServerConfig,
   type GameServerHealthCheck,
 } from '@hyveon/shared';
-import type { EfsResources } from './efs.js';
+import { accessPointKey, type EfsResources } from './efs.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 import type { IamRoleResources } from './iam.js';
 import { lambdaLogGroup } from './logGroups.js';
@@ -177,7 +177,7 @@ export interface DefineLambdasArgs {
   ecsClusterName: pulumi.Input<string>;
   /** The ECS cluster's ARN (`ecs.ts`'s `EcsResources.cluster.arn`) — interpolated into {@link LambdaResources.ecsTaskChangeRule}'s event pattern. */
   ecsClusterArn: pulumi.Input<string>;
-  /** The EFS resources `efs.ts`'s `defineEfs` returned — every EFS-seeder function's `file_system_config.arn` looks up `efs.gameAccessPoints["${game}-${firstVolumeName}"].arn`. */
+  /** The EFS resources `efs.ts`'s `defineEfs` returned — every EFS-seeder function's `file_system_config.arn` looks up `efs.gameAccessPoints[accessPointKey(game, firstVolumeName)].arn`. */
   efs: EfsResources;
 
   /**
@@ -737,7 +737,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     for (const [game, role] of seederGames) {
       const config = gameServers[game];
       const firstVolumeName = config.volumes[0].name;
-      const accessPointArn = efs.gameAccessPoints[`${game}-${firstVolumeName}`].arn;
+      const accessPointArn = efs.gameAccessPoints[accessPointKey(game, firstVolumeName)].arn;
 
       const logGroup = lambdaLogGroup(projectName, `efs-seeder-${game}`, opts, { Game: game });
       efsSeederLogGroups[game] = logGroup;

@@ -29,7 +29,7 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { HOSTNAME_SHIM_MOUNT_PATH, fileManagerLogGroupName, ingressPorts, isIcmpProtocol, type GameServerConfig, type GameServerEnvironmentVariable } from '@hyveon/shared';
 import { HYVEON_ENV_TOKENS, substituteHyveonToken, valueUsesToken } from '@hyveon/shared/envTokens';
-import type { EfsResources } from './efs.js';
+import { accessPointKey, type EfsResources } from './efs.js';
 import { buildIpv4WrapperScript } from './envTokenWrapper.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 import {
@@ -226,7 +226,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
         fileSystemId: efs.fileSystem.id,
         transitEncryption: 'ENABLED',
         authorizationConfig: {
-          accessPointId: efs.gameAccessPoints[`${game}-${volume.name}`].id,
+          accessPointId: efs.gameAccessPoints[accessPointKey(game, volume.name)].id,
           iam: 'DISABLED',
         },
       },

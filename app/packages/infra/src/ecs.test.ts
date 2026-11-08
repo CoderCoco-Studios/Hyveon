@@ -189,7 +189,7 @@ describe('defineEcs', () => {
           fileSystemId: await promiseOf(efs.fileSystem.id),
           transitEncryption: 'ENABLED',
           authorizationConfig: {
-            accessPointId: await promiseOf(efs.gameAccessPoints['alpha-saves'].id),
+            accessPointId: await promiseOf(efs.gameAccessPoints['alpha/saves'].id),
             iam: 'DISABLED',
           },
         },

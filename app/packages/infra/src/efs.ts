@@ -22,15 +22,30 @@ import type * as pulumi from '@pulumi/pulumi';
 import type { GameServerConfig } from '@hyveon/shared';
 
 /** Every resource {@link defineEfs} declares, keyed by role. */
+/**
+ * Derives the {@link EfsResources.gameAccessPoints} key for a `(game, volume)` pair.
+ *
+ * @remarks
+ * Game names may contain `-`, so a `-` separator is ambiguous (game `a-b` volume `c` versus game
+ * `a` volume `b-c`). `/` cannot appear in a game or volume name, so the key is collision-free.
+ *
+ * @param game - The game name.
+ * @param volumeName - The volume's `name`.
+ * @returns The access-point key, `${game}/${volumeName}`.
+ */
+export function accessPointKey(game: string, volumeName: string): string {
+  return `${game}/${volumeName}`;
+}
+
 export interface EfsResources {
   /** The shared EFS filesystem. */
   fileSystem: aws.efs.FileSystem;
   /** One mount target per public subnet, same order as the subnets passed in. */
   mountTargets: aws.efs.MountTarget[];
   /**
-   * One access point per `(game, volume)` pair, keyed `"${game}-${volume.name}"`
-   * — the same key `ecs.ts`'s task definitions re-derive to look up the
-   * matching access point per volume.
+   * One access point per `(game, volume)` pair, keyed by {@link accessPointKey}
+   * — the single key every consumer (task definitions, seeder functions,
+   * stack outputs) uses to look up the matching access point.
    */
   gameAccessPoints: Record<string, aws.efs.AccessPoint>;
   /**
@@ -115,11 +130,11 @@ export function defineEfs(args: DefineEfsArgs): EfsResources {
       ),
   );
 
-  // One access point per (game, volume) pair, keyed "${game}-${volume.name}".
+  // One access point per (game, volume) pair, keyed by `accessPointKey`.
   const gameAccessPoints: Record<string, aws.efs.AccessPoint> = {};
   for (const [game, config] of Object.entries(gameServers)) {
     for (const volume of config.volumes) {
-      const key = `${game}-${volume.name}`;
+      const key = accessPointKey(game, volume.name);
       gameAccessPoints[key] = new aws.efs.AccessPoint(
         key,
         {
