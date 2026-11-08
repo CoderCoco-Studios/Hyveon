@@ -429,6 +429,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
   // ── Followup Lambda — declared before interactions so its
   // function name is in scope for interactions' FOLLOWUP_LAMBDA_NAME below,
   // matching the HCL's own reference direction. ─────────────────────────────
+  const followupLogGroup = lambdaLogGroup(projectName, 'followup', opts);
   const followupFunction = new aws.lambda.Function(
     `${projectName}-followup`,
     {
@@ -454,12 +455,11 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       },
       tags: { Name: `${projectName}-followup` },
     },
-    opts,
+    { ...opts, dependsOn: [followupLogGroup] },
   );
 
-  const followupLogGroup = lambdaLogGroup(projectName, 'followup', opts);
-
   // ── Interactions Lambda ─────────────────────────────────────────────────────
+  const interactionsLogGroup = lambdaLogGroup(projectName, 'interactions', opts);
   const interactionsFunction = new aws.lambda.Function(
     `${projectName}-interactions`,
     {
@@ -482,10 +482,8 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       },
       tags: { Name: `${projectName}-interactions` },
     },
-    opts,
+    { ...opts, dependsOn: [interactionsLogGroup] },
   );
-
-  const interactionsLogGroup = lambdaLogGroup(projectName, 'interactions', opts);
 
   const interactionsFunctionUrl = new aws.lambda.FunctionUrl(
     `${projectName}-interactions-url`,
@@ -574,6 +572,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
   }
 
   // ── Watchdog Lambda + EventBridge schedule ─────────────────────────────────
+  const watchdogLogGroup = lambdaLogGroup(projectName, 'watchdog', opts);
   const watchdogFunction = new aws.lambda.Function(
     `${projectName}-watchdog`,
     {
@@ -599,10 +598,8 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       },
       tags: { Name: `${projectName}-watchdog` },
     },
-    opts,
+    { ...opts, dependsOn: [watchdogLogGroup] },
   );
-
-  const watchdogLogGroup = lambdaLogGroup(projectName, 'watchdog', opts);
 
   // `rate(1 minute)` vs `rate(N minutes)` — singular/plural matters to
   // EventBridge's schedule-expression parser, exactly as the HCL's inline
@@ -641,6 +638,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
 
   // ── DNS-updater Lambda + EventBridge ECS-state-change rule ────────────────
   // @spec RT-TASK-DNS-012
+  const dnsUpdaterLogGroup = lambdaLogGroup(projectName, 'dns-updater', opts);
   const dnsUpdaterFunction = new aws.lambda.Function(
     `${projectName}-dns-updater`,
     {
@@ -669,10 +667,8 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       },
       tags: { Name: `${projectName}-dns-updater` },
     },
-    opts,
+    { ...opts, dependsOn: [dnsUpdaterLogGroup] },
   );
-
-  const dnsUpdaterLogGroup = lambdaLogGroup(projectName, 'dns-updater', opts);
 
   // @spec RT-TASK-DNS-002
   const ecsTaskChangeRule = new aws.cloudwatch.EventRule(
