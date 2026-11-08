@@ -455,8 +455,13 @@ export class FolderUploadService implements OnApplicationBootstrap {
           };
       if (terminal.phase === 'failed') logger.warn('FolderUploadService: upload failed', { game, runId, error: terminal.error });
     } finally {
-      this.registry.release(game, holder);
-      this.finish(prepared, runId, progress, terminal);
+      try {
+        this.registry.release(game, holder);
+      } catch (err) {
+        logger.warn('FolderUploadService: releasing the session hold failed', { game, runId, error: errMessage(err) });
+      } finally {
+        this.finish(prepared, runId, progress, terminal);
+      }
     }
   }
 
@@ -632,7 +637,14 @@ export class FolderUploadService implements OnApplicationBootstrap {
     });
   }
 
-  /** Records the run's outcome (when it persists its selection), emits the terminal snapshot, and frees the game for a new run. */
+  /**
+   * Records the run's outcome (when it persists its selection), emits the terminal snapshot, and frees the game for a new run.
+   *
+   * @remarks
+   * Persisting and the terminal emit can throw (a store write, a progress listener); the progress stop, the path
+   * reservation release and the active-run removal run regardless, and a failure is logged rather than escaping, since
+   * the run is unobserved (`void execute`) and a leaked reservation would wedge the game.
+   */
   private finish(
     prepared: PreparedRun,
     runId: string,
@@ -640,20 +652,30 @@ export class FolderUploadService implements OnApplicationBootstrap {
     terminal: { phase: FolderUploadPhase; error?: string; detail?: FailureDetail },
   ): void {
     const { game } = prepared;
-    const snap = progress.snapshot();
-    const status = terminal.phase === 'done' ? 'done' : terminal.phase === 'cancelled' ? 'cancelled' : 'failed';
-    if (prepared.persistSelection) {
-      this.store.setFolderUploadLastRun(game, {
-        status,
-        completedAt: new Date().toISOString(),
-        files: snap.filesDone,
-        bytes: snap.bytesDone,
-      });
+    try {
+      const snap = progress.snapshot();
+      const status = terminal.phase === 'done' ? 'done' : terminal.phase === 'cancelled' ? 'cancelled' : 'failed';
+      if (prepared.persistSelection) {
+        this.store.setFolderUploadLastRun(game, {
+          status,
+          completedAt: new Date().toISOString(),
+          files: snap.filesDone,
+          bytes: snap.bytesDone,
+        });
+      }
+      progress.setPhase(terminal.phase, terminal.error, terminal.detail);
+    } catch (err) {
+      logger.warn('FolderUploadService: recording the upload outcome failed', { game, runId, error: errMessage(err) });
+    } finally {
+      try {
+        progress.stop();
+      } catch (err) {
+        logger.warn('FolderUploadService: stopping progress emission failed', { game, runId, error: errMessage(err) });
+      } finally {
+        this.active.get(game)?.releasePaths();
+        this.active.delete(game);
+      }
     }
-    progress.setPhase(terminal.phase, terminal.error, terminal.detail);
-    progress.stop();
-    this.active.get(game)?.releasePaths();
-    this.active.delete(game);
     logger.info('FolderUploadService: upload finished', { game, runId, phase: terminal.phase });
   }
 }

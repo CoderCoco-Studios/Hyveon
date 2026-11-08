@@ -505,6 +505,45 @@ describe('FolderUploadService runs', () => {
     });
   });
 
+  // @spec HELPER-UPLOAD-016
+  describe('finishing a run', () => {
+    /** Starts a run and waits until the game is free for another one, failing when the reservation leaked. */
+    async function expectGameFreed(h: Harness): Promise<void> {
+      await h.svc.startUpload(await request(['Config']));
+      await vi.waitFor(async () => {
+        const again = await h.svc.startUpload(await request(['Config']));
+        expect(again.started).toBe(true);
+      });
+    }
+
+    it('should free the game and reservation when persisting the last run throws', async () => {
+      const h = harness();
+      vi.spyOn(h.store, 'setFolderUploadLastRun').mockImplementation(() => {
+        throw new Error('disk full');
+      });
+
+      await expectGameFreed(h);
+    });
+
+    it('should free the game and reservation when a progress listener throws on the terminal snapshot', async () => {
+      const h = harness();
+      h.svc.onProgress((p) => {
+        if (p.phase === 'done') throw new Error('listener blew up');
+      });
+
+      await expectGameFreed(h);
+    });
+
+    it('should still finish the run when releasing the session hold throws', async () => {
+      const h = harness();
+      h.registry.release.mockImplementationOnce(() => {
+        throw new Error('release failed');
+      });
+
+      await expectGameFreed(h);
+    });
+  });
+
   // @spec HELPER-LAUNCH-005
   it('should require the auto-stop backstop and surface its absence as the run failure', async () => {
     const h = harness({ acquired: { ok: false, code: 'failed', message: 'The upload was not started because the helper has no auto-stop schedule.' } });
