@@ -6,7 +6,7 @@ import type { ParsedIniData } from '@smithy/types';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { IAMClient, CreateAccessKeyCommand, DeleteAccessKeyCommand } from '@aws-sdk/client-iam';
 import { logger } from '../logger.js';
-import { SafeStorageService } from './SafeStorageService.js';
+import { SafeStorageService, SafeStorageUnavailableError } from './SafeStorageService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 import { verifyAccessKeyWithRetry } from './verifyAccessKeyWithRetry.js';
@@ -36,24 +36,7 @@ export interface SavePastedCredentialsInput {
   region?: string;
 }
 
-/**
- * Thrown by {@link AwsProfileService.savePastedCredentials} when the OS
- * keychain (via `SafeStorageService`) is unavailable. Pasted credentials are
- * never persisted in plaintext, so this flow has no fallback — the caller
- * must surface the error and refuse to save rather than silently degrading
- * (unlike `ElectronStoreService`'s generic encrypted accessors, which
- * transparently degrade to plaintext outside Electron for convenience in
- * tests/CI).
- */
-export class SafeStorageUnavailableError extends Error {
-  constructor() {
-    super(
-      'Cannot save pasted AWS credentials: the OS keychain (safeStorage) is unavailable. ' +
-        'Pasted keys are never stored in plaintext — pick an existing AWS CLI profile instead.',
-    );
-    this.name = 'SafeStorageUnavailableError';
-  }
-}
+export { SafeStorageUnavailableError };
 
 /**
  * Thrown by {@link AwsProfileService.savePastedCredentials} when
@@ -238,7 +221,10 @@ export class AwsProfileService {
    * 4. Only once verification succeeds:
    *    {@link ElectronStoreService.setPastedCredentials} overwrites the
    *    stored entry under the *same* profile name (in-place rotation;
-   *    `aws.profile` already points at this profile).
+   *    `aws.profile` already points at this profile). If that write throws
+   *    (e.g. the keychain locked after step 0), the new key is best-effort
+   *    deleted with the current key and the error propagates, so the old key
+   *    stays the only live one.
    * 5. `iam:DeleteAccessKey` on the *old* (now-superseded) key's
    *    `AccessKeyId`, using an IAM client built from the *new* key pair
    *    (both keys belong to the same IAM user). On failure, returns
@@ -331,25 +317,21 @@ export class AwsProfileService {
         accessKeyId: newAccessKeyId,
         error: message,
       });
-      // Best-effort cleanup: delete the orphaned new key using the
-      // still-untouched current key, so a caller-driven retry (which
-      // re-runs from step 2) doesn't hit IAM's 2-access-key-per-user limit.
-      // A failure here does not change the outcome — the original
-      // verification error is still what gets returned.
-      try {
-        await currentClient.send(new DeleteAccessKeyCommand({ AccessKeyId: newAccessKeyId }));
-      } catch (cleanupErr) {
-        const cleanupMessage = errMessage(cleanupErr);
-        logger.warn(
-          'AwsProfileService.rotateActiveCredentials: failed to clean up orphaned new key after verification failure — may need manual cleanup',
-          { accessKeyId: newAccessKeyId, error: cleanupMessage },
-        );
-      }
+      await this.discardMintedKey(currentClient, newAccessKeyId);
       return { status: 'verification-failed', error: message };
     }
 
     // Step 4: verification succeeded — overwrite the stored credentials in place.
-    this.store.setPastedCredentials(profile, { accessKeyId: newAccessKeyId, secretAccessKey: newSecretAccessKey, region });
+    try {
+      this.store.setPastedCredentials(profile, { accessKeyId: newAccessKeyId, secretAccessKey: newSecretAccessKey, region });
+    } catch (err) {
+      logger.error('AwsProfileService.rotateActiveCredentials: could not store the verified key — discarding it', {
+        accessKeyId: newAccessKeyId,
+        error: errMessage(err),
+      });
+      await this.discardMintedKey(currentClient, newAccessKeyId);
+      throw err;
+    }
     logger.info('AwsProfileService.rotateActiveCredentials: stored rotated key in place', { profile });
 
     // Step 5: revoke the old key using the new key's client.
@@ -370,6 +352,25 @@ export class AwsProfileService {
       oldAccessKeyId: currentAccessKeyId,
     });
     return { status: 'complete' };
+  }
+
+  /**
+   * Best-effort deletes a minted-but-unused key with the still-valid current key's client, so a caller-driven retry
+   * (which re-runs from `iam:CreateAccessKey`) does not hit IAM's 2-access-key-per-user limit. A failure is logged and
+   * swallowed; the caller's own outcome is unchanged.
+   *
+   * @param currentClient - IAM client built from the still-active current key.
+   * @param accessKeyId - The newly minted key to delete.
+   */
+  private async discardMintedKey(currentClient: IAMClient, accessKeyId: string): Promise<void> {
+    try {
+      await currentClient.send(new DeleteAccessKeyCommand({ AccessKeyId: accessKeyId }));
+    } catch (cleanupErr) {
+      logger.warn('AwsProfileService.rotateActiveCredentials: failed to clean up the unused new key — may need manual cleanup', {
+        accessKeyId,
+        error: errMessage(cleanupErr),
+      });
+    }
   }
 
   /**

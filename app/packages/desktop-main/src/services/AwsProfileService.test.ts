@@ -609,6 +609,22 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     expect(store.setPastedCredentials).not.toHaveBeenCalled();
   });
 
+  // @spec APP-WIZARD-ROTKEY-003
+  it('should delete the new key with the current key client and keep the old key when storing the verified pair throws', async () => {
+    stubCreateAccessKeySuccess();
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+    iamMock.on(DeleteAccessKeyCommand).resolves({});
+    vi.mocked(store.setPastedCredentials).mockImplementation(() => {
+      throw new Error('keychain locked');
+    });
+
+    await expect(service.rotateActiveCredentials()).rejects.toThrow('keychain locked');
+
+    const deleteCalls = iamMock.commandCalls(DeleteAccessKeyCommand);
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]!.args[0].input).toEqual({ AccessKeyId: NEW_ACCESS_KEY_ID });
+  });
+
   it('should still return verification-failed (not a new status) and not throw when the orphaned-key cleanup delete also fails', async () => {
     stubCreateAccessKeySuccess();
     const verifyError = new Error('The security token included in the request is invalid');

@@ -539,6 +539,41 @@ describe('GuidedIamService', () => {
       expect(deleteCalls[0]!.args[0].input).toEqual({ AccessKeyId: BOOTSTRAP_ACCESS_KEY_ID });
     });
 
+    // @spec APP-WIZARD-CUSTODY-007, APP-WIZARD-ROTATE-005
+    it('should delete the minted key and never revoke the bootstrap key when staging the new pair throws', async () => {
+      stubCreateAccessKeySuccess();
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+      vi.mocked(store.setPastedCredentials).mockImplementation(() => {
+        throw new SafeStorageUnavailableError();
+      });
+
+      await expect(service.rotate(ROTATION_INPUT)).rejects.toThrow(SafeStorageUnavailableError);
+
+      const deleteCalls = iamMock.commandCalls(DeleteAccessKeyCommand);
+      expect(deleteCalls).toHaveLength(1);
+      expect(deleteCalls[0]!.args[0].input).toEqual({ AccessKeyId: NEW_ACCESS_KEY_ID });
+      expect(store.set).not.toHaveBeenCalledWith('aws', expect.anything());
+    });
+
+    // @spec APP-WIZARD-CUSTODY-007, APP-WIZARD-ROTATE-008
+    it('should delete the minted key and keep the active entry when a re-run cannot store the verified pair', async () => {
+      store = makeStore({ profile: GUIDED_PROFILE_NAME, region: REGION });
+      service = new TestableGuidedIamService(store, safeStorage);
+      stubCreateAccessKeySuccess();
+      stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+      vi.mocked(store.setPastedCredentials).mockImplementation(() => {
+        throw new SafeStorageUnavailableError();
+      });
+
+      await expect(service.rotate(ROTATION_INPUT)).rejects.toThrow(SafeStorageUnavailableError);
+
+      const deleteCalls = iamMock.commandCalls(DeleteAccessKeyCommand);
+      expect(deleteCalls).toHaveLength(1);
+      expect(deleteCalls[0]!.args[0].input).toEqual({ AccessKeyId: NEW_ACCESS_KEY_ID });
+      expect(store.deletePastedCredentials).not.toHaveBeenCalled();
+    });
+
     // @spec APP-WIZARD-INTAKE-002, APP-WIZARD-TMPL-009, APP-WIZARD-RECONF-007
     it('should record the account ID and IAM user name from the verified key as the deploy principal alongside the aws record', async () => {
       stubCreateAccessKeySuccess();

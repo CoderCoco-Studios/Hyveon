@@ -443,14 +443,9 @@ export class PulumiWorkspaceService {
 
     // Legacy migration: an install that pre-dates the derivation scheme
     // still holds a randomly-generated passphrase in `pulumi.passphrase`.
-    // Presence alone does NOT mean it is safe to decrypt: `SafeStorageService.decrypt`
-    // does not throw when the OS keychain is merely unavailable/locked — it
-    // silently returns the raw ciphertext blob unchanged (see that method's
-    // own remarks). So keychain availability is checked explicitly, BEFORE
-    // ever calling `getPulumiPassphrase()`, to avoid handing that garbage
-    // blob to the `pulumi` CLI as if it were the real passphrase (which would
-    // fail with a confusing "incorrect passphrase"-style CLI error, giving
-    // the operator no indication that unlocking their OS keychain is the fix).
+    // Presence alone does NOT mean it is safe to decrypt: inside Electron `SafeStorageService.decrypt` throws
+    // when the OS keychain is unavailable. Checking availability first replaces that raw error with an actionable
+    // one (unlock the keychain) before `getPulumiPassphrase()` is ever called.
     const hasLegacyPassphrase = this.store.get('pulumi')?.passphrase !== undefined;
     if (hasLegacyPassphrase && !this.store.isSafeStorageAvailable()) {
       logger.error(

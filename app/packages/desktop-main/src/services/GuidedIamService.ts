@@ -472,7 +472,12 @@ export class GuidedIamService {
       region: input.region,
     };
     if (!guidedAlreadyActive) {
-      this.store.setPastedCredentials(GUIDED_PROFILE_NAME, stagedKey);
+      try {
+        this.store.setPastedCredentials(GUIDED_PROFILE_NAME, stagedKey);
+      } catch (err) {
+        await this.discardMintedKey(bootstrapClient, newKey.AccessKeyId, false);
+        throw err;
+      }
     }
 
     const newCreds = { accessKeyId: newKey.AccessKeyId, secretAccessKey: newKey.SecretAccessKey, region: input.region };
@@ -520,7 +525,14 @@ export class GuidedIamService {
       await this.discardMintedKey(bootstrapClient, newKey.AccessKeyId, !guidedAlreadyActive);
       throw err;
     }
-    if (guidedAlreadyActive) this.store.setPastedCredentials(GUIDED_PROFILE_NAME, stagedKey);
+    if (guidedAlreadyActive) {
+      try {
+        this.store.setPastedCredentials(GUIDED_PROFILE_NAME, stagedKey);
+      } catch (err) {
+        await this.discardMintedKey(bootstrapClient, newKey.AccessKeyId, false);
+        throw err;
+      }
+    }
     const currentAws = this.store.get('aws') ?? {};
     this.store.set('aws', { ...currentAws, profile: GUIDED_PROFILE_NAME, region: input.region });
     if (verifiedIdentity.Account) {
