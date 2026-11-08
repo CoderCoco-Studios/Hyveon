@@ -24,6 +24,7 @@ export * from './runs.js';
 export * from './changeSummary.js';
 export * from './cloud.js';
 export * from './lambdaFunctionKey.js';
+export * from './sleepInterruptible.js';
 export * from './envJson.js';
 export * from './env.js';
 export * from './aws/ecsTask.js';

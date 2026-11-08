@@ -757,4 +757,24 @@ describe('LogsController', () => {
       expect(sender.send).not.toHaveBeenCalled();
     });
   });
+
+  describe('paging failure logging', () => {
+    // @spec APP-LOGS-PAGE-008
+    it.each([
+      ['getOlderLogs', (c: LogsController) => c.getOlderLogs({ game: 'g', beforeTimestamp: 1 })],
+      ['getNewerLogs', (c: LogsController) => c.getNewerLogs({ game: 'g', afterTimestamp: 1 })],
+      ['getOlderLambdaLogs', (c: LogsController) => c.getOlderLambdaLogs({ functionKey: 'watchdog', beforeTimestamp: 1 })],
+      ['getNewerLambdaLogs', (c: LogsController) => c.getNewerLambdaLogs({ functionKey: 'watchdog', afterTimestamp: 1 })],
+    ] as const)('should rethrow a plain Error without re-logging at error for %s', async (name, invoke) => {
+      const { logger } = await import('../logger.js');
+      vi.mocked(logger.error).mockClear();
+      const logs = makeLogs();
+      vi.mocked(logs[name]).mockRejectedValue(Object.assign(new Error('denied'), { name: 'AccessDenied' }));
+      const rejection: unknown = await invoke(new LogsController(logs)).catch((e: unknown) => e);
+      expect(rejection).toBeInstanceOf(Error);
+      expect((rejection as Error).message).toBe('denied');
+      expect((rejection as Error).name).toBe('Error');
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+  });
 });

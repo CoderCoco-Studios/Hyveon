@@ -18,35 +18,11 @@ import type {
   WorkloadHandle,
   WorkloadStatus,
 } from '@hyveon/shared';
-import { getTaskEniId, resolveEniPublicIp } from '@hyveon/shared';
+import { getTaskEniId, resolveEniPublicIp, sleepInterruptible } from '@hyveon/shared';
 import { startInProgressMessage, startWithLease } from '@hyveon/shared/aws/startLease';
 import { createCachedAwsClient } from './cachedClient.js';
 
 /**
- * Sleep for `ms` milliseconds, but reject immediately if `signal` is aborted.
- * Mirrors `LogsService`'s `sleepInterruptible` helper so `streamWorkloadLogs`'s
- * poll loop exits promptly when the caller aborts, rather than waiting out a
- * full cadence after the last poll.
- */
-function sleepInterruptible(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException('Aborted', 'AbortError'));
-      return;
-    }
-    const onAbort = () => {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', onAbort);
-      reject(new DOMException('Aborted', 'AbortError'));
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    signal.addEventListener('abort', onAbort);
-  });
-}
-
 /**
  * Thrown by {@link AwsCloudProvider.startWorkload} / {@link
  * AwsCloudProvider.stopWorkload} for expected precondition refusals — a task

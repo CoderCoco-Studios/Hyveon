@@ -94,6 +94,28 @@ describe('LogsService', () => {
     expect(page.lines[0]!.message).toMatch(/no log streams/i);
   });
 
+  // @spec APP-LOGS-SNAP-005
+  it('should return an informational no-log-group line, not a raw error string, when the game log group does not exist', async () => {
+    cwMock.on(DescribeLogStreamsCommand).rejects(
+      Object.assign(new Error('The specified log group does not exist.'), { name: 'ResourceNotFoundException' }),
+    );
+    const page = await service.getRecentLogs('minecraft');
+    expect(page.lines).toHaveLength(1);
+    expect(page.lines[0]!.message).toMatch(/no log group for minecraft yet/i);
+    expect(page.lines[0]!.message).not.toMatch(/ResourceNotFoundException|Error fetching/);
+    expect(loggerMock.error).not.toHaveBeenCalled();
+  });
+
+  // @spec APP-LOGS-SNAP-006
+  it('should synthesize the same eventId on the snapshot and paging paths for an event with no message', async () => {
+    cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 's' }] });
+    cwMock.on(GetLogEventsCommand).resolves({ events: [{ timestamp: 100 }] });
+    const recent = await service.getRecentLogs('minecraft');
+    const older = await service.getOlderLogs('minecraft', 1000);
+    expect(recent.lines[0]!.eventId).toBe('100:');
+    expect(older.lines[0]!.eventId).toBe(recent.lines[0]!.eventId);
+  });
+
   // @spec APP-LOGS-GROUP-001, APP-LOGS-SNAP-001
   it('should query the /ecs/{game}-server log group and fetch the newest stream', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({
@@ -878,5 +900,61 @@ describe('LogsService.streamLambdaLogs', () => {
     expect(lines[0]).not.toMatch(/\[stream error\]/);
     expect(lines[0]).toMatch(/no log group/i);
     expect(cwMock.commandCalls(FilterLogEventsCommand)).toHaveLength(1);
+  });
+
+  // @spec APP-LOGS-TAIL-005
+  it('should start the tail at the time it began so retained history is not replayed', async () => {
+    cwMock.on(FilterLogEventsCommand).resolves({ events: [] });
+    const before = Date.now();
+    const ac = new AbortController();
+    const gen = service.streamLambdaLogs('watchdog', ac.signal, 60_000);
+    const next = gen.next();
+    await vi.waitFor(() => expect(cwMock.commandCalls(FilterLogEventsCommand).length).toBeGreaterThan(0));
+    const { startTime } = cwMock.commandCalls(FilterLogEventsCommand)[0]!.args[0].input;
+    ac.abort();
+    void next.catch(() => undefined);
+    expect(startTime).toBeGreaterThanOrEqual(before);
+    expect(startTime).toBeLessThanOrEqual(Date.now());
+  });
+
+  // @spec APP-LOGS-TAIL-007
+  it('should pass the caller signal to FilterLogEvents so an abort cancels the in-flight call', async () => {
+    cwMock.on(FilterLogEventsCommand).resolves({ events: [] });
+    const ac = new AbortController();
+    const gen = service.streamLambdaLogs('watchdog', ac.signal, 60_000);
+    const next = gen.next();
+    await vi.waitFor(() => expect(cwMock.commandCalls(FilterLogEventsCommand).length).toBeGreaterThan(0));
+    const options = cwMock.commandCalls(FilterLogEventsCommand)[0]!.args[1] as { abortSignal?: AbortSignal } | undefined;
+    ac.abort();
+    void next.catch(() => undefined);
+    expect(options?.abortSignal).toBe(ac.signal);
+  });
+
+  // @spec APP-LOGS-TAIL-007
+  it('should end promptly when aborted during the inter-poll sleep', async () => {
+    cwMock.on(FilterLogEventsCommand).resolves({ events: [] });
+    const ac = new AbortController();
+    const gen = service.streamLambdaLogs('watchdog', ac.signal, 60_000);
+    const next = gen.next();
+    await vi.waitFor(() => expect(cwMock.commandCalls(FilterLogEventsCommand).length).toBeGreaterThan(0));
+    ac.abort();
+    await expect(next).resolves.toMatchObject({ done: true });
+  });
+
+  // @spec APP-LOGS-TAIL-009
+  it('should log the normalized poll failure with the functionKey and log group, then yield a stream-error line', async () => {
+    cwMock.on(FilterLogEventsCommand).rejects(new Error('throttled'));
+    loggerMock.warn.mockReset();
+    const ac = new AbortController();
+    const gen = service.streamLambdaLogs('watchdog', ac.signal, 60_000);
+    const { value } = await gen.next();
+    ac.abort();
+    await gen.return(undefined);
+    expect(value).toBe('[stream error] throttled');
+    expect(loggerMock.warn).toHaveBeenCalledWith('LogsService.streamLambdaLogs: poll failed', {
+      functionKey: 'watchdog',
+      logGroup: '/aws/lambda/hyveon-watchdog',
+      error: 'throttled',
+    });
   });
 });
