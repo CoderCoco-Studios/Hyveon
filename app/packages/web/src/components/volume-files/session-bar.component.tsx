@@ -78,10 +78,10 @@ function SessionClock({ status, onAutoStopDue }: { status: VolumeSessionStatus; 
   );
 }
 
-// @spec HELPER-FB-017, HELPER-FB-019, HELPER-FB-020, HELPER-FB-022
+// @spec HELPER-FB-017, HELPER-FB-019, HELPER-FB-020, HELPER-FB-022, HELPER-LAUNCH-006
 /**
- * Header strip for a game's file-browser session: state badge, clock, the actions each state allows and the failure
- * reason.
+ * Header strip for a game's file-browser session: state badge, clock, the actions each state allows, the failure
+ * reason and, for a running session with no auto-stop schedule, the warning to stop it manually.
  *
  * @remarks
  * Start is offered when stopped or failed, Stop while running (confirmed first when an upload, folder upload or download is
@@ -116,6 +116,11 @@ export function SessionBar({ status, transferActive, actionError, onStart, onSto
           )}
         </div>
       </div>
+      {state === 'running' && status.autoStopWarning && (
+        <p role="status" className="text-sm text-[var(--color-amber)]">
+          {status.autoStopWarning}
+        </p>
+      )}
       {state === 'failed' && <InlineAlert message={status.error ?? 'The session failed.'} />}
       <InlineAlert message={actionError} />
       <ConfirmDialog

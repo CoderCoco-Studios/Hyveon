@@ -25,6 +25,22 @@ describe('SessionBar', () => {
     expect(onAutoStopDue).toHaveBeenCalledTimes(1);
   });
 
+  // @spec HELPER-LAUNCH-006
+  describe('auto-stop warning', () => {
+    const renderWith = (status = makeSessionStatus()) =>
+      render(<SessionBar status={status} transferActive={false} actionError={null} onStart={vi.fn()} onStop={vi.fn()} onRestart={vi.fn()} />);
+
+    it('should tell the operator to stop the session manually when its auto-stop was not scheduled', () => {
+      renderWith(makeSessionStatus({ autoStopWarning: 'Warning: failed to schedule auto-stop — remember to stop it manually.' }));
+      expect(screen.getByRole('status')).toHaveTextContent(/stop it manually/i);
+    });
+
+    it('should show no warning when the auto-stop is scheduled', () => {
+      renderWith();
+      expect(screen.queryByText(/stop it manually/i)).not.toBeInTheDocument();
+    });
+  });
+
   describe('Stop', () => {
     function renderBar(uploadHolders: number, transferActive: boolean) {
       const onStop = vi.fn();

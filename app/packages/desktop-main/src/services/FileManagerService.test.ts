@@ -7,6 +7,12 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock('./folderUpload/ephemeralCert.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./folderUpload/ephemeralCert.js')>();
+  return { ...actual, generateEphemeralCert: vi.fn(actual.generateEphemeralCert) };
+});
+
+import { generateEphemeralCert } from './folderUpload/ephemeralCert.js';
 import { FileManagerService, UPLOAD_TAGS, BROWSE_RUN_ID, FILEBROWSER_AUTO_STOP_MS } from './FileManagerService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { EcsService } from './EcsService.js';
@@ -570,6 +576,16 @@ describe('FileManagerService', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('nope');
     });
+
+    // @spec HELPER-IPC-005
+    it('should return the normalised message, not String(err), when stopTask throws', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
+        stopTask: vi.fn().mockRejectedValue(new Error('nope')),
+      });
+      const result = await buildService({ ecs }).stop('minecraft');
+      expect(result.message).toBe('nope');
+    });
   });
 
   describe('operator IP rule', () => {
@@ -603,6 +619,39 @@ describe('FileManagerService', () => {
       await launchFailed(buildService({ ecs, ec2 }));
       expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-1']);
       expect(stub.deregisterTaskDefinition).toHaveBeenCalledWith('arn:aws:ecs:::task-definition/filebrowser-minecraft:1');
+    });
+
+    // @spec HELPER-REACH-007
+    describe('when a step after the rule was added throws', () => {
+      const ruleList = () =>
+        vi.fn().mockResolvedValue([{ ruleId: 'sgr-1', description: 'hyveon-filemgr:minecraft:browse', cidr: '203.0.113.7/32' }]);
+
+      it('should revoke the rule and return the message when certificate generation throws', async () => {
+        vi.mocked(generateEphemeralCert).mockRejectedValueOnce(new Error('openssl missing'));
+        const { stub, service: ecs } = makeEcs();
+        const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: ruleList() });
+        const result = await launchFailed(buildService({ ecs, ec2 }));
+        expect(result.message).toContain('openssl missing');
+        expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-1']);
+        expect(stub.registerTaskDefinition).not.toHaveBeenCalled();
+      });
+
+      it('should revoke the rule and return the message when task-definition registration throws', async () => {
+        const { service: ecs } = makeEcs({ registerTaskDefinition: vi.fn().mockRejectedValue(new Error('throttled')) });
+        const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: ruleList() });
+        const result = await launchFailed(buildService({ ecs, ec2 }));
+        expect(result.message).toContain('throttled');
+        expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-1']);
+      });
+
+      it('should revoke the rule and deregister the task definition when RunTask throws', async () => {
+        const { stub, service: ecs } = makeEcs({ runTask: vi.fn().mockRejectedValue(new Error('capacity')) });
+        const ec2 = makeEc2('1.2.3.4', { listIngressRulesByDescriptionPrefix: ruleList() });
+        const result = await launchFailed(buildService({ ecs, ec2 }));
+        expect(result.message).toContain('capacity');
+        expect(ec2.revokeIngressRules).toHaveBeenCalledWith('sg-files', ['sgr-1']);
+        expect(stub.deregisterTaskDefinition).toHaveBeenCalledWith('arn:aws:ecs:::task-definition/filebrowser-minecraft:1');
+      });
     });
 
     it('should revoke the rule when task-definition registration fails', async () => {

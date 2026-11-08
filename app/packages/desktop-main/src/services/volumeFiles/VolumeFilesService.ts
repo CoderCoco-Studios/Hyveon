@@ -46,6 +46,7 @@ function toSessionStatus(s: HelperSessionSnapshot): VolumeSessionStatus {
     uploadHolders: s.uploadHolders,
     supportsArchive: s.supportsArchive,
     ...(s.error !== undefined && { error: scrubAddresses(s.error) }),
+    ...(s.autoStopWarning !== undefined && { autoStopWarning: s.autoStopWarning }),
     volumes: s.volumes.map(({ name, containerPath, mounted }) => ({ name, containerPath, mounted })),
   };
 }
@@ -75,7 +76,6 @@ export function failedSessionStatus(game: string, error: string): VolumeSessionS
 export class VolumeFilesService {
   private readonly ops: FileOps;
   private readonly transfers: TransferOps;
-  private readonly reservations = new UploadReservations();
 
   // @spec HELPER-SESS-008
   constructor(
@@ -86,6 +86,7 @@ export class VolumeFilesService {
     scans: FolderScanService,
     folderUploads: FolderUploadService,
     deploymentConfig: DeploymentConfigService,
+    private readonly reservations: UploadReservations = new UploadReservations(),
   ) {
     this.ops = new FileOps(registry, config, ecs);
     this.transfers = new TransferOps(registry, this.ops, dialogs, scans, folderUploads, deploymentConfig, this.reservations);

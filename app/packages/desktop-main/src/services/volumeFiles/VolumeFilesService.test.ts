@@ -518,6 +518,13 @@ describe('VolumeFilesService sessions', () => {
     });
   });
 
+  // @spec HELPER-LAUNCH-006
+  it('should carry the auto-stop warning of a session whose schedule was not created', async () => {
+    const h = harness();
+    h.registry.status.mockResolvedValue(snapshot({ autoStopWarning: 'Warning: failed to schedule auto-stop — remember to stop it manually.' }));
+    expect(await h.service.sessionStatus('mc')).toMatchObject({ autoStopWarning: 'Warning: failed to schedule auto-stop — remember to stop it manually.' });
+  });
+
   it('should omit absent times and carry the session error', async () => {
     const h = harness();
     h.registry.status.mockResolvedValue(snapshot({ state: 'failed', startedAt: undefined, autoStopAt: undefined, error: 'launch failed' }));

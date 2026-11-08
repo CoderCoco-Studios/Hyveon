@@ -29,6 +29,8 @@ export interface VolumeSessionStatus {
   uploadHolders: number;
   supportsArchive: boolean;
   error?: string;
+  /** Present when the session's auto-stop schedule could not be created, so the operator must stop it manually. */
+  autoStopWarning?: string;
   volumes: VolumeInfo[];
 }
 

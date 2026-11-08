@@ -105,6 +105,56 @@ describe('HelperSessionRegistry', () => {
     expect(await registry.status('mc')).toMatchObject({ state: 'running', browseHeld: true, uploadHolders: 1 });
   });
 
+  describe('auto-stop schedule warning', () => {
+    const WARNING = ' Warning: failed to schedule auto-stop — remember to stop it manually.';
+    const launchWithWarning = (h: Harness, scheduleWarning = WARNING) =>
+      h.fm.launchHelper.mockImplementation(async (game: string) => {
+        h.ecs.add(game);
+        return { ...launchOk(), scheduleWarning };
+      });
+
+    // @spec HELPER-LAUNCH-006
+    it('should carry the warning on the snapshot of a session whose auto-stop was not scheduled', async () => {
+      const h = harness();
+      launchWithWarning(h);
+      await h.registry.acquire('mc', 'browse');
+      expect(await h.registry.status('mc')).toMatchObject({ state: 'running', autoStopWarning: WARNING.trim() });
+    });
+
+    // @spec HELPER-LAUNCH-006
+    it('should omit the warning when the schedule exists', async () => {
+      const h = harness();
+      await h.registry.acquire('mc', 'browse');
+      expect(await h.registry.status('mc')).not.toHaveProperty('autoStopWarning');
+    });
+
+    // @spec HELPER-LAUNCH-005
+    it('should fail an acquire that requires the auto-stop backstop when the schedule could not be created', async () => {
+      const h = harness();
+      launchWithWarning(h);
+      expect(await h.registry.acquire('mc', 'upload:r1', { requireAutoStop: true })).toEqual({
+        ok: false,
+        code: 'failed',
+        message: expect.stringMatching(/auto-stop/i),
+      });
+    });
+
+    // @spec HELPER-LAUNCH-005
+    it('should fail a requiring acquire that joins a session whose schedule was not created, and not one that does not require it', async () => {
+      const h = harness();
+      launchWithWarning(h);
+      await h.registry.acquire('mc', 'browse');
+      expect(await h.registry.acquire('mc', 'upload:r1', { requireAutoStop: true })).toMatchObject({ ok: false, code: 'failed' });
+      expect(await h.registry.acquire('mc', 'upload:r2')).toEqual({ ok: true });
+    });
+
+    // @spec HELPER-LAUNCH-005
+    it('should let a requiring acquire through when the schedule was created', async () => {
+      const h = harness();
+      expect(await h.registry.acquire('mc', 'upload:r1', { requireAutoStop: true })).toEqual({ ok: true });
+    });
+  });
+
   // @spec HELPER-FB-041
   it('should report upload holders of a game but not a browse hold or another game', async () => {
     const { registry } = harness();
