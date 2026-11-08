@@ -1,9 +1,9 @@
 import { Catch } from '@nestjs/common';
 import type { ArgumentsHost, RpcExceptionFilter } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
-import { errMessage } from '@hyveon/shared';
+import { ipcErrorMessage } from './ipc-handlers.js';
 
-// @spec APP-IPC-ERR-002
+// @spec APP-IPC-ERR-002, APP-IPC-ERR-004
 /**
  * Global RPC exception filter that preserves the real `.message` of any
  * exception thrown from a `@MessagePattern` handler.
@@ -31,10 +31,10 @@ export class RpcErrorMessageFilter implements RpcExceptionFilter<unknown> {
    *
    * @param exception - the exception thrown by a `@MessagePattern` handler
    * @returns an Observable that errors with a plain `Error` whose message
-   * is `exception.message` (or `String(exception)` for a non-`Error` throw)
+   * is {@link ipcErrorMessage} of the exception (an `HttpException`'s body text, else its `.message`)
    */
   catch(exception: unknown, _host: ArgumentsHost): Observable<never> {
-    const message = errMessage(exception);
+    const message = ipcErrorMessage(exception);
     return throwError(() => new Error(message));
   }
 }

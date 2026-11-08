@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import * as os from 'node:os';
 import { Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
+import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { OptimisticLockError, RunLockHeldError, errMessage } from '@hyveon/shared';
 import type { DeploymentConfigDiff, RunLock, StackOutputs } from '@hyveon/shared';
 import {
@@ -18,6 +18,7 @@ import { ConfigService } from '../services/ConfigService.js';
 import { AuditService } from '../services/AuditService.js';
 import { RunRecordService } from '../services/RunRecordService.js';
 import { logger } from '../logger.js';
+import { ipcErrorMessage, registerSelfBridgedHandlers } from '../ipc-handlers.js';
 import { isNonEmptyString } from './validation.js';
 
 /** Fixed side-channel `IacController.plan` pushes streamed output on. */
@@ -518,52 +519,13 @@ export class IacController implements OnModuleInit {
    * plain-Node runtimes (integration test server, Docker, CI), so the bridge is skipped entirely.
    */
   async onModuleInit(): Promise<void> {
-    if (!process.versions.electron) {
-      // Not running inside the Electron main process — ipcMain bridge skipped.
-      return;
-    }
-    const { ipcMain } = (await import('electron')) as unknown as { ipcMain: IpcMain };
-    // Remove any existing handler first so hot-reload re-registration does
-    // not throw "IPC channel already registered".
-    ipcMain.removeHandler('iac.plan');
-    ipcMain.handle('iac.plan', (evt, payload: IacPlanPayload) =>
-      this.plan(payload, { evt: evt as IpcMainInvokeEvent }),
-    );
-    // `iac.apply` streams chunk/end messages the same way
-    // `iac.plan` does — see `SELF_BRIDGED_PATTERNS` in
-    // `../ipc-main-bridge.ts`, which excludes it from the generic bridge for
-    // the same reason.
-    ipcMain.removeHandler('iac.apply');
-    ipcMain.handle('iac.apply', (evt, payload: IacApplyPayload) =>
-      this.apply(payload, { evt: evt as IpcMainInvokeEvent }),
-    );
-    // `iac.destroy` streams chunk/end messages the same way
-    // `iac.apply` does — see `SELF_BRIDGED_PATTERNS` in
-    // `../ipc-main-bridge.ts`, which excludes it from the generic bridge for
-    // the same reason. `iac.destroy.mintToken` needs no such bridging
-    // (it resolves a single value), so the generic bridge wires it
-    // automatically — no entry here.
-    ipcMain.removeHandler('iac.destroy');
-    ipcMain.handle('iac.destroy', (evt, payload: IacDestroyPayload) =>
-      this.destroy(payload, { evt: evt as IpcMainInvokeEvent }),
-    );
-    // `iac.rollback.confirm` streams chunk messages the same way
-    // `iac.destroy` does — see `SELF_BRIDGED_PATTERNS` in
-    // `../ipc-main-bridge.ts`, which excludes it from the generic bridge for
-    // the same reason (see this method's own TSDoc for why the undecorated
-    // `ctx` parameter needs manual bridging).
-    ipcMain.removeHandler('iac.rollback.confirm');
-    ipcMain.handle('iac.rollback.confirm', (evt, payload: IacRollbackPayload) =>
-      this.confirmRollback(payload, { evt: evt as IpcMainInvokeEvent }),
-    );
-    // `iac.stack.initialize` streams phase-event/end messages the same way
-    // `iac.plan` streams chunk/end messages — see `SELF_BRIDGED_PATTERNS` in
-    // `../ipc-main-bridge.ts`, which excludes it from the generic bridge for
-    // the same reason.
-    ipcMain.removeHandler('iac.stack.initialize');
-    ipcMain.handle('iac.stack.initialize', (evt, payload: unknown) =>
-      this.initializeStack(payload, { evt: evt as IpcMainInvokeEvent }),
-    );
+    await registerSelfBridgedHandlers({
+      'iac.plan': (payload, ctx) => this.plan(payload as IacPlanPayload, ctx),
+      'iac.apply': (payload, ctx) => this.apply(payload as IacApplyPayload, ctx),
+      'iac.destroy': (payload, ctx) => this.destroy(payload as IacDestroyPayload, ctx),
+      'iac.rollback.confirm': (payload, ctx) => this.confirmRollback(payload as IacRollbackPayload, ctx),
+      'iac.stack.initialize': (payload, ctx) => this.initializeStack(payload, ctx),
+    });
   }
 
   // @spec APP-IPC-ERR-006
@@ -724,7 +686,7 @@ export class IacController implements OnModuleInit {
         const endMessage: IacPlanEndMessage<TResult | undefined> = {
           runId,
           exitCode: null,
-          error: String(err),
+          error: ipcErrorMessage(err),
           ...(op !== 'plan'
             ? { staleLock: err instanceof PulumiUnrecognizedLockError ? serializeStaleLock(err) : undefined }
             : {}),

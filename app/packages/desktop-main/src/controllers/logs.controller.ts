@@ -6,6 +6,7 @@ import type { LambdaFunctionKey } from '@hyveon/shared';
 import { LogsService } from '../services/LogsService.js';
 import type { RecentLogsPage, OlderLogsPage, NewerLogsPage } from '../services/LogsService.js';
 import { logger } from '../logger.js';
+import { ipcErrorMessage, registerSelfBridgedHandlers } from '../ipc-handlers.js';
 import { errMessage } from '@hyveon/shared';
 
 // @spec APP-LOGS-IPC-001, APP-LOGS-IPC-002
@@ -36,21 +37,10 @@ export class LogsController implements OnModuleInit {
    * `process.versions.electron` is the only trustworthy "not Electron" check.
    */
   async onModuleInit(): Promise<void> {
-    if (!process.versions.electron) {
-      // Not running inside the Electron main process — ipcMain bridge skipped.
-      return;
-    }
-    const { ipcMain } = await import('electron') as unknown as { ipcMain: IpcMain };
-    // Remove any existing handler first so hot-reload re-registration does
-    // not throw "IPC channel already registered".
-    ipcMain.removeHandler('logs.stream');
-    ipcMain.handle('logs.stream', (evt, game: string) =>
-      this.streamLogs(game, { evt: evt as IpcMainInvokeEvent }),
-    );
-    ipcMain.removeHandler('logs.lambda.stream');
-    ipcMain.handle('logs.lambda.stream', (evt, functionKey: LambdaFunctionKey) =>
-      this.streamLambdaLogs(functionKey, { evt: evt as IpcMainInvokeEvent }),
-    );
+    await registerSelfBridgedHandlers({
+      'logs.stream': (game, ctx) => this.streamLogs(game as string, ctx),
+      'logs.lambda.stream': (functionKey, ctx) => this.streamLambdaLogs(functionKey as LambdaFunctionKey, ctx),
+    });
   }
 
   /**
@@ -134,6 +124,9 @@ export class LogsController implements OnModuleInit {
    * The renderer cancels the stream by sending
    * `<channelPrefix><streamId>.cancel` via `ipcRenderer.send`.
    *
+   * The streaming loop starts on a later macrotask than the ack, so the preload has the `streamId` and its listeners
+   * attached before any chunk or end event arrives.
+   *
    * The controller creates its own `AbortController` per invocation because
    * `ElectronIPCTransport` passes `{ evt }` as the execution context — there
    * is no `signal` property injected by the transport. `source` receives that
@@ -169,10 +162,8 @@ export class LogsController implements OnModuleInit {
       ac.abort();
     });
 
-    // Fire-and-forget the streaming loop. Chunks are pushed back to the
-    // renderer directly via WebContents.send rather than through the normal
-    // invoke reply mechanism, which only supports a single return value.
-    void (async () => {
+    // Deferred to a macrotask so the invoke ack is sent first and the preload never misses an early event.
+    setImmediate(() => void (async () => {
       try {
         for await (const line of source(ac.signal)) {
           if (sender.isDestroyed()) { ac.abort(); break; }
@@ -185,10 +176,10 @@ export class LogsController implements OnModuleInit {
         if ((err as Error).name === 'AbortError') {
           if (!sender.isDestroyed()) sender.send(endChannel, {});
         } else {
-          const message = errMessage(err);
+          const message = ipcErrorMessage(err);
           logger.error(errorLogLabel, { message, ...errorLogFields, streamId });
           if (!sender.isDestroyed()) {
-            sender.send(endChannel, { error: String(err) });
+            sender.send(endChannel, { error: message });
           }
         }
       } finally {
@@ -196,7 +187,7 @@ export class LogsController implements OnModuleInit {
         // so it doesn't linger until the next cancel message arrives.
         ipcMain.removeAllListeners(cancelChannel);
       }
-    })();
+    })());
 
     return { streamId };
   }

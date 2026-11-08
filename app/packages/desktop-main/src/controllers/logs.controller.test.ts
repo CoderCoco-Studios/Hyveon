@@ -357,6 +357,39 @@ describe('LogsController', () => {
       expect(String(endCall?.[1]?.error)).toContain('CloudWatch throttled');
     });
 
+    // @spec APP-IPC-ERR-007
+    it('should send the handler error message on the end channel with no "Error: " prefix', async () => {
+      async function* throwsNonAbort(): AsyncGenerator<string> {
+        yield 'partial';
+        throw new Error('CloudWatch throttled');
+      }
+      const logs = makeLogs();
+      vi.mocked(logs.streamLogs).mockImplementation(throwsNonAbort);
+      const { ctx, sender } = makeCtx();
+
+      const { streamId } = await new LogsController(logs).streamLogs('minecraft', ctx);
+      await flushPromises();
+
+      expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.end`, { error: 'CloudWatch throttled' });
+    });
+
+    // @spec APP-IPC-STREAM-013
+    it('should not send any chunk or end event until the invoke ack has been returned', async () => {
+      async function* failsImmediately(): AsyncGenerator<string> {
+        await Promise.reject(new Error('no such log group'));
+        yield 'unreachable';
+      }
+      const logs = makeLogs();
+      vi.mocked(logs.streamLogs).mockImplementation(failsImmediately);
+      const { ctx, sender } = makeCtx();
+
+      const { streamId } = await new LogsController(logs).streamLogs('minecraft', ctx);
+      expect(sender.send).not.toHaveBeenCalled();
+
+      await flushPromises();
+      expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.end`, { error: 'no such log group' });
+    });
+
     it('should create its own AbortController and pass the signal to LogsService.streamLogs', async () => {
       const logs = makeLogs();
       const { ctx } = makeCtx();
