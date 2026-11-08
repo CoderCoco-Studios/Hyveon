@@ -251,7 +251,7 @@ function removeDirBestEffort(path: string, context: string): void {
   try {
     rmSync(path, { recursive: true, force: true });
   } catch (err) {
-    logger.error('Failed to clean up Pulumi engine directory', { path, context, err });
+    logger.error('Failed to clean up Pulumi engine directory', { path, context, error: errMessage(err) });
   }
 }
 
@@ -448,14 +448,14 @@ export class PulumiEngineService {
       if (isProvablyBadCacheEntry(err)) {
         logger.warn('Pulumi engine cache entry is provably invalid — discarding and reprovisioning', {
           root,
-          err,
+          error: errMessage(err),
         });
         removeDirBestEffort(root, 'provably invalid cache entry');
       } else {
         logger.warn(
           'Pulumi engine cache entry failed an ambiguous, possibly-transient check — leaving it in ' +
             'place and reprovisioning fresh; a successful reprovision will swap it aside rather than lose it',
-          { root, err },
+          { root, error: errMessage(err) },
         );
       }
       return null;
@@ -534,7 +534,7 @@ export class PulumiEngineService {
           logger.error('Failed to restore prior Pulumi engine install after a failed swap', {
             root,
             trashDir,
-            restoreErr,
+            error: errMessage(restoreErr),
           });
         }
       }
@@ -578,7 +578,7 @@ export class PulumiEngineService {
           logger.error('Failed to restore prior Pulumi engine install after post-rename verification failed', {
             root,
             trashDir,
-            restoreErr,
+            error: errMessage(restoreErr),
           });
         }
       }
@@ -604,11 +604,14 @@ export class PulumiEngineService {
     }
   }
 
-  // @spec IAC-ENGINE-PIN-004
+  // @spec IAC-ENGINE-PIN-004, IAC-ENGINE-PROV-012
   /**
    * Best-effort removes every entry directly under `versionsDir` other than
-   * the current pin's own directory (`keepRoot`) and any in-flight
-   * `.staging-`/`.trash-` directory — version-namespacing (see the class
+   * the current pin's own directory (`keepRoot`), including `.staging-` and
+   * `.trash-` directories left by an earlier crashed install. This service's
+   * own staging and trash directories are already gone by the time it runs,
+   * and provisioning is memoized so no sibling attempt is in flight —
+   * version-namespacing (see the class
    * TSDoc) solved staleness by never reusing an old pin's directory, but
    * without pruning the cache would otherwise grow by a few hundred MB on
    * every pin bump for the lifetime of the installation. Called once per
@@ -623,11 +626,10 @@ export class PulumiEngineService {
     try {
       entries = readdirSync(versionsDir);
     } catch (err) {
-      logger.warn('Failed to list Pulumi engine versions directory for pruning', { versionsDir, err });
+      logger.warn('Failed to list Pulumi engine versions directory for pruning', { versionsDir, error: errMessage(err) });
       return;
     }
     for (const entry of entries) {
-      if (entry.startsWith('.staging-') || entry.startsWith('.trash-')) continue;
       const entryPath = join(versionsDir, entry);
       if (entryPath === keepRoot) continue;
       removeDirBestEffort(entryPath, 'superseded pinned version');

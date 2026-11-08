@@ -379,6 +379,31 @@ describe('PulumiEngineService.resolve — ambiguous cache failures are not delet
     expect(rmSyncMock).toHaveBeenCalledWith(PIN_ROOT, { recursive: true, force: true });
     expect(rmSyncMock).not.toHaveBeenCalledWith(swapAside?.[1], expect.anything());
   });
+
+  // @spec IAC-ENGINE-PFAIL-006
+  it('should log the normalised message, not the raw error object, when restoring the prior install also fails', async () => {
+    const service = makeService();
+    existsSyncMock.mockImplementation((path: unknown) => path === PIN_ROOT);
+    const ebusy: NodeJS.ErrnoException = Object.assign(new Error('resource busy or locked'), { code: 'EBUSY' });
+    getMock.mockRejectedValueOnce(ebusy);
+    installMock.mockResolvedValueOnce(fakeCommand('/staging', PULUMI_ENGINE_VERSION));
+    getMock.mockRejectedValueOnce(Object.assign(new Error('permission denied'), { code: 'EACCES' }));
+    renameSyncMock.mockImplementationOnce(() => undefined).mockImplementationOnce(() => undefined);
+    renameSyncMock.mockImplementationOnce(() => {
+      throw new Error('restore rename failed');
+    });
+
+    await expect(service.resolve()).rejects.toThrow(PulumiEngineCacheWriteError);
+
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining('ambiguous'),
+      { root: PIN_ROOT, error: 'resource busy or locked' },
+    );
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Failed to restore prior Pulumi engine install after post-rename verification failed',
+      expect.objectContaining({ error: 'restore rename failed' }),
+    );
+  });
 });
 
 // @spec IAC-ENGINE-PFAIL-002
@@ -445,7 +470,8 @@ describe('PulumiEngineService.resolve — no partial-install reuse', () => {
 
 // @spec IAC-ENGINE-PIN-004
 describe('PulumiEngineService.resolve — pruning superseded versions', () => {
-  it('should best-effort remove sibling version directories other than the current pin after a successful install', async () => {
+  // @spec IAC-ENGINE-PROV-012
+  it('should best-effort remove sibling version directories and crashed-install staging/trash leftovers after a successful install', async () => {
     const service = makeService();
     readdirSyncMock.mockReturnValue(['3.200.0', PULUMI_ENGINE_VERSION, '.staging-leftover', '.trash-leftover']);
 
@@ -453,8 +479,8 @@ describe('PulumiEngineService.resolve — pruning superseded versions', () => {
 
     expect(readdirSyncMock).toHaveBeenCalledWith(VERSIONS_DIR);
     expect(rmSyncMock).toHaveBeenCalledWith(join(VERSIONS_DIR, '3.200.0'), { recursive: true, force: true });
-    expect(rmSyncMock).not.toHaveBeenCalledWith(join(VERSIONS_DIR, '.staging-leftover'), expect.anything());
-    expect(rmSyncMock).not.toHaveBeenCalledWith(join(VERSIONS_DIR, '.trash-leftover'), expect.anything());
+    expect(rmSyncMock).toHaveBeenCalledWith(join(VERSIONS_DIR, '.staging-leftover'), { recursive: true, force: true });
+    expect(rmSyncMock).toHaveBeenCalledWith(join(VERSIONS_DIR, '.trash-leftover'), { recursive: true, force: true });
     expect(rmSyncMock).not.toHaveBeenCalledWith(PIN_ROOT, expect.anything());
   });
 

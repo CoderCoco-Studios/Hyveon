@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Injectable } from '@nestjs/common';
@@ -564,23 +564,13 @@ export class PulumiWorkspaceService {
    * child env, matching the Automation API's own `pulumiHome` option.
    *
    * This CLI invocation runs with `cwd: workDir` BEFORE `LocalWorkspace.create`
-   * has had any chance to (re)write `Pulumi.yaml`/`Pulumi.<stack>.yaml` in
-   * that directory — `getOrCreateStack` calls this method first. It therefore
-   * depends on a project file already existing in `workDir` from a prior run
-   * under the old (pre-derivation) code. Edge case: an install whose `workDir`
-   * was wiped (reinstall, cache clear) while the store's legacy
-   * `pulumi.passphrase` survived fails this migration with a "no Pulumi
-   * project found"-style CLI error — that install needs a full manual reset
-   * rather than an automatic retry. Clearing the legacy `pulumi.passphrase`
-   * store entry alone is NOT a safe reset here: this migration fails before
-   * re-encryption ever runs, so the remote stack's secrets provider is still
-   * protected by the legacy passphrase — clearing the entry would make the
-   * next `getOrCreateStack` call use the new derived passphrase against
-   * state still encrypted with the old one. A real reset must either restore
-   * the missing `workDir` project files (so the migration can run and
-   * actually re-encrypt) or explicitly account for the remote stack, e.g. by
-   * re-running `change-secrets-provider` by hand with the legacy passphrase
-   * before clearing the store entry.
+   * has had any chance to write `Pulumi.yaml` in that directory, and the CLI
+   * needs one there. An install whose `workDir` was wiped (reinstall, cache
+   * clear) while the store's legacy `pulumi.passphrase` survived therefore gets
+   * the project file restored first (see {@link restoreProjectSettingsFileIfMissing}),
+   * so the migration runs and re-encrypts the remote stack instead of dead-ending.
+   * Clearing the legacy `pulumi.passphrase` store entry alone is NOT a safe
+   * reset: the remote stack would still be protected by the legacy passphrase.
    *
    * @param legacyPassphrase - Decrypted legacy passphrase, read by the caller
    *   via {@link ElectronStoreService.getPulumiPassphrase} before this is
@@ -617,6 +607,7 @@ export class PulumiWorkspaceService {
     };
 
     try {
+      this.restoreProjectSettingsFileIfMissing(ctx.workDir);
       await this.runChangeSecretsProviderCli(ctx.pulumiCommand.command, args, ctx.workDir, env, newPassphrase);
     } catch (err) {
       const message = errMessage(err);
@@ -724,13 +715,35 @@ export class PulumiWorkspaceService {
    * packaged app.
    */
   private resolveInlineProjectSettings(workDir: string): ProjectSettings | undefined {
-    const hasProjectSettingsFile = ['.yaml', '.yml', '.json'].some((ext) =>
-      existsSync(join(workDir, `Pulumi${ext}`)),
-    );
-    if (hasProjectSettingsFile) {
+    if (this.hasProjectSettingsFile(workDir)) {
       return undefined;
     }
     return { name: PULUMI_PROJECT_NAME, runtime: 'nodejs', main: process.cwd() };
+  }
+
+  /** True when `workDir` already holds a `Pulumi.yaml`, `Pulumi.yml` or `Pulumi.json` project file. */
+  private hasProjectSettingsFile(workDir: string): boolean {
+    return ['.yaml', '.yml', '.json'].some((ext) => existsSync(join(workDir, `Pulumi${ext}`)));
+  }
+
+  // @spec IAC-ENGINE-PASS-008
+  /**
+   * Writes the same minimal `Pulumi.yaml` `LocalWorkspace.create` would write when `workDir` holds no project file,
+   * so the legacy-passphrase migration CLI (which needs one in its working directory) can run on an install whose
+   * workspace directory was wiped. JSON string scalars are valid YAML.
+   */
+  private restoreProjectSettingsFileIfMissing(workDir: string): void {
+    if (this.hasProjectSettingsFile(workDir)) return;
+    const body =
+      [
+        `name: ${JSON.stringify(PULUMI_PROJECT_NAME)}`,
+        'runtime: nodejs',
+        `main: ${JSON.stringify(process.cwd())}`,
+      ].join('\n') + '\n';
+    writeFileSync(join(workDir, 'Pulumi.yaml'), body);
+    logger.warn('PulumiWorkspaceService: workspace project file was missing — restored it to run the legacy migration', {
+      workDir,
+    });
   }
 
   /**

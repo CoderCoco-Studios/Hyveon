@@ -755,6 +755,49 @@ export class PulumiService {
     return this.operationInFlight;
   }
 
+  /** Aborted by {@link abortInFlightOperations}; folded into every operation's own signal. */
+  private readonly shutdownController = new AbortController();
+
+  // @spec IAC-ENGINE-LIFE-009
+  /**
+   * Aborts every in-flight preview, apply, destroy, rollback and stack
+   * initialization so a `SIGINT` reaches the engine during app shutdown. An
+   * operation started afterwards is refused as not started.
+   *
+   * @returns `true` when an operation was in flight and has been signalled.
+   */
+  abortInFlightOperations(): boolean {
+    const busy = this.operationInFlight !== null || this.stackInitInFlight;
+    this.shutdownController.abort();
+    return busy;
+  }
+
+  /**
+   * Makes `onAbort` fire when {@link abortInFlightOperations} runs, or immediately if it already has. The caller
+   * detaches `onAbort` from `shutdownController.signal` when its operation settles.
+   *
+   * @param controller - The operation's internal controller, aborted at once when shutdown has already begun.
+   * @param onAbort - The operation's abort handler.
+   */
+  private linkShutdownSignal(controller: AbortController, onAbort: () => void): void {
+    if (this.shutdownController.signal.aborted) {
+      controller.abort();
+    } else {
+      this.shutdownController.signal.addEventListener('abort', onAbort, { once: true });
+    }
+  }
+
+  /**
+   * Folds the app-shutdown signal into a caller's signal so
+   * {@link abortInFlightOperations} reaches the engine call.
+   *
+   * @param signal - The caller's own cancellation signal, if any.
+   * @returns A signal that aborts when either source does.
+   */
+  private withShutdownSignal(signal: AbortSignal | undefined): AbortSignal {
+    return signal ? AbortSignal.any([signal, this.shutdownController.signal]) : this.shutdownController.signal;
+  }
+
   /**
    * Dedicated reentrancy guard for {@link initializeStack} — deliberately
    * NOT folded into {@link operationInFlight} (widening that union to a
@@ -939,7 +982,7 @@ export class PulumiService {
     }
   }
 
-  // @spec IAC-ENGINE-OUT-001, IAC-ENGINE-OUT-002
+  // @spec IAC-ENGINE-OUT-001, IAC-ENGINE-OUT-003, IAC-ENGINE-OUT-002
   // @spec IAC-PROGRAM-OUT-008
   /**
    * Reads every value the app cares about off the deployed Pulumi stack.
@@ -1008,7 +1051,7 @@ export class PulumiService {
       // (not just a missing backend) degrades to `null` rather than
       // propagating — the never-throw contract every call site relies on.
       logger.warn('PulumiService.getStackOutputs: failed to read stack outputs, treating as not deployed', {
-        err,
+        error: errMessage(err),
       });
       return null;
     }
@@ -1062,6 +1105,7 @@ export class PulumiService {
 
   // @spec IAC-ENGINE-INIT-001, IAC-ENGINE-INIT-002, IAC-ENGINE-INIT-003, IAC-ENGINE-INIT-004, IAC-ENGINE-PROV-009,
   // @spec IAC-ENGINE-PFAIL-005, IAC-ENGINE-LOCK-001
+  // @spec IAC-ENGINE-LOCK-010, IAC-ENGINE-LIFE-007, IAC-ENGINE-INIT-005
   /**
    * The wizard's stack-initialization step. Initializes — or, on a retry,
    * re-verifies — the one Pulumi stack this app manages end to end:
@@ -1095,12 +1139,17 @@ export class PulumiService {
    * respective step directly.
    *
    * `stack.refresh()`, unlike `preview()`, does take the DIY backend lock, so
-   * this records lock ownership immediately before calling it — mirroring
-   * `apply`/`destroy`'s own "recorded immediately before, cleared on every
-   * normal settlement" pattern — but deliberately does not also wire their
-   * full retry-on-reclaimable-orphan / `PulumiUnrecognizedLockError`
-   * classification: against a brand-new, zero-resource stack, the wizard's
-   * own Retry button is already a strictly simpler recovery path.
+   * it records lock ownership immediately before calling it and runs through
+   * the same escalating-cancellation, leaked-promise and lock-classification
+   * wrappers as `up`/`destroy`: a provable own-orphan lock is cleared and the
+   * refresh retried once, any other conflict surfaces as
+   * {@link PulumiUnrecognizedLockError} (the cause of the thrown
+   * `'operation'` {@link PulumiStackInitializationError}). The ownership
+   * record is kept when the refresh is escalated.
+   *
+   * When `getOrCreateStack` fails after the engine phase ended, an
+   * `'operation'` start/end pair is reported before throwing so the wizard
+   * marks the right row.
    *
    * Refuses to start while {@link operationInFlight} is set — this method
    * touches the same shared local `workDir`/`Pulumi.<stack>.yaml` that
@@ -1111,14 +1160,18 @@ export class PulumiService {
    * @param onPhase - Optional progress callback; receives a `'start'`/`'end'`
    *   pair for every phase actually reached, in order. A phase never
    *   reached never fires.
+   * @param signal - Optional cancellation signal; aborting it sends
+   *   `SIGINT` to the `refresh` engine call through the same escalating
+   *   wrapper `up`/`destroy` use.
    * @throws {@link PulumiOperationInFlightError} if `preview`/`apply`/
    *   `destroy`/`confirmRollback` is already running.
    * @throws `Error` if this method is already running (reentrancy guard).
    * @throws {@link PulumiStackInitializationError} for every other failure —
    *   see "Error attribution" above.
    */
-  async initializeStack(onPhase?: PulumiPhaseCallback): Promise<void> {
+  async initializeStack(onPhase?: PulumiPhaseCallback, signal?: AbortSignal): Promise<void> {
     logger.debug('PulumiService.initializeStack: initializing pulumi stack');
+    signal = this.withShutdownSignal(signal);
     if (this.operationInFlight) {
       throw new PulumiOperationInFlightError(this.operationInFlight);
     }
@@ -1153,7 +1206,13 @@ export class PulumiService {
         logger.error('PulumiService.initializeStack: getOrCreateStack failed', {
           error: errMessage(err),
         });
-        throw new PulumiStackInitializationError(PulumiService.classifyGetOrCreateStackFailure(err), err);
+        const phase = PulumiService.classifyGetOrCreateStackFailure(err);
+        if (phase === 'operation') {
+          // The engine phase already ended; give the wizard an `operation` row to mark failed.
+          onPhase?.('operation', 'start');
+          onPhase?.('operation', 'end');
+        }
+        throw new PulumiStackInitializationError(phase, err);
       }
 
       onPhase?.('plugins', 'start');
@@ -1169,21 +1228,77 @@ export class PulumiService {
       }
 
       onPhase?.('operation', 'start');
-      // Lock-recovery bookkeeping only (see TSDoc) — not the full apply/destroy recovery apparatus.
       const lockAttemptId = this.store.recordPulumiLockAttempt(PULUMI_STACK_NAME);
+      let escalated = false;
       try {
-        await stack.refresh();
+        await runWithEscalatingCancellation(
+          (innerSignal) =>
+            runTreatingLeakedPromiseAsSuccess(
+              () =>
+                this.runWithOwnOrphanLockRecovery(stack, 'refresh', {}, async () => {
+                  await stack.refresh({ signal: innerSignal });
+                }),
+              async () => undefined,
+            ),
+          signal,
+          { onEscalate: () => { escalated = true; } },
+        );
       } catch (err) {
         logger.error('PulumiService.initializeStack: stack.refresh() failed', {
           error: errMessage(err),
         });
         throw new PulumiStackInitializationError('operation', err);
       } finally {
-        this.store.clearPulumiLockAttempt(lockAttemptId);
+        // An escalated refresh may still hold the lock; keep its ownership record as reclaim evidence.
+        if (!escalated) this.store.clearPulumiLockAttempt(lockAttemptId);
         onPhase?.('operation', 'end');
       }
     } finally {
       this.stackInitInFlight = false;
+    }
+  }
+
+  // @spec IAC-ENGINE-LOCK-004, IAC-ENGINE-LOCK-005, IAC-ENGINE-LOCK-010
+  /**
+   * Runs a lock-taking engine call and, when it hits a backend lock conflict,
+   * either clears a provable own-orphan with `stack.cancel()` and retries the
+   * call once, or throws {@link PulumiUnrecognizedLockError} so the operator
+   * confirms before anything is cleared. Shared by `up`, `destroy` and the
+   * stack-init `refresh` so all three classify identically.
+   *
+   * @typeParam T - The engine call's result type.
+   * @param stack - The stack whose lock may be cleared.
+   * @param label - Operation name used in the reclaim log line.
+   * @param logContext - Extra identifiers to log when a lock is reclaimed.
+   * @param call - The engine call; invoked a second time after a reclaim.
+   * @throws {@link PulumiUnrecognizedLockError} if a lock conflict cannot be proven to be this installation's orphan.
+   */
+  private async runWithOwnOrphanLockRecovery<T>(
+    stack: Stack,
+    label: string,
+    logContext: Record<string, unknown>,
+    call: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await call();
+    } catch (err) {
+      if (!isStackLockConflict(err)) {
+        throw err;
+      }
+      const classification = classifyStackLockConflict(err, this.store, PULUMI_STACK_NAME);
+      if (classification.kind === 'reclaimable-own-orphan') {
+        logger.warn(
+          `pulumi ${label}: backend lock is a provable orphan of this installation's own prior run — ` +
+            `clearing it via stack.cancel() and retrying the ${label} once`,
+          { ...logContext, locks: classification.locks },
+        );
+        await stack.cancel();
+        return await call();
+      }
+      throw new PulumiUnrecognizedLockError(
+        PULUMI_STACK_NAME,
+        classification.kind === 'requires-confirmation' ? classification.locks : [],
+      );
     }
   }
 
@@ -1558,6 +1673,7 @@ export class PulumiService {
     // `stack.preview()` call on force-close — see TSDoc's "cancellation" paragraph.
     const internalController = new AbortController();
     const onAbort = (): void => internalController.abort();
+    this.linkShutdownSignal(internalController, onAbort);
     if (signal) {
       if (signal.aborted) {
         internalController.abort();
@@ -1830,6 +1946,7 @@ export class PulumiService {
     } finally {
       // Unconditional detach — `{ once: true }` alone leaks a listener across long-lived signal reuse; see TSDoc.
       signal?.removeEventListener('abort', onAbort);
+      this.shutdownController.signal.removeEventListener('abort', onAbort);
 
       // Force-closed generator with the operation still running: abort and AWAIT settlement before clearing
       // operationInFlight below, else a new preview/up/destroy could race the still-live shared workDir — see TSDoc.
@@ -2059,6 +2176,7 @@ export class PulumiService {
     // removeEventListener it on every exit path, avoiding a leaked listener across long-lived signal reuse.
     const internalController = new AbortController();
     const onAbort = (): void => internalController.abort();
+    this.linkShutdownSignal(internalController, onAbort);
     if (signal) {
       if (signal.aborted) {
         internalController.abort();
@@ -2368,29 +2486,13 @@ export class PulumiService {
         // "Lock-recovery wiring" / "Force-close safety net" sections.
         lockAttemptId = this.store.recordPulumiLockAttempt(PULUMI_STACK_NAME);
 
-        const attemptUp = async (innerSignal: AbortSignal): Promise<UpResult> => {
-          try {
-            return await stack.up({ plan: artifactPath, onOutput, onError, onEvent, signal: innerSignal });
-          } catch (err) {
-            if (!isStackLockConflict(err)) {
-              throw err;
-            }
-            const classification = classifyStackLockConflict(err, this.store, PULUMI_STACK_NAME);
-            if (classification.kind === 'reclaimable-own-orphan') {
-              logger.warn(
-                'pulumi apply: backend lock is a provable orphan of this installation\'s own prior run — ' +
-                  'clearing it via stack.cancel() and retrying the update once',
-                { planRunId, runId, locks: classification.locks },
-              );
-              await stack.cancel();
-              return await stack.up({ plan: artifactPath, onOutput, onError, onEvent, signal: innerSignal });
-            }
-            throw new PulumiUnrecognizedLockError(
-              PULUMI_STACK_NAME,
-              classification.kind === 'requires-confirmation' ? classification.locks : [],
-            );
-          }
-        };
+        const attemptUp = (innerSignal: AbortSignal): Promise<UpResult> =>
+          this.runWithOwnOrphanLockRecovery(
+            stack,
+            'apply',
+            { planRunId, runId },
+            () => stack.up({ plan: artifactPath, onOutput, onError, onEvent, signal: innerSignal }),
+          );
 
         const recoverResult = async (): Promise<UpResult> => {
           const [outputs, summary] = await Promise.all([stack.outputs(), stack.info()]);
@@ -2629,6 +2731,7 @@ export class PulumiService {
       // accumulate one listener per call. Safe/idempotent to call even when the listener already
       // detached itself (a `{ once: true }` listener that already fired).
       signal?.removeEventListener('abort', onAbort);
+      this.shutdownController.signal.removeEventListener('abort', onAbort);
 
       // Covers the force-closed generator case — see preview()'s identical
       // block for the full rationale; mirrored here verbatim except for the
@@ -2810,6 +2913,7 @@ export class PulumiService {
   // @spec IAC-RUN-GATE-013, IAC-RUN-LOCK-007
   // @spec IAC-ENGINE-LOCK-001, IAC-ENGINE-LOCK-002, IAC-ENGINE-LOCK-004, IAC-ENGINE-LOCK-005, IAC-ENGINE-LOCK-009,
   // @spec IAC-ENGINE-LIFE-005, IAC-ENGINE-OUT-006
+  // @spec IAC-ENGINE-REDACT-002
   /**
    * Runs `pulumi destroy` against the deployed stack, yielding a
    * {@link PulumiRunChunk} per line of stdout/stderr as the operation
@@ -2860,11 +2964,14 @@ export class PulumiService {
    *
    * Passes a no-op `async () => ({})` program to `getOrCreateStack` — a
    * plain `pulumi destroy` never runs the program (it only reads the
-   * existing state checkpoint), so this method never needs to read the
-   * deployment configuration object at all. That's operationally important:
+   * existing state checkpoint), so the destroy itself never depends on the
+   * deployment configuration object. That's operationally important:
    * `destroy` can tear down a stack even when the current configuration
    * object is missing, malformed, or describes a different layout than
-   * what's actually deployed.
+   * what's actually deployed. The object is read best-effort only to build
+   * the environment-value redaction set (see
+   * {@link loadEnvironmentRedactionSetBestEffort}); an unreadable one means
+   * nothing is redacted, not that the destroy fails.
    *
    * `changeSummary` is captured from `onEvent`'s `summaryEvent` exactly like
    * `apply` (not `preview`), never read off `DestroyResult.summary`
@@ -2944,6 +3051,7 @@ export class PulumiService {
     // with-unconditional-removal handling.
     const internalController = new AbortController();
     const onAbort = (): void => internalController.abort();
+    this.linkShutdownSignal(internalController, onAbort);
     if (signal) {
       if (signal.aborted) {
         internalController.abort();
@@ -3065,8 +3173,7 @@ export class PulumiService {
       let destroyError: unknown;
       try {
         const stack = await this.workspace.getOrCreateStack({
-          // See this method's TSDoc, "No-op inline program", for why destroy
-          // never reads the deployment configuration object at all.
+          // See this method's TSDoc, "No-op inline program": the program never depends on the configuration object.
           program: async () => ({}),
           stateBucket,
           stateBucketRegion,
@@ -3082,8 +3189,9 @@ export class PulumiService {
           wake?.();
           wake = null;
         };
+        const redactedEnvironmentValues = await this.loadEnvironmentRedactionSetBestEffort();
         const push = (chunk: PulumiRunChunk): void => {
-          queue.push(chunk);
+          queue.push({ ...chunk, line: PulumiService.redactEnvironmentValues(chunk.line, redactedEnvironmentValues) });
           notify();
         };
         const handleData = (stream: 'stdout' | 'stderr', data: string): void => {
@@ -3109,29 +3217,13 @@ export class PulumiService {
         // stack.destroy() take the DIY backend lock?".
         lockAttemptId = this.store.recordPulumiLockAttempt(PULUMI_STACK_NAME);
 
-        const attemptDestroy = async (innerSignal: AbortSignal): Promise<DestroyResult> => {
-          try {
-            return await stack.destroy({ onOutput, onError, onEvent, signal: innerSignal });
-          } catch (err) {
-            if (!isStackLockConflict(err)) {
-              throw err;
-            }
-            const classification = classifyStackLockConflict(err, this.store, PULUMI_STACK_NAME);
-            if (classification.kind === 'reclaimable-own-orphan') {
-              logger.warn(
-                'pulumi destroy: backend lock is a provable orphan of this installation\'s own prior run — ' +
-                  'clearing it via stack.cancel() and retrying the destroy once',
-                { runId, locks: classification.locks },
-              );
-              await stack.cancel();
-              return await stack.destroy({ onOutput, onError, onEvent, signal: innerSignal });
-            }
-            throw new PulumiUnrecognizedLockError(
-              PULUMI_STACK_NAME,
-              classification.kind === 'requires-confirmation' ? classification.locks : [],
-            );
-          }
-        };
+        const attemptDestroy = (innerSignal: AbortSignal): Promise<DestroyResult> =>
+          this.runWithOwnOrphanLockRecovery(
+            stack,
+            'destroy',
+            { runId },
+            () => stack.destroy({ onOutput, onError, onEvent, signal: innerSignal }),
+          );
 
         const recoverResult = async (): Promise<DestroyResult> => {
           const summary = await stack.info();
@@ -3320,6 +3412,7 @@ export class PulumiService {
     } finally {
       // Mirrors apply()'s abort-listener cleanup — see apply()'s TSDoc.
       signal?.removeEventListener('abort', onAbort);
+      this.shutdownController.signal.removeEventListener('abort', onAbort);
 
       // Covers the force-closed generator case — see apply()'s identical
       // block for the full rationale; mirrored here verbatim except for the
@@ -3451,6 +3544,27 @@ export class PulumiService {
       throw new RollbackVersionMissingError(record.configVersionId);
     }
     return prior;
+  }
+
+  // @spec IAC-ENGINE-REDACT-002
+  /**
+   * Reads the stored deployment configuration only to collect the game-server environment values to scrub from
+   * streamed engine output. Destroy never depends on that object, so an unreadable or malformed one yields an empty
+   * set (logged) and the destroy still runs.
+   *
+   * @returns The redaction set, or an empty set when the configuration cannot be read.
+   */
+  private async loadEnvironmentRedactionSetBestEffort(): Promise<Set<string>> {
+    try {
+      const obj = await this.getRemoteFileStore().get(CONFIGURATION_OBJECT_KEY);
+      if (!obj) return new Set();
+      return PulumiService.buildEnvironmentRedactionSet(PulumiService.parseConfigurationObject(obj.body));
+    } catch (err) {
+      logger.warn('PulumiService: could not read the deployment configuration to build the output redaction set', {
+        error: errMessage(err),
+      });
+      return new Set();
+    }
   }
 
   // @spec GAME-HTTPS-010

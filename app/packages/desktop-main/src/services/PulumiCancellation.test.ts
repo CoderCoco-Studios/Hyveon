@@ -217,9 +217,17 @@ describe('runWithEscalatingCancellation — no response within the escalation ti
     await assertion;
     expect(onEscalate).toHaveBeenCalledTimes(1);
     expect(loggerMock.warn).toHaveBeenCalledWith(
-      'Pulumi engine invocation did not exit within the escalation timeout — force-terminating',
+      'Pulumi engine invocation did not exit within the escalation timeout — abandoning it',
       expect.objectContaining({ escalationTimeoutMs: 5_000 }),
     );
+  });
+
+  // @spec IAC-ENGINE-LIFE-004
+  it('should word the escalation error as an abandoned invocation, not a forceful termination', () => {
+    const message = new PulumiOperationEscalatedError(5_000).message;
+
+    expect(message).toContain('abandoned');
+    expect(message).not.toMatch(/forceful|terminated/);
   });
 
   it('should not escalate before the timeout has fully elapsed', async () => {

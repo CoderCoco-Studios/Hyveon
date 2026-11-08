@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { bootstrap } from './main.js';
 import { electronRendererUrl, isTestMode } from './env.js';
 import { installHelperQuitHook } from './helper-quit-hook.js';
+import { installOperationQuitHook } from './operation-quit-hook.js';
 import { initUpdater } from './updater.js';
 import { ElectronStoreService } from './services/ElectronStoreService.js';
+import { PulumiService } from './services/PulumiService.js';
 import { HelperSessionRegistry } from './services/volumeFiles/HelperSessionRegistry.js';
 import { WindowService } from './services/WindowService.js';
 
@@ -230,6 +232,7 @@ app.whenReady().then(() => {
       });
 
       installHelperQuitHook(app, nestApp.get(HelperSessionRegistry));
+      installOperationQuitHook(app, nestApp.get(PulumiService));
 
       const windowService = nestApp.get(WindowService);
       windowService.attach(createWindow());

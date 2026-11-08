@@ -141,19 +141,18 @@ function makeEngine(): PulumiEngineService {
 }
 
 /**
- * Stub `ModuleRef` routing `.get(token, { strict: false })` to the three
- * lazily-resolved dependencies `destroy()` uses. Unlike `apply()`,
- * `destroy()` never resolves `REMOTE_FILE_STORE` (it never reads the
- * deployment configuration object — see the source's "No-op inline program"
- * doc section) — omitted here so an accidental call to
- * `getRemoteFileStore()` fails loudly instead of silently succeeding.
+ * Stub `ModuleRef` routing `.get(token, { strict: false })` to the lazily-resolved dependencies `destroy()` uses.
+ * `REMOTE_FILE_STORE` is only wired when a test supplies one: `destroy()` reads the configuration object solely for
+ * output redaction, and treats an unavailable one as "nothing to redact".
  */
 function makeModuleRef(deps: {
   runRecordPersister: RunRecordPersister;
   runLockService: RunLockService;
   configCacheInvalidator: ConfigCacheInvalidator;
+  remoteFileStore?: RemoteFileStore;
 }): ModuleRef {
   const get = vi.fn((token: unknown) => {
+    if (token === REMOTE_FILE_STORE && deps.remoteFileStore) return deps.remoteFileStore;
     if (token === RUN_RECORD_PERSISTER) return deps.runRecordPersister;
     if (token === RUN_LOCK_SERVICE) return deps.runLockService;
     if (token === CONFIG_CACHE_INVALIDATOR) return deps.configCacheInvalidator;
@@ -225,6 +224,7 @@ function makeService(opts: {
   runRecordPersister?: ReturnType<typeof makeRunRecordPersister>;
   runLockService?: ReturnType<typeof makeRunLockService>;
   configCacheInvalidator?: ReturnType<typeof makeConfigCacheInvalidator>;
+  remoteFileStore?: RemoteFileStore;
 }): PulumiService {
   const runRecordPersister = opts.runRecordPersister ?? makeRunRecordPersister();
   const runLockService = opts.runLockService ?? makeRunLockService();
@@ -232,7 +232,7 @@ function makeService(opts: {
   return new PulumiService(
     opts.workspace,
     opts.store ?? makeFullyConfiguredStore(),
-    makeModuleRef({ runRecordPersister, runLockService, configCacheInvalidator }),
+    makeModuleRef({ runRecordPersister, runLockService, configCacheInvalidator, remoteFileStore: opts.remoteFileStore }),
     makeEngine(),
   );
 }
@@ -1160,5 +1160,80 @@ describe('PulumiService.destroy concurrency guard', () => {
     resolveDestroy();
     await firstNext;
     await firstGen.next();
+  });
+});
+
+// @spec IAC-ENGINE-REDACT-002
+describe('PulumiService.destroy environment redaction', () => {
+  const SECRET_VALUE = 'sup3rSecretValue';
+
+  /** A `RemoteFileStore` whose configuration object holds `SECRET_VALUE` as a game-server environment value. */
+  function makeRemoteFileStoreWithSecretEnv(): RemoteFileStore {
+    return {
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            hostedZoneName: 'example.com',
+            gameServers: { minecraft: { environment: [{ name: 'RCON_PASSWORD', value: SECRET_VALUE }] } },
+          }),
+        ),
+        etag: 'etag-1',
+      }),
+    } as Partial<RemoteFileStore> as RemoteFileStore;
+  }
+
+  /** A workspace whose destroy streams a line carrying `SECRET_VALUE` on stdout and stderr. */
+  function makeLeakyWorkspace() {
+    return makeWorkspace(async (opts) => {
+      opts.onOutput?.(`deleting RCON_PASSWORD=${SECRET_VALUE}\n`);
+      opts.onError?.(`warn ${SECRET_VALUE}\n`);
+      return { stdout: '', stderr: '', summary: makeUpdateSummary() };
+    });
+  }
+
+  it('should redact an operator-set environment value from streamed destroy output', async () => {
+    const service = makeService({ workspace: makeLeakyWorkspace(), remoteFileStore: makeRemoteFileStoreWithSecretEnv() });
+
+    const { chunks } = await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken()));
+
+    expect(chunks.length).toBe(2);
+    expect(chunks.some((chunk) => chunk.line.includes(SECRET_VALUE))).toBe(false);
+  });
+
+  it('should still destroy, without redaction, when the configuration object cannot be read', async () => {
+    const service = makeService({ workspace: makeLeakyWorkspace() });
+
+    const { chunks, result } = await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken()));
+
+    expect(result).toBeDefined();
+    expect(chunks.length).toBe(2);
+  });
+});
+
+// @spec IAC-ENGINE-LIFE-009
+describe('PulumiService.destroy app shutdown', () => {
+  it('should abort the engine call and settle the run as aborted when abortInFlightOperations runs mid-destroy', async () => {
+    let started!: () => void;
+    const engineStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const workspace = makeWorkspace(
+      (opts) =>
+        new Promise((_resolve, reject) => {
+          opts.signal?.addEventListener('abort', () => reject(new Error('interrupted')));
+          started();
+        }),
+    );
+    const runRecordPersister = makeRunRecordPersister();
+    const service = makeService({ workspace, runRecordPersister });
+
+    const drained = collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken(), undefined, 'run-1'));
+    await engineStarted;
+
+    expect(service.abortInFlightOperations()).toBe(true);
+
+    const { result } = await drained;
+    expect(result).toBeUndefined();
+    expect(runRecordPersister.persist).toHaveBeenCalledWith(expect.objectContaining({ exitCode: null, kind: 'destroy' }), expect.any(String));
   });
 });

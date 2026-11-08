@@ -319,7 +319,8 @@ describe('PulumiService.getStackOutputs', () => {
     await expect(service.getStackOutputs()).resolves.toBeNull();
   });
 
-  it('should log a warning (not crash) when a Pulumi call fails', async () => {
+  // @spec IAC-ENGINE-OUT-003
+  it('should log the normalised error message (not the raw error) when a Pulumi call fails', async () => {
     loggerMock.warn.mockClear();
     const workspace = makeWorkspace(new Error('transient AWS failure'));
     const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
@@ -328,7 +329,7 @@ describe('PulumiService.getStackOutputs', () => {
 
     expect(loggerMock.warn).toHaveBeenCalledWith(
       expect.stringContaining('failed to read stack outputs'),
-      expect.objectContaining({ err: expect.any(Error) }),
+      { error: 'transient AWS failure' },
     );
   });
 });

@@ -77,7 +77,7 @@ These pairs describe one behaviour from two leaves. Keep one ID as the owner and
 | Health-check Lambda env vars | `RT-HEALTH-PROV-003`, `IAC-PROGRAM-LAMBDA-011`, `IAC-PROGRAM-RUNTIME-003` | `iac/program` (provisioning) |
 | Health-check Lambda network path | `RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-012` | `iac/program` |
 | Install region single-sourced | `IAC-ENGINE-REGION-001`, `CONFIG-SET-012`, `CONFIG-FORM-003`, `CONFIG-FORM-007`, `APP-WIZARD-REGLOCK-001` | `iac/engine` (decision 10 in the HLD); the others cite it |
-| Quit-time abort of IaC runs | `IAC-ENGINE-LIFE-009`, `IAC-RUN-DSTR-011` | `iac/engine` |
+| Quit-time abort of IaC runs (`IAC-ENGINE-LIFE-009` closed; `IAC-RUN-DSTR-011` still open in `iac/run`) | `IAC-RUN-DSTR-011` | `iac/run` |
 | Audit-read error handling | `APP-DIAG-AUDR-004`, `APP-DIAG-SVC-002` | `APP-DIAG-SVC-002` |
 | Partial-apply persistence | `IAC-RUN-STORE-008` | `IAC-RUN-STORE-008` |
 
@@ -85,7 +85,7 @@ These pairs describe one behaviour from two leaves. Keep one ID as the owner and
 
 - **Refactor wishes written as EARS (class d).** `RT-TASK-STATUS-008`, `RT-TASK-COST-010`, `RT-TASK-COST-012`, `GAME-IPC-005`, `DISCORD-SVC-005`, `IAC-RUN-APPR-006`, `IAC-RUN-DSTR-014`, `IAC-RUN-IPC-008`, `APP-UPDATE-IPC-009`, `APP-UPDATE-PKG-004`, `APP-UPDATE-PKG-005`, `APP-DIAG-LOG-008`, `APP-LOGS-GROUP-007`, `APP-IPC-CONTRACT-004`, `APP-IPC-SEAM-006`, `APP-SHELL-UI-005`, `APP-SHELL-UI-006` and `RT-HEALTH-PROV-005` describe deduplication, dead-code removal, conventions or test style with no runtime effect. Move each to its LLD's Work Required list, or keep them as EARS if the project wants structural requirements tracked as specs.
 - **Spec conflicts with the design.** `CONFIG-RESTORE-004` contradicts the deployment-config LLD's Decisions table (unconditional restore; open question 2).
-- **Policy calls blocking a gap.** `IAC-ENGINE-LOCK-010` (the spec and `docs/arrows/iac/engine.md:155` Must Fix 3 want lock classification on the stack-init `refresh`, but the `PulumiService.initializeStack` TSDoc at `PulumiService.ts:1097-1103` deliberately declines it because the wizard Retry is simpler; `docs/intent/iac/engine/engine-design.md:151` open question 3 is unresolved), `APP-SHELL-GATE-006` (should the setup gate fail open when setup state is unreadable), `APP-WIZARD-ROTKEY-005` (wire `rotateActiveCredentials` or drop it), `APP-IPC-STREAM-009` and `IAC-RUN-LOCK-010` wait on decisions recorded in their arrow docs.
+- **Policy calls blocking a gap.** `APP-SHELL-GATE-006` (should the setup gate fail open when setup state is unreadable), `APP-WIZARD-ROTKEY-005` (wire `rotateActiveCredentials` or drop it), `APP-IPC-STREAM-009` and `IAC-RUN-LOCK-010` wait on decisions recorded in their arrow docs.
 - **Contested classification.** `APP-DIAG-AUDIT-004` is class c here, but a (implemented), c (defer) and d (spec stale) are each defensible. The spec's behaviour holds today through the upstream never-reject contract (`PulumiService.getStackOutputs`, `PulumiService.ts:972-1023`; `ConfigService.ts:153-167` still rethrows defensively), so the gap is only the unguarded read at `AuditService.ts:91`. The owner picks the class.
 
 ## Per-segment lists
@@ -118,21 +118,8 @@ Specs: `docs/intent/iac/engine/engine-specs.md` · Arrow doc: `docs/arrows/iac/e
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `IAC-ENGINE-PROV-010` | b | low | Only initializeStack emits a 'plugins' phase (desktop-main/src/services/PulumiService.ts:1159-1168); preview/apply/destroy take no onPhase, so a cold plugin download is indistinguishable from the operation |
-| `IAC-ENGINE-PROV-012` | b | low | pruneOldVersions still skips every .staging-/.trash- entry unconditionally (desktop-main/src/services/PulumiEngineService.ts:630); disk debris only, no functional impact |
-| `IAC-ENGINE-PFAIL-006` | b | low | Raw err/restoreErr objects still logged at PulumiEngineService.ts:254,451,458,537,581,626 (serialise to {}); logging-rule violation only |
-| `IAC-ENGINE-PASS-008` | c | - | Dead end still documented, manual reset only (PulumiWorkspaceService.ts:566-582); hits only pre-derivation installs whose workDir was wiped but legacy passphrase survived; arrow lists as Nice-to-have |
-| `IAC-ENGINE-REDACT-002` | b | med | destroy's push enqueues raw chunk (PulumiService.ts:3054-3056) vs preview/apply redacting (:1658,:2312); whether destroy display prints env values is inferred, hence med not high |
-| `IAC-ENGINE-LOCK-010` | c | med | initializeStack refresh (PulumiService.ts:1175) has no classifyStackLockConflict; the TSDoc at :1097-1103 deliberately declines it in favour of the wizard Retry. Waiting on a decision (engine-design.md:151 open question 3 is unresolved); not class d because the LLD and arrows/iac/engine.md:155 Must Fix 3 back the spec. Orphaned refresh lock blocks wizard retry until resolved |
-| `IAC-ENGINE-LIFE-004` | b | low | Message still "has been forcefully terminated" (services/PulumiCancellation.ts:119) and log "force-terminating" (:233) though escalation only abandons the promise |
-| `IAC-ENGINE-LIFE-006` | b | med | No iac.plan/apply/destroy.cancel @MessagePattern (iac.controller.ts MessagePatterns at :640-1354); maps only feed a "future" cancel channel (:526,:537,:546); aborts fire only on WebContents destroy |
-| `IAC-ENGINE-LIFE-007` | b | med | initializeStack(onPhase?) takes no signal (PulumiService.ts:1120); stack.refresh() runs bare at :1175, no runWithEscalatingCancellation (used at :1684,:2390,:3130) |
-| `IAC-ENGINE-LIFE-009` | b | med | Only before-quit hook is installHelperQuitHook for file helpers (desktop-main/src/helper-quit-hook.ts:34, electron-entry.ts:232); nothing aborts PulumiService ops; no onApplicationShutdown in services |
-| `IAC-ENGINE-INIT-005` | b | low | Post-engine getOrCreateStack failures classified 'operation' (PulumiService.ts:1336-1343) but wizard marks lastStartedPhase ('engine', already done) failed (web/.../stack-init-step.component.tsx:131,143); cosmetic |
-| `IAC-ENGINE-OUT-003` | b | low | getStackOutputs catch still logs raw err (PulumiService.ts:1010-1011) |
 | `IAC-ENGINE-REGION-001` (CLOSED) | b | high | preview/apply pass parsed DeploymentConfig unchanged to createInfraProgram (PulumiService.ts:1611,1629; :2293); program uses config.awsRegion for the provider (infra/src/program.ts:177) - wrong-region / stack-replacing infra |
 | `IAC-ENGINE-REGION-002` (CLOSED) | b | med | EcsService.ts:72 uses outputs.awsRegion; cloud-provider.module.ts:109,131,181 prefer outputs?.awsRegion over getRegion(). Mostly moot once REGION-001 lands (outputs.awsRegion would equal wizard region) |
-| `IAC-ENGINE-RT-003` | b | low | PulumiServiceStub (test-mocks/pulumi-mock.ts:67-193) has no mintLockClearConfirmationToken; IacController calls it at iac.controller.ts:967. Test-double drift only |
 
 ### `program`
 

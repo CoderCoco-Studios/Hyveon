@@ -7,13 +7,17 @@
  * (`node_modules/@pulumi/pulumi/runtime/debuggable.js`) produces, rather
  * than a hand-waved approximation.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRequire } from 'node:module';
 
 const { loggerMock } = vi.hoisted(() => ({
   loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 vi.mock('../logger.js', () => ({ logger: loggerMock }));
+
+beforeEach(() => {
+  loggerMock.warn.mockClear();
+});
 
 import { isLeakedPromiseError, runTreatingLeakedPromiseAsSuccess } from './PulumiLeakedPromise.js';
 

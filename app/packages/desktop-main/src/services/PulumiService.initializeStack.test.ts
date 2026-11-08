@@ -35,6 +35,7 @@ import {
 import type { PulumiWorkspaceService } from './PulumiWorkspaceService.js';
 import type { PulumiEngineService, PulumiPhaseCallback } from './PulumiEngineService.js';
 import { PulumiEngineNetworkError } from './PulumiEngineService.js';
+import { PulumiUnrecognizedLockError } from './PulumiLockRecovery.js';
 import { PulumiCredentialsNotConfiguredError } from './PulumiCredentialResolver.js';
 import { AwsPastedCredentialDecryptError } from './awsCredentialSource.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
@@ -228,7 +229,7 @@ describe('PulumiService.initializeStack', () => {
       expect(clearSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('should not report plugins/operation phases at all when getOrCreateStack fails', async () => {
+    it('should not report a plugins phase when getOrCreateStack fails', async () => {
       const workspace = makeWorkspace({ rejectWith: new Error('boom') });
       const service = makeService({ workspace });
       const events: Array<{ phase: string; status: string }> = [];
@@ -236,7 +237,6 @@ describe('PulumiService.initializeStack', () => {
       await expect(service.initializeStack((phase, status) => events.push({ phase, status }))).rejects.toThrow();
 
       expect(events.some((e) => e.phase === 'plugins')).toBe(false);
-      expect(events.some((e) => e.phase === 'operation')).toBe(false);
     });
 
     it('should still report plugins end when installPlugin fails, and never reach the operation phase', async () => {
@@ -606,6 +606,121 @@ describe('PulumiService.initializeStack', () => {
 
       shouldFail = false;
       await expect(service.initializeStack()).resolves.toBeUndefined();
+    });
+  });
+
+  // @spec IAC-ENGINE-INIT-005
+  describe('post-engine getOrCreateStack failure attribution', () => {
+    it("should report an operation start/end pair so the wizard can mark that row failed instead of the finished engine row", async () => {
+      const workspace = makeWorkspace({ rejectWith: new Error('createOrSelect failed') });
+      const service = makeService({ workspace });
+      const events: Array<[string, string]> = [];
+
+      await expect(service.initializeStack((phase, status) => events.push([phase, status]))).rejects.toMatchObject({
+        phase: 'operation',
+      });
+
+      expect(events).toEqual([
+        ['engine', 'start'],
+        ['engine', 'end'],
+        ['operation', 'start'],
+        ['operation', 'end'],
+      ]);
+    });
+
+    it('should not report an operation phase for an engine-attributed failure', async () => {
+      const workspace = makeWorkspace({ rejectWith: new PulumiCredentialsNotConfiguredError() });
+      const service = makeService({ workspace });
+      const events: Array<[string, string]> = [];
+
+      await expect(service.initializeStack((phase, status) => events.push([phase, status]))).rejects.toMatchObject({
+        phase: 'engine',
+      });
+
+      expect(events.some(([phase]) => phase === 'operation')).toBe(false);
+    });
+  });
+
+  // @spec IAC-ENGINE-LOCK-010
+  describe('refresh lock conflict', () => {
+    it('should surface a lock it cannot prove is its own as PulumiUnrecognizedLockError and clear nothing', async () => {
+      const cancel = vi.fn();
+      const refresh = vi.fn().mockRejectedValue(new Error('error: the stack is currently locked by 1 lock(s)'));
+      const stack = { workspace: { installPlugin: vi.fn().mockResolvedValue(undefined) }, refresh, cancel } as unknown as Stack;
+      const workspace = { getOrCreateStack: vi.fn().mockResolvedValue(stack) } as unknown as PulumiWorkspaceService;
+      const service = makeService({ workspace });
+
+      const caught = await service.initializeStack().catch((err: unknown) => err);
+
+      expect(caught).toBeInstanceOf(PulumiStackInitializationError);
+      expect((caught as PulumiStackInitializationError).phase).toBe('operation');
+      expect((caught as PulumiStackInitializationError).cause).toBeInstanceOf(PulumiUnrecognizedLockError);
+      expect(cancel).not.toHaveBeenCalled();
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // @spec IAC-ENGINE-LIFE-007
+  describe('abort signal', () => {
+    it('should forward the signal into stack.refresh and reject once the refresh settles after an abort', async () => {
+      const controller = new AbortController();
+      const refresh = vi.fn().mockImplementation(
+        (opts: { signal: AbortSignal }) =>
+          new Promise<void>((_resolve, reject) => {
+            opts.signal.addEventListener('abort', () => reject(new Error('interrupted')));
+          }),
+      );
+      const workspace = makeWorkspace({ refresh });
+      const service = makeService({ workspace });
+
+      const run = service.initializeStack(undefined, controller.signal);
+      const assertion = expect(run).rejects.toMatchObject({ phase: 'operation' });
+      await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+      controller.abort();
+
+      await assertion;
+    });
+
+    it('should refuse to start the refresh when the signal is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const refresh = vi.fn();
+      const workspace = makeWorkspace({ refresh });
+      const service = makeService({ workspace });
+
+      await expect(service.initializeStack(undefined, controller.signal)).rejects.toMatchObject({ phase: 'operation' });
+      expect(refresh).not.toHaveBeenCalled();
+    });
+  });
+
+  // @spec IAC-ENGINE-LIFE-009
+  describe('abortInFlightOperations', () => {
+    it('should report an idle service and then abort a stack initialization started afterwards', async () => {
+      const refresh = vi.fn();
+      const workspace = makeWorkspace({ refresh });
+      const service = makeService({ workspace });
+
+      expect(service.abortInFlightOperations()).toBe(false);
+      await expect(service.initializeStack()).rejects.toMatchObject({ phase: 'operation' });
+      expect(refresh).not.toHaveBeenCalled();
+    });
+
+    it('should report true and abort the signal of a running stack initialization', async () => {
+      const refresh = vi.fn().mockImplementation(
+        (opts: { signal: AbortSignal }) =>
+          new Promise<void>((_resolve, reject) => {
+            opts.signal.addEventListener('abort', () => reject(new Error('interrupted')));
+          }),
+      );
+      const workspace = makeWorkspace({ refresh });
+      const service = makeService({ workspace });
+
+      const run = service.initializeStack();
+      const assertion = expect(run).rejects.toMatchObject({ phase: 'operation' });
+      await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+
+      expect(service.abortInFlightOperations()).toBe(true);
+      await assertion;
     });
   });
 });

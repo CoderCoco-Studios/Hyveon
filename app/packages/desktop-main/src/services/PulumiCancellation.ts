@@ -116,7 +116,7 @@ export class PulumiOperationEscalatedError extends Error {
   constructor(public readonly escalationTimeoutMs: number) {
     super(
       `Pulumi engine invocation did not exit within the ${escalationTimeoutMs}ms escalation timeout after ` +
-        'cancellation was requested; it has been forcefully terminated so the app does not wait on it indefinitely.',
+        'cancellation was requested; the invocation was abandoned so the app does not wait on it indefinitely.',
     );
     this.name = 'PulumiOperationEscalatedError';
   }
@@ -137,7 +137,7 @@ export interface EscalatingCancellationOptions {
   onEscalate?: () => void;
 }
 
-// @spec IAC-ENGINE-LIFE-001, IAC-ENGINE-LIFE-002, IAC-ENGINE-LIFE-003, IAC-ENGINE-LIFE-008
+// @spec IAC-ENGINE-LIFE-001, IAC-ENGINE-LIFE-002, IAC-ENGINE-LIFE-003, IAC-ENGINE-LIFE-004, IAC-ENGINE-LIFE-008
 /**
  * Runs `operation` with a bounded escalation window layered on top of
  * whatever cancellation behaviour `operation` itself implements in response
@@ -230,7 +230,7 @@ export function runWithEscalatingCancellation<T>(
         if (settled) return;
         settled = true;
         cleanup();
-        logger.warn('Pulumi engine invocation did not exit within the escalation timeout — force-terminating', {
+        logger.warn('Pulumi engine invocation did not exit within the escalation timeout — abandoning it', {
           escalationTimeoutMs,
         });
         options.onEscalate?.();
