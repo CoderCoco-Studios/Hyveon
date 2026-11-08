@@ -1444,7 +1444,7 @@ describe('preload dispatcher', () => {
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
       });
 
-      // @spec APP-IPC-STREAM-010
+      // @spec APP-IPC-STREAM-010, APP-IPC-STREAM-009
       it('should stop the stream and clean up listeners when cancelled mid-stream', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
@@ -1482,6 +1482,7 @@ describe('preload dispatcher', () => {
         const second = await handle.next();
 
         expect(second.done).toBe(true);
+        expect(ipcSend).not.toHaveBeenCalled();
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.chunk', expect.any(Function));
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
       }, 10_000);

@@ -55,6 +55,7 @@ import type {
   UpdateDownloadResult,
   UpdateInstallResult,
   OpType,
+  RedactedDiscordConfig as SharedRedactedDiscordConfig,
   PulumiEngineVersionResult,
   RendererConsoleLevel,
   RendererLogEntry,
@@ -226,10 +227,10 @@ export interface HyveonStreamHandle<T> {
    */
   next: () => Promise<{ done?: false; value: T } | { done: true; value?: undefined }>;
   /**
-   * Stops consuming the stream: tells the main process to tear down the
-   * underlying tail/run early (where applicable — see each streaming
-   * method's own doc comment for exactly what tearing down early means for
-   * that channel). Safe to call more than once and safe to call after the
+   * Stops consuming the stream. A per-call log stream (`logs.stream`, `logs.lambda.stream`) also tells the main
+   * process to abort its source; a shared side-channel stream (`iac.stack.initialize`, `iac.runs.logs`,
+   * `iac.settings.autoUpdate.download`) only stops the local drain, and the main-process work runs to completion.
+   * Safe to call more than once and safe to call after the
    * stream has already ended on its own.
    */
   cancel: () => void;
@@ -252,22 +253,12 @@ export interface DiscordGamePermission {
 }
 
 /**
- * Discord config returned to the renderer — secrets are redacted to
- * presence booleans so the raw bot token and public key are never sent
- * over IPC.
+ * Discord config returned to the renderer: the shared redacted shape (secrets as `botTokenSet` / `publicKeySet`
+ * booleans) plus the interactions Function URL the controller reads from Pulumi stack outputs (`null` before apply).
  */
-export interface RedactedDiscordConfig {
-  clientId: string;
-  allowedGuilds: string[];
-  admins: DiscordAdmins;
-  gamePermissions: Record<string, DiscordGamePermission>;
-  baseAllowedGuilds: string[];
-  baseAdmins: DiscordAdmins;
-  botTokenSet: boolean;
-  publicKeySet: boolean;
-  /** Function URL for the interactions Lambda, copied from Pulumi stack outputs. Null if not yet applied. */
+export type RedactedDiscordConfig = SharedRedactedDiscordConfig & {
   interactionsEndpointUrl: string | null;
-}
+};
 
 /** Result of a guild allowlist mutation. */
 export interface GuildListResult {
@@ -2227,8 +2218,8 @@ export type HyveonMockNamespaces = {
  * Present in two distinct scenarios:
  *
  * 1. **Vitest / jsdom unit tests** — the test harness replaces the entire
- *    `window.hyveon` object with a mock built from `test-mock-registry`; the mock
- *    object includes this property so individual test cases can register
+ *    `window.hyveon` object with a stub; the stub
+ *    includes this property so individual test cases can register
  *    per-channel overrides via `window.hyveon.__test.mock(channel, handler)`.
  *
  * 2. **Electron preload at runtime** — when the app is launched with

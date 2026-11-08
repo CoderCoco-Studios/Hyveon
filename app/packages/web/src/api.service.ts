@@ -8,6 +8,7 @@
 // the remaining local interfaces (`Discord*`, `EnvInfo`, etc.) have no
 // shared-package counterpart and are genuinely web-only shapes.
 
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 import type {
   ResolvedGameWizardDraft,
   StoredResolvedGameWizardDraft,
@@ -69,6 +70,7 @@ import type {
   CloudHealthFixOutcome,
   CloudHealthFixResult,
   OpenConsoleResult,
+  RedactedDiscordConfig,
 } from '@hyveon/desktop-preload';
 
 export type {
@@ -156,19 +158,7 @@ export interface DiscordGamePermission {
  * `interactionsEndpointUrl` is the Lambda Function URL the operator pastes
  * into the Discord developer portal as the "Interactions Endpoint URL".
  */
-export interface DiscordConfigRedacted {
-  clientId: string;
-  allowedGuilds: string[];
-  admins: DiscordAdmins;
-  gamePermissions: Record<string, DiscordGamePermission>;
-  /** Guild IDs locked in by the deployment config's immutable "base" allowlist — non-removable via the UI. */
-  baseAllowedGuilds: string[];
-  /** Admin user/role IDs locked in by the deployment config's immutable "base" allowlist — non-removable via the UI. */
-  baseAdmins: DiscordAdmins;
-  botTokenSet: boolean;
-  publicKeySet: boolean;
-  interactionsEndpointUrl: string | null;
-}
+export type DiscordConfigRedacted = RedactedDiscordConfig;
 
 /** Result of a server-side mutation that may surface a human-readable error to the UI. */
 export interface DiscordMutationResult {
@@ -191,9 +181,7 @@ export interface EnvInfo {
 function hyveon() {
   const bridge = window.hyveon;
   if (!bridge) {
-    throw new Error(
-      'window.hyveon IPC bridge is unavailable — the renderer must run inside the Electron preload context.',
-    );
+    throw new Error(BRIDGE_UNAVAILABLE);
   }
   return bridge;
 }

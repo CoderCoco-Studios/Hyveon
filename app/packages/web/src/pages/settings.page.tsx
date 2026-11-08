@@ -10,7 +10,7 @@ import { FirstRunWizard } from '../components/first-run-wizard/first-run-wizard.
 import { Button } from '../components/ui/button.component.js';
 import { CloudHealthSection } from '../components/cloud-health-section.component.js';
 import { SettingsRow } from '../components/settings-row.component.js';
-import { SETTINGS_BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /**
  * Client-side state for the Cloud Setup section's Pulumi engine version row —
@@ -153,7 +153,7 @@ export function SettingsPage() {
     // every `setEngineVersion` call below happens inside a promise callback,
     // never synchronously in the effect body (react-hooks/set-state-in-effect).
     const settings = window.hyveon?.iac?.settings;
-    const read = settings ? settings.engineVersion() : Promise.reject(new Error(SETTINGS_BRIDGE_UNAVAILABLE));
+    const read = settings ? settings.engineVersion() : Promise.reject(new Error(BRIDGE_UNAVAILABLE));
     read
       .then((result) => setEngineVersion({ status: 'ready', resolvedVersion: result.resolvedVersion }))
       .catch(() => setEngineVersion('error'));
@@ -164,7 +164,7 @@ export function SettingsPage() {
     // routed through the rejected-promise path so `setAutoUpdate` only ever
     // runs inside a promise callback.
     const settings = window.hyveon?.iac?.settings;
-    const read = settings ? settings.autoUpdateGet() : Promise.reject(new Error(SETTINGS_BRIDGE_UNAVAILABLE));
+    const read = settings ? settings.autoUpdateGet() : Promise.reject(new Error(BRIDGE_UNAVAILABLE));
     read
       .then((result) =>
         setAutoUpdate(
@@ -184,7 +184,7 @@ export function SettingsPage() {
    */
   function handleAutoUpdateToggle(next: boolean) {
     const settings = window.hyveon?.iac?.settings;
-    const write = settings ? settings.autoUpdateUpdate({ enableAutoUpdate: next }) : Promise.reject(new Error(SETTINGS_BRIDGE_UNAVAILABLE));
+    const write = settings ? settings.autoUpdateUpdate({ enableAutoUpdate: next }) : Promise.reject(new Error(BRIDGE_UNAVAILABLE));
     write
       .then((result) => {
         if (result.ok) {
@@ -208,7 +208,7 @@ export function SettingsPage() {
   function handleManualCheck() {
     setManualCheck('checking');
     const settings = window.hyveon?.iac?.settings;
-    const check = settings ? settings.autoUpdateCheck() : Promise.reject(new Error(SETTINGS_BRIDGE_UNAVAILABLE));
+    const check = settings ? settings.autoUpdateCheck() : Promise.reject(new Error(BRIDGE_UNAVAILABLE));
     check
       .then((result) => setManualCheck({ status: 'done', result }))
       .catch(() =>
@@ -225,7 +225,7 @@ export function SettingsPage() {
     setManualCheck({ status: 'downloading', version, percent: 0 });
     try {
       const settings = window.hyveon?.iac?.settings;
-      if (!settings) throw new Error(SETTINGS_BRIDGE_UNAVAILABLE);
+      if (!settings) throw new Error(BRIDGE_UNAVAILABLE);
       for await (const progress of settings.autoUpdateDownload()) {
         setManualCheck({ status: 'downloading', version, percent: progress.percent });
       }
@@ -240,7 +240,7 @@ export function SettingsPage() {
   async function handleInstall(version: string) {
     try {
       const settings = window.hyveon?.iac?.settings;
-      if (!settings) throw new Error(SETTINGS_BRIDGE_UNAVAILABLE);
+      if (!settings) throw new Error(BRIDGE_UNAVAILABLE);
       const result = await settings.autoUpdateInstall();
       if (!result.ok) setManualCheck({ status: 'download-failed', version, message: result.message });
     } catch {
