@@ -1,6 +1,7 @@
 import { canRun } from '@hyveon/shared';
 import type { DiscordConfig } from '@hyveon/shared';
 import { DiscordController } from '@hyveon/desktop-main/dist/controllers/discord.controller.js';
+import { DeploymentConfigService } from '@hyveon/desktop-main/dist/services/DeploymentConfigService.js';
 import { test, expect, DEFAULT_STACK_OUTPUTS } from './index.js';
 
 /**
@@ -30,6 +31,10 @@ test.describe('canRun() permission enforcement', () => {
     serverMocks: _reset,
   }) => {
     ipc.mocks.pulumi.scriptStackOutputs(DEFAULT_STACK_OUTPUTS);
+    // No configuration bucket exists in this harness, so declare the game `putPermission` validates against.
+    type Declared = Awaited<ReturnType<DeploymentConfigService['getGameServersStrict']>>;
+    const declared: Declared = [{ name: 'minecraft' } as Declared[number]];
+    ipc.get(DeploymentConfigService).getGameServersStrict = async () => declared;
 
     await ipc.dispatch(DiscordController, 'addGuild', { guildId: 'G1' });
     await ipc.dispatch(DiscordController, 'putAdmins', { userIds: ['ADMIN'], roleIds: ['ADMIN_ROLE'] });

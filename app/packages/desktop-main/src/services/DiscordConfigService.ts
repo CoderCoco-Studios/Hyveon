@@ -18,6 +18,7 @@ import { ConfigService } from './ConfigService.js';
 import { SECRETS_STORE, DISCORD_CONFIG_STORE } from '../modules/cloud-provider.tokens.js';
 import {
   asStringArray,
+  DISCORD_NOT_DEPLOYED_MESSAGE,
   isSafeGameKey,
   type BaseDiscordConfig,
   type DiscordAction,
@@ -130,7 +131,7 @@ export class DiscordConfigService {
     logger.debug('DiscordConfigService.loadStrict: reading Discord config from DynamoDB');
     this.inflight = (async () => {
       try {
-        if (!(await this.tableName())) throw new Error('discordTableName not in the deployed stack outputs — deploy first.');
+        if (!(await this.tableName())) throw new Error(DISCORD_NOT_DEPLOYED_MESSAGE);
         const cfg = await this.discordStore.getConfig();
         this.cache = cfg;
         return cfg;
@@ -269,11 +270,17 @@ export class DiscordConfigService {
   }
 
   // @spec APP-IPC-SEC-001
-  // @spec DISCORD-DESK-002, DISCORD-DESK-003
-  /** Redacted view safe to return to the web client. Includes `*Set` flags for both secrets and the Pulumi-managed base lists. */
+  // @spec DISCORD-DESK-002, DISCORD-DESK-003, DISCORD-UI-008
+  /**
+   * Redacted view safe to return to the web client. Includes `*Set` flags for both secrets and the Pulumi-managed base lists.
+   *
+   * @throws Error with {@link DISCORD_NOT_DEPLOYED_MESSAGE} when the stack has not published the Discord table, or
+   * carrying only the failure message when the `CONFIG#discord` read fails, so the page never renders an empty config
+   * as if it were the real one.
+   */
   async getRedacted(): Promise<RedactedDiscordConfig> {
-    const [cfg, base, botToken, publicKey] = await Promise.all([
-      this.load(),
+    const cfg = await this.loadStrict();
+    const [base, botToken, publicKey] = await Promise.all([
       this.loadBase(),
       this.readSecretSafe(() => this.botTokenSecretArn(), 'Discord bot token'),
       this.readSecretSafe(() => this.publicKeySecretArn(), 'Discord public key'),

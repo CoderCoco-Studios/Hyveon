@@ -5,6 +5,7 @@ import { DiscordController } from './discord.controller.js';
 import type { DiscordConfigService, DiscordAction } from '../services/DiscordConfigService.js';
 import type { DiscordCommandRegistrar } from '../services/DiscordCommandRegistrar.js';
 import type { ConfigService } from '../services/ConfigService.js';
+import type { DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { expectChannels } from '../testing/message-pattern.test-utils.js';
@@ -71,12 +72,20 @@ function makeConfig(invokeUrl: string | null = 'https://xyz.lambda-url.us-east-1
   });
 }
 
+/** Build a DeploymentConfigService stub whose strict read returns the named games. */
+function makeDeployment(games: string[] = ['minecraft', 'palworld']): DeploymentConfigService {
+  return {
+    getGameServersStrict: vi.fn().mockResolvedValue(games.map((name) => ({ name }))),
+  } as unknown as DeploymentConfigService;
+}
+
 function ctrl(
   discord: DiscordConfigService = makeDiscord(),
   registrar: DiscordCommandRegistrar = makeRegistrar(),
   config: ConfigService = makeConfig(),
+  deployment: DeploymentConfigService = makeDeployment(),
 ) {
-  return new DiscordController(discord, registrar, config);
+  return new DiscordController(discord, registrar, config, deployment);
 }
 
 describe('DiscordController', () => {
@@ -96,6 +105,24 @@ describe('DiscordController', () => {
         ['putPermission', 'discord.putPermission'],
         ['deletePermission', 'discord.deletePermission'],
       ] as const);
+    });
+  });
+
+  describe('interactions endpoint URL accessor', () => {
+    // @spec DISCORD-SVC-005
+    it('should surface the same interactionsInvokeUrl value from getConfig and putConfig', async () => {
+      const c = ctrl();
+      const read = await c.getConfig();
+      const written = await c.putConfig({ clientId: '123' });
+      expect(read.interactionsEndpointUrl).toBe('https://xyz.lambda-url.us-east-1.on.aws/');
+      expect(written.config.interactionsEndpointUrl).toBe(read.interactionsEndpointUrl);
+    });
+
+    // @spec DISCORD-SVC-005
+    it('should report null from both channels when the stack has no outputs', async () => {
+      const c = ctrl(undefined, undefined, makeConfig(null));
+      expect((await c.getConfig()).interactionsEndpointUrl).toBeNull();
+      expect((await c.putConfig({})).config.interactionsEndpointUrl).toBeNull();
     });
   });
 
@@ -302,6 +329,29 @@ describe('DiscordController', () => {
       await expect(ctrl(discord).putPermission({ game: 'unknown-game', body: {} })).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    // @spec DISCORD-IPC-006
+    it('should reject a game absent from DeploymentConfig.gameServers without writing', async () => {
+      const discord = makeDiscord();
+      await expect(
+        ctrl(discord, undefined, undefined, makeDeployment(['palworld'])).putPermission({
+          game: 'minecraft',
+          body: { userIds: ['U1'], actions: ['start'] },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(discord.setGamePermission).not.toHaveBeenCalled();
+    });
+
+    // @spec DISCORD-IPC-006
+    it('should reject, not write, when the deployment config cannot be read', async () => {
+      const discord = makeDiscord();
+      const deployment = makeDeployment();
+      vi.mocked(deployment.getGameServersStrict).mockRejectedValue(new Error('s3 down'));
+      await expect(
+        ctrl(discord, undefined, undefined, deployment).putPermission({ game: 'minecraft', body: {} }),
+      ).rejects.toThrow('s3 down');
+      expect(discord.setGamePermission).not.toHaveBeenCalled();
+    });
+
     it('should call setGamePermission with parsed user/role/action lists', async () => {
       const discord = makeDiscord();
       await ctrl(discord).putPermission({
@@ -341,6 +391,27 @@ describe('DiscordController', () => {
       const discord = makeDiscord();
       vi.mocked(discord.deleteGamePermission).mockResolvedValue(false);
       await expect(ctrl(discord).deletePermission('unknown-game')).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    // @spec DISCORD-IPC-006
+    it('should reject a game that is neither declared nor holds a permission entry', async () => {
+      const discord = makeDiscord();
+      await expect(
+        ctrl(discord, undefined, undefined, makeDeployment(['palworld'])).deletePermission('minecraft'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(discord.deleteGamePermission).not.toHaveBeenCalled();
+    });
+
+    // @spec DISCORD-IPC-006
+    it('should still delete an orphaned permission entry for a game no longer declared', async () => {
+      const discord = makeDiscord();
+      vi.mocked(discord.getConfig).mockResolvedValue({
+        ...DYNAMIC_CONFIG,
+        gamePermissions: { minecraft: { userIds: [], roleIds: [], actions: [] } },
+      });
+      const result = await ctrl(discord, undefined, undefined, makeDeployment(['palworld'])).deletePermission('minecraft');
+      expect(result.success).toBe(true);
+      expect(discord.deleteGamePermission).toHaveBeenCalledWith('minecraft');
     });
 
     it('should return success with the updated permissions map after deletion', async () => {

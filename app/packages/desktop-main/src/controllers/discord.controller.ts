@@ -6,6 +6,8 @@ import {
 } from '../services/DiscordConfigService.js';
 import { DiscordCommandRegistrar } from '../services/DiscordCommandRegistrar.js';
 import { ConfigService } from '../services/ConfigService.js';
+import { DeploymentConfigService } from '../services/DeploymentConfigService.js';
+import { errMessage } from '@hyveon/shared';
 import { requireStringArray } from './validation.js';
 import { logger } from '../logger.js';
 
@@ -24,9 +26,40 @@ export class DiscordController {
     private readonly discord: DiscordConfigService,
     private readonly registrar: DiscordCommandRegistrar,
     private readonly config: ConfigService,
+    private readonly deploymentConfig: DeploymentConfigService,
   ) {}
 
-  // @spec DISCORD-IPC-002
+  /** Redacted config merged with the interactions endpoint URL from the `interactionsInvokeUrl` stack output — the single accessor for that URL. */
+  private async redactedWithEndpoint() {
+    const redacted = await this.discord.getRedacted();
+    const outputs = await this.config.getStackOutputs();
+    return { ...redacted, interactionsEndpointUrl: outputs?.interactionsInvokeUrl ?? null };
+  }
+
+  /**
+   * Rejects a game name that is not a key of `DeploymentConfig.gameServers`.
+   *
+   * @param game - The permission target.
+   * @param allowOrphan - When true, a game with an existing permission entry also passes, so an entry orphaned by a
+   * removed game can still be cleared.
+   * @throws BadRequestException when the game is unknown.
+   * @throws Error carrying only the message when the deployment config cannot be read; nothing is written then.
+   */
+  private async requireKnownGame(game: string, allowOrphan: boolean): Promise<void> {
+    let declared: string[];
+    try {
+      declared = (await this.deploymentConfig.getGameServersStrict()).map((g) => g.name);
+    } catch (err) {
+      const message = errMessage(err);
+      logger.warn('DiscordController: could not read gameServers to validate a permission target', { error: message });
+      throw new Error(message);
+    }
+    if (declared.includes(game)) return;
+    if (allowOrphan && Object.hasOwn((await this.discord.getConfig()).gamePermissions, game)) return;
+    throw new BadRequestException({ success: false, error: `unknown game: ${game}` });
+  }
+
+  // @spec DISCORD-IPC-002, DISCORD-SVC-005
   /**
    * Returns the `DiscordConfig` with secrets redacted to booleans
    * (`botTokenSet` / `publicKeySet`) plus the interactions Lambda Function URL
@@ -36,9 +69,7 @@ export class DiscordController {
   @MessagePattern('discord.getConfig')
   async getConfig() {
     logger.debug('DiscordController: discord.getConfig invoked');
-    const redacted = await this.discord.getRedacted();
-    const outputs = await this.config.getStackOutputs();
-    return { ...redacted, interactionsEndpointUrl: outputs?.interactionsInvokeUrl ?? null };
+    return this.redactedWithEndpoint();
   }
 
   // @spec DISCORD-IPC-002, DISCORD-IPC-003
@@ -73,12 +104,7 @@ export class DiscordController {
       ...(body.publicKey !== undefined ? { publicKey: body.publicKey } : {}),
     });
     if (!ok) throw new BadRequestException({ success: false, error: 'invalid credentials' });
-    const redacted = await this.discord.getRedacted();
-    const outputs = await this.config.getStackOutputs();
-    return {
-      success: true,
-      config: { ...redacted, interactionsEndpointUrl: outputs?.interactionsInvokeUrl ?? null },
-    };
+    return { success: true, config: await this.redactedWithEndpoint() };
   }
 
   /**
@@ -176,7 +202,7 @@ export class DiscordController {
     return (await this.discord.getConfig()).gamePermissions;
   }
 
-  // @spec DISCORD-IPC-005
+  // @spec DISCORD-IPC-005, DISCORD-IPC-006
   /**
    * Sets the allowed users/roles/actions for a single game. `game` must match
    * a key in `DeploymentConfig.gameServers`; unknown keys return 400. The
@@ -196,6 +222,7 @@ export class DiscordController {
     if (!game) {
       throw new BadRequestException({ success: false, error: 'game is required' });
     }
+    await this.requireKnownGame(game, false);
     const userIds = requireStringArray('userIds', body.userIds);
     const roleIds = requireStringArray('roleIds', body.roleIds);
     const actions = requireStringArray('actions', body.actions);
@@ -210,7 +237,11 @@ export class DiscordController {
     return { success: true, permissions: (await this.discord.getConfig()).gamePermissions };
   }
 
-  /** Removes the permission entry for a game. Returns 400 if `game` is empty or isn't a known key in `DeploymentConfig.gameServers`. */
+  // @spec DISCORD-IPC-006
+  /**
+   * Removes the permission entry for a game. Returns 400 if `game` is empty, or is neither a key in
+   * `DeploymentConfig.gameServers` nor an existing permission entry (an entry orphaned by a removed game stays deletable).
+   */
   @MessagePattern('discord.deletePermission')
   async deletePermission(@Payload() gameRaw: string) {
     logger.debug('DiscordController: discord.deletePermission invoked');
@@ -218,6 +249,7 @@ export class DiscordController {
     if (!game) {
       throw new BadRequestException({ success: false, error: 'game is required' });
     }
+    await this.requireKnownGame(game, true);
     const deleted = await this.discord.deleteGamePermission(game);
     if (!deleted) {
       throw new BadRequestException({ success: false, error: `invalid game key: ${game}` });
