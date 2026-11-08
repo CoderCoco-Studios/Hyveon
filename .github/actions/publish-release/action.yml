@@ -19,8 +19,8 @@ runs:
         name: release-notes
         path: notes
 
-    # The release only comes into existence here, after every platform
-    # build succeeded, so a draft that exists always has all its assets.
+    # The release only comes into existence here, after every platform build succeeded.
+    # An upload can still fail part-way, leaving a draft with some assets; the cleanup step removes it.
     # @spec APP-UPDATE-DRAFT-001
     - name: Create GitHub Release and attach artifacts
       id: release
@@ -63,14 +63,28 @@ runs:
         echo "All required feed and installer assets are present."
 
     # A draft that failed verification (or upload) must not linger without its assets.
+    # The action sets `outputs.id` only after every upload succeeds, so an upload failure leaves it empty:
+    # the draft is then found by tag. Only drafts are ever deleted, never a published release.
     # @spec APP-UPDATE-DRAFT-004
     - name: Delete incomplete draft
-      if: ${{ failure() && steps.release.outputs.id != '' }}
+      if: ${{ failure() }}
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         RELEASE_ID: ${{ steps.release.outputs.id }}
+        TAG: ${{ inputs.tag }}
       run: |
         set -euo pipefail
+        if [ -z "${RELEASE_ID}" ]; then
+          RELEASE_ID=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq '.[] | select(.draft and .tag_name == env.TAG) | .id' | head -n 1)
+        fi
+        if [ -z "${RELEASE_ID}" ]; then
+          echo "No draft release found for the tag; nothing to delete."
+          exit 0
+        fi
+        [ "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --jq .draft)" = true ] || {
+          echo "::notice::Release ${RELEASE_ID} is not a draft; leaving it."
+          exit 0
+        }
         gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"
         echo "::warning::Deleted the incomplete draft release (id ${RELEASE_ID})."

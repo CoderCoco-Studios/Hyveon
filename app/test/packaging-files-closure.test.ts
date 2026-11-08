@@ -3,23 +3,33 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 
+/** Absolute path to the repo root (two directories above `app/test/`). */
+const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
+
 /**
- * Packages `electron.vite.config.ts` keeps `external` from the main bundle (and `electron-builder.yml` therefore
- * ships from `node_modules`), plus `semver`, which is external for its own reason.
+ * Parses the main bundle's Rollup `external:` array out of `electron.vite.config.ts` into package names, so the roots
+ * walked here can never drift from what the build actually leaves out of the bundle. A bare string is a package name;
+ * a regex entry such as `/^@pulumi\/pulumi(\/.*)?$/` names the package between `^` and the optional subpath group.
  */
-const EXTERNALIZED_ROOTS = [
-  '@pulumi/pulumi',
-  '@pulumi/aws',
-  'class-validator',
-  'class-transformer',
-  'electron-updater',
-];
+function externalizedRoots(): string[] {
+  const config = readFileSync(join(repoRoot, 'electron.vite.config.ts'), 'utf8');
+  const body = /^\s{8}external: \[\n([\s\S]*?)^\s{8}\],/m.exec(config)?.[1] ?? '';
+  const roots: string[] = [];
+  for (const line of body.split('\n')) {
+    const entry = line.trim().replace(/,$/, '');
+    const regex = /^\/\^(.+?)\(\\\/\.\*\)\?\$\/$/.exec(entry)?.[1]?.replaceAll('\\/', '/');
+    const bare = /^'([^']+)'$/.exec(entry)?.[1];
+    const name = regex ?? bare;
+    if (name) roots.push(name);
+  }
+  return roots;
+}
+
+/** Packages the main bundle keeps `external`, and `electron-builder.yml` therefore ships from `node_modules`. */
+const EXTERNALIZED_ROOTS = externalizedRoots();
 
 /** Closure members that are declaration-only and never loaded at runtime, so shipping them is wasted size. */
 const TYPES_ONLY = new Set(['@types/node']);
-
-/** Absolute path to the repo root (two directories above `app/test/`). */
-const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 
 /** Minimal shape of the manifest fields the closure walk reads. */
 interface Manifest {
@@ -99,6 +109,12 @@ describe('electron-builder files closure', () => {
       missing,
       'externalized packages load from node_modules at runtime; add each missing package to electron-builder.yml `files`',
     ).toEqual([]);
+  });
+
+  it('should parse the externalized roots out of the vite config rather than a typed copy', () => {
+    expect([...EXTERNALIZED_ROOTS].sort()).toEqual(
+      ['@pulumi/aws', '@pulumi/pulumi', 'class-transformer', 'class-validator', 'electron-updater', 'semver'],
+    );
   });
 
   it('should walk a non-trivial closure so an empty walk cannot pass vacuously', () => {
