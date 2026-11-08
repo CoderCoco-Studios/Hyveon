@@ -116,7 +116,7 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 | Audit Trail Reading | `APP-DIAG-AUDR-001` to `APP-DIAG-AUDR-004` | 3 | 0 | 1 |
 | Audit Page | `APP-DIAG-AUDUI-001` to `APP-DIAG-AUDUI-008` | 7 | 0 | 1 |
 
-**Summary:** 89 of 96 active specs implemented; 0 deferred; 7 gaps.
+**Summary:** 94 of 95 active specs implemented; 0 deferred; 1 gap.
 
 ## Key Findings
 

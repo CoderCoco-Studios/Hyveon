@@ -30,7 +30,7 @@ CLAUDE.md invariants that live here:
 
 - **Secrets never reach the renderer**, extended to the bundle: the config section is an explicit allowlist and the log section is scrubbed (`diagnosticsBundleAllowlist.ts:85`, `diagnosticsLogScrubber.ts:31`).
 - **The desktop app has no HTTP transport**: every surface here is an IPC `@MessagePattern` (`diagnostics.controller.ts:47-129`, `audit.controller.ts:24-28`).
-- **Every IPC handler logs on entry; no error escapes uncaught** (`.claude/rules/logging.md`): each diagnostics handler opens with `logger.debug` (`diagnostics.controller.ts:49,57,64,71,84,111`); `AuditService.list` currently breaks rule 2 (see Deferred).
+- **Every IPC handler logs on entry; no error escapes uncaught** (`.claude/rules/logging.md`): each diagnostics handler opens with `logger.debug` (`diagnostics.controller.ts:49,57,64,71,84,111`).
 
 ## The App Log
 
@@ -108,7 +108,7 @@ Each response is a cumulative snapshot, not a delta, so pausing keeps polling bu
 A sequence counter discards out-of-order responses, and a poll failure while paused is not surfaced so a frozen view is not replaced by an error (`:50,57,66-70`).
 
 `DiagnosticsPanel` renders the log path, a search box (substring highlight via `LogLineList`), pause/resume, autoscroll only while not paused, a line count, `ExportBundleButton` and `StrayHelpersButton` (`DiagnosticsPanel.tsx:25-31,51-91`).
-When the tail errors, the panel returns only an `ErrorBanner` (`:43-47`), so the export button disappears exactly when the log read is failing.
+When the tail errors, the panel renders the `ErrorBanner` with `ExportBundleButton` and `StrayHelpersButton` beneath it, so both actions stay available exactly when the log read is failing.
 
 ### Bundle export flow
 
@@ -192,6 +192,7 @@ The audit trail's required behaviour is currently only what the code above does;
 | Log directory derivation | One `resolveLogDir(userDataPath)` helper used by the writer and the reader | Two inline `path.join` calls | The writer (`createLogger`) and the diagnostics reader must agree on the directory; one derivation removes the drift risk. |
 | Error boundary state | A `hasError` boolean | Test the thrown value for truthiness | React lets a component throw any value, including falsy ones; a truthiness test would re-render the crashing children. |
 | Panel data source | Keep a 5 s cumulative-tail poll; pause buffers the latest snapshot | Push/stream model like `/logs`; append successive polls | Reuse `/logs` interaction patterns (pause with buffering, level filter, substring search without regex) without its data source; the snapshot shape makes appending incorrect. The app's own log is a local file with no main-process file-watch-and-stream mechanism, and building one is materially more work than porting controls onto the existing poll for a panel used for post-hoc debugging rather than live monitoring. A `LogViewer` component shared with `/logs` would need a fetch-strategy prop layer; it remains a possible follow-up. |
+| Raw error objects in logs | A static guard test (`desktop-main/src/testing/logger-raw-error.guard.test.ts`) scans `services/` and `controllers/` for `logger.*` calls whose metadata is a bare error identifier (`{ err }`, `{ error: e }`) and fails on any hit outside a short allowlist of files owned by other segments; the guard also fails when an allowlisted file no longer has a hit | Hand-auditing every service method; an ESLint rule | The logging rule applies to every method that calls an external API, which is too broad to verify by review. Shorthand metadata is the one shape that reliably indicates a raw object and has almost no false positives. The allowlist shrinks as the owning segments normalize their metadata, and the spec stays open until it is empty. |
 | Bundle orchestration | New `DiagnosticsBundleService` calling into existing services | Grow `DiagnosticsService` | `DiagnosticsService` is a narrow tail reader; bundling, zipping and cross-service orchestration is a distinct responsibility with its own test surface. |
 | Section isolation | `Promise.allSettled` over four gatherers, failures to `errors.json` | Sequential try/catch chaining | One slow AWS call must not serialize behind or block the cheap sections (logs, metadata); each settled result becomes bundle content or an `errors.json` entry. |
 | Zip library | `archiver`, streamed to disk | `adm-zip` | `archiver` streams to a file; `adm-zip` has a simpler synchronous API but builds the whole archive in memory first, which matters because log content can be several MB. |
@@ -215,20 +216,20 @@ The audit trail's required behaviour is currently only what the code above does;
 1. ✅ Console forwarding uses a separate `diagnostics.reportLog` channel with client-side batching (APP-DIAG-CONS-*).
 2. ✅ The bundle is assembled by a dedicated service with per-section `Promise.allSettled` isolation, `archiver`, a save-dialog-first flow, and an allowlist config summary (APP-DIAG-BNDL-*).
 3. ✅ The panel keeps polling rather than streaming, with snapshot-swap pause semantics (APP-DIAG-PANEL-*).
+4. ✅ `ExportBundleButton` and `StrayHelpersButton` stay rendered beside the error banner when the tail read fails, since the bundle tolerates a failed log section (APP-DIAG-PANEL-010).
+5. ✅ `AuditService.record` never throws (stack-outputs read inside the try, normalized message logged) and `AuditService.list` logs the normalized message and throws a plain `Error` (APP-DIAG-AUDIT-004, APP-DIAG-AUDR-004, APP-DIAG-SVC-003).
 
 ### Deferred
 
-1. Should `ExportBundleButton` and `StrayHelpersButton` stay rendered when the tail read fails? The bundle already tolerates a failed log section (`DiagnosticsBundleService.ts:123`); `StrayHelpersButton` is currently hidden with the log viewer.
-2. Should `AuditService.list` catch, normalize and log store failures per `.claude/rules/logging.md` rule 2 (`AuditService.ts:140`), and should `record()` normalize its logged error and move the stack-outputs read inside its try (`AuditService.ts:90,114-118`)? No test covers a `listEntries` rejection (`AuditService.test.ts:143-170`).
-3. Should the `ErrorBoundary` fallback offer a reload action?
-4. Should the console-forwarding flush interval ever be cleared?
-5. Should the audit trail get its own leaf, given it is a separate concern from diagnostics and now records IaC actions under a game-only schema and copy (`audit.ts:29-33`, `audit.controller.ts:8-11`, `audit.page.tsx:84`, `iac.controller.ts:755,885,1029`)? If IaC rows stay, how should the page render an empty Game cell and a `null`/`null` diff?
-6. Should the `/audit` page drop or rewire `<PollingIndicator />`, which reflects the global status poller on a page that fetches once (`audit.page.tsx:85`, `polling-indicator.component.tsx:18`)?
-7. Should `useDiagnosticsTail` move onto the shared polling registry and stop re-fetching the static log path every 5 s (`use-diagnostics-tail.hook.ts:56,83`)? Should the 500-line panel tail be a shared constant rather than a literal (`diagnostics.controller.ts:50`), and `TAIL_READ_BYTES` be exported instead of duplicated in tests (`DiagnosticsService.test.ts:17-18`)?
-8. Stale pointers to refresh: "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`), `DiagnosticsBundleService`'s class doc naming a change directory that no longer exists (`DiagnosticsBundleService.ts:64`), and `diagnosticsBundle.ts:3` naming `DiagnosticsPanel` as the switcher.
-9. `AwsAuditLogStore` resolves `getConfig()` twice per operation (`AwsAuditLogStore.ts:65,83`); acceptable, or fold into one resolution?
-10. Test hygiene: `logger.test.ts:16,27,99` builds real `DailyRotateFile` transports under `/tmp`; there are no dedicated tests for `export-bundle-button.component.tsx` or `use-diagnostics-tail.hook.ts`; `DiagnosticsPanel.tsx` is the lone PascalCase component filename (sweep disagreement, `final-clustering.md` §6).
-11. The stray-helper cleanup button renders inside this leaf's panel (`DiagnosticsPanel.tsx:76`, APP-DIAG-PANEL-002) while its behaviour belongs to `helper-task`. Should this leaf keep acknowledging that hosting, or should the panel's spec drop the button?
+1. Should the `ErrorBoundary` fallback offer a reload action?
+2. Should the console-forwarding flush interval ever be cleared?
+3. Should the audit trail get its own leaf, given it is a separate concern from diagnostics and now records IaC actions under a game-only schema and copy (`audit.ts:29-33`, `audit.controller.ts:8-11`, `audit.page.tsx:84`, `iac.controller.ts:755,885,1029`)? If IaC rows stay, how should the page render an empty Game cell and a `null`/`null` diff?
+4. Should the `/audit` page drop or rewire `<PollingIndicator />`, which reflects the global status poller on a page that fetches once (`audit.page.tsx:85`, `polling-indicator.component.tsx:18`)?
+5. Should `useDiagnosticsTail` move onto the shared polling registry and stop re-fetching the static log path every 5 s (`use-diagnostics-tail.hook.ts:56,83`)? Should the 500-line panel tail be a shared constant rather than a literal (`diagnostics.controller.ts:50`), and `TAIL_READ_BYTES` be exported instead of duplicated in tests (`DiagnosticsService.test.ts:17-18`)?
+6. Stale pointers to refresh: "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`), `DiagnosticsBundleService`'s class doc naming a change directory that no longer exists (`DiagnosticsBundleService.ts:64`), and `diagnosticsBundle.ts:3` naming `DiagnosticsPanel` as the switcher.
+7. `AwsAuditLogStore` resolves `getConfig()` twice per operation (`AwsAuditLogStore.ts:65,83`); acceptable, or fold into one resolution?
+8. Test hygiene: `logger.test.ts:16,27,99` builds real `DailyRotateFile` transports under `/tmp`; there are no dedicated tests for `export-bundle-button.component.tsx` or `use-diagnostics-tail.hook.ts`; `DiagnosticsPanel.tsx` is the lone PascalCase component filename (sweep disagreement, `final-clustering.md` §6).
+9. The stray-helper cleanup button renders inside this leaf's panel (`DiagnosticsPanel.tsx:76`, APP-DIAG-PANEL-002) while its behaviour belongs to `helper-task`. Should this leaf keep acknowledging that hosting, or should the panel's spec drop the button?
 
 ## References
 

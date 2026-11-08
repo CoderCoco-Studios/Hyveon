@@ -7,7 +7,7 @@ import { logger } from '../logger.js';
 
 // @spec APP-DIAG-SVC-005
 /**
- * IPC-only controller exposing the `game_servers` mutation audit log for the
+ * IPC-only controller exposing the audit log of game-configuration writes and Infrastructure workspace actions for the
  * Electron main-process host. The single handler is bound to an IPC channel
  * via `@MessagePattern`. It delegates to the {@link AuditService} provider.
  */

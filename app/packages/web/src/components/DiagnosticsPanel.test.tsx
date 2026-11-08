@@ -47,6 +47,26 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByText('Loading diagnostics…')).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-PANEL-010
+  it('should still offer the export bundle action alongside the error when the tail poll fails', async () => {
+    apiMock.diagnosticsTail.mockRejectedValue(new Error('Network error'));
+
+    render(<DiagnosticsPanel />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network error');
+    expect(screen.getByRole('button', { name: /export diagnostics bundle/i })).toBeInTheDocument();
+  });
+
+  // @spec APP-DIAG-PANEL-010
+  it('should still offer the stray-helper cleanup action alongside the error when the tail poll fails', async () => {
+    apiMock.diagnosticsTail.mockRejectedValue(new Error('Network error'));
+
+    render(<DiagnosticsPanel />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network error');
+    expect(screen.getByRole('button', { name: 'Clean up stray helpers' })).toBeInTheDocument();
+  });
+
   // @spec APP-DIAG-PANEL-002
   it('should render log lines returned by api.diagnosticsTail', async () => {
     render(<DiagnosticsPanel />);

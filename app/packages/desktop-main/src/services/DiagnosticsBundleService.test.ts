@@ -255,4 +255,25 @@ describe('DiagnosticsBundleService.writeBundle', () => {
     // per-game failure is captured inline in aws-snapshot.json instead.
     expect(JSON.parse(entries['errors.json']!)).toEqual([]);
   });
+
+  // @spec APP-DIAG-BNDL-013
+  it('should scrub secrets from a per-game status failure message', async () => {
+    const destinationPath = join(tempDir, 'bundle.zip');
+    const outputs = stackOutputs({ gameNames: ['valheim'] });
+    const failingEcs = {
+      getStatus: vi.fn().mockRejectedValue(new Error('denied token=abc123secretvalue9999')),
+    } as Partial<EcsService> as EcsService;
+    const service = new DiagnosticsBundleService(
+      makeDiagnostics(),
+      makeDeploymentConfig(),
+      makeConfig(outputs),
+      failingEcs,
+      makeStore(),
+    );
+
+    await service.writeBundle(destinationPath);
+
+    const aws = JSON.parse((await readZipEntries(destinationPath))['aws-snapshot.json']!);
+    expect(aws.games[0].message).not.toContain('abc123secretvalue9999');
+  });
 });

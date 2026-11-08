@@ -7,7 +7,7 @@ sidebar_position: 9
 
 The Audit screen (route `/audit`) is the record of who changed what.
 
-> Who changed which game's configuration, and what changed.
+> Who changed a game's configuration or ran an Infrastructure workspace action, and what changed.
 
 ![The Audit log table listing timestamped entries with actor, coloured action badges, game name and config version, with one row expanded to show side-by-side before and after JSON](/img/app/audit.png)
 

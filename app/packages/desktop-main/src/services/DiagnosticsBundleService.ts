@@ -179,7 +179,7 @@ export class DiagnosticsBundleService {
     };
   }
 
-  // @spec APP-DIAG-BNDL-011, APP-DIAG-BNDL-012
+  // @spec APP-DIAG-BNDL-011, APP-DIAG-BNDL-012, APP-DIAG-BNDL-013
   /**
    * Gathers stack outputs plus a per-game `EcsService.getStatus` snapshot.
    * Uses `Promise.allSettled` (not `Promise.all`) over the per-game calls so
@@ -198,7 +198,7 @@ export class DiagnosticsBundleService {
     const games = results.map((result, index) => {
       if (result.status === 'fulfilled') return result.value;
       const game = outputs.gameNames[index]!;
-      const message = errMessage(result.reason);
+      const message = scrubSecrets(errMessage(result.reason));
       logger.warn('DiagnosticsBundleService.gatherAwsSnapshot: getStatus failed for game', { game, message });
       return { game, state: 'error' as const, message };
     });

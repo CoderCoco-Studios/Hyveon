@@ -28,7 +28,7 @@ export type AuditAction =
 /**
  * A single row in the DynamoDB audit log (`${project_name}-audit` table,
  * `pk = AUDIT`, `sk = ` {@link buildAuditSk}). Records who changed a game
- * server's configuration, what changed, and the resulting `deployment-config.json`
+ * server's configuration or ran an Infrastructure workspace action (plan, approve, apply, destroy, rollback), what changed, and the resulting `deployment-config.json`
  * S3 object version — see `app/packages/infra/src/dynamodb.ts` for the table definition.
  */
 export interface AuditEntry {
