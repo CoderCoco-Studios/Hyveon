@@ -1367,3 +1367,51 @@ describe('PulumiService.destroy app shutdown', () => {
     expect(runRecordPersister.persist).toHaveBeenCalledWith(expect.objectContaining({ exitCode: null, kind: 'destroy' }), expect.any(String));
   });
 });
+
+// @spec IAC-ENGINE-LIFE-009
+describe('PulumiService.whenIdle', () => {
+  it('should resolve at once when nothing is running', async () => {
+    const service = makeService({ workspace: makeWorkspace(makeHappyPathDestroy()) });
+
+    await expect(service.whenIdle()).resolves.toBeUndefined();
+  });
+
+  it('should stay pending until an aborted destroy has persisted its run record', async () => {
+    let started!: () => void;
+    const engineStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const workspace = makeWorkspace(
+      (opts) =>
+        new Promise((_resolve, reject) => {
+          opts.signal?.addEventListener('abort', () => reject(new Error('interrupted')));
+          started();
+        }),
+    );
+    const runRecordPersister = makeRunRecordPersister();
+    let releasePersist!: () => void;
+    runRecordPersister.persist.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releasePersist = resolve;
+        }),
+    );
+    const service = makeService({ workspace, runRecordPersister });
+    const drained = collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken(), undefined, 'run-1'));
+    await engineStarted;
+
+    let idle = false;
+    const idlePromise = service.whenIdle().then(() => {
+      idle = true;
+    });
+    service.abortInFlightOperations();
+    await vi.waitFor(() => expect(runRecordPersister.persist).toHaveBeenCalled());
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(idle).toBe(false);
+
+    releasePersist();
+    await drained;
+    await idlePromise;
+    expect(idle).toBe(true);
+  });
+});

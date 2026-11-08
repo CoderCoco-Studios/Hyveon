@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootstrap } from './main.js';
 import { electronRendererUrl, isTestMode } from './env.js';
-import { installHelperQuitHook } from './helper-quit-hook.js';
+import { createHelperQuitStopper } from './helper-quit-hook.js';
 import { installOperationQuitHook } from './operation-quit-hook.js';
 import { initUpdater } from './updater.js';
 import { ElectronStoreService } from './services/ElectronStoreService.js';
@@ -231,8 +231,7 @@ app.whenReady().then(() => {
         console.error('[desktop-main] updater init failed:', err);
       });
 
-      installHelperQuitHook(app, nestApp.get(HelperSessionRegistry));
-      installOperationQuitHook(app, nestApp.get(PulumiService));
+      installOperationQuitHook(app, nestApp.get(PulumiService), [createHelperQuitStopper(nestApp.get(HelperSessionRegistry))]);
 
       const windowService = nestApp.get(WindowService);
       windowService.attach(createWindow());

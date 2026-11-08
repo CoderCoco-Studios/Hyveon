@@ -756,8 +756,54 @@ export class PulumiService {
     return this.operationInFlight;
   }
 
-  /** Aborted by {@link abortInFlightOperations}; folded into every operation's own signal. */
+  /**
+   * Aborted by {@link abortInFlightOperations}; folded into every operation's own signal. One-way by design: the
+   * only caller is app shutdown, after which every new operation is refused as not started, so it is never reset.
+   */
   private readonly shutdownController = new AbortController();
+
+  /** Operations (preview, apply, destroy, rollback, stack init) from first start to final settlement. */
+  private activeOperations = 0;
+
+  private idleWaiters: Array<() => void> = [];
+
+  /**
+   * Resolves once no operation is running and every run record has been persisted and its durable lock released.
+   * App shutdown awaits it after {@link abortInFlightOperations}.
+   *
+   * @returns A promise that resolves immediately when nothing is running.
+   */
+  whenIdle(): Promise<void> {
+    if (this.activeOperations === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.idleWaiters.push(resolve);
+    });
+  }
+
+  /** Marks one tracked operation finished and wakes {@link whenIdle} waiters when it was the last. */
+  private releaseOperation(): void {
+    this.activeOperations -= 1;
+    if (this.activeOperations > 0) return;
+    const waiters = this.idleWaiters;
+    this.idleWaiters = [];
+    for (const wake of waiters) wake();
+  }
+
+  /**
+   * Counts an operation generator as active from its first step until its own `finally` blocks, which persist the run
+   * record and release the lock, have completed.
+   *
+   * @param operation - The operation's generator.
+   * @returns A generator that forwards every chunk, the return value and any force-close to `operation`.
+   */
+  private async *trackOperation<T, R>(operation: AsyncGenerator<T, R>): AsyncGenerator<T, R> {
+    this.activeOperations += 1;
+    try {
+      return yield* operation;
+    } finally {
+      this.releaseOperation();
+    }
+  }
 
   // @spec IAC-ENGINE-LIFE-009
   /**
@@ -1171,6 +1217,16 @@ export class PulumiService {
    *   see "Error attribution" above.
    */
   async initializeStack(onPhase?: PulumiPhaseCallback, signal?: AbortSignal): Promise<void> {
+    this.activeOperations += 1;
+    try {
+      await this.initializeStackOperation(onPhase, signal);
+    } finally {
+      this.releaseOperation();
+    }
+  }
+
+  /** The body of {@link initializeStack}, split out so the public method can track it for {@link whenIdle}. */
+  private async initializeStackOperation(onPhase?: PulumiPhaseCallback, signal?: AbortSignal): Promise<void> {
     logger.debug('PulumiService.initializeStack: initializing pulumi stack');
     signal = this.withShutdownSignal(signal);
     if (this.operationInFlight) {
@@ -1605,6 +1661,16 @@ export class PulumiService {
    *   (config staleness, engine failures, hashing, persistence).
    */
   async *preview(
+    configVersionId?: string,
+    signal?: AbortSignal,
+    preMintedRunId?: string,
+    rolledBackFrom?: string,
+  ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
+    return yield* this.trackOperation(this.previewOperation(configVersionId, signal, preMintedRunId, rolledBackFrom));
+  }
+
+  /** The body of {@link preview}, split out so the public method can track it for {@link whenIdle}. */
+  private async *previewOperation(
     configVersionId?: string,
     signal?: AbortSignal,
     preMintedRunId?: string,
@@ -2176,6 +2242,15 @@ export class PulumiService {
    *   run record couldn't be persisted afterward.
    */
   async *apply(
+    planRunId: string,
+    planHash: string,
+    signal?: AbortSignal,
+  ): AsyncGenerator<PulumiRunChunk, PulumiUpResult | undefined> {
+    return yield* this.trackOperation(this.applyOperation(planRunId, planHash, signal));
+  }
+
+  /** The body of {@link apply}, split out so the public method can track it for {@link whenIdle}. */
+  private async *applyOperation(
     planRunId: string,
     planHash: string,
     signal?: AbortSignal,
@@ -3053,6 +3128,15 @@ export class PulumiService {
     signal?: AbortSignal,
     preMintedRunId?: string,
   ): AsyncGenerator<PulumiRunChunk, PulumiDestroyResult | undefined> {
+    return yield* this.trackOperation(this.destroyOperation(confirmationToken, signal, preMintedRunId));
+  }
+
+  /** The body of {@link destroy}, split out so the public method can track it for {@link whenIdle}. */
+  private async *destroyOperation(
+    confirmationToken: string,
+    signal?: AbortSignal,
+    preMintedRunId?: string,
+  ): AsyncGenerator<PulumiRunChunk, PulumiDestroyResult | undefined> {
     logger.debug('PulumiService.destroy: starting pulumi destroy');
     if (this.operationInFlight) {
       throw new PulumiOperationInFlightError(this.operationInFlight);
@@ -3826,6 +3910,15 @@ export class PulumiService {
     signal?: AbortSignal,
     preMintedRunId?: string,
     expectedHeadEtag?: string,
+  ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
+    return yield* this.trackOperation(this.confirmRollbackOperation(applyRunId, signal, preMintedRunId));
+  }
+
+  /** The body of {@link confirmRollback}, split out so the public method can track it for {@link whenIdle}. */
+  private async *confirmRollbackOperation(
+    applyRunId: string,
+    signal?: AbortSignal,
+    preMintedRunId?: string,
   ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
     logger.debug('PulumiService.confirmRollback: confirming rollback', { applyRunId });
     if (this.operationInFlight) {
