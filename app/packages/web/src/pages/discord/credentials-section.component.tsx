@@ -9,12 +9,13 @@ import type { DiscordConfigRedacted } from '../../api.service.js';
 import { isSnowflake } from './snowflake.utils.js';
 import { useCopiedReset } from '../../hooks/use-copied-reset.hook.js';
 
-// @spec DISCORD-UI-004
+// @spec DISCORD-UI-004, DISCORD-UI-009, DISCORD-UI-010
 /**
  * Credentials editor — Application (Client) ID, Bot Token, Public Key, plus the
  * read-only Interactions Endpoint URL the operator pastes back into Discord.
  * Token and public key are write-only: leaving the field blank when one is
- * already set preserves the existing value.
+ * already set preserves the existing value. The secret inputs clear only after `onSave` resolves `true`, and "Copied"
+ * shows only after the clipboard write succeeds.
  */
 export function CredentialsSection({
   cfg,
@@ -23,7 +24,7 @@ export function CredentialsSection({
 }: {
   cfg: DiscordConfigRedacted;
   busy: boolean;
-  onSave: (body: { botToken?: string; clientId?: string; publicKey?: string }) => void;
+  onSave: (body: { botToken?: string; clientId?: string; publicKey?: string }) => Promise<boolean>;
 }) {
   const [clientId, setClientId] = useState(cfg.clientId);
   const [clientIdError, setClientIdError] = useState<string | null>(null);
@@ -37,26 +38,31 @@ export function CredentialsSection({
    * but a non-empty value must match the snowflake shape — `DiscordCommandRegistrar`
    * silently fails to register commands when the stored Client ID is malformed.
    */
-  function handleSave() {
+  async function handleSave() {
     const trimmed = clientId.trim();
     if (trimmed && !isSnowflake(trimmed)) {
       setClientIdError('Client ID must be a 17–20 digit Discord snowflake.');
       return;
     }
     setClientIdError(null);
-    onSave({
+    const saved = await onSave({
       ...(trimmed ? { clientId: trimmed } : {}),
       ...(token ? { botToken: token } : {}),
       ...(publicKey ? { publicKey } : {}),
     });
+    if (!saved) return;
     setToken('');
     setPublicKey('');
   }
 
   /** Copy the interactions URL to the clipboard with a brief "Copied" state. */
-  function handleCopyUrl() {
+  async function handleCopyUrl() {
     if (!cfg.interactionsEndpointUrl) return;
-    void navigator.clipboard.writeText(cfg.interactionsEndpointUrl);
+    try {
+      await navigator.clipboard.writeText(cfg.interactionsEndpointUrl);
+    } catch {
+      return;
+    }
     markCopied();
   }
 
@@ -113,7 +119,7 @@ export function CredentialsSection({
               <code className="flex-1 px-3 py-2 rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] border border-[var(--color-border)] text-xs font-[var(--font-mono)] break-all">
                 {cfg.interactionsEndpointUrl}
               </code>
-              <Button variant="secondary" size="sm" onClick={handleCopyUrl}>
+              <Button variant="secondary" size="sm" onClick={() => void handleCopyUrl()}>
                 {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
                 {copied ? 'Copied' : 'Copy'}
               </Button>
@@ -130,7 +136,7 @@ export function CredentialsSection({
         </div>
 
         <div className="flex justify-end pt-2">
-          <Button disabled={busy} onClick={handleSave}>
+          <Button disabled={busy} onClick={() => void handleSave()}>
             Save credentials
           </Button>
         </div>
