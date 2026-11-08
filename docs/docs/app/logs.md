@@ -29,15 +29,17 @@ Opening the page does two things: it fetches a snapshot of the most recent
 lines from the newest log stream, then it opens a live tail that polls
 CloudWatch every two seconds for anything new.
 
-The live tail starts from the moment you subscribe, so it only shows lines
-produced from then on. Everything before that comes from the snapshot.
+The live tail starts 30 seconds before the moment you subscribe, so a line that
+was stamped just before you opened the page but reached CloudWatch after the
+snapshot still appears; lines it already showed are not repeated. Older history
+comes from the snapshot.
 
 If infrastructure has not been deployed, the live tail fails immediately and
 the error banner reads `Stream ended with error: Infrastructure is not
 deployed. Run Apply on the IaC page first.` If the game has never run (the log
 group exists but has no streams yet), the snapshot comes back as a single
 line reading `No log streams found for minecraft.` — rendered as an ordinary
-log line, not as an error. If the log group itself does not exist yet, the snapshot is likewise a single informational line, `No log group for minecraft yet — it hasn't been provisioned or hasn't logged anything.`
+log line, not as an error. If the log group itself does not exist yet, the snapshot is likewise a single informational line, `No log group for minecraft yet — it hasn't been provisioned or hasn't logged anything.` Scrolling back through history on a game with no log group shows the same message, and the live tail shows it once and then keeps checking with a growing delay (up to 30 seconds) until the group appears.
 
 ## Choosing a game
 

@@ -106,17 +106,18 @@ The TSDoc gives the reasoning (`:407-441`): `'older'` walks newest-to-oldest; `'
 
 | Aspect | Game (`AwsCloudProvider.streamWorkloadLogs`) | Lambda (`LogsService.streamLambdaLogs`) |
 |---|---|---|
-| First `startTime` | `Date.now()` | `Date.now()` |
-| Page size / paging | `limit: 100`, one call per poll (`:564`) | no limit, drains every `nextToken` (`:739-754`) |
+| First `startTime` | `Date.now() - LOG_TAIL_LOOKBACK_MS` (30 s) | `Date.now() - LOG_TAIL_LOOKBACK_MS` (30 s) |
+| Page size / paging | `limit: 100`, one call per poll (`:564`) | no limit, drains every `nextToken` with one `startTime` for all pages of a poll (`:739-754`) |
 | Cursor advance | `ts + 1` (`:573-575`) | `max(ts)` (`:747-749`) |
 | Dedupe key fallback | `` `${ts}-${msg}` `` (`:568`) | `` `${ts}:${msg}` `` (`:744`) |
 | Abort | SDK `abortSignal` and `sleepInterruptible` | SDK `abortSignal` and `sleepInterruptible` |
 | Poll error | `logger.error` then `[stream error] …` line | `logger.warn` with `functionKey` and log group, then `[stream error] …` line |
+| Log group missing | one informational line, one `warn`, then keeps polling with a doubling delay (cap 30 s) | one informational line, then the stream ends |
 | Infra not deployed | throws `WorkloadGuardError` before polling (`:554`) | n/a |
 
 The Lambda tail's TSDoc says it copies the game loop's shape and cites a design decision for not sharing it (`LogsService.ts:705-713`); that decision argues only that Lambda naming should not enter the cloud-agnostic `CloudProvider` interface, not that the loops must differ.
-Both tails start at the moment they began, so the snapshot's retained history is not re-delivered (APP-LOGS-TAIL-005).
-Both `seen` sets grow without bound for the life of a stream (`LogsService.ts:734`; `AwsCloudProvider.ts:601`) `[inferred]`.
+Both tails start 30 s before the moment they began, so an event stamped just before the tail started but ingested after the snapshot still arrives, while older retained history is not re-delivered (APP-LOGS-TAIL-005); the overlap is absorbed by `eventId` de-duplication.
+The Lambda tail prunes de-duplication ids older than its advancing `startTime`; the game tail's `seen` set grows for the life of a stream, bounded by the `ts + 1` cursor and the 100-event page `[inferred]`.
 Both loops use the single `sleepInterruptible` helper in `@hyveon/shared`.
 
 ## Renderer Tail Engine
@@ -176,6 +177,8 @@ The Lambda page defaults to `watchdog` and renders `LAMBDA_FUNCTION_KEYS` as `ar
 | Paging scan bound | Cap of 50 streams per call; `atOldest` only when the scan is exhaustive | Unbounded stream listing | Prevents one page call becoming unbounded CloudWatch requests on groups with years of task restarts (`LogsService.ts:138-147`) |
 | Snapshot vs paging failure contract | Snapshot never throws (synthetic line); paging throws a plain `Error` | One contract for both | Snapshot contract is required by APP-LOGS-SNAP-002 to APP-LOGS-SNAP-004; paging throws so the hook can show `Could not load older logs: …` (`use-log-tail.hook.ts:417-420`) `[inferred]` |
 | Missing Lambda log group in the tail | Yield one informational line and end the stream | Repeat `[stream error]` every poll | A missing group will not appear while the operator watches; repeating would flood the window (`LogsService.ts:715-721`) |
+| Tail start boundary | `Date.now()` minus a fixed 30 s lookback (`LOG_TAIL_LOOKBACK_MS`, shared by both tails), with `eventId` de-duplication absorbing the overlap | Start at `Date.now()`; track ingestion time instead | CloudWatch `FilterLogEvents` filters on the event timestamp, so an event stamped before the tail started but ingested after the snapshot (Lambda ingestion lag is often seconds, plus the snapshot-to-first-poll delay and host clock skew) would never be shown. A larger window replays more snapshot history; 30 s covers typical lag. |
+| Missing game log group in the tail | Yield one informational line, warn once, keep polling with a doubling delay capped at 30 s | End the stream as the Lambda tail does; repeat `[stream error]` every poll | A game's group appears only once its first task logs, so ending would strand a tail opened before the first start, while repeating the error floods the log every 2 s. |
 | Stream transport | uuid-scoped `WebContents.send` side channels with a renderer `.cancel` | Single `invoke` reply | `invoke` returns one value only (`logs.controller.ts:167-169`) |
 | Viewport bound | 300-line window, 300-line buffer dropping oldest | Unbounded list; virtualized list | Bound keeps rendering cheap and eviction directional per mode (`use-log-tail.hook.ts:7-15`); the specific number is `[inferred]` |
 | Search | Highlight-only over the loaded window | Filter lines; server-side `filterPattern` | `[inferred]`: keeps context around matches; server-side search was a non-goal |

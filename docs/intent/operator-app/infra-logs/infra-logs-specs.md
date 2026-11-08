@@ -10,7 +10,7 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 - [x] **APP-LOGS-GROUP-004**: When `projectName` is set (for example `acme`), the Lambda log group resolver shall use it, so `functionKey: 'health-check'` resolves to `/aws/lambda/acme-health-check`.
 - [x] **APP-LOGS-GROUP-005**: The addressable Lambda set for the log viewer shall be exactly the five `LambdaFunctionKey` values `watchdog`, `health-check`, `dns-updater`, `interactions`, `followup`, excluding the per-game `efs-seeder` Lambda.
 - [x] **APP-LOGS-GROUP-006**: If reading `deployment-config.json` fails while resolving a Lambda log group, then the resolver shall log a `warn` with the `functionKey` and fall back to the default project name. (observed)
-- [x] **APP-LOGS-GROUP-007**: The `LambdaFunctionKey` union and the `LAMBDA_FUNCTION_KEYS` picker array shall be derived from one declaration so a key cannot be added to one without the other. (observed; gap: `shared/src/lambdaFunctionKey.ts:8-13,20-26` declares both by hand)
+- [x] **APP-LOGS-GROUP-007**: The `LambdaFunctionKey` union and the `LAMBDA_FUNCTION_KEYS` picker array shall be derived from one declaration so a key cannot be added to one without the other. (observed)
 
 ## Recent snapshot
 
@@ -18,8 +18,8 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 - [x] **APP-LOGS-SNAP-002**: If the log group for a recent-logs request (game or Lambda) has no log streams, then the log viewer shall return a single informational `No log streams found for {label}.` line instead of throwing or returning an empty array.
 - [x] **APP-LOGS-SNAP-003**: If the log group for a Lambda recent-logs request does not exist (`ResourceNotFoundException`), then the log viewer shall return a single informational `No log group for {functionKey} yet …` line, logged at `warn` rather than `error`.
 - [x] **APP-LOGS-SNAP-004**: If a CloudWatch call fails during a game or Lambda recent-logs request, then the log viewer shall return a single `Error fetching logs for {label}: …` line instead of propagating the SDK error, and shall log the failure via `logger.error` with the game or `functionKey` and log group as identifiers.
-- [x] **APP-LOGS-SNAP-005**: If the log group for a game recent-logs request does not exist, then the log viewer shall return the same kind of informational "no log group yet" line it returns for Lambdas, rather than a raw `ResourceNotFoundException` string. (observed; gap: `LogsService.ts:277-288` passes no `notFound` hook for games)
-- [x] **APP-LOGS-SNAP-006**: The log viewer shall synthesize a game or Lambda event's `eventId` the same way on the snapshot path and the paging path, including for events with no message. (observed; gap: `LogsService.ts:326` uses `${e.message ?? ''}` while `:519` uses raw `${e.message}`)
+- [x] **APP-LOGS-SNAP-005**: If the log group for a game recent-logs request does not exist, then the log viewer shall return the same kind of informational "no log group yet" line it returns for Lambdas, rather than a raw `ResourceNotFoundException` string. (observed)
+- [x] **APP-LOGS-SNAP-006**: The log viewer shall synthesize a game or Lambda event's `eventId` the same way on the snapshot path and the paging path, including for events with no message. (observed)
 
 ## Historical paging
 
@@ -29,21 +29,22 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 - [x] **APP-LOGS-PAGE-004**: The older-logs page for a game or Lambda shall report `atOldest: true` only when it is empty and the stream listing ended naturally below the 50-stream scan cap. (observed)
 - [x] **APP-LOGS-PAGE-005**: The newer-logs page for a game or Lambda shall report `hasMore: true` exactly when the accumulated events filled `limit`. (observed)
 - [x] **APP-LOGS-PAGE-006**: If an older-logs or newer-logs request for a game or Lambda fails, then the log viewer shall log the failure at `warn` and throw a plain `Error` carrying only the normalized message. (observed)
-- [x] **APP-LOGS-PAGE-007**: If the log group for a Lambda older-logs or newer-logs request does not exist, then the log viewer shall throw an `Error` with the `No log group for {functionKey} yet …` text. (observed)
-- [x] **APP-LOGS-PAGE-008**: If an older-logs or newer-logs IPC handler rethrows a paging failure, then it shall not re-log at `error` a failure `LogsService` already logged at `warn`, and the four game/Lambda paging handlers shall share one catch implementation. (observed; gap: `logs.controller.ts:88-95,112-119,248-255,272-279`)
+- [x] **APP-LOGS-PAGE-007**: If the log group for a game or Lambda older-logs or newer-logs request does not exist, then the log viewer shall throw an `Error` with the `No log group for {label} yet …` text, not the raw SDK message. (observed)
+- [x] **APP-LOGS-PAGE-008**: If an older-logs or newer-logs IPC handler rethrows a paging failure, then it shall not re-log at `error` a failure `LogsService` already logged at `warn`, and the four game/Lambda paging handlers shall share one catch implementation. (observed)
 
 ## Live tail
 
-- [x] **APP-LOGS-TAIL-001**: When a consumer starts a game live tail, the log viewer shall poll `FilterLogEvents` on `/ecs/{game}-server` every poll interval (default 2000 ms), starting from the moment the tail opened, and yield each new event's message once. (observed)
+- [x] **APP-LOGS-TAIL-001**: When a consumer starts a game live tail, the log viewer shall poll `FilterLogEvents` on `/ecs/{game}-server` every poll interval (default 2000 ms), starting 30 s before the moment the tail opened (the lookback of `APP-LOGS-TAIL-005`), and yield each new event's message once. (observed)
 - [x] **APP-LOGS-TAIL-002**: If infrastructure is not deployed when a game live tail starts, then the game tail shall fail with a `WorkloadGuardError` before polling. (observed)
-- [x] **APP-LOGS-TAIL-003**: When a consumer starts a Lambda live tail for a `functionKey`, the log viewer shall poll `FilterLogEvents` on that function's log group every poll interval (default 2000 ms), draining every `nextToken` page per poll.
-- [x] **APP-LOGS-TAIL-004**: While a game or Lambda live tail is active, the tail shall not yield any CloudWatch event it has already yielded on that stream.
-- [x] **APP-LOGS-TAIL-005**: When a Lambda live tail starts, the tail shall yield only events written after it started (newly-arriving lines), not the group's retained history already shown by the snapshot.
+- [x] **APP-LOGS-TAIL-003**: When a consumer starts a Lambda live tail for a `functionKey`, the log viewer shall poll `FilterLogEvents` on that function's log group every poll interval (default 2000 ms), draining every `nextToken` page per poll and sending the same `startTime` on every page of one poll.
+- [x] **APP-LOGS-TAIL-004**: While a game or Lambda live tail is active, the tail shall not yield any CloudWatch event it has already yielded on that stream, and a Lambda tail shall stop remembering identities older than its advancing start time.
+- [x] **APP-LOGS-TAIL-005**: When a Lambda live tail starts, the tail shall begin 30 s before it started (a fixed lookback, because CloudWatch filters on the event timestamp and an event stamped just before the tail began can be ingested after the snapshot), so lagging events still arrive while the group's older retained history already shown by the snapshot is not replayed; the overlap is absorbed by `eventId` de-duplication. The game tail applies the same lookback.
 - [x] **APP-LOGS-TAIL-006**: When the caller's `AbortSignal` is aborted during a game or Lambda live tail, the tail shall end without an unhandled rejection and issue no further polls.
-- [x] **APP-LOGS-TAIL-007**: When the caller's `AbortSignal` is aborted during a Lambda live tail, the tail shall cancel its in-flight `FilterLogEvents` call and its inter-poll sleep immediately, as the game tail does. (observed; gap: `LogsService.ts:739-741` passes no `abortSignal`, `:766` uses a plain `setTimeout`)
+- [x] **APP-LOGS-TAIL-007**: When the caller's `AbortSignal` is aborted during a Lambda live tail, the tail shall cancel its in-flight `FilterLogEvents` call and its inter-poll sleep immediately, as the game tail does. (observed)
 - [x] **APP-LOGS-TAIL-008**: If a poll fails during a game or Lambda live tail, then the tail shall yield one `[stream error] …` line and keep polling. (observed)
-- [x] **APP-LOGS-TAIL-009**: If a poll fails during a Lambda live tail, then the tail shall log the normalized error with the `functionKey` and log group, per the logging rule. (observed; gap: `LogsService.ts:762-763` yields the line without any `logger` call)
+- [x] **APP-LOGS-TAIL-009**: If a poll fails during a Lambda live tail, then the tail shall log the normalized error with the `functionKey` and log group, per the logging rule. (observed)
 - [x] **APP-LOGS-TAIL-010**: If the log group for a Lambda live tail does not exist, then the tail shall yield one `No log group for {functionKey} yet …` line and end, rather than repeating an error every poll. (observed)
+- [x] **APP-LOGS-TAIL-012**: If the log group for a game live tail does not exist, then the tail shall yield one `No log group for {game} yet …` line, log it once at `warn`, and keep polling with a delay that doubles per poll (capped at 30 s) until the group exists, rather than repeating an error every poll, because the group appears only once the game's first task logs.
 - [ ] **APP-LOGS-TAIL-011**: The live tail shall deliver each line's CloudWatch timestamp to the renderer, for both game and Lambda tails. (observed; gap: `LogsService.ts:205-206` drops the provider chunk's timestamp; preload `LogChunk = string`, `hyveon-api.ts:157`)
 
 ## IPC surface

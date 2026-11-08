@@ -232,7 +232,7 @@ Specs: `docs/intent/operator-app/infra-logs/infra-logs-specs.md` · Arrow doc: `
 | `APP-LOGS-SNAP-005` | closed | - | Fixed (was): the game snapshot had no `notFound` hook. It returns the informational no-log-group line |
 | `APP-LOGS-SNAP-006` | closed | - | Fixed (was): snapshot and paging built `eventId` differently. Both use `synthesizeEventId` |
 | `APP-LOGS-PAGE-008` | closed | - | Fixed (was): four identical catches re-logged at error. One `withPlainError` helper rethrows without logging |
-| `APP-LOGS-TAIL-005` | closed | - | Fixed (was): the Lambda tail replayed the retained group. It starts at `Date.now()` |
+| `APP-LOGS-TAIL-005` | closed | - | Fixed (was): the Lambda tail replayed the retained group. It starts 30 s before the tail began (`LOG_TAIL_LOOKBACK_MS`) |
 | `APP-LOGS-TAIL-007` | closed | - | Fixed (was): no `abortSignal` and a plain `setTimeout`. The SDK call takes the signal and the sleep is `sleepInterruptible` |
 | `APP-LOGS-TAIL-009` | closed | - | Fixed (was): a poll failure was not logged. It logs `warn` with functionKey, log group, normalized message |
 | `APP-LOGS-TAIL-011` | b | low | streamLogs yields chunk.message only (desktop-main/src/services/LogsService.ts:206-207); LogChunk = string (desktop-preload/src/hyveon-api.ts:157); UI does not render timestamps today |
