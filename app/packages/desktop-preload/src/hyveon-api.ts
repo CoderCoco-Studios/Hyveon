@@ -2215,18 +2215,9 @@ export type HyveonMockNamespaces = {
 /**
  * Test-only API surface injected under `window.hyveon.__test`.
  *
- * Present in two distinct scenarios:
- *
- * 1. **Vitest / jsdom unit tests** — the test harness replaces the entire
- *    `window.hyveon` object with a stub; the stub
- *    includes this property so individual test cases can register
- *    per-channel overrides via `window.hyveon.__test.mock(channel, handler)`.
- *
- * 2. **Electron preload at runtime** — when the app is launched with
- *    `HYVEON_TEST_MODE=1` (set by the Playwright integration-test harness),
- *    `preload.ts` appends `__test` to the real `window.hyveon` bridge so that
- *    Playwright page scripts can inject IPC mocks without touching the real
- *    Electron IPC layer.
+ * Present only when the Electron preload runs with `HYVEON_TEST_MODE=1` (set by the Playwright
+ * harness): `preload.ts` appends `__test` to the real `window.hyveon` bridge so page scripts can inject IPC
+ * mocks without touching the real IPC layer. Vitest/jsdom tests stub the namespace methods with `vi.fn()` instead.
  *
  * Production code must **never** reference this property — guard every access
  * with an `if (window.hyveon?.__test)` check or, better, avoid it entirely outside

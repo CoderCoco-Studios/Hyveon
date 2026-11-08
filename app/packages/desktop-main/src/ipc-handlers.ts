@@ -30,6 +30,7 @@ export function ipcErrorMessage(err: unknown): string {
     if (typeof body === 'object' && body !== null) {
       const { error, message } = body as { error?: unknown; message?: unknown };
       if (typeof message === 'string' && message.length > 0) return message;
+      if (Array.isArray(message) && message.length > 0) return message.join('; ');
       if (typeof error === 'string' && error.length > 0) return error;
     }
     return err.message;
@@ -57,6 +58,28 @@ export function toIpcError(pattern: string, err: unknown): Error {
   return new Error(message);
 }
 
+/**
+ * Registers `fn` on `ipcMain.handle` for `channel`, replacing any earlier registration and normalizing failures.
+ *
+ * @remarks
+ * `removeHandler` runs first so hot-reload re-registration does not throw. A throw or rejection from `fn` is logged
+ * and rethrown as a plain `Error` carrying only the message, so it survives structured clone.
+ *
+ * @param ipcMain - Electron's `ipcMain`.
+ * @param channel - The IPC channel to answer.
+ * @param fn - The handler, called with the invoke payload and the `{ evt }` context.
+ */
+export function bindIpcHandler(ipcMain: IpcMain, channel: string, fn: SelfBridgedHandler): void {
+  ipcMain.removeHandler(channel);
+  ipcMain.handle(channel, async (evt: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      return await fn(payload, { evt });
+    } catch (err) {
+      throw toIpcError(channel, err);
+    }
+  });
+}
+
 // @spec APP-IPC-CALL-009, APP-IPC-ERR-005
 /**
  * Registers each handler on `ipcMain.handle` for the channels in `SELF_BRIDGED_PATTERNS`,
@@ -73,13 +96,6 @@ export async function registerSelfBridgedHandlers(handlers: Record<string, SelfB
   if (!process.versions.electron) return;
   const { ipcMain } = (await import('electron')) as unknown as { ipcMain: IpcMain };
   for (const [channel, handler] of Object.entries(handlers)) {
-    ipcMain.removeHandler(channel);
-    ipcMain.handle(channel, async (evt: IpcMainInvokeEvent, payload: unknown) => {
-      try {
-        return await handler(payload, { evt });
-      } catch (err) {
-        throw toIpcError(channel, err);
-      }
-    });
+    bindIpcHandler(ipcMain, channel, handler);
   }
 }

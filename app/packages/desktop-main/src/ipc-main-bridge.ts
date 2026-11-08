@@ -1,8 +1,8 @@
 import type { MessageHandler } from '@nestjs/microservices';
-import type { IpcMain, IpcMainInvokeEvent } from 'electron';
+import type { IpcMain } from 'electron';
 import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
 import { firstValueFrom, isObservable } from 'rxjs';
-import { toIpcError } from './ipc-handlers.js';
+import { bindIpcHandler } from './ipc-handlers.js';
 
 // @spec IAC-RUN-IPC-005
 /**
@@ -138,14 +138,9 @@ export async function registerIpcMainBridges(transport: BridgedElectronIPCTransp
       continue;
     }
 
-    ipcMain.removeHandler(pattern);
-    ipcMain.handle(pattern, async (evt: IpcMainInvokeEvent, payload: unknown) => {
-      try {
-        const result = await handler(payload, { evt });
-        return isObservable(result) ? await firstValueFrom(result) : result;
-      } catch (err) {
-        throw toIpcError(pattern, err);
-      }
+    bindIpcHandler(ipcMain, pattern, async (payload, ctx) => {
+      const result = await handler(payload, ctx);
+      return isObservable(result) ? await firstValueFrom(result) : result;
     });
   }
 }

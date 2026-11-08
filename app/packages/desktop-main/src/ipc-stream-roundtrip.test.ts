@@ -1,8 +1,9 @@
 /**
  * Drives a streaming channel end to end through the real preload bridge (`preload.ts` and `stream-bridge.ts`) and the
  * real `LogsController`/`registerSelfBridgedHandlers` with no `__test.mock` registered. An in-process IPC bus stands
- * in for Electron: it structured-clones every payload and reply and delivers `webContents.send` pushes on a later
- * macrotask, so a regression at the serialization or ordering boundary fails here.
+ * in for Electron: it structured-clones every payload and reply and routes the invoke reply and every
+ * `webContents.send` push through one FIFO drained an item per macrotask, so a push sent before the reply settles
+ * reaches the renderer first and a regression at the serialization or ordering boundary fails here.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LogsService } from './services/LogsService.js';
@@ -15,6 +16,24 @@ const bus = await vi.hoisted(async () => {
     mainEmitter: new EventEmitter(),
     rendererEmitter: new EventEmitter(),
     exposed: {} as Record<string, unknown>,
+    fifo: [] as Array<() => void>,
+    draining: false,
+    /** Queues one delivery on the single ordered channel; items run one per macrotask. */
+    enqueue(item: () => void) {
+      bus.fifo.push(item);
+      if (bus.draining) return;
+      bus.draining = true;
+      const step = () => {
+        const next = bus.fifo.shift();
+        if (!next) {
+          bus.draining = false;
+          return;
+        }
+        next();
+        setImmediate(step);
+      };
+      setImmediate(step);
+    },
   };
 });
 
@@ -27,7 +46,7 @@ vi.mock('electron', () => {
     isDestroyed: () => false,
     send: (channel: string, data: unknown) => {
       const delivered = structuredClone(data);
-      setImmediate(() => bus.rendererEmitter.emit(channel, {}, delivered));
+      bus.enqueue(() => bus.rendererEmitter.emit(channel, {}, delivered));
     },
   };
   return {
@@ -40,10 +59,19 @@ vi.mock('electron', () => {
       removeAllListeners: (channel: string) => bus.mainEmitter.removeAllListeners(channel),
     },
     ipcRenderer: {
-      invoke: async (channel: string, ...args: unknown[]) => {
+      invoke: (channel: string, ...args: unknown[]) => {
         const handler = bus.handlers.get(channel);
-        if (!handler) throw new Error(`No handler registered for '${channel}'`);
-        return structuredClone(await handler({ sender }, structuredClone(args[0])));
+        if (!handler) return Promise.reject(new Error(`No handler registered for '${channel}'`));
+        return new Promise((resolve, reject) => {
+          const settle = (deliver: () => void) => bus.enqueue(deliver);
+          handler({ sender }, structuredClone(args[0])).then(
+            (value) => {
+              const reply = structuredClone(value);
+              settle(() => resolve(reply));
+            },
+            (err: unknown) => settle(() => reject(err)),
+          );
+        });
       },
       send: (channel: string, ...args: unknown[]) => void bus.mainEmitter.emit(channel, {}, ...args),
       on: (channel: string, fn: (...a: unknown[]) => void) => bus.rendererEmitter.on(channel, fn),
@@ -68,6 +96,7 @@ async function drain(handle: AsyncIterable<string>): Promise<string[]> {
 // @spec APP-IPC-STREAM-011
 describe('logs.stream through the real preload bridge and LogsController', () => {
   const realElectronVersion = process.versions.electron;
+  const realTestMode = process.env.HYVEON_TEST_MODE;
   let streamLogs: ReturnType<typeof vi.fn<LogsService['streamLogs']>>;
 
   beforeEach(async () => {
@@ -81,6 +110,8 @@ describe('logs.stream through the real preload bridge and LogsController', () =>
   });
 
   afterEach(() => {
+    if (realTestMode === undefined) delete process.env.HYVEON_TEST_MODE;
+    else process.env.HYVEON_TEST_MODE = realTestMode;
     if (realElectronVersion === undefined) delete (process.versions as { electron?: string }).electron;
     else Object.defineProperty(process.versions, 'electron', { value: realElectronVersion, configurable: true });
   });

@@ -184,11 +184,7 @@ export class IacRunsController implements OnModuleInit {
    * chunk/end messages over side channels for the duration of a run's output
    * rather than resolving a single value.
    *
-   * Only runs inside a real Electron main process. In plain-Node runtimes
-   * (integration test server, Docker, CI) `process.versions.electron` is
-   * undefined and importing `electron` would throw, so the bridge is skipped
-   * entirely rather than guessing which error means "no Electron" from the
-   * message.
+   * Registration goes through `registerSelfBridgedHandlers`, which is a no-op outside Electron.
    */
   async onModuleInit(): Promise<void> {
     await registerSelfBridgedHandlers({

@@ -29,12 +29,7 @@ export class LogsController implements OnModuleInit {
    * `ipc-main-bridge.ts`) because its handler mints a `streamId` and pushes
    * follow-up chunk/end messages over side channels derived from it.
    *
-   * Gated on `process.versions.electron` rather than a try/catch around the
-   * `electron` import: in plain-Node runtimes (integration test server,
-   * Docker, CI) that import throws either MODULE_NOT_FOUND or "Electron
-   * failed to install correctly" depending on whether the package is present
-   * — there's no single error signature to catch reliably, so absence of
-   * `process.versions.electron` is the only trustworthy "not Electron" check.
+   * Registration goes through `registerSelfBridgedHandlers`, which is a no-op outside Electron.
    */
   async onModuleInit(): Promise<void> {
     await registerSelfBridgedHandlers({

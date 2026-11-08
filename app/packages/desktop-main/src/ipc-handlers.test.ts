@@ -23,6 +23,11 @@ describe('ipcErrorMessage', () => {
     expect(ipcErrorMessage(new BadRequestException('bad runId'))).toBe('bad runId');
   });
 
+  it('should join a validation-pipe message array before falling back to the error text', () => {
+    const err = new BadRequestException({ message: ['name must be a string', 'port must be a number'], error: 'Bad Request' });
+    expect(ipcErrorMessage(err)).toBe('name must be a string; port must be a number');
+  });
+
   it('should fall back to .message for an HttpException body with no error text', () => {
     expect(ipcErrorMessage(new BadRequestException({ success: false }))).toBe('Bad Request Exception');
   });
