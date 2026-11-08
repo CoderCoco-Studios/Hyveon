@@ -1,3 +1,4 @@
+import type { LogEventLine } from '@hyveon/desktop-preload';
 import { test, expect, launchElectron } from '../fixtures/index.js';
 
 /**
@@ -36,13 +37,16 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
       const result = await win.evaluate(async () => {
         const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
-          logs: { stream: (game: string) => AsyncIterable<string> & { cancel: () => void } };
+          logs: { stream: (game: string) => AsyncIterable<LogEventLine> & { cancel: () => void } };
         };
 
         // Plain-object mock iterable — see the module doc comment for why
         // this isn't a real `async function*`.
         hyveon.__test.mock('logs.stream', () => {
-          const queued = ['line-one', 'line-two'];
+          const queued: LogEventLine[] = [
+            { message: 'line-one', timestamp: 1, eventId: '1:line-one' },
+            { message: 'line-two', timestamp: 2, eventId: '2:line-two' },
+          ];
           let index = 0;
           return {
             [Symbol.asyncIterator]() {
@@ -58,7 +62,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
         const handle = hyveon.logs.stream('minecraft');
         const chunks: string[] = [];
         for await (const chunk of handle) {
-          chunks.push(chunk);
+          chunks.push(chunk.message);
         }
         return { chunks, hasCancel: typeof handle.cancel === 'function' };
       });
@@ -184,7 +188,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
           __test: { mock: (channel: string, handler: unknown) => void };
           logs: {
             stream: (game: string) => {
-              next: () => Promise<{ done?: boolean; value?: string }>;
+              next: () => Promise<{ done?: boolean; value?: LogEventLine }>;
               cancel: () => void;
             };
           };
@@ -194,7 +198,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
           [Symbol.asyncIterator]() {
             return this;
           },
-          next: () => Promise.resolve({ done: false, value: 'only-chunk' }),
+          next: () => Promise.resolve({ done: false, value: { message: 'only-chunk', timestamp: 1, eventId: '1:only-chunk' } }),
         }));
 
         const handle = hyveon.logs.stream('minecraft');

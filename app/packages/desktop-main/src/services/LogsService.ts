@@ -131,7 +131,17 @@ interface AccumulatedEvent {
  * @returns A {@link LogEventLine} carrying `message` with a synthesized timestamp/eventId.
  */
 function syntheticLine(message: string): LogEventLine {
-  const timestamp = Date.now();
+  return toLogEventLine(message, Date.now());
+}
+
+/**
+ * Builds a {@link LogEventLine} whose `eventId` is the shared {@link synthesizeEventId} identity, so snapshot, paging,
+ * and live-tail lines for the same event carry the same id.
+ *
+ * @param message - The event's message.
+ * @param timestamp - Event timestamp, epoch ms.
+ */
+function toLogEventLine(message: string, timestamp: number): LogEventLine {
   return { message, timestamp, eventId: synthesizeEventId(timestamp, message) };
 }
 
@@ -197,7 +207,7 @@ export class LogsService {
     return this.getCachedClient({ region, credentials, credentialsSignature: signature });
   }
 
-  // @spec APP-LOGS-GROUP-001, APP-LOGS-TAIL-001
+  // @spec APP-LOGS-GROUP-001, APP-LOGS-TAIL-001, APP-LOGS-TAIL-011
   /**
    * Async generator that yields new log lines as they arrive for `game`.
    * Delegates to the injected `CloudProvider`'s `streamWorkloadLogs` (bound
@@ -205,18 +215,19 @@ export class LogsService {
    * `FilterLogEvents` every `pollInterval` ms (de-duplicated by `eventId`,
    * exiting cleanly when `signal` is aborted) — see
    * `AwsCloudProvider.streamWorkloadLogs`'s TSDoc for the full behaviour this
-   * preserves for the AWS implementation. Only the `message` of each yielded
-   * `LogChunk` is surfaced here, matching this method's pre-existing
-   * `AsyncGenerator<string>` contract.
+   * preserves for the AWS implementation. Each provider `LogChunk` is surfaced
+   * as a {@link LogEventLine}, carrying its CloudWatch timestamp and the shared
+   * synthesized `eventId` so the renderer can order and de-duplicate live lines
+   * against paged history.
    */
   async *streamLogs(
     game: string,
     signal: AbortSignal,
     pollInterval = 2000,
-  ): AsyncGenerator<string> {
+  ): AsyncGenerator<LogEventLine> {
     logger.debug('LogsService.streamLogs: starting log stream', { game, pollInterval });
     for await (const chunk of this.provider.streamWorkloadLogs(game, signal, pollInterval)) {
-      yield chunk.message;
+      yield toLogEventLine(chunk.message, chunk.timestamp.getTime());
     }
   }
 
@@ -765,7 +776,7 @@ export class LogsService {
     functionKey: LambdaFunctionKey,
     signal: AbortSignal,
     pollInterval = 2000,
-  ): AsyncGenerator<string> {
+  ): AsyncGenerator<LogEventLine> {
     const logGroup = await this.resolveLambdaLogGroup(functionKey);
     logger.debug('LogsService.streamLambdaLogs: starting log stream', { functionKey, logGroup, pollInterval });
     const seen = new Map<string, number>();
@@ -787,7 +798,7 @@ export class LogsService {
               startTime = Math.max(startTime, event.timestamp);
             }
             if (signal.aborted) return;
-            yield event.message ?? '';
+            yield toLogEventLine(event.message ?? '', event.timestamp ?? Date.now());
           }
           nextToken = result.nextToken;
         } while (nextToken && !signal.aborted);
@@ -798,12 +809,12 @@ export class LogsService {
         if (signal.aborted) return;
         if (err instanceof Error && err.name === 'ResourceNotFoundException') {
           logger.warn('LogsService.streamLambdaLogs: log group does not exist yet, stopping poll', { functionKey, logGroup });
-          yield noLogGroupMessage(functionKey);
+          yield syntheticLine(noLogGroupMessage(functionKey));
           return;
         }
         const message = errMessage(err);
         logger.warn('LogsService.streamLambdaLogs: poll failed', { functionKey, logGroup, error: message });
-        yield `[stream error] ${message}`;
+        yield syntheticLine(`[stream error] ${message}`);
       }
       try {
         await sleepInterruptible(pollInterval, signal);

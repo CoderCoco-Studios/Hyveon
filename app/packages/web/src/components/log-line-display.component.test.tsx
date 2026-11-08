@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { HighlightedLine } from './log-line-display.component.js';
+import { HighlightedLine, LogLineList } from './log-line-display.component.js';
 
 describe('HighlightedLine', () => {
   it('should render plain text unchanged when there is no query and no ANSI codes', () => {
@@ -58,5 +58,24 @@ describe('HighlightedLine', () => {
     expect(marks).toHaveLength(2);
     expect(marks[0]).toHaveTextContent('ERROR');
     expect(marks[1]).toHaveTextContent(': disk');
+  });
+});
+
+describe('LogLineList', () => {
+  // @spec APP-LOGS-RENDER-003
+  it('should keep the same DOM row for an existing line when older lines are prepended', () => {
+    const lines = [{ id: 2, text: 'second' }, { id: 3, text: 'third' }];
+    const { rerender } = render(<LogLineList lines={lines} search="" emptyMessage="none" />);
+    const rowBefore = screen.getByText('third').closest('div');
+
+    rerender(<LogLineList lines={[{ id: 1, text: 'first' }, ...lines]} search="" emptyMessage="none" />);
+
+    expect(screen.getByText('third').closest('div')).toBe(rowBefore);
+  });
+
+  it('should render plain string lines for callers without row identity', () => {
+    render(<LogLineList lines={['a', 'b']} search="" emptyMessage="none" />);
+    expect(screen.getByText('a')).toBeInTheDocument();
+    expect(screen.getByText('b')).toBeInTheDocument();
   });
 });

@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { LogEventLine } from '@hyveon/desktop-preload';
 import { renderPage } from '../test-utils/render-page.utils.js';
 import { toStreamHandleMock } from '../test-utils/stream-handle.test-utils.js';
+
+/** Build a streamed live line carrying a CloudWatch timestamp, as the main process now delivers. */
+function liveLine(message: string): LogEventLine {
+  return { message, timestamp: 9000, eventId: `9000:${message}` };
+}
 
 // Mock the API client so the component drives off canned data instead of real
 // fetch calls. `vi.mock` is hoisted above the import so LogsPage picks up the stub.
@@ -126,8 +132,8 @@ describe('LogsPage', () => {
   it('should append live chunks yielded by the stream iterator after the seeded snapshot', async () => {
     hyveonMock.logs.stream.mockImplementation(
       toStreamHandleMock(async function* () {
-        yield '2026-05-03T12:00:05Z INFO Live chunk one';
-        yield '2026-05-03T12:00:06Z ERROR Live chunk two';
+        yield liveLine('2026-05-03T12:00:05Z INFO Live chunk one');
+        yield liveLine('2026-05-03T12:00:06Z ERROR Live chunk two');
       }),
     );
     renderPage(<LogsPage />);
@@ -167,9 +173,9 @@ describe('LogsPage', () => {
      * how the real IPC stream trickles chunks in over time.
      */
     function createControllableStream() {
-      const buffer: string[] = [];
+      const buffer: LogEventLine[] = [];
       let notify: (() => void) | null = null;
-      async function* gen(): AsyncGenerator<string> {
+      async function* gen(): AsyncGenerator<LogEventLine> {
         while (true) {
           if (buffer.length > 0) {
             yield buffer.shift()!;
@@ -183,7 +189,7 @@ describe('LogsPage', () => {
       return {
         gen,
         push(chunk: string) {
-          buffer.push(chunk);
+          buffer.push(liveLine(chunk));
           notify?.();
           notify = null;
         },
@@ -203,7 +209,7 @@ describe('LogsPage', () => {
       fireEvent.scroll(box);
 
       // Autoscroll checkbox reflects the automatic un-pin.
-      expect(screen.getAllByRole('checkbox', { name: 'Autoscroll' })[0]).not.toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Autoscroll' })).not.toBeChecked();
 
       const scrollTopSpy = vi.spyOn(box, 'scrollTop', 'set');
       stream.push('2026-05-03T12:00:05Z INFO Live chunk one');
@@ -223,11 +229,11 @@ describe('LogsPage', () => {
       stubScrollGeometry(box, { scrollHeight: 500, clientHeight: 100 });
       Object.defineProperty(box, 'scrollTop', { configurable: true, writable: true, value: 50 });
       fireEvent.scroll(box);
-      expect(screen.getAllByRole('checkbox', { name: 'Autoscroll' })[0]).not.toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Autoscroll' })).not.toBeChecked();
 
       Object.defineProperty(box, 'scrollTop', { configurable: true, writable: true, value: 480 });
       fireEvent.scroll(box);
-      expect(screen.getAllByRole('checkbox', { name: 'Autoscroll' })[0]).toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Autoscroll' })).toBeChecked();
 
       stream.push('2026-05-03T12:00:05Z INFO Live chunk one');
       await screen.findByText(/Live chunk one/);

@@ -1,4 +1,4 @@
-import { Fragment, forwardRef, useMemo } from 'react';
+import { Fragment, forwardRef, memo, useMemo } from 'react';
 import { parseAnsiLine } from '../lib/ansi.utils.js';
 import { cn } from '../lib/utils.utils.js';
 
@@ -90,9 +90,29 @@ export function HighlightedLine({ text, query }: { text: string; query: string }
   );
 }
 
+/** One log line to render: its text plus a stable identity used as the React row key. */
+export interface LogListEntry {
+  text: string;
+  /** Unique, stable identity for the line while it stays loaded — rows keep their DOM when older lines are prepended. */
+  id: number;
+}
+
+/** One log row; memoised so a row whose text and query are unchanged does not re-render when its siblings change. */
+const LogRow = memo(function LogRow({ text, query }: { text: string; query: string }) {
+  return (
+    <div className="flex gap-2 whitespace-pre-wrap break-all">
+      <span className="flex-1">
+        <HighlightedLine text={text} query={query} />
+      </span>
+    </div>
+  );
+});
+
+// @spec APP-LOGS-RENDER-003
 /**
  * Scrollable log box: renders one {@link HighlightedLine} per entry in
- * `lines`, or `emptyMessage` when there are none. Shared by `/logs`,
+ * `lines`, or `emptyMessage` when there are none. Entries given as
+ * {@link LogListEntry} are keyed by their `id`; plain strings fall back to the array index. Shared by `/logs`,
  * `/logs/infrastructure`, and the Settings Diagnostics panel, whose log
  * boxes are otherwise identical aside from their empty-state copy and
  * whether they track scroll position (`onScroll`).
@@ -100,7 +120,7 @@ export function HighlightedLine({ text, query }: { text: string; query: string }
 export const LogLineList = forwardRef<
   HTMLDivElement,
   {
-    lines: string[];
+    lines: ReadonlyArray<string | LogListEntry>;
     search: string;
     emptyMessage: string;
     className?: string;
@@ -113,13 +133,13 @@ export const LogLineList = forwardRef<
       {lines.length === 0 ? (
         <div className="text-[var(--color-muted-foreground)]">{emptyMessage}</div>
       ) : (
-        lines.map((text, i) => (
-          <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
-            <span className="flex-1">
-              <HighlightedLine text={text} query={search} />
-            </span>
-          </div>
-        ))
+        lines.map((line, i) =>
+          typeof line === 'string' ? (
+            <LogRow key={i} text={line} query={search} />
+          ) : (
+            <LogRow key={line.id} text={line.text} query={search} />
+          ),
+        )
       )}
     </div>
   );

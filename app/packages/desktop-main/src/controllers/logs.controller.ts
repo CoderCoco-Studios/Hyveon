@@ -4,7 +4,7 @@ import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
 import type { LambdaFunctionKey } from '@hyveon/shared';
 import { LogsService } from '../services/LogsService.js';
-import type { RecentLogsPage, OlderLogsPage, NewerLogsPage } from '../services/LogsService.js';
+import type { RecentLogsPage, OlderLogsPage, NewerLogsPage, LogEventLine } from '../services/LogsService.js';
 import { logger } from '../logger.js';
 import { ipcErrorMessage, registerSelfBridgedHandlers } from '../ipc-handlers.js';
 import { errMessage } from '@hyveon/shared';
@@ -140,7 +140,7 @@ export class LogsController implements OnModuleInit {
    * @param errorLogFields - Non-secret identifiers merged into that error log line.
    */
   private async openStream(
-    source: (signal: AbortSignal) => AsyncGenerator<string>,
+    source: (signal: AbortSignal) => AsyncGenerator<LogEventLine>,
     channelPrefix: string,
     ctx: { evt: IpcMainInvokeEvent },
     errorLogLabel: string,
@@ -199,7 +199,7 @@ export class LogsController implements OnModuleInit {
    * @param errorLogFields - Non-secret identifiers merged into that error log line.
    */
   private async pump(
-    source: (signal: AbortSignal) => AsyncGenerator<string>,
+    source: (signal: AbortSignal) => AsyncGenerator<LogEventLine>,
     ac: AbortController,
     sender: WebContents,
     channels: { chunkChannel: string; endChannel: string },

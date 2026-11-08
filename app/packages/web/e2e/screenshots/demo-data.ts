@@ -313,18 +313,6 @@ export const DEMO_LOG_LINES: string[] = [
   '2026-07-26T12:15:00Z INFO Saved the game',
 ];
 
-/**
- * Lines delivered over the *live* `logs.stream` channel, arriving after the
- * `logs.get` snapshot above ({@link DEMO_LOG_LINES}) is already on screen —
- * this is what proves the tail is actually live in `logs.png`, not just a
- * static snapshot. Timestamps continue on from `DEMO_LOG_LINES`'s last line.
- */
-export const DEMO_LOG_STREAM_LINES: string[] = [
-  '2026-07-26T12:15:04Z INFO alex issued server command: [tp chris 12 64 -8]',
-  '2026-07-26T12:15:09Z DEBUG Autosave started',
-  '2026-07-26T12:15:12Z INFO Autosave finished in 2984 ms',
-];
-
 /** Leading `YYYY-MM-DDTHH:mm:ssZ` timestamp prefix shared by every demo log line string. */
 const LOG_LINE_TIMESTAMP_PATTERN = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)/;
 
@@ -342,6 +330,18 @@ function toLogEventLines(lines: string[]): LogEventLine[] {
     return { message, timestamp, eventId: `${timestamp}:${index}` };
   });
 }
+
+/**
+ * Lines delivered over the *live* `logs.stream` channel, arriving after the
+ * `logs.get` snapshot above ({@link DEMO_LOG_LINES}) is already on screen —
+ * this is what proves the tail is actually live in `logs.png`, not just a
+ * static snapshot. Timestamps continue on from `DEMO_LOG_LINES`'s last line.
+ */
+export const DEMO_LOG_STREAM_LINES: LogEventLine[] = toLogEventLines([
+  '2026-07-26T12:15:04Z INFO alex issued server command: [tp chris 12 64 -8]',
+  '2026-07-26T12:15:09Z DEBUG Autosave started',
+  '2026-07-26T12:15:12Z INFO Autosave finished in 2984 ms',
+]);
 
 // Infrastructure (Lambda) logs — one short, function-flavoured line per
 // `LambdaFunctionKey` so the `/logs/infrastructure` picker has something
@@ -498,7 +498,7 @@ export interface DemoOverrides {
   audit?: AuditPageResult;
   logLines?: string[];
   /** Lines delivered over the live `logs.stream` channel, after `logLines`' snapshot is already on screen. */
-  logStreamLines?: string[];
+  logStreamLines?: LogEventLine[];
   iacHistory?: RunHistoryPageResult;
   /** Streamed `pulumi preview` chunks for the `run-plan-demo` run. */
   iacPlanChunks?: IacRunChunk[];

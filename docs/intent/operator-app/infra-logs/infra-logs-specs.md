@@ -44,8 +44,8 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 - [x] **APP-LOGS-TAIL-008**: If a poll fails during a game or Lambda live tail, then the tail shall yield one `[stream error] …` line and keep polling. (observed)
 - [x] **APP-LOGS-TAIL-009**: If a poll fails during a Lambda live tail, then the tail shall log the normalized error with the `functionKey` and log group, per the logging rule. (observed)
 - [x] **APP-LOGS-TAIL-010**: If the log group for a Lambda live tail does not exist, then the tail shall yield one `No log group for {functionKey} yet …` line and end, rather than repeating an error every poll. (observed)
+- [x] **APP-LOGS-TAIL-011**: The live tail shall deliver each line's CloudWatch timestamp and synthesized event id to the renderer, for both game and Lambda tails.
 - [x] **APP-LOGS-TAIL-012**: If the log group for a game live tail does not exist, then the tail shall yield one `No log group for {game} yet …` line, log it once at `warn`, and keep polling with a delay that doubles per poll (capped at 30 s) until the group exists, rather than repeating an error every poll, because the group appears only once the game's first task logs.
-- [ ] **APP-LOGS-TAIL-011**: The live tail shall deliver each line's CloudWatch timestamp to the renderer, for both game and Lambda tails. (observed; gap: `LogsService.ts:205-206` drops the provider chunk's timestamp; preload `LogChunk = string`, `hyveon-api.ts:157`)
 
 ## IPC surface
 
@@ -75,8 +75,10 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 - [x] **APP-LOGS-ENGINE-013**: When the operator jumps to latest, the log tail engine shall discard the pause buffer and loaded lines, re-fetch the recent snapshot, return to live mode, and re-enable autoscroll. (observed)
 - [x] **APP-LOGS-ENGINE-014**: If an older, newer, or latest-snapshot response resolves after a target switch or a later jump to latest, then the log tail engine shall discard that response. (observed)
 - [x] **APP-LOGS-ENGINE-015**: When the operator scrolls away from the bottom of the log list, the log tail engine shall turn autoscroll off, and turn it back on when they scroll back within 24 px of the bottom. (observed)
-- [ ] **APP-LOGS-ENGINE-016**: When a newer-page request returns `hasMore: false` in historical mode, the log tail engine shall report that no newer history remains. (observed; gap: `use-log-tail.hook.ts:612` sets `hasNewer` from mode alone and ignores `NewerLogsPage.hasMore`)
-- [ ] **APP-LOGS-ENGINE-017**: The log tail footer's `oldest {age}` shall measure the age of the oldest loaded log event, not the time since it was received. (observed; gap: `use-log-tail.hook.ts:258-259,366-367` uses `receivedAt`)
+- [x] **APP-LOGS-ENGINE-016**: When a newer-page request returns `hasMore: false` in historical mode, the log tail engine shall report that no newer history remains.
+- [x] **APP-LOGS-ENGINE-017**: The log tail footer's `oldest {age}` shall measure the age of the oldest loaded log event, not the time since it was received.
+- [x] **APP-LOGS-ENGINE-018**: When a live line arrives whose `eventId` matches a loaded snapshot or paged line, the log tail engine shall not show it twice, and shall not de-duplicate live lines against each other because two live lines sharing an id are distinct events.
+- [x] **APP-LOGS-ENGINE-019**: If the loaded window's newest line changed while a newer-page request was in flight (an older page evicted from the bottom), then the log tail engine shall discard that page and shall not report that newest history was reached.
 
 ## Log pages and view
 
@@ -87,14 +89,14 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 - [x] **APP-LOGS-UI-005**: The log view shell shall show a `Live` / `Paused` badge, a search input, an autoscroll toggle, a pause/resume button, an error banner, a `Loading older logs…` marker while an older page is loading, a `Beginning of log retention` marker at the oldest point, and a footer with the loaded line count. (observed)
 - [x] **APP-LOGS-UI-006**: While in historical mode, the log view shell shall show a `Jump to latest` button, and hide it in live mode. (observed)
 - [x] **APP-LOGS-UI-007**: While paused with buffered lines, the log view footer shall show `buffered {N}`. (observed)
-- [ ] **APP-LOGS-UI-008**: While in historical mode, the log view shell shall indicate that the view is not live, in both the badge and the buffered-line count. (observed; gap: `live-badge.component.tsx:19-36` reflects only `paused`; `log-tail-view.component.tsx:212` shows `buffered` only when paused)
-- [ ] **APP-LOGS-UI-009**: Where the `/logs` page uses its mobile filter drawer, the log view shell shall mount exactly one search input and one autoscroll toggle at a time. (observed; gap: `log-tail-view.component.tsx:150-166` keeps the desktop pair mounted under `hidden md:contents`)
+- [x] **APP-LOGS-UI-008**: While in historical mode, the log view shell shall indicate that the view is not live, in both the badge and the buffered-line count.
+- [x] **APP-LOGS-UI-009**: Where the `/logs` page uses its mobile filter drawer, the log view shell shall mount at most one search input and one autoscroll toggle at a time (none while the narrow-window drawer is closed).
 
 ## Line rendering
 
 - [x] **APP-LOGS-RENDER-001**: When the search input is non-empty, the shared log line list (used by `/logs`, `/logs/infrastructure` and the Settings → Diagnostics panel) shall highlight every case-insensitive match in each loaded line with `<mark>`, including matches spanning ANSI-styled segments while keeping their colour, without hiding non-matching lines. (observed)
 - [x] **APP-LOGS-RENDER-002**: The shared log line list shall render the 16 standard ANSI SGR foreground colours, bold and normal intensity, and reset per line, ignore unrecognized SGR codes, strip every well-formed non-SGR escape sequence (cursor movement, clear-line, OSC) from the displayed text, and leave a malformed or truncated escape in place as plain text without erroring. (observed)
-- [ ] **APP-LOGS-RENDER-003**: The log line list shall key rows by a stable per-line identity, so prepending older lines does not re-render every row. (observed; gap: `log-line-display.component.tsx:116` keys by array index)
+- [x] **APP-LOGS-RENDER-003**: The log line list shall key rows by a stable per-line identity, so prepending older lines does not re-render every row.
 
 ## Sidebar navigation
 

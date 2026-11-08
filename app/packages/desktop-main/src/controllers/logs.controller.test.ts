@@ -48,6 +48,11 @@ function line(message: string, timestamp: number): LogEventLine {
   return { message, timestamp, eventId: `${timestamp}:${message}` };
 }
 
+/** Build a streamed-line fixture at a fixed timestamp. */
+function chunk(message: string): LogEventLine {
+  return line(message, 1);
+}
+
 /** Build a LogsService stub with default no-op implementations. */
 function makeLogs(): LogsService {
   return {
@@ -303,8 +308,8 @@ describe('LogsController', () => {
     // @spec APP-LOGS-IPC-004
     it('should send each log line as a chunk to the renderer via sender.send', async () => {
       async function* twoLines() {
-        yield 'hello';
-        yield 'world';
+        yield chunk('hello');
+        yield chunk('world');
       }
       const logs = makeLogs();
       vi.mocked(logs.streamLogs).mockImplementation(twoLines);
@@ -315,8 +320,8 @@ describe('LogsController', () => {
       fireReady();
       await flushPromises();
 
-      expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.chunk`, 'hello');
-      expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.chunk`, 'world');
+      expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.chunk`, chunk('hello'));
+      expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.chunk`, chunk('world'));
     });
 
     // @spec APP-LOGS-IPC-006
@@ -336,8 +341,8 @@ describe('LogsController', () => {
 
     // @spec APP-LOGS-IPC-006
     it('should send an end message with no error when the stream is cancelled (AbortError)', async () => {
-      async function* throwsAbort(): AsyncGenerator<string> {
-        yield 'partial';
+      async function* throwsAbort(): AsyncGenerator<LogEventLine> {
+        yield chunk('partial');
         throw new DOMException('Aborted', 'AbortError');
       }
       const logs = makeLogs();
@@ -357,8 +362,8 @@ describe('LogsController', () => {
 
     // @spec APP-LOGS-IPC-006
     it('should send an end message with an error string when the generator throws a non-abort error', async () => {
-      async function* throwsNonAbort(): AsyncGenerator<string> {
-        yield 'partial';
+      async function* throwsNonAbort(): AsyncGenerator<LogEventLine> {
+        yield chunk('partial');
         throw new Error('CloudWatch throttled');
       }
       const logs = makeLogs();
@@ -377,8 +382,8 @@ describe('LogsController', () => {
 
     // @spec APP-IPC-ERR-007
     it('should send the handler error message on the end channel with no "Error: " prefix', async () => {
-      async function* throwsNonAbort(): AsyncGenerator<string> {
-        yield 'partial';
+      async function* throwsNonAbort(): AsyncGenerator<LogEventLine> {
+        yield chunk('partial');
         throw new Error('CloudWatch throttled');
       }
       const logs = makeLogs();
@@ -395,9 +400,9 @@ describe('LogsController', () => {
 
     // @spec APP-IPC-STREAM-013
     it('should not start the source or send any chunk or end event until the preload sends ready', async () => {
-      async function* failsImmediately(): AsyncGenerator<string> {
+      async function* failsImmediately(): AsyncGenerator<LogEventLine> {
         await Promise.reject(new Error('no such log group'));
-        yield 'unreachable';
+        yield chunk('unreachable');
       }
       const logs = makeLogs();
       vi.mocked(logs.streamLogs).mockImplementation(failsImmediately);
@@ -434,10 +439,10 @@ describe('LogsController', () => {
       async function* waitForAbort(
         _game: string,
         signal: AbortSignal,
-      ): AsyncGenerator<string> {
+      ): AsyncGenerator<LogEventLine> {
         capturedSignal = signal;
         // Yield one line then wait indefinitely so the cancel path is exercised.
-        yield 'first';
+        yield chunk('first');
         await new Promise<void>((_, reject) => {
           signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
         });
@@ -491,7 +496,7 @@ describe('LogsController', () => {
 
     // @spec APP-LOGS-IPC-007
     it('should not send to a destroyed WebContents', async () => {
-      async function* oneLine() { yield 'line'; }
+      async function* oneLine() { yield chunk('line'); }
       const logs = makeLogs();
       vi.mocked(logs.streamLogs).mockImplementation(oneLine);
       // Simulate WebContents already destroyed before the loop runs.
@@ -613,8 +618,8 @@ describe('LogsController', () => {
     // @spec APP-LOGS-IPC-004
     it('should send each log line as a chunk to the renderer via sender.send', async () => {
       async function* twoLines() {
-        yield 'hello';
-        yield 'world';
+        yield chunk('hello');
+        yield chunk('world');
       }
       const logs = makeLogs();
       vi.mocked(logs.streamLambdaLogs).mockImplementation(twoLines);
@@ -625,8 +630,8 @@ describe('LogsController', () => {
       fireReady();
       await flushPromises();
 
-      expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.chunk`, 'hello');
-      expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.chunk`, 'world');
+      expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.chunk`, chunk('hello'));
+      expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.chunk`, chunk('world'));
     });
 
     // @spec APP-LOGS-IPC-006
@@ -646,8 +651,8 @@ describe('LogsController', () => {
 
     // @spec APP-LOGS-IPC-006
     it('should send an end message with no error when the stream is cancelled (AbortError)', async () => {
-      async function* throwsAbort(): AsyncGenerator<string> {
-        yield 'partial';
+      async function* throwsAbort(): AsyncGenerator<LogEventLine> {
+        yield chunk('partial');
         throw new DOMException('Aborted', 'AbortError');
       }
       const logs = makeLogs();
@@ -667,8 +672,8 @@ describe('LogsController', () => {
 
     // @spec APP-LOGS-IPC-006
     it('should send an end message with an error string when the generator throws a non-abort error', async () => {
-      async function* throwsNonAbort(): AsyncGenerator<string> {
-        yield 'partial';
+      async function* throwsNonAbort(): AsyncGenerator<LogEventLine> {
+        yield chunk('partial');
         throw new Error('CloudWatch throttled');
       }
       const logs = makeLogs();
@@ -704,9 +709,9 @@ describe('LogsController', () => {
       async function* waitForAbort(
         _functionKey: string,
         signal: AbortSignal,
-      ): AsyncGenerator<string> {
+      ): AsyncGenerator<LogEventLine> {
         capturedSignal = signal;
-        yield 'first';
+        yield chunk('first');
         await new Promise<void>((_, reject) => {
           signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
         });
@@ -744,7 +749,7 @@ describe('LogsController', () => {
 
     // @spec APP-LOGS-IPC-007
     it('should not send to a destroyed WebContents', async () => {
-      async function* oneLine() { yield 'line'; }
+      async function* oneLine() { yield chunk('line'); }
       const logs = makeLogs();
       vi.mocked(logs.streamLambdaLogs).mockImplementation(oneLine);
       const { ctx, sender } = makeCtx(true);
