@@ -1,4 +1,5 @@
 import * as aws from '@pulumi/aws';
+import * as pulumi from '@pulumi/pulumi';
 import type { GameServerConfig } from '@hyveon/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { accessPointKey, defineEfs } from './efs.js';
@@ -26,6 +27,13 @@ function findByName(resources: RecordedResource[], name: string): RecordedResour
     throw new Error(`expected exactly one recorded resource named "${name}", found ${matches.length}`);
   }
   return matches[0];
+}
+
+/** The legacy logical names a resource carries as Pulumi aliases, read from the URNs the SDK derives from them. */
+async function aliasNames(resource: aws.efs.AccessPoint): Promise<string[]> {
+  const urns = (resource as unknown as { __aliases?: pulumi.Input<string>[] }).__aliases ?? [];
+  const resolved = await Promise.all(urns.map((urn) => promiseOf(pulumi.output(urn))));
+  return resolved.map((urn) => urn.split('::').at(-1)!);
 }
 
 describe('defineEfs', () => {
@@ -121,6 +129,48 @@ describe('defineEfs', () => {
       .map((resource) => (resource.inputs.rootDirectory as { path: string }).path)
       .sort();
     expect(paths).toEqual(['/a-b/c', '/a/b-c']);
+  });
+
+  // @spec IAC-PROGRAM-EFS-004
+  it('should alias each access point to its legacy logical name so a running task keeps its mount', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const result = await runDefineEfs({
+      projectName: 'hyveon',
+      gameServers: FIXTURE_GAME_SERVERS,
+      publicSubnets: MOCK_PUBLIC_SUBNET_IDS,
+      efsSecurityGroupId: 'sg-efs-mock',
+      provider,
+    });
+
+    for (const [game, config] of Object.entries(FIXTURE_GAME_SERVERS)) {
+      for (const volume of config.volumes) {
+        expect(await aliasNames(result.gameAccessPoints[accessPointKey(game, volume.name)])).toEqual([
+          `${game}-${volume.name}`,
+        ]);
+      }
+    }
+  });
+
+  // @spec IAC-PROGRAM-EFS-004
+  it('should skip the alias where the legacy name is ambiguous or equals a certificate access point name', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const base = FIXTURE_GAME_SERVERS.alpha;
+    const result = await runDefineEfs({
+      projectName: 'hyveon',
+      gameServers: {
+        'a-b': { ...base, volumes: [{ name: 'c', container_path: '/data' }] },
+        a: { ...base, volumes: [{ name: 'b-c', container_path: '/data' }, { name: 'solo', container_path: '/solo' }] },
+        x: { ...base, https: true, volumes: [{ name: 'caddy-data', container_path: '/data' }] },
+      },
+      publicSubnets: MOCK_PUBLIC_SUBNET_IDS,
+      efsSecurityGroupId: 'sg-efs-mock',
+      provider,
+    });
+
+    expect(await aliasNames(result.gameAccessPoints[accessPointKey('a-b', 'c')])).toEqual([]);
+    expect(await aliasNames(result.gameAccessPoints[accessPointKey('a', 'b-c')])).toEqual([]);
+    expect(await aliasNames(result.gameAccessPoints[accessPointKey('x', 'caddy-data')])).toEqual([]);
+    expect(await aliasNames(result.gameAccessPoints[accessPointKey('a', 'solo')])).toEqual(['a-solo']);
   });
 
   // @spec IAC-PROGRAM-FANOUT-002

@@ -37,6 +37,36 @@ export function accessPointKey(game: string, volumeName: string): string {
   return `${game}/${volumeName}`;
 }
 
+// @spec IAC-PROGRAM-EFS-004
+/**
+ * Computes the legacy `${game}-${volume}` logical name to alias each game-volume access point from.
+ *
+ * @remarks
+ * Access points were once named `${game}-${volume}`; renaming them without an alias makes Pulumi create the new ones
+ * and delete the old ones at the end of the update, which pulls the mount out from under a running game task or
+ * file-browser helper. Pulumi rejects two resources of one type sharing an alias, so a pair is skipped (and replaced
+ * instead) when its legacy name is shared with another pair (game `a-b` volume `c` versus game `a` volume `b-c`) or
+ * equals a certificate access point's logical name (game `x` with `https` and a volume `caddy-data`).
+ *
+ * @param gameServers - The configured game-server map.
+ * @returns The legacy name per {@link accessPointKey}, omitting pairs that cannot be aliased safely.
+ */
+function legacyAccessPointNames(gameServers: Record<string, GameServerConfig>): Map<string, string> {
+  const owners = new Map<string, string[]>();
+  for (const [game, config] of Object.entries(gameServers)) {
+    for (const volume of config.volumes) {
+      const legacy = `${game}-${volume.name}`;
+      owners.set(legacy, [...(owners.get(legacy) ?? []), accessPointKey(game, volume.name)]);
+    }
+  }
+  const certNames = new Set(httpsGameEntries(gameServers).map(([game]) => `${game}-caddy-data`));
+  const result = new Map<string, string>();
+  for (const [legacy, keys] of owners) {
+    if (keys.length === 1 && !certNames.has(legacy)) result.set(keys[0], legacy);
+  }
+  return result;
+}
+
 /** Every resource {@link defineEfs} declares, keyed by role. */
 export interface EfsResources {
   /** The shared EFS filesystem. */
@@ -133,6 +163,7 @@ export function defineEfs(args: DefineEfsArgs): EfsResources {
 
   // One access point per (game, volume) pair, keyed by `accessPointKey`.
   const gameAccessPoints: Record<string, aws.efs.AccessPoint> = {};
+  const legacyNames = legacyAccessPointNames(gameServers);
   for (const [game, config] of Object.entries(gameServers)) {
     for (const volume of config.volumes) {
       const key = accessPointKey(game, volume.name);
@@ -151,7 +182,7 @@ export function defineEfs(args: DefineEfsArgs): EfsResources {
           },
           tags: { Name: key },
         },
-        opts,
+        legacyNames.has(key) ? { ...opts, aliases: [{ name: legacyNames.get(key) }] } : opts,
       );
     }
   }
