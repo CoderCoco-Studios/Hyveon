@@ -459,8 +459,8 @@ describe('FolderUploadService runs', () => {
     it('should stop before the next file when the game server task has started', async () => {
       const h = harness();
       h.svc.engine.concurrency = 1;
-      // Preflight and the guard before the first file see no task; the guard before the second file does.
-      h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValue({ taskArn: 'task' });
+      // Preflight, the guard before directory setup and the guard before the first file see no task; the second file's does.
+      h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValue({ taskArn: 'task' });
       await h.svc.startUpload(await request(['Config', 'Data']));
       const last = await settled(h);
       expect(last).toMatchObject({ phase: 'failed', error: expect.stringMatching(/started while the upload was running/) });
@@ -471,7 +471,7 @@ describe('FolderUploadService runs', () => {
     it('should stop before the next file when the server state can no longer be confirmed', async () => {
       const h = harness();
       h.svc.engine.concurrency = 1;
-      h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockRejectedValue(new Error('ThrottlingException'));
+      h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockRejectedValue(new Error('ThrottlingException'));
       await h.svc.startUpload(await request(['Config', 'Data']));
       const last = await settled(h);
       expect(last).toMatchObject({ phase: 'failed', error: expect.stringMatching(/confirm.*still stopped/) });
@@ -485,6 +485,14 @@ describe('FolderUploadService runs', () => {
       await h.svc.startUpload(await request(['Config']));
       expect((await settled(h)).phase).toBe('failed');
       expect(h.client.uploads).toHaveLength(0);
+    });
+
+    it('should create no directories when the server started between preflight and the directory setup', async () => {
+      const h = harness();
+      h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce(null).mockResolvedValue({ taskArn: 'task' });
+      await h.svc.startUpload(await request(['Config']));
+      expect((await settled(h)).phase).toBe('failed');
+      expect(h.client.mkdir).not.toHaveBeenCalled();
     });
 
     it('should share one check between files inside the recheck window', async () => {

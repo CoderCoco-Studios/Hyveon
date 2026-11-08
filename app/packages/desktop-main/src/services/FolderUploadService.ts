@@ -428,8 +428,10 @@ export class FolderUploadService implements OnApplicationBootstrap {
       await this.confirmOverwrites(items, prepared, runId, existing, progress, signal);
 
       progress.setPhase('uploading');
+      const guard = this.serverGuard(prepared);
+      await guard();
       await ensureDirs(client, items, signal);
-      await uploadAll(client, items, existing, progress, signal, { ...this.engine, beforeFile: this.serverGuard(prepared) });
+      await uploadAll(client, items, existing, progress, signal, { ...this.engine, beforeFile: guard });
 
       progress.setPhase('verifying');
       const verdict = await verifyUpload(client, items, signal);

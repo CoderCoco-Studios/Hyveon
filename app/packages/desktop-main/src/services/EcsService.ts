@@ -30,6 +30,9 @@ import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
 /** `DescribeTasks` accepts at most 100 task ARNs per call. */
 const DESCRIBE_TASKS_BATCH = 100;
 
+/** Wait, in milliseconds, before the single retry of a failed running-task lookup. */
+const RUNNING_TASK_RETRY_BACKOFF_MS = 250;
+
 // @spec IAC-ENGINE-REGION-002
 /**
  * Maps `ConfigService`'s stack-outputs shape onto the narrow config
@@ -202,6 +205,8 @@ export class EcsService {
    *
    * @remarks
    * Fail-closed counterpart of {@link findRunningTask}: an unconfirmable answer throws instead of reading as "no task".
+   * A failed lookup is retried once after {@link RUNNING_TASK_RETRY_BACKOFF_MS} so one transient `ListTasks` or
+   * `DescribeTasks` error does not stop a long-running caller such as a folder upload.
    *
    * @param cluster - ECS cluster name.
    * @param game - Game whose `{game}-server` family is searched.
@@ -212,29 +217,40 @@ export class EcsService {
   async findRunningTaskOrThrow(cluster: string, game: string): Promise<Task | null> {
     logger.debug('EcsService.findRunningTaskOrThrow: looking up running task', { cluster, game });
     try {
-      const listResp = await this.getClient().send(
-        new ListTasksCommand({ cluster, family: `${game}-server`, desiredStatus: 'RUNNING' }),
-      );
-      if (!listResp.taskArns?.length) return null;
-
-      const descResp = await this.getClient().send(
-        new DescribeTasksCommand({ cluster, tasks: listResp.taskArns }),
-      );
-      const described = new Set((descResp.tasks ?? []).map((t) => t.taskArn));
-      if (descResp.failures?.length || listResp.taskArns.some((arn) => !described.has(arn))) {
-        const reasons = (descResp.failures ?? []).map((f) => f.reason).filter(Boolean).join(', ');
-        throw new Error(`Couldn't describe every running task for '${game}'${reasons ? ` (${reasons})` : ''}.`);
+      return await this.lookupRunningTask(cluster, game);
+    } catch (firstErr) {
+      logger.warn('Running task lookup failed, retrying once', { error: errMessage(firstErr), game });
+      await new Promise((resolve) => setTimeout(resolve, RUNNING_TASK_RETRY_BACKOFF_MS));
+      try {
+        return await this.lookupRunningTask(cluster, game);
+      } catch (err) {
+        const message = errMessage(err);
+        logger.error('Failed to find running task', { error: message, game });
+        throw new Error(message);
       }
-      return (
-        descResp.tasks?.find(
-          (t) => t.lastStatus !== 'STOPPED' && t.lastStatus !== 'DEPROVISIONING',
-        ) ?? null
-      );
-    } catch (err) {
-      const message = errMessage(err);
-      logger.error('Failed to find running task', { error: message, game });
-      throw new Error(message);
     }
+  }
+
+  /** One `ListTasks` + `DescribeTasks` pass for {@link findRunningTaskOrThrow}; throws on any failure or incomplete describe. */
+  private async lookupRunningTask(cluster: string, game: string): Promise<Task | null> {
+    const listResp = await this.getClient().send(
+      new ListTasksCommand({ cluster, family: `${game}-server`, desiredStatus: 'RUNNING' }),
+    );
+    if (!listResp.taskArns?.length) return null;
+
+    const descResp = await this.getClient().send(
+      new DescribeTasksCommand({ cluster, tasks: listResp.taskArns }),
+    );
+    const described = new Set((descResp.tasks ?? []).map((t) => t.taskArn));
+    if (descResp.failures?.length || listResp.taskArns.some((arn) => !described.has(arn))) {
+      const reasons = (descResp.failures ?? []).map((f) => f.reason).filter(Boolean).join(', ');
+      throw new Error(`Couldn't describe every running task for '${game}'${reasons ? ` (${reasons})` : ''}.`);
+    }
+    return (
+      descResp.tasks?.find(
+        (t) => t.lastStatus !== 'STOPPED' && t.lastStatus !== 'DEPROVISIONING',
+      ) ?? null
+    );
   }
 
   /**

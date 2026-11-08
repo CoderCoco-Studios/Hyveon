@@ -22,7 +22,10 @@ export interface UploadEngineOptions {
   maxAttempts: number;
   /** Waits `ms`, rejecting early when `signal` aborts. */
   sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
-  /** Awaited before every attempt to write a file; rejecting stops the run before that file, without a retry. */
+  /**
+   * Awaited before every attempt to write a file; rejecting stops the run before that file, without a retry. Files
+   * already in flight are left to finish rather than aborted mid-stream.
+   */
   beforeFile?: () => Promise<void>;
 }
 
@@ -66,6 +69,14 @@ export class UploadFileError extends Error {
   ) {
     super(`${relPath}: ${errMessage(cause)}`);
     this.name = 'UploadFileError';
+  }
+}
+
+/** Wraps a {@link UploadEngineOptions.beforeFile} rejection so the pool stops scheduling without aborting in-flight writes. */
+class GuardStopError extends Error {
+  constructor(readonly original: unknown) {
+    super(errMessage(original));
+    this.name = 'GuardStopError';
   }
 }
 
@@ -245,7 +256,11 @@ async function uploadOne(
 ): Promise<void> {
   for (let attempt = 1; ; attempt += 1) {
     throwIfAborted(signal);
-    await opts.beforeFile?.();
+    try {
+      await opts.beforeFile?.();
+    } catch (err) {
+      throw new GuardStopError(err);
+    }
     throwIfAborted(signal);
     let counted = 0;
     let source: ReturnType<typeof createReadStream> | undefined;
@@ -276,14 +291,15 @@ async function uploadOne(
   }
 }
 
-// @spec HELPER-RESUME-001, HELPER-RESUME-002, HELPER-RESUME-004, HELPER-RESUME-007
+// @spec HELPER-RESUME-001, HELPER-RESUME-002, HELPER-RESUME-004, HELPER-RESUME-007, HELPER-UPLOAD-018
 /**
  * Uploads `items`, skipping files the volume already holds at the expected size (resume), with bounded concurrency.
  *
  * @param remoteSizes - `remotePath -> size` from {@link listRemoteSizes}; matching files are counted as done, anything
  * else (including a partially written file) is re-sent with `override=true`.
  * @throws UploadCancelledError when `signal` aborts; UploadFileError for the first file to exhaust its attempts;
- * whatever {@link UploadEngineOptions.beforeFile} rejects with, unchanged.
+ * whatever {@link UploadEngineOptions.beforeFile} rejects with, unchanged — in that case no new file starts but files
+ * already being written run to completion.
  */
 export async function uploadAll(
   client: VolumeFileBackend,
@@ -310,13 +326,13 @@ export async function uploadAll(
       try {
         await uploadOne(client, item, progress, inner.signal, opts);
       } catch (err) {
-        inner.abort();
+        if (!(err instanceof GuardStopError)) inner.abort();
         throw err;
       }
     });
   } catch (err) {
     if (signal?.aborted) throw new UploadCancelledError();
-    throw err;
+    throw err instanceof GuardStopError ? err.original : err;
   } finally {
     signal?.removeEventListener('abort', onOuterAbort);
   }
