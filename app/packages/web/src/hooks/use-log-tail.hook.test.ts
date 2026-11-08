@@ -526,6 +526,104 @@ describe('useLogTail — live-line identity, age, and newest-history state', () 
     expect(new Set(after).size).toBe(3);
   });
 
+  // @spec APP-LOGS-ENGINE-018
+  describe('live-line de-duplication', () => {
+    it('should drop a live line whose eventId matches a loaded snapshot line', async () => {
+      const api = makeApi({
+        get: vi.fn().mockResolvedValue({ lines: [line('a', 1000), line('b', 2000)] }),
+        stream: vi.fn().mockImplementation(
+          toStreamHandleMock(async function* () {
+            yield line('b', 2000);
+            yield line('c', 3000);
+          }),
+        ),
+      });
+      const { result } = renderHook(() => useLogTail('watchdog', api));
+      await waitFor(() => expect(result.current.lines.map((l) => l.text)).toEqual(['a', 'b', 'c']));
+    });
+
+    it('should keep two live lines that share an eventId because they are distinct events', async () => {
+      const api = makeApi({
+        stream: vi.fn().mockImplementation(
+          toStreamHandleMock(async function* () {
+            yield line('same', 5000);
+            yield line('same', 5000);
+          }),
+        ),
+      });
+      const { result } = renderHook(() => useLogTail('watchdog', api));
+      await waitFor(() => expect(result.current.lines).toHaveLength(2));
+    });
+
+    it('should not buffer a paused live line that duplicates a loaded line', async () => {
+      let push!: (l: LogEventLine) => void;
+      const api = makeApi({
+        get: vi.fn().mockResolvedValue({ lines: [line('a', 1000)] }),
+        stream: vi.fn().mockImplementation(
+          toStreamHandleMock(async function* () {
+            const queue: LogEventLine[] = [];
+            let wake: (() => void) | undefined;
+            push = (l) => {
+              queue.push(l);
+              wake?.();
+            };
+            for (;;) {
+              while (queue.length > 0) yield queue.shift()!;
+              await new Promise<void>((resolve) => {
+                wake = resolve;
+              });
+            }
+          }),
+        ),
+      });
+      const { result } = renderHook(() => useLogTail('watchdog', api));
+      await waitFor(() => expect(result.current.lines).toHaveLength(1));
+      await waitFor(() => expect(push).toBeDefined());
+      act(() => result.current.handlePauseToggle());
+      act(() => push(line('a', 1000)));
+      act(() => push(line('b', 2000)));
+      await waitFor(() => expect(result.current.bufferedCount).toBe(1));
+    });
+  });
+
+  // @spec APP-LOGS-ENGINE-019
+  it('should discard a newer page and not mark newest reached when the window bottom changed while it was in flight', async () => {
+    const newerPage = deferred<{ lines: LogEventLine[]; hasMore: boolean }>();
+    const full = Array.from({ length: 300 }, (_, i) => line(`l-${i}`, 10_000 + i));
+    const api = makeApi({
+      get: vi.fn().mockResolvedValue({ lines: full }),
+      getOlder: vi.fn().mockResolvedValue({ lines: [line('o', 500)], atOldest: false }),
+      getNewer: vi.fn().mockReturnValue(newerPage.promise),
+    });
+    const { result } = renderHook(() => useLogTail('watchdog', api));
+    await waitFor(() => expect(result.current.lines).toHaveLength(300));
+
+    // Enter historical mode (the first older page evicts one bottom line), then request newer.
+    setScrollPosition(result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+    act(() => result.current.handleScroll());
+    await waitFor(() => expect(result.current.lines[0]!.text).toBe('o'));
+    await waitFor(() => expect(result.current.loadingOlder).toBe(false));
+    setScrollPosition(result.current.boxRef, { scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+    act(() => result.current.handleScroll());
+    await waitFor(() => expect(api.getNewer).toHaveBeenCalledTimes(1));
+
+    // A second older page evicts from the bottom while getNewer is still in flight.
+    vi.mocked(api.getOlder).mockResolvedValue({ lines: [line('o2', 400)], atOldest: false });
+    setScrollPosition(result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+    act(() => result.current.handleScroll());
+    await waitFor(() => expect(result.current.lines[0]!.text).toBe('o2'));
+    await waitFor(() => expect(result.current.loadingOlder).toBe(false));
+    const bottomBefore = result.current.lines[result.current.lines.length - 1]!.text;
+
+    await act(async () => {
+      newerPage.resolve({ lines: [line('n', 99_999)], hasMore: false });
+      await Promise.resolve();
+    });
+
+    expect(result.current.atNewest).toBe(false);
+    expect(result.current.lines[result.current.lines.length - 1]!.text).toBe(bottomBefore);
+  });
+
   describe('atNewest', () => {
     /** Enters historical mode with a one-line window, then scrolls to the bottom to fire `getNewer`. */
     async function enterHistoricalAndScrollDown(api: LogTailApi) {
@@ -579,6 +677,57 @@ describe('useLogTail — live-line identity, age, and newest-history state', () 
       await waitFor(() => expect(result.current.atNewest).toBe(true));
       act(() => result.current.jumpToLatest());
       expect(result.current.atNewest).toBe(false);
+    });
+
+    // @spec APP-LOGS-ENGINE-016
+    it('should clear atNewest when an older page evicts from the bottom of a full window', async () => {
+      const full = Array.from({ length: 300 }, (_, i) => line(`l-${i}`, 10_000 + i));
+      const api = makeApi({
+        get: vi.fn().mockResolvedValue({ lines: full }),
+        getOlder: vi.fn().mockResolvedValue({ lines: [line('o', 500)], atOldest: false }),
+        getNewer: vi.fn().mockResolvedValue({ lines: [], hasMore: false }),
+      });
+      const hook = renderHook(() => useLogTail('watchdog', api));
+      await waitFor(() => expect(hook.result.current.lines).toHaveLength(300));
+      setScrollPosition(hook.result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+      act(() => hook.result.current.handleScroll());
+      await waitFor(() => expect(hook.result.current.loadingOlder).toBe(false));
+      await waitFor(() => expect(hook.result.current.mode).toBe('historical'));
+      setScrollPosition(hook.result.current.boxRef, { scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+      act(() => hook.result.current.handleScroll());
+      await waitFor(() => expect(hook.result.current.atNewest).toBe(true));
+
+      vi.mocked(api.getOlder).mockResolvedValue({ lines: [line('o2', 400)], atOldest: false });
+      setScrollPosition(hook.result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+      act(() => hook.result.current.handleScroll());
+
+      await waitFor(() => expect(hook.result.current.lines[0]!.text).toBe('o2'));
+      expect(hook.result.current.atNewest).toBe(false);
+    });
+
+    // @spec APP-LOGS-ENGINE-016
+    it('should clear atNewest when the target changes', async () => {
+      const api = makeApi({
+        get: vi.fn().mockResolvedValue({ lines: [line('a', 1000)] }),
+        getOlder: vi.fn().mockResolvedValue({ lines: [line('o', 500)], atOldest: false }),
+        getNewer: vi.fn().mockResolvedValue({ lines: [], hasMore: false }),
+      });
+      let target = 'watchdog';
+      const hook = renderHook(() => useLogTail(target, api));
+      await waitFor(() => expect(hook.result.current.lines).toHaveLength(1));
+      setScrollPosition(hook.result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+      act(() => hook.result.current.handleScroll());
+      await waitFor(() => expect(hook.result.current.mode).toBe('historical'));
+      await waitFor(() => expect(hook.result.current.loadingOlder).toBe(false));
+      setScrollPosition(hook.result.current.boxRef, { scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+      act(() => hook.result.current.handleScroll());
+      await waitFor(() => expect(hook.result.current.atNewest).toBe(true));
+
+      target = 'followup';
+      hook.rerender();
+
+      await waitFor(() => expect(hook.result.current.atNewest).toBe(false));
+      expect(hook.result.current.mode).toBe('live');
     });
   });
 });

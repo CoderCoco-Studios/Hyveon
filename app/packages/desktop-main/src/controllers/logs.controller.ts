@@ -199,7 +199,7 @@ export class LogsController implements OnModuleInit {
    * @param errorLogFields - Non-secret identifiers merged into that error log line.
    */
   private async pump(
-    source: (signal: AbortSignal) => AsyncGenerator<string>,
+    source: (signal: AbortSignal) => AsyncGenerator<LogEventLine>,
     ac: AbortController,
     sender: WebContents,
     channels: { chunkChannel: string; endChannel: string },

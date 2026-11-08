@@ -184,7 +184,7 @@ test('logs.png', async () => {
     // — see `preload.ts`) delivers real chunks: wait for the last streamed
     // line so the screenshot captures the tail mid-flow, with no error banner
     // and the "Live" badge active.
-    await expect(win.getByText(DEMO_LOG_STREAM_LINES[DEMO_LOG_STREAM_LINES.length - 1]!)).toBeVisible();
+    await expect(win.getByText(DEMO_LOG_STREAM_LINES[DEMO_LOG_STREAM_LINES.length - 1]!.message)).toBeVisible();
     await expect(win.getByText('Stream ended with error')).toHaveCount(0);
     await shot(win, 'logs.png');
   } finally {

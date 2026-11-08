@@ -914,8 +914,8 @@ describe('LogsService.streamLambdaLogs', () => {
     const { value: l2 } = await gen.next();
     ac.abort();
     await gen.return(undefined);
-    expect(l1).toMatchObject({ message: 'first', timestamp: 1000 });
-    expect(l2).toMatchObject({ message: 'second', timestamp: 2000 });
+    expect(l1).toMatchObject({ message: 'first', timestamp: base + 1000 });
+    expect(l2).toMatchObject({ message: 'second', timestamp: base + 2000 });
     expect(cwMock.commandCalls(FilterLogEventsCommand)[0]!.args[0].input.logGroupName).toBe('/aws/lambda/hyveon-dns-updater');
   });
 
@@ -1025,7 +1025,7 @@ describe('LogsService.streamLambdaLogs', () => {
     const third = await gen.next();
     ac.abort();
     await gen.return(undefined);
-    expect(third.value).toBe('one');
+    expect(third.value).toMatchObject({ message: 'one' });
   });
 
   // @spec APP-LOGS-TAIL-007
