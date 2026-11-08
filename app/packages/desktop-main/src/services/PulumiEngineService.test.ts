@@ -16,6 +16,7 @@ const {
   readdirSyncMock,
   renameSyncMock,
   rmSyncMock,
+  statSyncMock,
   loggerMock,
 } = vi.hoisted(() => ({
   getMock: vi.fn(),
@@ -25,6 +26,7 @@ const {
   readdirSyncMock: vi.fn(),
   renameSyncMock: vi.fn(),
   rmSyncMock: vi.fn(),
+  statSyncMock: vi.fn(),
   loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
@@ -41,6 +43,7 @@ vi.mock('node:fs', () => ({
   readdirSync: readdirSyncMock,
   renameSync: renameSyncMock,
   rmSync: rmSyncMock,
+  statSync: statSyncMock,
 }));
 
 vi.mock('../logger.js', () => ({ logger: loggerMock }));
@@ -89,6 +92,8 @@ beforeEach(() => {
   readdirSyncMock.mockReset();
   renameSyncMock.mockReset();
   rmSyncMock.mockReset();
+  statSyncMock.mockReset();
+  statSyncMock.mockReturnValue({ mtimeMs: 0 });
   loggerMock.debug.mockReset();
   loggerMock.info.mockReset();
   loggerMock.warn.mockReset();
@@ -482,6 +487,33 @@ describe('PulumiEngineService.resolve — pruning superseded versions', () => {
     expect(rmSyncMock).toHaveBeenCalledWith(join(VERSIONS_DIR, '.staging-leftover'), { recursive: true, force: true });
     expect(rmSyncMock).toHaveBeenCalledWith(join(VERSIONS_DIR, '.trash-leftover'), { recursive: true, force: true });
     expect(rmSyncMock).not.toHaveBeenCalledWith(PIN_ROOT, expect.anything());
+  });
+
+  // @spec IAC-ENGINE-PROV-012
+  it('should leave a staging or trash directory younger than an hour alone, since another app instance may be using it', async () => {
+    const service = makeService();
+    readdirSyncMock.mockReturnValue([PULUMI_ENGINE_VERSION, '.staging-fresh', '.trash-fresh', '.staging-old']);
+    const now = Date.now();
+    statSyncMock.mockImplementation((path: string) => ({ mtimeMs: path.endsWith('-old') ? now - 2 * 3_600_000 : now - 60_000 }));
+
+    await service.resolve();
+
+    expect(rmSyncMock).not.toHaveBeenCalledWith(join(VERSIONS_DIR, '.staging-fresh'), expect.anything());
+    expect(rmSyncMock).not.toHaveBeenCalledWith(join(VERSIONS_DIR, '.trash-fresh'), expect.anything());
+    expect(rmSyncMock).toHaveBeenCalledWith(join(VERSIONS_DIR, '.staging-old'), { recursive: true, force: true });
+  });
+
+  it('should skip a leftover it cannot stat and still prune the remaining entries', async () => {
+    const service = makeService();
+    readdirSyncMock.mockReturnValue(['3.200.0', '.staging-gone', PULUMI_ENGINE_VERSION]);
+    statSyncMock.mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+
+    await expect(service.resolve()).resolves.toBeDefined();
+
+    expect(rmSyncMock).not.toHaveBeenCalledWith(join(VERSIONS_DIR, '.staging-gone'), expect.anything());
+    expect(rmSyncMock).toHaveBeenCalledWith(join(VERSIONS_DIR, '3.200.0'), { recursive: true, force: true });
   });
 
   it('should not fail provisioning if listing the versions directory for pruning fails', async () => {
