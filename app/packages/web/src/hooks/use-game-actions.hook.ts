@@ -88,6 +88,10 @@ export function useGameActions(game: string, onRefresh: (game: string) => void):
           action: {
             label: 'Undo',
             onClick: () => {
+              if (refreshTimeoutRef.current !== null) {
+                clearTimeout(refreshTimeoutRef.current);
+                refreshTimeoutRef.current = null;
+              }
               setBusy(true);
               void api.start(game)
                 .then((undoRes) => {

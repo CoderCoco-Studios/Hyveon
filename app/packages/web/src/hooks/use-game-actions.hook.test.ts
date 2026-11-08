@@ -52,4 +52,22 @@ describe('useGameActions', () => {
     expect(result.current.busy).toBe(false);
     expect(onRefresh).toHaveBeenLastCalledWith('minecraft');
   });
+
+  // @spec RT-TASK-UI-010
+  it('should stay busy when Undo is clicked before the Stop refresh timer fires', async () => {
+    apiMock.start.mockReturnValue(new Promise(() => undefined));
+    const { result } = renderHook(() => useGameActions('minecraft', vi.fn()));
+
+    act(() => result.current.stop());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    const options = toastMock.mock.calls[0]![1] as ToastOptions;
+    act(() => options.action!.onClick());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(result.current.busy).toBe(true);
+  });
 });
