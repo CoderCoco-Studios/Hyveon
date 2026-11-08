@@ -74,7 +74,7 @@ These pairs describe one behaviour from two leaves. Keep one ID as the owner and
 
 | Behaviour | Specs | Suggested owner |
 |---|---|---|
-| Health-check Lambda env vars | `RT-HEALTH-PROV-003`, `IAC-PROGRAM-LAMBDA-011`, `IAC-PROGRAM-RUNTIME-003` | `iac/program` (provisioning) |
+| Health-check Lambda env vars | `RT-HEALTH-PROV-003`, `IAC-PROGRAM-LAMBDA-011` | `iac/program` (provisioning) |
 | Health-check Lambda network path | `RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-012` | `iac/program` |
 | Install region single-sourced | `IAC-ENGINE-REGION-001`, `CONFIG-SET-012`, `CONFIG-FORM-003`, `CONFIG-FORM-007`, `APP-WIZARD-REGLOCK-001` | `iac/engine` (decision 10 in the HLD); the others cite it |
 | Quit-time abort of IaC runs (`IAC-ENGINE-LIFE-009` and `IAC-RUN-DSTR-011` closed) | `IAC-RUN-DSTR-011` | `iac/run` |

@@ -128,7 +128,7 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 | EFS Seeding During Apply | `IAC-PROGRAM-SEED-001` to `IAC-PROGRAM-SEED-005` | 4 | 0 | 1 |
 | Lambda Runtime and Bundling | `IAC-PROGRAM-RUNTIME-001` to `IAC-PROGRAM-RUNTIME-006` | 5 | 1 | 0 |
 
-**Summary:** 129 of 133 active specs implemented; 2 deferred; 2 gaps.
+**Summary:** 128 of 132 active specs implemented; 2 deferred; 2 gaps.
 
 ## Key Findings
 
