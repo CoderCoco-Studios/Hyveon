@@ -592,6 +592,18 @@ describe('WizardController', () => {
 
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should fail the step without creating a table when the existing document cannot be read', async () => {
+      const bootstrap = makeBootstrap();
+      vi.mocked(bootstrap.resolveExistingRunsTableName).mockRejectedValue(new Error('InternalError'));
+
+      const result = await makeController({ bootstrap }).bootstrapRunsTable({ configurationBucket: 'cfg' });
+
+      expect(result).toEqual({ status: 'failed', message: 'InternalError' });
+      expect(bootstrap.ensureRunsTable).not.toHaveBeenCalled();
+      expect(loggerMock.error).toHaveBeenCalled();
+    });
   });
 
   describe('simulateIamPermissions', () => {

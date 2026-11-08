@@ -358,27 +358,51 @@ export class BootstrapService {
   /**
    * Resolves the runs table name an already-seeded configuration document implies (its `projectName` and
    * `runsTableName` override), so a re-run of the bootstrap step targets the same table the stack already uses.
-   * Never throws: an absent bucket or object, an unreadable or malformed document, or missing credentials all
-   * resolve `undefined`, which the caller treats as "use the default name" (the state of a fresh install).
+   *
+   * @remarks
+   * Only a genuine "not found" (object or bucket absent: the state of a fresh install) resolves `undefined`, which
+   * the caller treats as "use the default name". Any other failure (transient S3 error, permission gap, an empty or
+   * malformed document) throws, because falling back to the default name there could create the wrong table.
    *
    * @param bucketName - The configuration bucket to read from.
-   * @returns The resolved table name, or `undefined` when no usable document exists.
+   * @returns The resolved table name, or `undefined` when no document exists yet.
+   * @throws Error with a normalised message when the document cannot be read or parsed.
    */
   async resolveExistingRunsTableName(bucketName: string): Promise<string | undefined> {
     logger.debug('BootstrapService.resolveExistingRunsTableName: reading the existing document', { bucketName });
+    let json: string | undefined;
     try {
       const response = await this.createS3Client().send(
         new GetObjectCommand({ Bucket: bucketName, Key: CONFIGURATION_OBJECT_KEY }),
       );
-      const json = await response.Body?.transformToString();
-      return json ? runsTableNameFromConfigJson(json) : undefined;
+      json = await response.Body?.transformToString();
     } catch (err) {
-      logger.debug('BootstrapService.resolveExistingRunsTableName: no usable document', {
+      if (this.isNotFound(err) || this.isAwsErrorCode(err, 'NoSuchBucket')) {
+        logger.debug('BootstrapService.resolveExistingRunsTableName: no document yet', { bucketName });
+        return undefined;
+      }
+      logger.error('BootstrapService.resolveExistingRunsTableName: read failed', {
         bucketName,
         error: errMessage(err),
       });
-      return undefined;
+      throw new Error(errMessage(err));
     }
+    try {
+      if (!json) throw new Error('the document is empty');
+      return runsTableNameFromConfigJson(json);
+    } catch (err) {
+      logger.error('BootstrapService.resolveExistingRunsTableName: existing document is malformed', {
+        bucketName,
+        error: errMessage(err),
+      });
+      throw new Error(`The existing ${CONFIGURATION_OBJECT_KEY} is malformed (${errMessage(err)})`);
+    }
+  }
+
+  /** True for an S3 "object not found" error (HTTP 404, `NotFound` or `NoSuchKey`). */
+  private isNotFound(err: unknown): boolean {
+    const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+    return status === 404 || this.isAwsErrorCode(err, 'NotFound') || this.isAwsErrorCode(err, 'NoSuchKey');
   }
 
   /**
@@ -398,8 +422,7 @@ export class BootstrapService {
       logger.debug('BootstrapService: deployment-config object exists', { bucketName });
       return true;
     } catch (err) {
-      const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
-      if (status === 404 || this.isAwsErrorCode(err, 'NotFound') || this.isAwsErrorCode(err, 'NoSuchKey')) {
+      if (this.isNotFound(err)) {
         logger.debug('BootstrapService: deployment-config object does not exist yet', { bucketName });
         return false;
       }

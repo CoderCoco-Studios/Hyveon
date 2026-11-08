@@ -358,8 +358,8 @@ export class WizardController {
    * `BootstrapService.ensureRunsTable`'s own doc for the full
    * bootstrap-deadlock rationale). The table's name is not operator-editable here: it comes from the project name
    * of the configuration document already in `body.configurationBucket` (so a re-run targets the table the stack
-   * already uses), falling back to `@hyveon/shared`'s `DEPLOYMENT_CONFIG_DEFAULTS.projectName` when no document
-   * exists yet (a fresh install). Uses `resolveRunsTableName` so this can never drift from the identical resolution
+   * already uses), falling back to `@hyveon/shared`'s `DEPLOYMENT_CONFIG_DEFAULTS.projectName` only when no document
+   * exists yet (a fresh install); a document that cannot be read or parsed fails the step instead. Uses `resolveRunsTableName` so this can never drift from the identical resolution
    * `@hyveon/infra`'s stack-output computation and `RunRecordService`'s pre-apply fallback apply.
    */
   // @spec APP-WIZARD-BOOT-012
@@ -369,9 +369,16 @@ export class WizardController {
       configurationBucket: body?.configurationBucket,
     });
     lockInstallRegion(this.store);
-    const existing = body?.configurationBucket
-      ? await this.bootstrap.resolveExistingRunsTableName(body.configurationBucket)
-      : undefined;
+    let existing: string | undefined;
+    try {
+      existing = body?.configurationBucket
+        ? await this.bootstrap.resolveExistingRunsTableName(body.configurationBucket)
+        : undefined;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('WizardController: runs table name could not be resolved; no table created', { message });
+      return { status: 'failed', message };
+    }
     return this.bootstrap.ensureRunsTable(existing ?? resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, ''));
   }
 

@@ -471,14 +471,36 @@ describe('BootstrapService', () => {
     });
 
     // @spec APP-WIZARD-BOOT-012
-    it('should resolve undefined when the document does not exist, cannot be read, or is malformed', async () => {
+    it('should resolve undefined when the document or its bucket does not exist', async () => {
       const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
       s3Mock.on(GetObjectCommand).rejects(awsError('NoSuchKey'));
       await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBeUndefined();
 
       s3Mock.reset();
-      stubConfigBody('not json');
+      s3Mock.on(GetObjectCommand).rejects(awsError('NoSuchBucket'));
       await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBeUndefined();
+
+      s3Mock.reset();
+      s3Mock.on(GetObjectCommand).rejects(Object.assign(new Error('x'), { $metadata: { httpStatusCode: 404 } }));
+      await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBeUndefined();
+    });
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should throw a plain normalised Error on a read failure rather than guess the default name', async () => {
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+      s3Mock.on(GetObjectCommand).rejects(awsError('InternalError'));
+      await expect(service.resolveExistingRunsTableName('cfg')).rejects.toThrow(/InternalError/);
+
+      s3Mock.reset();
+      s3Mock.on(GetObjectCommand).rejects(awsError('AccessDenied'));
+      await expect(service.resolveExistingRunsTableName('cfg')).rejects.toThrow(/AccessDenied/);
+    });
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should throw when the existing document is malformed', async () => {
+      stubConfigBody('not json');
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+      await expect(service.resolveExistingRunsTableName('cfg')).rejects.toThrow(/malformed|not valid JSON/i);
     });
   });
 
