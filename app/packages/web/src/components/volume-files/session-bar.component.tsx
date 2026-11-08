@@ -48,11 +48,14 @@ function secondsBetween(fromMs: number, toMs: number): number {
 }
 
 // @spec HELPER-FB-020, HELPER-FB-023
-/** Elapsed time and auto-stop countdown for a running session, with the warning once the countdown is short. */
+/**
+ * Elapsed time and auto-stop countdown for a running session, with the warning once the countdown is short.
+ * A session whose auto-stop failed to schedule shows neither: its `autoStopAt` is not a real deadline.
+ */
 function SessionClock({ status, onAutoStopDue }: { status: VolumeSessionStatus; onAutoStopDue?: () => void }) {
   const now = useNowTick(1000);
   const startedAt = status.startedAt ? Date.parse(status.startedAt) : null;
-  const autoStopAt = status.autoStopAt ? Date.parse(status.autoStopAt) : null;
+  const autoStopAt = status.autoStopAt && !status.autoStopWarning ? Date.parse(status.autoStopAt) : null;
   const remainingMs = autoStopAt === null ? null : Math.max(0, autoStopAt - now);
   const due = remainingMs === 0;
   // Read through a ref so a new callback identity never re-fires the zero-crossing effect.
@@ -78,10 +81,10 @@ function SessionClock({ status, onAutoStopDue }: { status: VolumeSessionStatus; 
   );
 }
 
-// @spec HELPER-FB-017, HELPER-FB-019, HELPER-FB-020, HELPER-FB-022
+// @spec HELPER-FB-017, HELPER-FB-019, HELPER-FB-020, HELPER-FB-022, HELPER-LAUNCH-006
 /**
- * Header strip for a game's file-browser session: state badge, clock, the actions each state allows and the failure
- * reason.
+ * Header strip for a game's file-browser session: state badge, clock, the actions each state allows, the failure
+ * reason and, for a running session with no auto-stop schedule, the warning to stop it manually.
  *
  * @remarks
  * Start is offered when stopped or failed, Stop while running (confirmed first when an upload, folder upload or download is
@@ -116,6 +119,11 @@ export function SessionBar({ status, transferActive, actionError, onStart, onSto
           )}
         </div>
       </div>
+      {state === 'running' && status.autoStopWarning && (
+        <p role="status" className="text-sm text-[var(--color-amber)]">
+          {status.autoStopWarning}
+        </p>
+      )}
       {state === 'failed' && <InlineAlert message={status.error ?? 'The session failed.'} />}
       <InlineAlert message={actionError} />
       <ConfirmDialog

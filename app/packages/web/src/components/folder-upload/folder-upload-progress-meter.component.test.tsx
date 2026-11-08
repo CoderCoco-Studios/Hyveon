@@ -71,18 +71,42 @@ describe('FolderUploadProgressMeter', () => {
     expect(onRestart).toHaveBeenCalledTimes(1);
   });
 
-  // @spec HELPER-VERIFY-003
+  // @spec HELPER-VERIFY-003, HELPER-IPC-004
   it('should list missing and mismatched paths and offer Retry on a verification failure', () => {
     render(
       <FolderUploadProgressMeter
         game="minecraft"
-        progress={makeProgress({ phase: 'failed', error: 'Verification failed: Data/w.db (missing), Config/a.json (size mismatch)' })}
+        progress={makeProgress({
+          phase: 'failed',
+          error: 'Verification failed: Data/w.db (missing), Config/a.json (size mismatch)',
+          errorCode: 'verification-failed',
+          failedPaths: ['Data/w.db (missing)', 'Config/a.json (size mismatch)'],
+        })}
         onRestart={vi.fn()}
       />,
     );
     expect(screen.getByText('Data/w.db (missing)')).toBeInTheDocument();
     expect(screen.getByText('Config/a.json (size mismatch)')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry upload' })).toBeInTheDocument();
+  });
+
+  // @spec HELPER-IPC-004
+  it('should say how many more paths failed verification', () => {
+    render(
+      <FolderUploadProgressMeter
+        game="minecraft"
+        progress={makeProgress({ phase: 'failed', error: 'x', errorCode: 'verification-failed', failedPaths: ['a (missing)'], failedMoreCount: 3 })}
+        onRestart={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('and 3 more')).toBeInTheDocument();
+  });
+
+  // @spec HELPER-IPC-004
+  it('should not treat an error that merely starts with the verification text as a verification failure', () => {
+    render(<FolderUploadProgressMeter game="minecraft" progress={makeProgress({ phase: 'failed', error: 'Verification failed: x (missing)' })} onRestart={vi.fn()} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Verification failed: x (missing)');
+    expect(screen.getByRole('button', { name: 'Resume upload' })).toBeInTheDocument();
   });
 
   // @spec HELPER-PROG-005

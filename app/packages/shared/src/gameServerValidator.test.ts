@@ -255,6 +255,85 @@ describe('validateGameServer', () => {
     });
   });
 
+  // @spec IAC-PROGRAM-SEED-004
+  describe('seed placement', () => {
+    const twoVolumes = [
+      { name: 'data', container_path: '/data' },
+      { name: 'mods', container_path: '/mods' },
+    ];
+
+    it('should accept seeds under the first volume, with or without a trailing slash on the volume path', () => {
+      for (const containerPath of ['/data', '/data/']) {
+        const result = validateGameServer(
+          'game',
+          makeProposed({
+            volumes: [{ name: 'data', container_path: containerPath }, twoVolumes[1]],
+            file_seeds: [{ path: '/data/cfg/a.yml', content: 'a' }],
+          }),
+          [],
+        );
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it('should reject a seed under a non-first volume naming the seed and the first volume path', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ volumes: twoVolumes, file_seeds: [{ path: '/mods/a.pak', content: 'a' }] }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.issues.find((i) => i.path === 'file_seeds[0].path');
+        expect(issue?.message).toContain('/mods/a.pak');
+        expect(issue?.message).toContain('/data');
+      }
+    });
+
+    it('should reject a seed whose path is the volume root or only shares a name prefix with it', () => {
+      for (const path of ['/data', '/database/a.yml']) {
+        const result = validateGameServer('game', makeProposed({ file_seeds: [{ path, content: 'a' }] }), []);
+        expect(result.success).toBe(false);
+      }
+    });
+
+    it.each([
+      ['a parent segment', '/data/../etc/x'],
+      ['a dot segment', '/data/./x'],
+      ['a trailing dot segment', '/data/.'],
+      ['an empty segment', '/data//x'],
+      ['a doubled root', '//data/x'],
+      ['the volume root with a trailing slash', '/data/'],
+    ])('should reject a seed path with %s, matching what the seeder would throw on at apply', (_label, path) => {
+      const result = validateGameServer('game', makeProposed({ file_seeds: [{ path, content: 'a' }] }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.issues.some((i) => i.path === 'file_seeds[0].path')).toBe(true);
+    });
+
+    it('should accept a clean seed path with a trailing slash on the file, as the seeder does', () => {
+      const result = validateGameServer('game', makeProposed({ file_seeds: [{ path: '/data/a.yml/', content: 'a' }] }), []);
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept a seed under a root volume and reject the bare root', () => {
+      const root = [{ name: 'data', container_path: '/' }];
+      expect(
+        validateGameServer('game', makeProposed({ volumes: root, file_seeds: [{ path: '/a.yml', content: 'a' }] }), []).success,
+      ).toBe(true);
+      expect(
+        validateGameServer('game', makeProposed({ volumes: root, file_seeds: [{ path: '/', content: 'a' }] }), []).success,
+      ).toBe(false);
+    });
+
+    it('should not add a placement issue for a relative seed path already rejected as non-absolute', () => {
+      const result = validateGameServer('game', makeProposed({ file_seeds: [{ path: 'a.yml', content: 'a' }] }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.filter((i) => i.path === 'file_seeds[0].path')).toHaveLength(1);
+      }
+    });
+  });
+
   // @spec GAME-ENV-006
   describe('environment variables', () => {
     it('should accept distinct, non-empty environment variable names', () => {

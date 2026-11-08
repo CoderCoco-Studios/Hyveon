@@ -169,6 +169,44 @@ describe('uploadAll', () => {
     expect(writeStream).toHaveBeenCalledTimes(3);
   });
 
+  // @spec HELPER-UPLOAD-018
+  it('should let in-flight writes finish and start no new file when the guard rejects', async () => {
+    const items = [await makeItem('a.txt', 10), await makeItem('b.txt', 10), await makeItem('c.txt', 10)];
+    const written: string[] = [];
+    let releaseA: () => void = () => undefined;
+    let signalA: AbortSignal | undefined;
+    const writeStream = vi.fn(async (path: string, _source: Readable, { onBytes, size, signal }: WriteOptions) => {
+      signalA = signal;
+      await new Promise<void>((resolve) => {
+        releaseA = resolve;
+      });
+      if (signal?.aborted) throw new Error('write aborted mid-stream');
+      onBytes?.(size);
+      written.push(path);
+    });
+    let calls = 0;
+    const beforeFile = vi.fn(async () => {
+      calls += 1;
+      if (calls === 2) throw new Error('guard says the server started');
+    });
+    const agg = aggFor(items);
+
+    const run = uploadAll(fakeBackend({ writeStream }), items, new Map(), agg, undefined, {
+      ...instantOpts,
+      concurrency: 2,
+      beforeFile,
+    }).catch((e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 10));
+    releaseA();
+    const err = await run;
+
+    expect(err).toEqual(new Error('guard says the server started'));
+    expect(signalA?.aborted).toBe(false);
+    expect(written).toEqual(['/Data/a.txt']);
+    expect(agg.snapshot()).toMatchObject({ bytesDone: 10, filesDone: 1 });
+    expect(writeStream).toHaveBeenCalledTimes(1);
+  });
+
   it('should open the local file as the source and request an overwrite', async () => {
     const items = [await makeItem('a.txt', 10)];
     const chunks: Buffer[] = [];

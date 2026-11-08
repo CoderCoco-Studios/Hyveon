@@ -1,3 +1,4 @@
+import { Injectable } from '@nestjs/common';
 import type { VolumeRef } from '@hyveon/shared/volumeFiles';
 
 /** The outcome of {@link UploadReservations.tryReserve}. */
@@ -9,8 +10,10 @@ export type ReserveResult = { ok: true; release: () => void } | { ok: false; con
  * @remarks
  * FileBrowser's `overwrite=false` is a check followed by a truncating open, not an atomic create, and this app is the
  * only client of the helper, so reserving a target here is what keeps two of its own operations from interleaving on
- * it. Reservations never block: a taken path is reported at once.
+ * it. Reservations never block: a taken path is reported at once. One instance is shared by the file browser and
+ * the folder-upload service, so a folder-upload run and a page operation cannot interleave on a path.
  */
+@Injectable()
 export class UploadReservations {
   private readonly held = new Map<string, Set<string>>();
 

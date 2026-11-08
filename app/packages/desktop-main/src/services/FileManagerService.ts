@@ -35,10 +35,9 @@ const FILEBROWSER_PASSWORD_BYTES = 18;
 const FILEBROWSER_BCRYPT_ROUNDS = 10;
 /**
  * How long a launched FileBrowser task is allowed to run before it is
- * auto-stopped via an EventBridge Scheduler one-time schedule — the fix for
- * "no auto-shutdown, a forgotten session runs (and bills) indefinitely"
- * (issue #350, folding in #346's watchdog-coverage gap: the watchdog Lambda
- * only ever looks at `{game}-server` tasks, never `filemgr-*` ones). Two
+ * auto-stopped via an EventBridge Scheduler one-time schedule, so a forgotten
+ * session cannot run (and bill) indefinitely; the watchdog Lambda only ever
+ * looks at `{game}-server` tasks, never `filemgr-*` ones. Two
  * hours is generous for an interactive file-browsing session while still
  * bounding the worst case if an operator forgets to click Stop.
  */
@@ -109,8 +108,7 @@ export interface FileMgrResult {
  * definition each time, and tags tasks with `startedBy: filemgr-{game}` so
  * we can find and stop them later.
  *
- * Two hardening measures beyond the base launch/stop flow (issue #350,
- * folding in #346):
+ * Two hardening measures beyond the base launch/stop flow:
  *
  *  - **Authentication.** Every launch generates a random password, bcrypt-
  *    hashes it, and passes the hash straight to FileBrowser's `--password`
@@ -295,7 +293,7 @@ export class FileManagerService {
   }
 
   // @spec HELPER-REACH-001, HELPER-REACH-002, HELPER-REACH-003, HELPER-LAUNCH-001, HELPER-LAUNCH-002
-  // @spec HELPER-LAUNCH-003, HELPER-LAUNCH-008, HELPER-FB-010
+  // @spec HELPER-LAUNCH-003, HELPER-LAUNCH-008, HELPER-FB-010, HELPER-REACH-007
   /**
    * Launches a FileBrowser helper for `game`: registers a throwaway task definition, opens the operator's `/32`, runs
    * the task and schedules its auto-stop. Every launch serves HTTPS with a per-launch certificate returned on the outcome;
@@ -389,96 +387,105 @@ export class FileManagerService {
       if (registeredArn) await this.ecs.deregisterTaskDefinition(registeredArn);
     };
 
-    const filebrowserArgs = [
-      '--username', FILEBROWSER_USERNAME,
-      '--password', passwordHash,
-      '--root', FILEBROWSER_ROOT,
-      '--port', String(FILEBROWSER_PORT),
-      '--address', '0.0.0.0',
-      '--database', '/tmp/filebrowser.db',
-    ];
-    const cert = await generateEphemeralCert();
-    const tlsSettings = buildTlsContainerSettings(filebrowserArgs, cert);
+    let cert: EphemeralCert;
+    let result: Awaited<ReturnType<EcsService['runTask']>>;
+    try {
+      const filebrowserArgs = [
+        '--username', FILEBROWSER_USERNAME,
+        '--password', passwordHash,
+        '--root', FILEBROWSER_ROOT,
+        '--port', String(FILEBROWSER_PORT),
+        '--address', '0.0.0.0',
+        '--database', '/tmp/filebrowser.db',
+      ];
+      cert = await generateEphemeralCert();
+      const tlsSettings = buildTlsContainerSettings(filebrowserArgs, cert);
 
-    logger.info('Registering FileBrowser task definition', {
-      game,
-      family,
-      accessPoints: layout.mounts.map((m) => m.accessPointId),
-      logGroup,
-    });
+      logger.info('Registering FileBrowser task definition', {
+        game,
+        family,
+        accessPoints: layout.mounts.map((m) => m.accessPointId),
+        logGroup,
+      });
 
-    registeredArn = await this.ecs.registerTaskDefinition({
-      family,
-      networkMode: 'awsvpc',
-      requiresCompatibilities: ['FARGATE'],
-      cpu: '256',
-      memory: '512',
-      executionRoleArn: taskDef.executionRoleArn,
-      volumes: layout.mounts.map((m) => ({
-        name: m.taskVolumeName,
-        efsVolumeConfiguration: {
-          fileSystemId: outputs.efsFileSystemId,
-          transitEncryption: 'ENABLED' as const,
-          authorizationConfig: { accessPointId: m.accessPointId, iam: 'DISABLED' as const },
-        },
-      })),
-      containerDefinitions: [
-        {
-          name: 'filebrowser',
-          image: FILEBROWSER_IMAGE,
-          essential: true,
-          // Use command flags instead of env vars — more reliable across image
-          // versions, and FileBrowser's own `--password` flag docs confirm it
-          // takes an already-hashed value, so the bcrypt hash computed above
-          // goes straight in with no extra plaintext-handling step.
-          ...tlsSettings,
-          portMappings: [
-            { containerPort: FILEBROWSER_PORT, hostPort: FILEBROWSER_PORT, protocol: 'tcp' },
-          ],
-          mountPoints: layout.mounts.map((m) => ({
-            sourceVolume: m.taskVolumeName,
-            containerPath: `${FILEBROWSER_ROOT}/${m.dir}`,
-            readOnly: false,
-          })),
-          logConfiguration: {
-            logDriver: 'awslogs',
-            options: {
-              'awslogs-group': logGroup,
-              'awslogs-region': region,
-              'awslogs-stream-prefix': 'ecs',
+      registeredArn = await this.ecs.registerTaskDefinition({
+        family,
+        networkMode: 'awsvpc',
+        requiresCompatibilities: ['FARGATE'],
+        cpu: '256',
+        memory: '512',
+        executionRoleArn: taskDef.executionRoleArn,
+        volumes: layout.mounts.map((m) => ({
+          name: m.taskVolumeName,
+          efsVolumeConfiguration: {
+            fileSystemId: outputs.efsFileSystemId,
+            transitEncryption: 'ENABLED' as const,
+            authorizationConfig: { accessPointId: m.accessPointId, iam: 'DISABLED' as const },
+          },
+        })),
+        containerDefinitions: [
+          {
+            name: 'filebrowser',
+            image: FILEBROWSER_IMAGE,
+            essential: true,
+            // Use command flags instead of env vars — more reliable across image
+            // versions, and FileBrowser's own `--password` flag docs confirm it
+            // takes an already-hashed value, so the bcrypt hash computed above
+            // goes straight in with no extra plaintext-handling step.
+            ...tlsSettings,
+            portMappings: [
+              { containerPort: FILEBROWSER_PORT, hostPort: FILEBROWSER_PORT, protocol: 'tcp' },
+            ],
+            mountPoints: layout.mounts.map((m) => ({
+              sourceVolume: m.taskVolumeName,
+              containerPath: `${FILEBROWSER_ROOT}/${m.dir}`,
+              readOnly: false,
+            })),
+            logConfiguration: {
+              logDriver: 'awslogs',
+              options: {
+                'awslogs-group': logGroup,
+                'awslogs-region': region,
+                'awslogs-stream-prefix': 'ecs',
+              },
             },
           },
+        ],
+      });
+
+      if (!registeredArn) {
+        await cleanupAfterFailure();
+        return fail(`Failed to register FileBrowser task definition for '${game}'. Check server logs.`);
+      }
+
+      const subnets = outputs.subnetIds;
+      logger.info('Launching FileBrowser task', { game, subnets, sg: filemgrSg });
+
+      result = await this.ecs.runTask({
+        cluster: outputs.ecsClusterName,
+        taskDefinition: family,
+        count: 1,
+        launchType: 'FARGATE',
+        startedBy: this.startedByKey(game),
+        tags: [...tags, { key: OPERATOR_IP_TAG, value: operatorIp }],
+        networkConfiguration: {
+          awsvpcConfiguration: {
+            subnets,
+            securityGroups: [filemgrSg],
+            assignPublicIp: 'ENABLED',
+          },
         },
-      ],
-    });
+      });
 
-    if (!registeredArn) {
+      if (!result) {
+        await cleanupAfterFailure();
+        return fail(`Failed to launch file manager for '${game}'. Check server logs for details.`);
+      }
+    } catch (err) {
+      const message = errMessage(err);
+      logger.error('File manager helper launch failed after the operator IP rule was added', { game, runId, error: message });
       await cleanupAfterFailure();
-      return fail(`Failed to register FileBrowser task definition for '${game}'. Check server logs.`);
-    }
-
-    const subnets = outputs.subnetIds;
-    logger.info('Launching FileBrowser task', { game, subnets, sg: filemgrSg });
-
-    const result = await this.ecs.runTask({
-      cluster: outputs.ecsClusterName,
-      taskDefinition: family,
-      count: 1,
-      launchType: 'FARGATE',
-      startedBy: this.startedByKey(game),
-      tags: [...tags, { key: OPERATOR_IP_TAG, value: operatorIp }],
-      networkConfiguration: {
-        awsvpcConfiguration: {
-          subnets,
-          securityGroups: [filemgrSg],
-          assignPublicIp: 'ENABLED',
-        },
-      },
-    });
-
-    if (!result) {
-      await cleanupAfterFailure();
-      return fail(`Failed to launch file manager for '${game}'. Check server logs for details.`);
+      return fail(message);
     }
 
     const startedAt = Date.now();
@@ -538,7 +545,7 @@ export class FileManagerService {
     if (task.taskDefinitionArn) await this.ecs.deregisterTaskDefinition(task.taskDefinitionArn);
   }
 
-  // @spec HELPER-REACH-005
+  // @spec HELPER-REACH-005, HELPER-IPC-005
   /**
    * Stop the FileBrowser task for `game`. Locates it by `startedBy` tag
    * rather than task-def family since multiple revisions may have been
@@ -566,7 +573,7 @@ export class FileManagerService {
         return { success: true, message: `File manager for '${game}' is stopping.` };
       } catch (err) {
         logger.error('Failed to stop file manager', { error: errMessage(err), game });
-        return { success: false, message: String(err) };
+        return { success: false, message: errMessage(err) };
       }
     } finally {
       await this.revokeOrphanedRulesExcluding(outputs, game);

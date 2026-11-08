@@ -7,6 +7,9 @@ const RATE_SMOOTHING = 0.3;
 /** Samples required before an ETA is reported, so a cold start does not produce a wild estimate. */
 const MIN_SAMPLES_FOR_ETA = 3;
 
+/** The structured part of a failed snapshot, beside its message. */
+export type FailureDetail = Pick<FolderUploadProgress, 'errorCode' | 'failedPaths' | 'failedMoreCount'>;
+
 // @spec HELPER-PROG-002, HELPER-PROG-003
 /**
  * Accumulates byte/file counts from concurrent uploads and emits a {@link FolderUploadProgress} snapshot on a fixed
@@ -27,6 +30,7 @@ export class ProgressAggregator {
   private lastTickAt: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private error: string | undefined;
+  private failure: FailureDetail | undefined;
   private overwrite: OverwriteSummary | undefined;
 
   constructor(
@@ -53,10 +57,11 @@ export class ProgressAggregator {
     this.emit(this.snapshot());
   }
 
-  /** Moves to `phase` (optionally recording a failure message) and emits immediately. */
-  setPhase(phase: FolderUploadPhase, error?: string): void {
+  /** Moves to `phase` (optionally recording a failure message and its structured detail) and emits immediately. */
+  setPhase(phase: FolderUploadPhase, error?: string, failure?: FailureDetail): void {
     this.phase = phase;
     this.error = error;
+    this.failure = failure;
     if (phase !== 'uploading') this.currentPath = undefined;
     if (phase !== 'awaiting-confirmation') this.overwrite = undefined;
     this.emit(this.snapshot());
@@ -106,6 +111,7 @@ export class ProgressAggregator {
       bytesPerSecond: Math.round(this.rate),
       etaSeconds,
       error: this.error,
+      ...this.failure,
       overwrite: this.overwrite,
     };
   }

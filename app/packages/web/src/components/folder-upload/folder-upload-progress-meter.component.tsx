@@ -34,14 +34,6 @@ const PHASE_LABELS: Record<FolderUploadPhase, string> = {
   cancelled: 'Cancelled',
 };
 
-const VERIFICATION_PREFIX = 'Verification failed: ';
-
-/** Splits a verification failure message into its path entries, or `null` for any other error. */
-function verificationPaths(error: string): string[] | null {
-  if (!error.startsWith(VERIFICATION_PREFIX)) return null;
-  return error.slice(VERIFICATION_PREFIX.length).split(/, (?=\S)/);
-}
-
 // @spec HELPER-PROG-001, HELPER-PROG-004, HELPER-PROG-005, HELPER-PROG-006, HELPER-VERIFY-003, HELPER-RESUME-005
 // @spec HELPER-REACH-006
 /**
@@ -99,7 +91,7 @@ export function FolderUploadProgressMeter({ game, progress, lastRun, onRestart, 
   const active = progress.phase === 'starting-helper' || awaiting || progress.phase === 'uploading' || progress.phase === 'verifying';
   const raw = progress.bytesTotal > 0 ? (progress.bytesDone / progress.bytesTotal) * 100 : 0;
   const percent = progress.phase === 'done' ? 100 : Math.min(99, Math.floor(raw));
-  const paths = progress.error ? verificationPaths(progress.error) : null;
+  const paths = progress.errorCode === 'verification-failed' ? (progress.failedPaths ?? []) : null;
 
   return (
     <div className="space-y-3" data-testid="folder-upload-meter">
@@ -196,6 +188,7 @@ export function FolderUploadProgressMeter({ game, progress, lastRun, onRestart, 
                     <li key={path}>{path}</li>
                   ))}
                 </ul>
+                {progress.failedMoreCount ? <p className="mt-1 text-xs">and {progress.failedMoreCount} more</p> : null}
               </>
             ) : (
               (progress.error ?? 'Upload failed.')

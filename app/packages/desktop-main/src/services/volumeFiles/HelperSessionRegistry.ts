@@ -31,6 +31,8 @@ export interface HelperSessionSnapshot {
   browseHeld: boolean;
   uploadHolders: number;
   error?: string;
+  /** Set when the session's auto-stop schedule could not be created, so it must be stopped manually. */
+  autoStopWarning?: string;
   supportsArchive: boolean;
   /** Every declared volume; `mounted` is false for volumes the session's layout could not mount (apply needed). */
   volumes: VolumeInfo[];
@@ -45,6 +47,8 @@ export interface AcquireOptions {
   tags?: readonly { key: string; value: string }[];
   /** Identifies the session; defaults to {@link BROWSE_RUN_ID}. */
   runId?: string;
+  /** Fail the acquire when the session's auto-stop schedule could not be created; applies to a joined session too. */
+  requireAutoStop?: boolean;
 }
 
 /** Tunables of the registry; mutable so tests can shorten them. */
@@ -70,6 +74,8 @@ interface Entry {
   taskArn?: string;
   startedAt?: number;
   autoStopAt?: number;
+  /** Why the auto-stop schedule is missing, trimmed; absent when it exists. */
+  autoStopWarning?: string;
   backend?: VolumeFileBackend;
   layout?: HelperVolumeLayout;
   credentials?: HelperCredentials;
@@ -170,7 +176,7 @@ export class HelperSessionRegistry {
       }
       existing.holders.add(holder);
       if (holder === 'browse') this.cancelGrace(existing);
-      return existing.ready;
+      return this.requireBackstop(existing, options, await existing.ready);
     }
 
     this.lastError.delete(game);
@@ -178,7 +184,18 @@ export class HelperSessionRegistry {
     this.entries.set(game, entry);
     entry.ready = this.launch(game, entry, options);
     this.emit(game, entry);
-    return entry.ready;
+    return this.requireBackstop(entry, options, await entry.ready);
+  }
+
+  // @spec HELPER-LAUNCH-005
+  /** Turns a successful acquire into a failure when the caller needs the auto-stop backstop and the session lacks it. */
+  private requireBackstop(entry: Entry, options: AcquireOptions, result: AcquireResult): AcquireResult {
+    if (!result.ok || !options.requireAutoStop || !entry.autoStopWarning) return result;
+    return {
+      ok: false,
+      code: 'failed',
+      message: 'The upload was not started because the helper has no auto-stop schedule, so it could run up costs if left open.',
+    };
   }
 
   // @spec HELPER-FB-016
@@ -452,6 +469,7 @@ export class HelperSessionRegistry {
         startedAt: outcome.startedAt,
         autoStopAt: outcome.autoStopAt,
         layout: outcome.layout,
+        ...(outcome.scheduleWarning.trim() && { autoStopWarning: outcome.scheduleWarning.trim() }),
       });
       logger.info('HelperSessionRegistry: helper launched', { game, runId: entry.runId, taskArn: outcome.taskArn });
       if (this.isStopping(entry)) return { ok: false, code: 'failed', message: STOPPED_BEFORE_READY };
@@ -711,6 +729,7 @@ export class HelperSessionRegistry {
       browseHeld: holders.includes('browse'),
       uploadHolders: holders.filter(isUploadHolder).length,
       ...(error !== undefined && { error }),
+      ...(entry.autoStopWarning !== undefined && { autoStopWarning: entry.autoStopWarning }),
       supportsArchive: typeof entry.backend?.archiveStream === 'function',
       volumes: entry.layout ? volumesOf(entry.layout) : (this.lastVolumes.get(game) ?? []),
     };

@@ -10,6 +10,7 @@ import {
   type FolderUploadPhase,
   type FolderUploadProgress,
   type FolderUploadRequest,
+  type FolderUploadStartErrorCode,
   type FolderUploadStartResult,
   type FolderUploadStoredState,
   type FolderOverwriteDecisionResult,
@@ -23,8 +24,9 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { FileManagerService, UPLOAD_TAGS } from './FileManagerService.js';
 import { FolderScanService, type HeldScan } from './FolderScanService.js';
 import { isVolumeMounted, toHelperPath } from './volumeFiles/helperVolumeLayout.js';
+import { UploadReservations } from './volumeFiles/uploadReservations.js';
 import { HelperSessionRegistry, type AcquireResult } from './volumeFiles/HelperSessionRegistry.js';
-import { ProgressAggregator } from './folderUpload/ProgressAggregator.js';
+import { ProgressAggregator, type FailureDetail } from './folderUpload/ProgressAggregator.js';
 import { RegistryUploadBackend } from './folderUpload/RegistryUploadBackend.js';
 import {
   classifyUpload,
@@ -49,12 +51,36 @@ const MAX_PATHS_IN_MESSAGE = 5;
 export interface FolderUploadTimings {
   /** Cancel the run when the operator has not answered the overwrite warning after this long. */
   confirmationTimeoutMs: number;
+  /** Minimum gap between two checks that the game's server task is still stopped while files are being written. */
+  serverRecheckMs: number;
+}
+
+/** A start refusal that the renderer acts on, so it carries a code beside its message. */
+class StartRefusedError extends Error {
+  constructor(
+    message: string,
+    readonly code: FolderUploadStartErrorCode,
+  ) {
+    super(message);
+  }
+}
+
+/** The post-upload listing disagreed with the plan; carries the paths so the renderer needs no message parsing. */
+class VerificationFailedError extends Error {
+  constructor(
+    readonly failedPaths: string[],
+    readonly moreCount: number,
+  ) {
+    super(`Verification failed: ${failedPaths.join(', ')}${moreCount > 0 ? ` and ${moreCount} more` : ''}`);
+  }
 }
 
 /** A run in flight in this process. */
 interface ActiveRun {
   runId: string;
   controller: AbortController;
+  /** Releases the run's reservation on its target paths. */
+  releasePaths: () => void;
 }
 
 /** One file of the plan, addressed by its path inside the destination volume until a session layout maps it. */
@@ -76,6 +102,8 @@ interface PreparedRun {
   bytesTotal: number;
   /** Destination volume resolved in preflight; the session's layout must mount it. */
   volume: string;
+  /** ECS cluster the game's server task would run in, for re-checking it while writing. */
+  cluster: string;
   /** The previous run for this same selection was cut short, so a few existing files are our own partial uploads. */
   resumesOwnRun: boolean;
   /** Whether this run owns the persisted selection and its last-run status (`false` for runs started from a page). */
@@ -105,7 +133,7 @@ export interface StartUploadOptions {
 @Injectable()
 export class FolderUploadService implements OnApplicationBootstrap {
   /** Overridable by tests. */
-  readonly timings: FolderUploadTimings = { confirmationTimeoutMs: 10 * 60 * 1000 };
+  readonly timings: FolderUploadTimings = { confirmationTimeoutMs: 10 * 60 * 1000, serverRecheckMs: 5000 };
 
   /** Concurrency/retry tunables; overridable by tests. */
   readonly engine: UploadEngineOptions = { ...DEFAULT_ENGINE_OPTIONS };
@@ -113,6 +141,8 @@ export class FolderUploadService implements OnApplicationBootstrap {
   private readonly active = new Map<string, ActiveRun>();
   /** Games whose `startUpload` is between the guard and `active.set`, so an overlapping call cannot pass the guard. */
   private readonly preparing = new Set<string>();
+  /** Games whose start was cancelled while still in {@link FolderUploadService.preparing}. */
+  private readonly cancelledPreparing = new Set<string>();
   private readonly confirmations = new Map<string, (proceed: boolean) => void>();
   private readonly latest = new Map<string, FolderUploadProgress>();
   private readonly listeners = new Set<(progress: FolderUploadProgress) => void>();
@@ -126,6 +156,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     private readonly scans: FolderScanService,
     private readonly store: ElectronStoreService,
     private readonly registry: HelperSessionRegistry,
+    private readonly reservations: UploadReservations = new UploadReservations(),
   ) {
     this.registry.onBeforeStop((game) => {
       this.cancel(game);
@@ -184,12 +215,14 @@ export class FolderUploadService implements OnApplicationBootstrap {
     return state ? this.scans.scan(state.localPath) : null;
   }
 
-  // @spec HELPER-PROG-005
-  /** Cancels `game`'s run in this process, if any. */
+  // @spec HELPER-PROG-005, HELPER-UPLOAD-013
+  /** Cancels `game`'s run in this process, or its start while the guards are still running; reports whether either existed. */
   cancel(game: string): { cancelled: boolean } {
     const run = this.active.get(game);
     run?.controller.abort();
-    return { cancelled: !!run };
+    const starting = this.preparing.has(game);
+    if (starting) this.cancelledPreparing.add(game);
+    return { cancelled: !!run || starting };
   }
 
   // @spec HELPER-OVER-003, HELPER-OVER-004
@@ -216,14 +249,15 @@ export class FolderUploadService implements OnApplicationBootstrap {
 
   // @spec HELPER-SELECT-004, HELPER-SELECT-007, HELPER-UPLOAD-002, HELPER-UPLOAD-005, HELPER-UPLOAD-006
   // @spec HELPER-UPLOAD-008, HELPER-UPLOAD-009, HELPER-UPLOAD-011, HELPER-UPLOAD-012, HELPER-UPLOAD-017
-  // @spec HELPER-SAFE-006
+  // @spec HELPER-SAFE-006, HELPER-UPLOAD-013, HELPER-RSV-005, HELPER-IPC-004
   /**
    * Validates the request and, if every guard passes, starts the run in the background.
    *
    * @param request - What to upload and where.
    * @param options - Whether the run is remembered as the game's saved selection.
    * @returns `{ started: true, runId }`, or `{ started: false, error }` for a failed guard (not deployed, server
-   * running, an unmanaged helper already open, bad destination or path, scan expired).
+   * running, an unmanaged helper already open, bad destination or path, scan expired, cancelled during the guards, a
+   * target path another operation is writing). The refusal carries `code: 'helper-open'` when an unmanaged helper is open.
    */
   async startUpload(request: FolderUploadRequest, options: StartUploadOptions = {}): Promise<FolderUploadStartResult> {
     const { game } = request;
@@ -233,6 +267,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     }
     // Reserve synchronously: `active.set` only happens after `prepare()`'s awaits.
     this.preparing.add(game);
+    this.cancelledPreparing.delete(game);
     let prepared: PreparedRun;
     let runId: string;
     let controller: AbortController;
@@ -240,22 +275,38 @@ export class FolderUploadService implements OnApplicationBootstrap {
       try {
         prepared = await this.prepare(request, persistSelection);
       } catch (err) {
-        const error = errMessage(err);
-        logger.info('FolderUploadService: upload refused', { game, reason: error });
-        return { started: false, error };
+        return this.refuse(game, errMessage(err), err instanceof StartRefusedError ? err.code : undefined);
       }
-      if (persistSelection) this.setSelection(request);
+      if (this.cancelledPreparing.has(game)) return this.refuse(game, 'The upload was cancelled before it started.');
+      const reserved = this.reservations.tryReserve({ game, volume: prepared.volume }, prepared.files.map((f) => f.volumePath));
+      if (!reserved.ok) {
+        const file = prepared.files.find((f) => f.volumePath === reserved.conflict)!;
+        return this.refuse(game, `'${file.relPath}' is being changed by another operation. Try again when it finishes.`);
+      }
+      try {
+        if (persistSelection) this.setSelection(request);
+      } catch (err) {
+        reserved.release();
+        throw err;
+      }
 
       runId = randomUUID();
       controller = new AbortController();
       // No await between here and the release in `finally`.
-      this.active.set(game, { runId, controller });
+      this.active.set(game, { runId, controller, releasePaths: reserved.release });
     } finally {
       this.preparing.delete(game);
+      this.cancelledPreparing.delete(game);
     }
     logger.info('FolderUploadService: upload started', { game, runId, files: prepared.files.length, bytes: prepared.bytesTotal });
     void this.execute(prepared, runId, controller.signal);
     return { started: true, runId };
+  }
+
+  /** Logs a refused start and builds its result. */
+  private refuse(game: string, error: string, code?: FolderUploadStartErrorCode): FolderUploadStartResult {
+    logger.info('FolderUploadService: upload refused', { game, reason: error });
+    return { started: false, error, ...(code && { code }) };
   }
 
   private requireScan(scanId: string): HeldScan {
@@ -307,7 +358,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
     }
     if (serverRunning) throw new Error(`'${game}' is running. Stop the server before uploading.`);
     if ((await this.registry.status(game)).state === 'orphaned') {
-      throw new Error(`A file manager session is already open for '${game}'. Restart it, then retry.`);
+      throw new StartRefusedError(`A file manager session is already open for '${game}'. Restart it, then retry.`, 'helper-open');
     }
 
     return {
@@ -317,6 +368,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
       files,
       bytesTotal: files.reduce((sum, f) => sum + f.size, 0),
       volume: dest.volume.name,
+      cluster: outputs.ecsClusterName,
       resumesOwnRun: persistSelection && this.isOwnPartialRun(this.store.getFolderUploadState(game), scan.rootPath, request),
       persistSelection,
     };
@@ -361,7 +413,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
 
     const holder = `upload:${runId}` as const;
     let acquired = false;
-    let terminal: { phase: FolderUploadPhase; error?: string } = { phase: 'done' };
+    let terminal: { phase: FolderUploadPhase; error?: string; detail?: FailureDetail } = { phase: 'done' };
     try {
       progress.setPhase('starting-helper');
       if (signal.aborted) throw new UploadCancelledError();
@@ -376,25 +428,40 @@ export class FolderUploadService implements OnApplicationBootstrap {
       await this.confirmOverwrites(items, prepared, runId, existing, progress, signal);
 
       progress.setPhase('uploading');
+      const guard = this.serverGuard(prepared);
+      await guard();
       await ensureDirs(client, items, signal);
-      await uploadAll(client, items, existing, progress, signal, this.engine);
+      await uploadAll(client, items, existing, progress, signal, { ...this.engine, beforeFile: guard });
 
       progress.setPhase('verifying');
       const verdict = await verifyUpload(client, items, signal);
       if (!verdict.ok) {
         const paths = [...verdict.missing.map((p) => `${p} (missing)`), ...verdict.mismatched.map((p) => `${p} (size mismatch)`)];
-        const shown = paths.slice(0, MAX_PATHS_IN_MESSAGE).join(', ');
-        const more = paths.length > MAX_PATHS_IN_MESSAGE ? ` and ${paths.length - MAX_PATHS_IN_MESSAGE} more` : '';
-        throw new Error(`Verification failed: ${shown}${more}`);
+        throw new VerificationFailedError(paths.slice(0, MAX_PATHS_IN_MESSAGE), Math.max(0, paths.length - MAX_PATHS_IN_MESSAGE));
       }
     } catch (err) {
       terminal = err instanceof UploadCancelledError || signal.aborted
         ? { phase: 'cancelled', error: err instanceof ConfirmationTimeoutError ? err.message : undefined }
-        : { phase: 'failed', error: acquired ? await this.withSessionFailure(game, errMessage(err)) : errMessage(err) };
+        : {
+            phase: 'failed',
+            error: acquired ? await this.withSessionFailure(game, errMessage(err)) : errMessage(err),
+            ...(err instanceof VerificationFailedError && {
+              detail: {
+                errorCode: 'verification-failed' as const,
+                failedPaths: err.failedPaths,
+                ...(err.moreCount > 0 && { failedMoreCount: err.moreCount }),
+              },
+            }),
+          };
       if (terminal.phase === 'failed') logger.warn('FolderUploadService: upload failed', { game, runId, error: terminal.error });
     } finally {
-      this.registry.release(game, holder);
-      this.finish(prepared, runId, progress, terminal);
+      try {
+        this.registry.release(game, holder);
+      } catch (err) {
+        logger.warn('FolderUploadService: releasing the session hold failed', { game, runId, error: errMessage(err) });
+      } finally {
+        this.finish(prepared, runId, progress, terminal);
+      }
     }
   }
 
@@ -408,7 +475,7 @@ export class FolderUploadService implements OnApplicationBootstrap {
    * session alive for a run that is already over.
    */
   private async acquireUnlessCancelled(game: string, holder: `upload:${string}`, runId: string, signal: AbortSignal): Promise<AcquireResult> {
-    const pending = this.registry.acquire(game, holder, { tags: UPLOAD_TAGS, runId });
+    const pending = this.registry.acquire(game, holder, { tags: UPLOAD_TAGS, runId, requireAutoStop: true });
     try {
       return await this.rejectOnAbort(pending, signal);
     } catch (err) {
@@ -444,6 +511,43 @@ export class FolderUploadService implements OnApplicationBootstrap {
     const snap = await this.registry.status(game).catch(() => null);
     if (snap?.state !== 'failed' || !snap.error || message.includes(snap.error)) return message;
     return `${message} (${snap.error})`;
+  }
+
+  // @spec HELPER-UPLOAD-018
+  /**
+   * Builds the per-run check that runs before each file is written and rejects when the game's server task has started
+   * or its state cannot be confirmed.
+   *
+   * @remarks
+   * The preflight check can be minutes old by the time the helper is up, and a start from Discord does not pass through
+   * this service. Checks are spaced by {@link FolderUploadTimings.serverRecheckMs} and concurrent callers share one
+   * lookup, so a large upload does not call ECS per file.
+   */
+  private serverGuard({ game, cluster }: PreparedRun): () => Promise<void> {
+    let checkedAt = Number.NEGATIVE_INFINITY;
+    let inFlight: Promise<void> | undefined;
+    const check = async (): Promise<void> => {
+      let running: boolean;
+      try {
+        running = (await this.ecs.findRunningTaskOrThrow(cluster, game)) !== null;
+      } catch {
+        // EcsService already logged the cause.
+        throw new Error(`Couldn't confirm '${game}' is still stopped, so the upload stopped before writing the next file.`);
+      }
+      if (running) throw new Error(`'${game}' started while the upload was running, so the upload stopped before writing the next file.`);
+    };
+    return () => {
+      if (inFlight) return inFlight;
+      if (Date.now() - checkedAt < this.timings.serverRecheckMs) return Promise.resolve();
+      inFlight = check()
+        .then(() => {
+          checkedAt = Date.now();
+        })
+        .finally(() => {
+          inFlight = undefined;
+        });
+      return inFlight;
+    };
   }
 
   // @spec HELPER-UPLOAD-020
@@ -533,22 +637,45 @@ export class FolderUploadService implements OnApplicationBootstrap {
     });
   }
 
-  /** Records the run's outcome (when it persists its selection), emits the terminal snapshot, and frees the game for a new run. */
-  private finish(prepared: PreparedRun, runId: string, progress: ProgressAggregator, terminal: { phase: FolderUploadPhase; error?: string }): void {
+  /**
+   * Records the run's outcome (when it persists its selection), emits the terminal snapshot, and frees the game for a new run.
+   *
+   * @remarks
+   * Persisting and the terminal emit can throw (a store write, a progress listener); the progress stop, the path
+   * reservation release and the active-run removal run regardless, and a failure is logged rather than escaping, since
+   * the run is unobserved (`void execute`) and a leaked reservation would wedge the game.
+   */
+  private finish(
+    prepared: PreparedRun,
+    runId: string,
+    progress: ProgressAggregator,
+    terminal: { phase: FolderUploadPhase; error?: string; detail?: FailureDetail },
+  ): void {
     const { game } = prepared;
-    const snap = progress.snapshot();
-    const status = terminal.phase === 'done' ? 'done' : terminal.phase === 'cancelled' ? 'cancelled' : 'failed';
-    if (prepared.persistSelection) {
-      this.store.setFolderUploadLastRun(game, {
-        status,
-        completedAt: new Date().toISOString(),
-        files: snap.filesDone,
-        bytes: snap.bytesDone,
-      });
+    try {
+      const snap = progress.snapshot();
+      const status = terminal.phase === 'done' ? 'done' : terminal.phase === 'cancelled' ? 'cancelled' : 'failed';
+      if (prepared.persistSelection) {
+        this.store.setFolderUploadLastRun(game, {
+          status,
+          completedAt: new Date().toISOString(),
+          files: snap.filesDone,
+          bytes: snap.bytesDone,
+        });
+      }
+      progress.setPhase(terminal.phase, terminal.error, terminal.detail);
+    } catch (err) {
+      logger.warn('FolderUploadService: recording the upload outcome failed', { game, runId, error: errMessage(err) });
+    } finally {
+      try {
+        progress.stop();
+      } catch (err) {
+        logger.warn('FolderUploadService: stopping progress emission failed', { game, runId, error: errMessage(err) });
+      } finally {
+        this.active.get(game)?.releasePaths();
+        this.active.delete(game);
+      }
     }
-    progress.setPhase(terminal.phase, terminal.error);
-    progress.stop();
-    this.active.delete(game);
     logger.info('FolderUploadService: upload finished', { game, runId, phase: terminal.phase });
   }
 }

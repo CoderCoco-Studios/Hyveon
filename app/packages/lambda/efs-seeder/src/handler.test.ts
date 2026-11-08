@@ -9,10 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mkdirSyncMock = vi.fn();
 const writeFileSyncMock = vi.fn();
+const chmodSyncMock = vi.fn();
 
 vi.mock('fs', () => ({
   mkdirSync: (...args: unknown[]) => mkdirSyncMock(...args),
   writeFileSync: (...args: unknown[]) => writeFileSyncMock(...args),
+  chmodSync: (...args: unknown[]) => chmodSyncMock(...args),
 }));
 
 /** Import after mocks are registered so the handler uses the mocked fs. */
@@ -167,5 +169,69 @@ describe('efs-seeder handler', () => {
     ).resolves.toBeUndefined();
 
     expect(writeFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  // @spec HELPER-SEED-005
+  it('should chmod each written file to the seed mode so a rewrite of an existing file applies it', async () => {
+    await handler({
+      game: GAME,
+      seeds: [
+        { path: '/palworld/server.sh', content: '#!/bin/sh', mode: '0755' },
+        { path: '/palworld/a.ini', content: 'a=1' },
+      ],
+      container_path: CONTAINER_PATH,
+    });
+
+    expect(chmodSyncMock).toHaveBeenCalledWith('/mnt/efs/server.sh', 0o755);
+    expect(chmodSyncMock).toHaveBeenCalledWith('/mnt/efs/a.ini', 0o644);
+  });
+
+  // @spec HELPER-SEED-006
+  it.each([
+    ['game', { seeds: [], container_path: CONTAINER_PATH }],
+    ['seeds', { game: GAME, container_path: CONTAINER_PATH }],
+    ['seeds', { game: GAME, seeds: 'nope', container_path: CONTAINER_PATH }],
+    ['container_path', { game: GAME, seeds: [] }],
+    ['container_path', { game: GAME, seeds: [], container_path: '' }],
+  ])('should fail with a validation error naming %s before writing when the event is malformed', async (field, event) => {
+    // @ts-expect-error deliberately malformed event
+    await expect(handler(event)).rejects.toThrow(new RegExp(`Invalid efs-seeder event.*${field}`));
+    expect(writeFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  // @spec HELPER-SEED-006
+  it('should fail before writing anything when a later seed is malformed', async () => {
+    await expect(
+      handler({
+        game: GAME,
+        seeds: [
+          { path: '/palworld/a.ini', content: 'a=1' },
+          // @ts-expect-error deliberately malformed seed
+          { content: 'b=2' },
+        ],
+        container_path: CONTAINER_PATH,
+      }),
+    ).rejects.toThrow(/Invalid efs-seeder event.*seeds\[1\]/);
+    expect(writeFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  // @spec HELPER-SEED-006
+  it.each([
+    ['an invalid mode', { path: '/palworld/b.ini', content: 'b=2', mode: '9zz' }, /invalid mode/],
+    ['no content', { path: '/palworld/b.ini' }, /neither content nor content_base64/],
+    ['both contents', { path: '/palworld/b.ini', content: 'b', content_base64: 'Yg==' }, /both content and content_base64/],
+    ['a path outside the volume', { path: '/other/b.ini', content: 'b' }, /does not start with container_path/],
+  ])('should write nothing when a later seed has %s', async (_label, bad, message) => {
+    await expect(
+      handler({
+        game: GAME,
+        seeds: [{ path: '/palworld/a.ini', content: 'a=1' }, bad],
+        container_path: CONTAINER_PATH,
+      }),
+    ).rejects.toThrow(message);
+
+    expect(mkdirSyncMock).not.toHaveBeenCalled();
+    expect(writeFileSyncMock).not.toHaveBeenCalled();
+    expect(chmodSyncMock).not.toHaveBeenCalled();
   });
 });

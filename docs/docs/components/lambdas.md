@@ -292,7 +292,14 @@ dedicated `efs-seeder` security group scoped to outbound NFS only — port
 rather than an inline rule on the seeder group itself; see the `efsSeederSg`
 group and its `efsSeederEgressRule` in `app/packages/infra/src/securityGroups.ts`)
 and receives `{ game, seeds, container_path }` as its invocation payload —
-`container_path` is `volumes[0].container_path`.
+`container_path` is `volumes[0].container_path`. Only the first volume is
+mounted, so the game-server validator rejects a `file_seeds` path that is not
+under that volume's `container_path`, or that contains a `.`, `..` or empty
+segment, when the configuration is saved. The
+handler first rejects an event that lacks a game, a seeds array, a
+`container_path` or a seed `path`, before writing anything, and resolves and
+validates every seed (steps 1 and 2 below) before the first write, so an invalid
+seed anywhere in the list leaves the volume untouched.
 
 1. For each `FileSeed` in `seeds`: strip the `container_path` prefix from
    `path` and resolve the remainder under `/mnt/efs`, rejecting anything that
@@ -301,7 +308,8 @@ and receives `{ game, seeds, container_path }` as its invocation payload —
 2. Decode `content` (UTF-8 text) or `content_base64` (binary) — exactly one
    must be set — and validate `mode` is a 3–4 digit octal string (default
    `"0644"`).
-3. `mkdirSync(..., { recursive: true })` then `writeFileSync` with that mode.
+3. `mkdirSync(..., { recursive: true })`, `writeFileSync` with that mode, then
+   `chmodSync` to the same mode so rewriting an existing file applies it too.
 4. Throw on any error — `aws.lambda.Invocation` is a synchronous Pulumi
    resource (it calls the Lambda's `Invoke` API during resource creation),
    so a thrown error surfaces directly as a failed `PulumiService.apply()`

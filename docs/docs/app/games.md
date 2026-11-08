@@ -264,7 +264,7 @@ server starts." Each row has:
 
 | Field | Purpose |
 |---|---|
-| **Path** | Absolute path inside the container, e.g. `/data/config.yml` |
+| **Path** | Absolute path inside the container, e.g. `/data/config.yml`. It must be a file under the first volume's path and may not contain `.`, `..` or empty (`//`) segments, or the save is refused |
 | **Content** | Plain-text file contents |
 | **Content (base64)** | Base64-encoded contents, for binary files |
 | **Mode** | Unix mode, e.g. `0644` |
@@ -565,6 +565,7 @@ If the page can't attach to the session at all, it shows the error with a **Retr
 
 Once the auto-stop countdown drops under 10 minutes, a "The session stops automatically soon." warning appears beside it.
 Long transfers can outlive the 2-hour auto-stop, so watch for it before starting a big upload or download.
+If the app could not create the session's auto-stop schedule, a warning under the session bar tells you to stop the session manually, and the countdown and the "stops automatically soon" warning are hidden because there is no deadline; a folder upload refuses to run on such a session.
 
 **Stop** asks for confirmation ("Stop the session? This cancels the running transfer.") whenever any upload or download is running, folder uploads included.
 Otherwise it stops immediately.
@@ -660,6 +661,8 @@ After you run plan and apply from [Infrastructure](/app/iac), open the game page
 | No folder chosen, nothing included, or an invalid destination | Disabled |
 | The destination is in a volume that isn't mounted yet, or you haven't applied since upgrading (uploads into any volume, including the first, are refused until you do) | The upload is refused with `Apply the infrastructure to upload into '<volume>'. Your selection is kept.` |
 | The app can't confirm the server is stopped | The upload is refused with `Couldn't confirm '<game>' is stopped. Try again in a moment.` The app never assumes a server it can't reach is stopped |
+| The server starts while the upload is running (for example from Discord) or the app can no longer confirm it is stopped | The run stops before the next file with `'<game>' started while the upload was running…` or `Couldn't confirm '<game>' is still stopped…`. No new file starts, files already being written finish rather than being cut off, files already written stay, and you can resume once the server is stopped. A single failed ECS lookup is retried once before the run stops |
+| Another operation, such as a text save or a file-browser upload, is writing one of the upload's target files | The upload is refused with `'<path>' is being changed by another operation. Try again when it finishes.` |
 | A file manager session the app doesn't hold is already open for the game (for example one left behind by an earlier run of the app) | The upload is refused with `A file manager session is already open for '<game>'. Restart it, then retry.` Open the game's [file browser page](#files), where the session shows as Orphaned, and click **Restart**, then retry. A session the app itself opened, whether for browsing or for another upload, is reused rather than refused |
 
 The upload takes its own hold on the game's file manager helper, launching one if none is running, and releases only that hold when the run finishes, fails or is cancelled.

@@ -16,6 +16,7 @@
 import { z } from 'zod';
 import { isIcmpProtocol, isTcpProtocol, isUdpProtocol, type GameServer, type GameServerPort } from './gameServerConfig.js';
 import { isReservedHttpsPort } from './gameServerPorts.js';
+import { isCleanVolumePath } from './volumeFiles/paths.js';
 import { ALLOWED_HYVEON_ENV_TOKENS, HYVEON_ENV_TOKENS, findHyveonTokenCandidates, valueUsesToken } from './envTokens.js';
 
 /**
@@ -513,6 +514,43 @@ function checkAbsolutePaths(entry: GameServerEntryInput): GameServerValidationIs
       issues.push({
         path: `file_seeds[${index}].path`,
         message: `file_seeds[${index}].path must be an absolute path (start with "/"), got "${seed.path}".`,
+      });
+    }
+  });
+
+  return issues;
+}
+
+// @spec IAC-PROGRAM-SEED-004
+/**
+ * Validates that every absolute `file_seeds[].path` is a clean path (no `.`, `..` or empty segments) lying strictly
+ * under the first volume's `container_path`.
+ *
+ * @remarks
+ * The efs-seeder Lambda mounts only `volumes[0]` (a Lambda allows one EFS configuration), so a seed anywhere else, or
+ * one that resolves outside the mount, would make the seeder throw and fail the apply; rejecting it here surfaces the
+ * error at save time instead. Trailing-slash handling matches the seeder: a single trailing `/` on the volume path or
+ * on a seed is tolerated, but a seed that is the volume root itself has no file component and is rejected.
+ * Relative paths are left to {@link checkAbsolutePaths}.
+ */
+function checkSeedsUnderFirstVolume(entry: GameServerEntryInput): GameServerValidationIssue[] {
+  const firstVolume = entry.volumes[0];
+  if (!firstVolume?.container_path.startsWith('/')) return [];
+  const root = firstVolume.container_path.replace(/\/$/, '');
+  const issues: GameServerValidationIssue[] = [];
+
+  entry.file_seeds?.forEach((seed, index) => {
+    if (!seed.path.startsWith('/')) return;
+    const path = `file_seeds[${index}].path`;
+    if (!isCleanVolumePath(seed.path)) {
+      issues.push({
+        path,
+        message: `${path} "${seed.path}" must not contain ".", ".." or empty ("//") segments.`,
+      });
+    } else if (!seed.path.startsWith(`${root}/`) || seed.path.replace(/\/$/, '') === root) {
+      issues.push({
+        path,
+        message: `${path} "${seed.path}" must be a file under the first volume's container_path "${root || '/'}"; only the first volume is seeded.`,
       });
     }
   });
@@ -1062,7 +1100,7 @@ function checkHealthCheckRules(entry: GameServerEntryInput): GameServerValidatio
 // @spec GAME-ENV-007, GAME-ENV-010, GAME-TOKEN-002, GAME-TOKEN-003, GAME-TOKEN-004, GAME-TOKEN-009, GAME-TOKEN-014
 // @spec GAME-HTTPS-005, GAME-HTTPS-006, GAME-HTTPS-007, GAME-HTTPS-008, GAME-HTTPS-009, GAME-PORT-002, GAME-PORT-005
 // @spec GAME-PORT-006, GAME-PORT-007, GAME-PORT-009, GAME-PORT-010, GAME-PORT-012, GAME-HOST-003, GAME-HOST-004
-// @spec GAME-HOST-005
+// @spec GAME-HOST-005, IAC-PROGRAM-SEED-004
 /**
  * Validates a proposed `game_servers` entry: structural shape (via
  * {@link gameServerSchema}) plus the business rules — Fargate CPU/memory
@@ -1098,6 +1136,7 @@ export function validateGameServer(
   } else {
     issues.push(...checkFargateCpuMemoryPairing(parsed.data));
     issues.push(...checkAbsolutePaths(parsed.data));
+    issues.push(...checkSeedsUnderFirstVolume(parsed.data));
     issues.push(...checkEnvironmentVariables(parsed.data));
     issues.push(...checkEnvironmentValueTokens(parsed.data));
     issues.push(...checkConnectMessagePlaceholders(parsed.data.connect_message));

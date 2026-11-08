@@ -94,7 +94,7 @@ describe('FolderUploadCard', () => {
   // @spec HELPER-UPLOAD-011
   it('should stop the orphaned session and retry the upload', async () => {
     apiMock.folderStartUpload
-      .mockResolvedValueOnce({ started: false, error: "A file manager session is already open for 'minecraft'. Restart it, then retry." })
+      .mockResolvedValueOnce({ started: false, error: "A file manager session is already open for 'minecraft'. Restart it, then retry.", code: 'helper-open' })
       .mockResolvedValueOnce({ started: true, runId: 'r1' });
     apiMock.volumeSessionStop.mockResolvedValue({ ok: true, value: { game: 'minecraft', state: 'stopped' } });
     setup();
@@ -107,8 +107,18 @@ describe('FolderUploadCard', () => {
     expect(apiMock.volumeSessionStop).toHaveBeenCalledWith('minecraft');
   });
 
+  // @spec HELPER-IPC-004
+  it('should decide on the code, not the message text, whether a session is open', async () => {
+    apiMock.folderStartUpload.mockResolvedValue({ started: false, error: "Some other refusal mentioning a session already open." });
+    setup();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Upload folder' })).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', { name: 'Upload folder' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Some other refusal');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
   it('should show the stop failure and not retry the upload when stopping the orphaned session fails', async () => {
-    apiMock.folderStartUpload.mockResolvedValue({ started: false, error: "A file manager session is already open for 'minecraft'. Restart it, then retry." });
+    apiMock.folderStartUpload.mockResolvedValue({ started: false, error: "A file manager session is already open for 'minecraft'. Restart it, then retry.", code: 'helper-open' });
     apiMock.volumeSessionStop.mockResolvedValue({ ok: false, code: 'failed', message: 'Could not stop the session.' });
     setup();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Upload folder' })).toBeEnabled());

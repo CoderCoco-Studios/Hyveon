@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync } from 'fs';
+import { chmodSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, resolve, join } from 'path';
 
 interface FileSeed {
@@ -12,7 +12,7 @@ interface FileSeed {
 interface SeederEvent {
   game: string;
   seeds: FileSeed[];
-  /** The first volume's `container_path`, used to resolve in-container paths to EFS-relative paths. */
+  /** The first volume's `container_path` (the only volume the function mounts), used to resolve in-container paths. */
   container_path: string;
 }
 
@@ -49,46 +49,89 @@ function resolveDestination(seedPath: string, containerPath: string): string {
   return dest;
 }
 
-// @spec HELPER-SEED-001, HELPER-SEED-003, HELPER-SEED-004
+// @spec HELPER-SEED-006
+/**
+ * Rejects an event that lacks a game, a seeds array, a `container_path`, or a seed `path`, before anything is written.
+ *
+ * @throws Error naming the first missing or mistyped field.
+ */
+function assertValidEvent(event: Partial<SeederEvent> | undefined): asserts event is SeederEvent {
+  const problem = (field: string): never => {
+    throw new Error(`Invalid efs-seeder event: ${field} is required`);
+  };
+  if (typeof event?.game !== 'string' || event.game === '') problem('game');
+  if (!Array.isArray(event?.seeds)) problem('seeds');
+  if (typeof event?.container_path !== 'string' || event.container_path === '') problem('container_path');
+  event!.seeds!.forEach((seed, index) => {
+    if (typeof seed?.path !== 'string' || seed.path === '') problem(`seeds[${index}].path`);
+  });
+}
+
+/** A seed whose destination, content and mode have all been validated and are ready to write. */
+interface ResolvedSeed {
+  dest: string;
+  content: Buffer;
+  mode: number;
+  modeLabel: string;
+}
+
+/**
+ * Resolves a seed's destination, decodes its content and parses its mode without touching the filesystem.
+ *
+ * @throws Error naming the seed path when the destination, content or mode is invalid.
+ */
+function resolveSeed(seed: FileSeed, containerPath: string): ResolvedSeed {
+  const dest = resolveDestination(seed.path, containerPath);
+
+  if (seed.content !== undefined && seed.content_base64 !== undefined) {
+    throw new Error(
+      `Seed at path "${seed.path}" sets both content and content_base64 — use one or the other`,
+    );
+  }
+
+  let content: Buffer;
+  if (seed.content_base64 !== undefined) {
+    content = Buffer.from(seed.content_base64, 'base64');
+  } else if (seed.content !== undefined) {
+    content = Buffer.from(seed.content, 'utf8');
+  } else {
+    throw new Error(`Seed at path "${seed.path}" has neither content nor content_base64`);
+  }
+
+  const modeLabel = seed.mode ?? '0644';
+  if (!/^0?[0-7]{3,4}$/.test(modeLabel)) {
+    throw new Error(`Seed at path "${seed.path}" has invalid mode "${modeLabel}" — expected an octal string such as "0644"`);
+  }
+
+  return { dest, content, mode: parseInt(modeLabel, 8), modeLabel };
+}
+
+// @spec HELPER-SEED-001, HELPER-SEED-003, HELPER-SEED-004, HELPER-SEED-005, HELPER-SEED-006
 /**
  * Writes each `file_seeds` entry to the EFS access point mounted at
  * `/mnt/efs`.  Invoked synchronously by the `aws.lambda.Invocation` resource
  * during the infra program's Pulumi apply (run through `PulumiService`);
  * throws on any error so the apply surfaces the failure.
+ *
+ * @remarks
+ * Every seed is resolved and validated before the first write, so an invalid seed anywhere in the list leaves the
+ * volume untouched.
  */
 export const handler = async (event: SeederEvent): Promise<void> => {
+  assertValidEvent(event);
   const { game, seeds, container_path: containerPath } = event;
 
   console.log(`Seeding ${seeds.length} file(s) for game "${game}" (mount: ${MOUNT_POINT})`);
 
-  for (const seed of seeds) {
-    const dest = resolveDestination(seed.path, containerPath);
+  const resolved = seeds.map((seed) => resolveSeed(seed, containerPath));
 
-    if (seed.content !== undefined && seed.content_base64 !== undefined) {
-      throw new Error(
-        `Seed at path "${seed.path}" sets both content and content_base64 — use one or the other`,
-      );
-    }
-
-    let content: Buffer;
-    if (seed.content_base64 !== undefined) {
-      content = Buffer.from(seed.content_base64, 'base64');
-    } else if (seed.content !== undefined) {
-      content = Buffer.from(seed.content, 'utf8');
-    } else {
-      throw new Error(`Seed at path "${seed.path}" has neither content nor content_base64`);
-    }
-
-    const modeStr = seed.mode ?? '0644';
-    if (!/^0?[0-7]{3,4}$/.test(modeStr)) {
-      throw new Error(`Seed at path "${seed.path}" has invalid mode "${modeStr}" — expected an octal string such as "0644"`);
-    }
-    const mode = parseInt(modeStr, 8);
-
+  for (const { dest, content, mode, modeLabel } of resolved) {
     mkdirSync(dirname(dest), { recursive: true });
     writeFileSync(dest, content, { flag: 'w', mode });
+    // `writeFileSync`'s mode applies only when the file is created.
+    chmodSync(dest, mode);
 
-    console.log(`Wrote ${dest} (${content.length} bytes, mode ${seed.mode ?? '0644'})`);
+    console.log(`Wrote ${dest} (${content.length} bytes, mode ${modeLabel})`);
   }
 
   console.log(`Done — ${seeds.length} file(s) seeded for game "${game}"`);

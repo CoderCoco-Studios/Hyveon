@@ -209,6 +209,23 @@ describe('EcsService', () => {
       expect(Object.keys(err as Error)).toEqual([]);
     });
 
+    // @spec HELPER-UPLOAD-018
+    it('should retry once after a transient ListTasks failure instead of failing closed', async () => {
+      ecsMock.on(ListTasksCommand).rejectsOnce(new Error('ThrottlingException')).resolves({ taskArns: [] });
+      const service = makeService(makeConfig(), makeEc2());
+
+      await expect(service.findRunningTaskOrThrow('c', 'g')).resolves.toBeNull();
+      expect(ecsMock.commandCalls(ListTasksCommand)).toHaveLength(2);
+    });
+
+    it('should fail closed with the last error after the single retry also fails', async () => {
+      ecsMock.on(ListTasksCommand).rejects(new Error('ThrottlingException'));
+      const service = makeService(makeConfig(), makeEc2());
+
+      await expect(service.findRunningTaskOrThrow('c', 'g')).rejects.toEqual(new Error('ThrottlingException'));
+      expect(ecsMock.commandCalls(ListTasksCommand)).toHaveLength(2);
+    });
+
     it('should return the active task when ListTasks succeeds', async () => {
       ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
       ecsMock.on(DescribeTasksCommand).resolves({ tasks: [{ taskArn: 'arn1', lastStatus: 'RUNNING' }] });
