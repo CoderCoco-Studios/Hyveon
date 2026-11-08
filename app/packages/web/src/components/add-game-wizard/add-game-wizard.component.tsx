@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import { Plus, Loader2 } from 'lucide-react';
 import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidator';
 import { Button } from '@/components/ui/button.component';
+import { ErrorBanner } from '@/components/error-banner.component';
 import {
   Dialog,
   DialogContent,
@@ -42,6 +43,7 @@ import { ReviewStep } from './review-step.component.js';
 import { useWizardDraftAutosave } from './use-wizard-draft-autosave.hook.js';
 import {
   WIZARD_STEPS,
+  affectedStepsForIssues,
   createEmptyWizardDraft,
   draftToPayload,
   stepForIssuePath,
@@ -87,8 +89,8 @@ export interface AddGameWizardProps {
   onClose?: () => void;
 }
 
-// @spec GAME-WIZ-001, GAME-WIZ-002, GAME-WIZ-003, GAME-WIZ-004, GAME-WIZ-006, GAME-VALID-001, GAME-VALID-007
-// @spec GAME-VALID-009, GAME-ENV-001, GAME-ENV-008, GAME-HTTPS-013, GAME-DRAFT-009
+// @spec GAME-WIZ-001, GAME-WIZ-002, GAME-WIZ-003, GAME-WIZ-004, GAME-WIZ-005, GAME-WIZ-006, GAME-VALID-001, GAME-VALID-007
+// @spec GAME-VALID-009, GAME-ENV-001, GAME-ENV-008, GAME-HTTPS-013, GAME-DRAFT-009, GAME-IPC-007
 /**
  * Self-contained "Add game" dialog: renders its own trigger button, walks the
  * operator through the six wizard steps, and owns the `games.create` submit
@@ -114,6 +116,7 @@ export function AddGameWizard({
   const [existingGames, setExistingGames] = useState<GameServer[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [gamesLoadError, setGamesLoadError] = useState<string | null>(null);
   const [serverIssues, setServerIssues] = useState<GameServerValidationIssue[] | null>(null);
 
   // Mirrors `open` synchronously (not via effect) so an in-flight
@@ -154,10 +157,13 @@ export function AddGameWizard({
       .games()
       .then(({ games }) => {
         if (cancelled) return;
+        setGamesLoadError(null);
         setExistingGames(games.flatMap((entry) => (entry.config ? [entry.config] : [])));
       })
-      .catch(() => {
-        if (!cancelled) setExistingGames([]);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setExistingGames([]);
+        setGamesLoadError(err instanceof Error ? err.message : String(err));
       });
     return () => {
       cancelled = true;
@@ -230,6 +236,7 @@ export function AddGameWizard({
     : liveIssues;
 
   const advanceDisabled = stepIssues.length > 0;
+  const affectedSteps = serverIssues ? affectedStepsForIssues(serverIssues) : [];
 
   function goNext() {
     setStepIndex((index) => Math.min(index + 1, WIZARD_STEPS.length - 1));
@@ -280,8 +287,7 @@ export function AddGameWizard({
       switch (result.code) {
         case 'validation': {
           setServerIssues(result.issues);
-          const firstIssuePath = result.issues[0]?.path;
-          const targetStep = firstIssuePath ? stepForIssuePath(firstIssuePath) : 'review';
+          const targetStep = affectedStepsForIssues(result.issues)[0] ?? 'review';
           setStepIndex(WIZARD_STEPS.indexOf(targetStep));
           break;
         }
@@ -320,7 +326,19 @@ export function AddGameWizard({
           </DialogDescription>
         </DialogHeader>
 
-        <div ref={stepBodyRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        <div ref={stepBodyRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          {gamesLoadError && (
+            <ErrorBanner>
+              Could not load the existing games: {gamesLoadError}. Name and port collisions with them are only checked
+              when you submit.
+            </ErrorBanner>
+          )}
+          {affectedSteps.length > 1 && (
+            <ErrorBanner>
+              The server rejected this game. Fix the highlighted fields on these steps:{' '}
+              {affectedSteps.map((affected) => STEP_LABELS[affected]).join(', ')}.
+            </ErrorBanner>
+          )}
           {step === 'identity' && <IdentityStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
           {step === 'resources' && (
             <ResourcesStep cpu={draft.cpu} memory={draft.memory} issues={stepIssues} onChange={patchDraft} />

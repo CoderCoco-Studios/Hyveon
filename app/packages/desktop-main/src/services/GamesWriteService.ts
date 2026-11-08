@@ -432,6 +432,7 @@ export class GamesWriteService {
     return { ok: false, code: 'setup_incomplete', message: err.message };
   }
 
+  // @spec GAME-WRITE-012
   /**
    * Builds the catch-all `GameWriteFailure` for any error that isn't a
    * conflict/validation/not-found/setup-incomplete (e.g. an unexpected S3

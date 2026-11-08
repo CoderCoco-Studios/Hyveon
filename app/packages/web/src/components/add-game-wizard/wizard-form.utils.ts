@@ -422,6 +422,19 @@ export function stepForIssuePath(path: string): WizardStep {
   }
 }
 
+// @spec GAME-WIZ-005
+/**
+ * Lists the wizard steps that own at least one of `issues`, in step order, so a server validation result spanning
+ * several steps can send the operator to the earliest and name the rest.
+ *
+ * @param issues - Server-reported validation issues.
+ * @returns The distinct affected steps in {@link WIZARD_STEPS} order; empty when `issues` is empty.
+ */
+export function affectedStepsForIssues(issues: readonly { path: string }[]): WizardStep[] {
+  const affected = new Set(issues.map((issue) => stepForIssuePath(issue.path)));
+  return WIZARD_STEPS.filter((step) => affected.has(step));
+}
+
 /**
  * Validates `name` against the rules `DeploymentConfigService.insertGameServerEntry()`
  * enforces server-side: non-empty, matches the shared

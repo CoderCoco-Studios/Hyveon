@@ -314,6 +314,18 @@ describe('GameDetailPage', () => {
     });
   });
 
+  // @spec GAME-IPC-007
+  describe('a games list that fails to load', () => {
+    it('should show the load failure instead of a "no game found" message', async () => {
+      apiMock.games.mockRejectedValue(new Error('IPC unavailable'));
+
+      renderDetailPage('minecraft');
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('IPC unavailable');
+      expect(screen.queryByText(/no game named/i)).toBeNull();
+    });
+  });
+
   describe('an unknown :name param', () => {
     beforeEach(() => {
       apiMock.games.mockResolvedValue({ games: [DECLARED_GAME, GHOST_GAME] });

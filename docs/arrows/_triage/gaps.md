@@ -62,7 +62,7 @@ Ranked by consequence to an operator. Several rank entries group specs that desc
 | 9 | update-dns can orphan or delete the wrong record | `RT-TASK-DNS-009` (CLOSED), `RT-TASK-DNS-010`, `RT-TASK-NOTIFY-005` (CLOSED) | After a `dnsTtl` change the STOPPED DELETE fails and the A record dangles; a late STOPPED for an old task deletes a live task's record; a task that dies before RUNNING leaves its Discord message stuck on "starting". | DELETE sends current `DNS_TTL` (`app/packages/lambda/update-dns/src/handler.ts:162`), failure swallowed (`:170-172`); no IP ownership check (`:144-149,240-243`). |
 | 10 | ~~Watchdog aborts its run when one `StopTask` fails~~ (resolved: `StopTask` is now caught per task) | `RT-WATCHDOG-STOP-004` | A persistently failing `StopTask` for one idle task throws out of the handler, so every task evaluated after it in that run is never checked or stopped and keeps billing; the failure recurs on each scheduled run. | `StopTask` awaited with no `try`/`catch` inside the per-task loop (`app/packages/lambda/watchdog/src/handler.ts:267-273`). Of the med gaps this one has the largest cost consequence, which is why it ranks here. |
 
-Next in line (all **med**): helper upload not re-checking for a server start mid-write and the unused auto-stop warning (`HELPER-UPLOAD-018`, `HELPER-LAUNCH-005`, `HELPER-LAUNCH-006`); the Lambda live tail replaying the whole retained log history on open, about 50k lines observed, which reads as the Lambda firing several times a second but is noise with no data or cost effect (`APP-LOGS-TAIL-005`); a failed save leaving a changed health-check secret live, and cross-game checks run against an empty list after a failed read (`GAME-WRITE-004`, `GAME-WRITE-006`); seeds under any volume but the first failing the apply (`IAC-PROGRAM-SEED-004`); no cancel channel or quit-time abort for IaC runs (`IAC-ENGINE-LIFE-006`, `-007`, `-009`, `IAC-RUN-DSTR-011`).
+Next in line (all **med**): helper upload not re-checking for a server start mid-write and the unused auto-stop warning (`HELPER-UPLOAD-018`, `HELPER-LAUNCH-005`, `HELPER-LAUNCH-006`); the Lambda live tail replaying the whole retained log history on open, about 50k lines observed, which reads as the Lambda firing several times a second but is noise with no data or cost effect (`APP-LOGS-TAIL-005`); a failed save leaving a changed health-check secret live, and cross-game checks run against an empty list after a failed read (`GAME-WRITE-004` and `GAME-WRITE-006`, both CLOSED); seeds under any volume but the first failing the apply (`IAC-PROGRAM-SEED-004`); no cancel channel or quit-time abort for IaC runs (`IAC-ENGINE-LIFE-006`, `-007`, `-009`, `IAC-RUN-DSTR-011`).
 
 ### Palworld ICMP (`add-icmp-ingress`)
 
@@ -84,7 +84,7 @@ These pairs describe one behaviour from two leaves. Keep one ID as the owner and
 ## Decisions for the owner
 
 - **Refactor wishes written as EARS (class d).** `RT-TASK-STATUS-008`, `RT-TASK-COST-010`, `RT-TASK-COST-012`, `GAME-IPC-005`, `DISCORD-SVC-005`, `IAC-RUN-APPR-006`, `IAC-RUN-DSTR-014`, `IAC-RUN-IPC-008`, `APP-UPDATE-IPC-009`, `APP-UPDATE-PKG-004`, `APP-UPDATE-PKG-005`, `APP-DIAG-LOG-008`, `APP-LOGS-GROUP-007`, `APP-IPC-CONTRACT-004`, `APP-IPC-SEAM-006`, `APP-SHELL-UI-005`, `APP-SHELL-UI-006` and `RT-HEALTH-PROV-005` describe deduplication, dead-code removal, conventions or test style with no runtime effect. Move each to its LLD's Work Required list, or keep them as EARS if the project wants structural requirements tracked as specs.
-- **Spec conflicts with the design.** `CONFIG-RESTORE-004` contradicts the deployment-config LLD's Decisions table (unconditional restore; open question 2). `GAME-VALID-010` and `GAME-VALID-011` overlap (reject anything but exact lowercase vs treat case-insensitively or normalise on read); merge them into one reconciled spec, as `docs/arrows/game-server.md:176` already pairs them.
+- **Spec conflicts with the design.** `CONFIG-RESTORE-004` contradicts the deployment-config LLD's Decisions table (unconditional restore; open question 2). `GAME-VALID-010` and `GAME-VALID-011` (CLOSED) overlapped (reject anything but exact lowercase vs treat case-insensitively or normalise on read); merge them into one reconciled spec, as `docs/arrows/game-server.md:176` already pairs them.
 - **Policy calls blocking a gap.** `IAC-ENGINE-LOCK-010` (the spec and `docs/arrows/iac/engine.md:155` Must Fix 3 want lock classification on the stack-init `refresh`, but the `PulumiService.initializeStack` TSDoc at `PulumiService.ts:1097-1103` deliberately declines it because the wizard Retry is simpler; `docs/intent/iac/engine/engine-design.md:151` open question 3 is unresolved), `APP-SHELL-GATE-006` (should the setup gate fail open when setup state is unreadable), `APP-WIZARD-ROTKEY-005` (wire `rotateActiveCredentials` or drop it), `APP-IPC-STREAM-009` and `IAC-RUN-LOCK-010` wait on decisions recorded in their arrow docs.
 - **Contested classification.** `APP-DIAG-AUDIT-004` is class c here, but a (implemented), c (defer) and d (spec stale) are each defensible. The spec's behaviour holds today through the upstream never-reject contract (`PulumiService.getStackOutputs`, `PulumiService.ts:972-1023`; `ConfigService.ts:153-167` still rethrows defensively), so the gap is only the unguarded read at `AuditService.ts:91`. The owner picks the class.
 
@@ -322,19 +322,19 @@ Specs: `docs/intent/game-server/game-server-specs.md` · Arrow doc: `docs/arrows
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `GAME-VALID-010` | b | low | shared/src/gameServerValidator.ts:78 protocol: z.string(); tcp/udp check only for https games (:759); wizard dropdown limits UI, hand-edited bad value fails at apply |
-| `GAME-VALID-011` | d | - | conflicts with GAME-VALID-010 (reject non-exact-lowercase makes case-insensitive compares moot); exact compares remain at :759,:771,:1008, gameServerPorts.ts:63. Pick one spec |
-| `GAME-TOKEN-008` | b | low | infra/src/envTokenWrapper.ts:71-91 30 x (wget -T5 + curl -m5 + sleep 2) = ~6 min worst case vs ~60s budget; only when IP echo unreachable |
-| `GAME-HOST-016` | b | low | web/src/components/add-game-wizard/review-step.component.tsx:123-169 env vars + pinned hostname inside 'Storage' SectionCard; owned by environment-step (cosmetic) |
-| `GAME-WRITE-004` | b | med | desktop-main/src/services/GamesWriteService.ts:150,225 secret upsert/delete (:488-517) before config write (:159,:235), no rollback -> failed save leaves live check creds changed/deleted |
-| `GAME-WRITE-005` | b | low | GamesWriteService.ts:532 throws plain Error out of createGame/updateGame; controller returns it verbatim (games.controller.ts:137-152); ipc bridge backstop only |
-| `GAME-WRITE-006` | b | med | DeploymentConfigService.ts:324-336 returns+negatively caches [] on read failure; GamesWriteService.ts:123,207 use as siblings -> vacuous cross-game checks; update gets before=null, dropping existing auth |
-| `GAME-WRITE-010` | b | low | GamesWriteService.ts:240-241,285-286 map every GameServerEntryError reason to not_found (documented as intentional at :190-199) |
-| `GAME-WRITE-012` | b | low | GamesWriteService.ts:390 errorResult logs { err } raw |
-| `GAME-IPC-005` | d | - | type-only mirror drift (desktop-preload/src/hyveon-api.ts:418,650 lack webPort/command); web uses shared/own types (api.service.ts:169,174), no runtime effect -> dedupe Work Required |
-| `GAME-IPC-007` | b | low | add-game-wizard.component.tsx:158-160 sets [] on failure; game-detail.page.tsx:119-121 -> 'not found'; server-side validation still guards writes |
-| `GAME-WIZ-005` | b | low | add-game-wizard.component.tsx:279-282 jumps to first issue's step only; no per-step error markers |
-| `GAME-DRAFT-008` | b | low | web/src/pages/games.page.tsx:118-121 no try/catch; called as void at :165 -> unhandled rejection, banner stays, no message |
+| `GAME-VALID-010` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-VALID-011` (CLOSED) | d | - | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-TOKEN-008` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-HOST-016` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-WRITE-004` (CLOSED) | b | med | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-WRITE-005` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-WRITE-006` (CLOSED) | b | med | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-WRITE-010` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-WRITE-012` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-IPC-005` (CLOSED) | d | - | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-IPC-007` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-WIZ-005` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
+| `GAME-DRAFT-008` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
 
 ### `deployment-config`
 

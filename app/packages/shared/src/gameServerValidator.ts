@@ -71,7 +71,7 @@ export const HOSTNAME_SHIM_MOUNT_PATH = '/hyveon/hostname-shim';
 /** Name of the hostname shim init container and volume suffix; a game or volume of this name would collide with them. */
 export const HOSTNAME_SHIM_RESERVED_NAME = 'hostname-shim';
 
-// @spec GAME-PORT-001, GAME-PORT-002
+// @spec GAME-PORT-001, GAME-PORT-002, GAME-VALID-010
 /** Zod schema mirroring {@link GameServerPort}. */
 export const gameServerPortSchema = z.object({
   container: z.number(),

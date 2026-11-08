@@ -5,7 +5,7 @@ What one game *is*: its declared shape (image, size, ports, HTTPS, environment, 
 ## Status
 
 **MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
-Shared model and validator are mature and heavily tested; the write path has a secret-before-config ordering hazard.
+Shared model, validator and write path are implemented and tested; every active spec is implemented.
 
 ## References
 
@@ -110,55 +110,41 @@ Shared model and validator are mature and heavily tested; the write path has a s
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Game Server Model | `GAME-MODEL-001` to `GAME-MODEL-004` | 4 | 0 | 0 |
-| Shared Validation | `GAME-VALID-001` to `GAME-VALID-011` | 9 | 0 | 2 |
+| Shared Validation | `GAME-VALID-001` to `GAME-VALID-011` | 11 | 0 | 0 |
 | Resource Picker | `GAME-RES-001` to `GAME-RES-006` | 6 | 0 | 0 |
 | Environment Variables | `GAME-ENV-001` to `GAME-ENV-010` | 10 | 0 | 0 |
-| Env Token Interpolation | `GAME-TOKEN-001` to `GAME-TOKEN-014` | 13 | 0 | 1 |
+| Env Token Interpolation | `GAME-TOKEN-001` to `GAME-TOKEN-014` | 14 | 0 | 0 |
 | HTTPS | `GAME-HTTPS-001` to `GAME-HTTPS-017` | 17 | 0 | 0 |
 | Ports, Visibility and ICMP | `GAME-PORT-001` to `GAME-PORT-015` | 15 | 0 | 0 |
-| Pinned Hostname | `GAME-HOST-001` to `GAME-HOST-016` | 15 | 0 | 1 |
-| Write Path | `GAME-WRITE-001` to `GAME-WRITE-013` | 8 | 0 | 5 |
-| IPC Surface and Games Pages | `GAME-IPC-001` to `GAME-IPC-010` | 8 | 0 | 2 |
-| Add-Game Wizard Flow | `GAME-WIZ-001` to `GAME-WIZ-006` | 5 | 0 | 1 |
-| Draft Persistence | `GAME-DRAFT-001` to `GAME-DRAFT-013` | 12 | 0 | 1 |
+| Pinned Hostname | `GAME-HOST-001` to `GAME-HOST-016` | 16 | 0 | 0 |
+| Write Path | `GAME-WRITE-001` to `GAME-WRITE-013` | 13 | 0 | 0 |
+| IPC Surface and Games Pages | `GAME-IPC-001` to `GAME-IPC-010` | 10 | 0 | 0 |
+| Add-Game Wizard Flow | `GAME-WIZ-001` to `GAME-WIZ-006` | 6 | 0 | 0 |
+| Draft Persistence | `GAME-DRAFT-001` to `GAME-DRAFT-013` | 13 | 0 | 0 |
 
-**Summary:** 122 of 135 active specs implemented; 0 deferred; 13 gaps.
+**Summary:** 135 of 135 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 
-1. **Constraint 5 is enforced in code and carried in LID**: no game's `tcp` port may equal another game's `webPort`, and the same applies in reverse. Code enforces it in `gameServerValidator.ts:829-862` and rechecks raw reads in `gameServerPorts.ts:118-136`; `GAME-HTTPS-009` and `GAME-HTTPS-010` carry it. The design assumption that `checkPortCollisions` covers `webPort` does not match the code (Deferred 9 in the design).
+1. **Constraint 5 is enforced in code and carried in LID**: no game's `tcp` port may equal another game's `webPort`, and the same applies in reverse. Code enforces it in `gameServerValidator.ts:829-862` and rechecks raw reads in `gameServerPorts.ts:118-136`; `GAME-HTTPS-009` and `GAME-HTTPS-010` carry it. The design assumption that `checkPortCollisions` covers `webPort` does not match the code (Deferred 4 in the design).
 2. **Pinned hostname is carried in LID**: `PINNED_HOSTNAME_PATTERN` and `HOSTNAME_SHIM_RESERVED_NAME` exist (`gameServerValidator.ts:62-72`) and `GameServer.pinnedHostname` is live; `GAME-HOST-*` carries the behaviour.
-3. **Health-check secret is written before the config, so a lost write leaves it mutated**: `createGame` upserts the secret at `GamesWriteService.ts:148` before `addGameServer` at `:157`; `updateGame` upserts at `:221` before `updateGameServer` at `:231`. An `OptimisticLockError` or not-found on the config write returns a modeled error with the secret already changed. An upsert failure is rethrown as a plain `Error` (`:514-525`) instead of a `GameWriteResult`.
-4. **All `GameServerEntryError` reasons collapse to `not_found` on update**: `GamesWriteService.ts:236-238` maps any `GameServerEntryError` to `not_found`, whereas create distinguishes `invalid-name`/`duplicate-name` as validation (`:162-164`).
-5. **Raw error object logged on the generic failure path**: `errorResult` logs `{ err }` (`GamesWriteService.ts:383`) rather than the normalised message required by `.claude/rules/logging.md`.
-6. **Port protocol is not validated for non-HTTPS games**: `gameServerPortSchema` accepts any string (`gameServerValidator.ts:77`), and the only tcp/udp check is inside the HTTPS rules (`:753`); the field doc says it "Must be the exact lowercase string" (`gameServerConfig.ts:29-36`). Collision keys lowercase the protocol (`:617`), but `checkHttpsPortRules` (`:753`), the health-check port check (`:1001`) and `normalizeGameServer` (`gameServerPorts.ts:62`) compare case-sensitively, so a hand-edited `'TCP'` behaves inconsistently.
-7. **`games.list` deliberately does not invalidate stack outputs**: `games.controller.ts:38-51` invalidates only the `DeploymentConfigService` cache and documents why. Sweep-6 flagged this as a bug; the code comment shows it is intentional, with stack outputs invalidated on write instead.
-8. **Client collision check silently degrades**: the add wizard sets `existingGames` to `[]` when `api.games()` fails (`add-game-wizard.component.tsx:150-159`), so live cross-game validation passes; the server's second validation still catches it. On a validation result the wizard jumps only to the first issue's step (`:279-282`). `game-detail.page.tsx:112-121` likewise turns a list failure into "not found".
-9. **Preload types have drifted from the shared model**: `app/packages/desktop-preload/src/hyveon-api.ts:418` `GameServer` and its `GameWizardDraft` mirror (`:650-679`) have no `webPort` or `command`, both present on `app/packages/shared/src/gameServerConfig.ts:243,254`.
-10. **Near-duplicate payload builders**: `draftToPayload` (`wizard-form.utils.ts:348`) and `toProposedEntry` (`:463`) build the same shape with differing trim/fallback behaviour; `remove-game-button.component.tsx:24-30` re-implements type-to-confirm on AlertDialog primitives rather than `ConfirmDialog` (documented reason: richer body).
-11. **Review step misgroups fields**: env vars and pinned hostname render inside the "Storage" card (`review-step.component.tsx:122-166`) though they belong to the Environment step.
-12. **Draft discard has no error handling**: `handleDiscardDraft` awaits `api.clearGameDraft()` with no catch (`games.page.tsx:117-120`).
-13. **Test gaps**: no `GameWizardDraftService.test.ts` coverage for `updateStepIndex` (grep finds none); `games.draft.updateStepIndex` is absent from `games.controller.test.ts`. `[unverified]` sweep-5 also reports no tests for visibility backfill and username/password/token redaction.
-14. **Stale comments from the HTTP/Terraform era**: `GamesWriteService.ts:3` "HTTP equivalents"; `gameServerConfig.ts:386-391` `/api/games`, "tfstate", issue #92; `wizard-form.utils.ts:215` `@cdktf/hcl2json`, `:340` `POST /api/games`.
-15. **`games.start` refuses while an upload holds the game's volumes, on the desktop path only**: the handler returns `success: false` without calling ECS when `HelperSessionRegistry.hasUploadHolders(game)` is true (`games.controller.ts:105-108`). Its doc comment states that the Discord `/server-start` path runs in a Lambda and cannot see this refusal (`:96-98`), so a Discord start can still mount a volume mid-upload.
+3. **`games.list` deliberately does not invalidate stack outputs**: `games.controller.ts:38-51` invalidates only the `DeploymentConfigService` cache and documents why. Sweep-6 flagged this as a bug; the code comment shows it is intentional, with stack outputs invalidated on write instead.
+4. **Near-duplicate payload builders**: `draftToPayload` (`wizard-form.utils.ts:348`) and `toProposedEntry` (`:463`) build the same shape with differing trim/fallback behaviour; `remove-game-button.component.tsx:24-30` re-implements type-to-confirm on AlertDialog primitives rather than `ConfirmDialog` (documented reason: richer body).
+5. **Test gaps**: no `GameWizardDraftService.test.ts` coverage for `updateStepIndex` (grep finds none); `games.draft.updateStepIndex` is absent from `games.controller.test.ts`. `[unverified]` sweep-5 also reports no tests for visibility backfill and username/password/token redaction.
+6. **Stale comments from the HTTP/Terraform era**: `GamesWriteService.ts:3` "HTTP equivalents"; `gameServerConfig.ts:386-391` `/api/games`, "tfstate", issue #92; `wizard-form.utils.ts:215` `@cdktf/hcl2json`, `:340` `POST /api/games`.
+7. **`games.start` refuses while an upload holds the game's volumes, on the desktop path only**: the handler returns `success: false` without calling ECS when `HelperSessionRegistry.hasUploadHolders(game)` is true (`games.controller.ts:105-108`). Its doc comment states that the Discord `/server-start` path runs in a Lambda and cannot see this refusal (`:96-98`), so a Discord start can still mount a volume mid-upload.
 
 ## Work Required
 
-Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-server/game-server-specs.md`; items with no matching gap spec carry none.
+Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-server/game-server-specs.md`; items with no matching gap spec carry none. Every spec is implemented, so none remain open.
 
 ### Must Fix
-1. Order the health-check secret write after a successful config write, or roll it back on conflict/not-found, and return upsert failures as a `GameWriteResult` (finding 3). (specs: `GAME-WRITE-004`, `GAME-WRITE-005`)
-2. Decide which release removes the `@deprecated` `normalizeGameServer` compatibility and whether `pinnedHostname` joins the drift field set (findings 1, 2; design Deferred 7 and 8).
+1. Decide which release removes the `@deprecated` `normalizeGameServer` compatibility and whether `pinnedHostname` joins the drift field set (findings 1, 2; design Deferred 2 and 3).
 
 ### Should Fix
-3. Validate `protocol` as `tcp|udp|icmp` for every game and make all protocol comparisons case-insensitive, or normalise on read (finding 6). (specs: `GAME-VALID-010`, `GAME-VALID-011`)
-4. Distinguish `GameServerEntryError` reasons on update; log the normalised message in `errorResult` (findings 4, 5). (specs: `GAME-WRITE-010`, `GAME-WRITE-012`)
-5. Add `webPort`/`command` to the preload `GameServer`/`GameWizardDraft` mirrors, or derive them from `@hyveon/shared` (finding 9). (specs: `GAME-IPC-005`)
-6. Surface `api.games()` failure in the wizard and detail page instead of an empty list (finding 8); catch `clearGameDraft` failures (finding 12). (specs: `GAME-IPC-007`, `GAME-DRAFT-008`)
-7. Add tests for `updateStepIndex` at service and controller level (finding 13).
+2. Add tests for `updateStepIndex` at service and controller level (finding 5).
 
 ### Nice to Have
-8. Merge `draftToPayload`/`toProposedEntry` (finding 10).
-9. Move env vars and pinned hostname into their own review card (finding 11). (specs: `GAME-HOST-016`)
-10. Remove HTTP/tfstate/HCL-era comment residue (finding 14); give `env-token-interpolation` a real Purpose and `game-port-visibility` a title line.
-11. Decide whether the Discord `/server-start` path needs an equivalent of the desktop upload guard, which it cannot see from the Lambda (finding 15).
+3. Merge `draftToPayload`/`toProposedEntry` (finding 4).
+4. Remove HTTP/tfstate/HCL-era comment residue (finding 6); give `env-token-interpolation` a real Purpose and `game-port-visibility` a title line.
+5. Decide whether the Discord `/server-start` path needs an equivalent of the desktop upload guard, which it cannot see from the Lambda (finding 7).

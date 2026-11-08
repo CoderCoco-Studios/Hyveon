@@ -347,8 +347,8 @@ export class DeploymentConfigService {
    * failed read as "no games declared". Serves a successful cached read; a negatively cached failure is retried.
    *
    * @returns The declared games.
-   * @throws {ConfigurationNotConfiguredError} When no configuration bucket is configured.
-   * @throws Error When the source cannot be read or its contents cannot be parsed.
+   * @throws ConfigurationNotConfiguredError when no configuration bucket is configured.
+   * @throws Error when the source cannot be read or its contents cannot be parsed.
    */
   async getGameServersStrict(): Promise<GameServer[]> {
     const ttl = this.config.readEnvConfigCacheTtlMs();

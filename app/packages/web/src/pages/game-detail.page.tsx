@@ -5,6 +5,7 @@ import { api, type GameListEntry, type GameWriteSuccess } from '../api.service.j
 import { GameStatusBadges } from '../components/game-status-badges.component.js';
 import { FolderUploadCard } from '../components/folder-upload/folder-upload-card.component.js';
 import { EditGameForm } from '../components/edit-game-form/edit-game-form.component.js';
+import { ErrorBanner } from '@/components/error-banner.component';
 import { PageHeader } from '../components/page-header.component.js';
 import { RemoveGameButton } from '../components/remove-game-button.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
@@ -78,7 +79,7 @@ function ConfigTableCard<T>({ title, columns, rows, rowKey }: ConfigTableCardPro
   );
 }
 
-// @spec GAME-IPC-010
+// @spec GAME-IPC-007, GAME-IPC-010
 /**
  * Game detail route (`/games/:name`) — read-only rendering of the full
  * declared configuration for a single game, sourced from the same merged
@@ -108,6 +109,7 @@ function ConfigTableCard<T>({ title, columns, rows, rowKey }: ConfigTableCardPro
 export function GameDetailPage() {
   const { name } = useParams<{ name: string }>();
   const [games, setGames] = useState<GameListEntry[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
   useEffect(() => {
@@ -117,8 +119,8 @@ export function GameDetailPage() {
       .then((res) => {
         if (!cancelled) setGames(res.games);
       })
-      .catch(() => {
-        if (!cancelled) setGames([]);
+      .catch((err: unknown) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Failed to load games.');
       });
     return () => {
       cancelled = true;
@@ -152,7 +154,9 @@ export function GameDetailPage() {
         </PageHeader>
       </div>
 
-      {games === null ? (
+      {loadError ? (
+        <ErrorBanner>Failed to load games: {loadError}</ErrorBanner>
+      ) : games === null ? (
         <p className="text-sm text-[var(--color-muted-foreground)]">Loading…</p>
       ) : !entry ? (
         <Card>
