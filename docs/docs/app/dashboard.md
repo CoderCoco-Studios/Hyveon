@@ -181,6 +181,8 @@ set of pending changes*, not to a simple "hide" flag. Concretely:
   wiped, so if the same change reappears later you are told about it again.
 - Restarting or reloading the app clears the dismissal.
 
+The banner counts only changes to a game's image, CPU, memory, ports and volumes; edits to other game fields (environment, command, HTTPS, health check, pinned hostname) are not counted but still take effect on the next apply.
+
 The banner is also hidden — rather than showing a broken state — if the drift
 check itself fails.
 

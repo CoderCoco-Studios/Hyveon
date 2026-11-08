@@ -328,17 +328,17 @@ Specs: `docs/intent/deployment-config/deployment-config-specs.md` · Arrow doc: 
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `CONFIG-STORE-007` | c | - | Still true (app/packages/cloud-aws/src/AwsRemoteFileStore.ts:107 returns undefined on no body/ETag) but S3 GetObject 200 always carries both; theoretical only |
-| `CONFIG-RESTORE-004` | c | med | Real race (app/packages/desktop-main/src/services/DeploymentConfigService.ts:388-394 unconditional put) but LLD Decisions table (design.md:162) chose unconditional and Open Q2 (:189) is undecided; resolve decision first |
-| `CONFIG-SET-003` | b | low | Missing object is a plain Error from fetchRawConfig; iac-settings.controller.ts:143-144 maps it to generic code 'error' |
-| `CONFIG-SET-006` | b | low | iac-settings.controller.ts:173 re-read inside same try; a throw falls to :200-201 returning code 'error' after a successful write |
-| `CONFIG-SET-009` | b | low | iac-settings.controller.ts:143 and :200 log raw { err }; OptimisticLockError branch :187-195 logs nothing |
+| `CONFIG-STORE-007` (CLOSED) | c | - | Still true (app/packages/cloud-aws/src/AwsRemoteFileStore.ts:107 returns undefined on no body/ETag) but S3 GetObject 200 always carries both; theoretical only |
+| `CONFIG-RESTORE-004` (CLOSED) | c | med | Real race (app/packages/desktop-main/src/services/DeploymentConfigService.ts:388-394 unconditional put) but LLD Decisions table (design.md:162) chose unconditional and Open Q2 (:189) is undecided; resolve decision first |
+| `CONFIG-SET-003` (CLOSED) | b | low | Missing object is a plain Error from fetchRawConfig; iac-settings.controller.ts:143-144 maps it to generic code 'error' |
+| `CONFIG-SET-006` (CLOSED) | b | low | iac-settings.controller.ts:173 re-read inside same try; a throw falls to :200-201 returning code 'error' after a successful write |
+| `CONFIG-SET-009` (CLOSED) | b | low | iac-settings.controller.ts:143 and :200 log raw { err }; OptimisticLockError branch :187-195 logs nothing |
 | `CONFIG-SET-012` (CLOSED) | b | high | app/packages/shared/src/deploymentSettingsWrite.ts:58 accepts any non-empty awsRegion; PulumiService.ts:1629 and :2293 still feed the stored awsRegion to the program (:1039 is projectStackOutputs, not a program input) |
 | `CONFIG-FORM-003` (CLOSED) | b | high | app/packages/web/src/hooks/use-deployment-settings.hook.ts:155 draftToPatch still sends awsRegion |
 | `CONFIG-FORM-007` (CLOSED) | b | high | deployment-settings-form.component.tsx:92-94 editable free-text AWS region Input; edit replaces whole stack incl EFS saves on next apply |
-| `CONFIG-DRIFT-007` | b | med | DriftService.ts:210 uses getGameServers (caches [] on failure, DeploymentConfigService.ts:334); :150-154 emits pending_delete for all; apply path unaffected |
-| `CONFIG-DRIFT-008` | b | med | DriftService.ts:13-20 compares only image/cpu/memory/ports/volumes; shared/src/drift.ts:26 closed set; banner copy has no scope note |
-| `CONFIG-RBDIFF-002` | b | low | shared/src/deploymentConfig.ts:399-414 hand list typed DeploymentConfigScalarField[] (no completeness check); test :320 hardcodes the same list |
+| `CONFIG-DRIFT-007` (CLOSED) | b | med | DriftService.ts:210 uses getGameServers (caches [] on failure, DeploymentConfigService.ts:334); :150-154 emits pending_delete for all; apply path unaffected |
+| `CONFIG-DRIFT-008` (CLOSED) | b | med | DriftService.ts:13-20 compares only image/cpu/memory/ports/volumes; shared/src/drift.ts:26 closed set; banner copy has no scope note |
+| `CONFIG-RBDIFF-002` (CLOSED) | b | low | shared/src/deploymentConfig.ts:399-414 hand list typed DeploymentConfigScalarField[] (no completeness check); test :320 hardcodes the same list |
 
 ### `discord-bot`
 
