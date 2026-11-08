@@ -3911,7 +3911,7 @@ export class PulumiService {
     preMintedRunId?: string,
     expectedHeadEtag?: string,
   ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
-    return yield* this.trackOperation(this.confirmRollbackOperation(applyRunId, signal, preMintedRunId));
+    return yield* this.trackOperation(this.confirmRollbackOperation(applyRunId, signal, preMintedRunId, expectedHeadEtag));
   }
 
   /** The body of {@link confirmRollback}, split out so the public method can track it for {@link whenIdle}. */
@@ -3919,6 +3919,7 @@ export class PulumiService {
     applyRunId: string,
     signal?: AbortSignal,
     preMintedRunId?: string,
+    expectedHeadEtag?: string,
   ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
     logger.debug('PulumiService.confirmRollback: confirming rollback', { applyRunId });
     if (this.operationInFlight) {
