@@ -282,15 +282,21 @@ or `Failed` keeps Next disabled; there is no "informational only" resource
 here, since `plan`/`approve` against the run-history table and the seeded
 configuration object both depend on their targets already existing.
 
-### The IAM permission check is advisory
+### The IAM permission check
 
 Below the resources is an **IAM permission check** section with a **Check
 permissions** button (it relabels to **Re-check permissions** afterwards).
 
-**This check never blocks Next, and it never runs on its own.** You can
-complete the entire wizard without ever pressing it. It exists so you find out
-about a missing IAM action now rather than halfway through your first
-infrastructure apply.
+**For your own profile or pasted keys the check is advisory.** It never blocks
+Next and runs only when you press the button, so you can complete the wizard
+without it. It exists so you find out about a missing IAM action now rather
+than halfway through your first infrastructure apply.
+
+**After guided setup the check runs on its own and can block Next.** It runs as
+soon as guided provisioning completes, against the key Hyveon retains. If it
+reports missing permissions, Next stays disabled until you update the policy
+through your CloudFormation stack and press **Re-check permissions** to get a
+passing result.
 
 It resolves your caller identity, then asks IAM to simulate every action in
 the `HyveonDeployAll` policy against your principal. Three outcomes:
@@ -298,7 +304,7 @@ the `HyveonDeployAll` policy against your principal. Three outcomes:
 | Result | What you see |
 |---|---|
 | **Passed** | "All required permissions are present." |
-| **Missing** | "Some permissions are missing. Paste the policy below into your IAM user's inline policy." followed by a ready-to-paste JSON policy containing exactly the denied actions, with a copy button |
+| **Missing** | "Some permissions are missing. Paste the policy below into your IAM user's inline policy." followed by a ready-to-paste JSON policy containing exactly the denied actions, with a copy button. After guided setup the message instead says the policy must be fixed before you can continue and points at your CloudFormation stack |
 | **Warning** | The reason the simulation could not run (for example, your principal cannot call `iam:SimulatePrincipalPolicy`), followed by the full list of actions to check by hand |
 
 The full policy, and where to put it, is documented in the

@@ -6,7 +6,7 @@ First launch and Reconfigure: connect an AWS account (guided IAM or keys), pick 
 
 **MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
 
-Feature-complete against its legacy requirement sets except the in-app key rotation path, which exists in the service layer with no caller; the leaf also owns credential custody (`ElectronStoreService`, `SafeStorageService`, `awsCredentialSource.ts`, client caches) that every AWS-calling leaf depends on.
+Feature-complete against its requirement sets, including in-app key rotation from Settings; the leaf also owns credential custody (`ElectronStoreService`, `SafeStorageService`, `awsCredentialSource.ts`, client caches) that every AWS-calling leaf depends on.
 
 ## References
 
@@ -42,6 +42,7 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 - `app/packages/web/e2e/specs/guided-iam-wizard.spec.ts`
 - `app/packages/web/e2e/pages/GuidedIamWizardPage.ts` (page object)
 - `app/packages/web/src/components/cloud-health-section.component.test.tsx`
+- `app/packages/web/src/components/rotate-access-key-row.component.test.tsx`
 - `app/packages/web/src/components/first-run-wizard/bootstrap-step.component.test.tsx`
 - `app/packages/web/src/components/first-run-wizard/credentials-step.component.test.tsx`
 - `app/packages/web/src/components/first-run-wizard/first-run-wizard.component.test.tsx`
@@ -152,28 +153,28 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 | Region selection (guided IAM) | `APP-WIZARD-REGION-001` to `APP-WIZARD-REGION-005` | 5 | 0 | 0 |
 | One region per install | `APP-WIZARD-REGLOCK-001` | 1 | 0 | 0 |
 | AWS credentials step | `APP-WIZARD-CREDS-001` to `APP-WIZARD-CREDS-011` | 11 | 0 | 0 |
-| In-app access key rotation (non-guided) | `APP-WIZARD-ROTKEY-001` to `APP-WIZARD-ROTKEY-005` | 4 | 0 | 1 |
-| Backend bootstrap | `APP-WIZARD-BOOT-001` to `APP-WIZARD-BOOT-016` | 14 | 0 | 2 |
-| IAM permission check | `APP-WIZARD-IAMCHK-001` to `APP-WIZARD-IAMCHK-009` | 7 | 0 | 2 |
+| In-app access key rotation (non-guided) | `APP-WIZARD-ROTKEY-001` to `APP-WIZARD-ROTKEY-005` | 5 | 0 | 0 |
+| Backend bootstrap | `APP-WIZARD-BOOT-001` to `APP-WIZARD-BOOT-016` | 16 | 0 | 0 |
+| IAM permission check | `APP-WIZARD-IAMCHK-001` to `APP-WIZARD-IAMCHK-009` | 9 | 0 | 0 |
 | HyveonDeployAll policy generator | `APP-WIZARD-POLICY-001` to `APP-WIZARD-POLICY-004` | 4 | 0 | 0 |
-| Cloud Health (Settings) | `APP-WIZARD-HEALTH-001` to `APP-WIZARD-HEALTH-011` | 9 | 0 | 2 |
-| Credential custody | `APP-WIZARD-CUSTODY-001` to `APP-WIZARD-CUSTODY-008` | 7 | 0 | 1 |
+| Cloud Health (Settings) | `APP-WIZARD-HEALTH-001` to `APP-WIZARD-HEALTH-011` | 11 | 0 | 0 |
+| Credential custody | `APP-WIZARD-CUSTODY-001` to `APP-WIZARD-CUSTODY-008` | 8 | 0 | 0 |
 
-**Summary:** 141 of 150 active specs implemented; 1 deferred; 8 gaps.
+**Summary:** 149 of 150 active specs implemented; 1 deferred; 0 gaps.
 
 ## Key Findings
 
 1. **Test-mode default lived in production code** — **CLOSED** by APP-WIZARD-GATE-003: `readState()` returns `false` when the store key is unset in every build, and the e2e dashboard bypass is the preload test seam's default `wizard.state.get` mock.
 2. **First-run gate fails open** — `app.component.tsx:40-54` (desktop-shell) sets `wizardCompleted=true` when `window.hyveon.wizard` is missing or `getState()` rejects, so an IPC failure drops a fresh install straight into the dashboard.
-3. **Key rotation has no caller** — `AwsProfileService.rotateActiveCredentials()` (`AwsProfileService.ts:267`) is referenced only by docs and tests; no controller exposes it, so the `aws-credentials` "In-app access key rotation" requirement is service-only.
+3. **Key rotation has no caller** — **CLOSED** by APP-WIZARD-ROTKEY-005: Settings offers a "Rotate key" action over `wizard.aws.rotateKey`, which maps every outcome to a modeled result.
 4. **Bootstrap secret is a CloudFormation stack output** — `iam-bootstrap.yaml:87-89` publishes `SecretAccessKey` via `!GetAtt`, readable by anyone with `cloudformation:DescribeStacks` for as long as the stack exists. Guided rotation deletes that key once the new one verifies (`GuidedIamService.rotate`, `:414`), so exposure is the window before rotation plus any run where rotation fails before deletion (verification-failed, or a throw such as a denied `iam:CreateAccessKey`) or deletion itself fails (the "delete failed" screen path). The access key resource uses `DeletionPolicy: RetainExceptOnCreate` (`:73`). This exposure is the accepted design (APP-WIZARD-TMPL-008): the published key is a temporary credential pending rotation, active until `iam:DeleteAccessKey` succeeds.
-5. **Keychain degrade path returns ciphertext as plaintext** — `SafeStorageService.decrypt` returns the input unchanged when `isAvailable()` is false (`SafeStorageService.ts:88-93`), and `encrypt` returns plaintext (`:51-54`). Writers guard with `SafeStorageUnavailableError` (`AwsProfileService.ts:183,270`, `GuidedIamService.ts:417`), but a keychain that is locked at read time would hand base64 ciphertext to `awsCredentialSource` as the secret key. `[inferred]` consequence; the doc comment at `:78-79` acknowledges it.
-6. **Bootstrap credential error escapes the result model** — `createS3Client()` throws `BootstrapCredentialsNotConfiguredError` (`BootstrapService.ts:701-708`) and is called outside the `try` in every `ensure*` method (`:125,187,315,410`), so the controller rejects instead of returning `{ status: 'failed' }`, against `.claude/rules/logging.md` rule 2.
-7. **Runs table name ignores the operator's project name** — `wizard.controller.ts:310` always passes `DEPLOYMENT_CONFIG_DEFAULTS.projectName` to `resolveRunsTableName`, while buckets take operator-edited names.
+5. **Keychain degrade path returns ciphertext as plaintext** — **CLOSED** by APP-WIZARD-CUSTODY-007: `SafeStorageService.decrypt` throws inside Electron when the keychain is unavailable; outside Electron it passes the stored plaintext through.
+6. **Bootstrap credential error escapes the result model** — **CLOSED** by APP-WIZARD-BOOT-004: `BootstrapService.buildClient` converts client-construction failures into `{ status: 'failed', message }`.
+7. **Runs table name ignores the operator's project name** — resolved as intended behaviour by APP-WIZARD-BOOT-012: the wizard has no project-name field and the seeded configuration carries the default project name the runs table is derived from.
 8. **Duplicated client cache** — `app/packages/desktop-main/src/services/awsClientCache.ts` and `cloud-aws/src/cachedClient.ts` are code-identical (`diff` shows only doc-comment differences); `CloudHealthService.ts:193-212,240-291` carries several "Mirrors GuidedIamService exactly" helpers; `GUIDED_PROFILE_NAME` is declared in both `GuidedIamService.ts:94` and `app/packages/desktop-preload/src/hyveon-api.ts:2107`. All three trip `.claude/rules/duplication.md` rule 4.
 9. **State-file name and step order are fixed by the code**: the progress file is `userData/wizard-state.json` (`FirstRunWizardService.ts:33-41`) and the step order is `pick-cloud, guided-iam, credentials, bootstrap, stack-init` (`wizardSteps.ts:9`); the legacy text named `userData/state.json` and a different Reconfigure order. `APP-WIZARD-PROG-005` and `APP-WIZARD-RECONF-001` state the code's values.
 10. **Reset leaves non-wizard state behind** — `FirstRunWizardService.reset()` (`:200-208`) clears `wizardCompleted`, `activeCloud`, `aws`, `bootstrap`, `creds` and the progress file, but not `addGameWizardDraft` or folder-upload state, and deliberately not `pulumi.*` (documented `:189-198`).
-11. **Cloud Health is all-or-nothing and misfiled** — `CloudHealthController.list` wraps checks in a bare `Promise.all` (`cloud-health.controller.ts:28-33`), so one throwing check rejects the whole list; `CloudHealthService` is a Settings feature but is provided by `WizardModule` (`wizard.module.ts:37`) because it shares IAM helpers. `writePolicyToDisk` has no try/catch (`CloudHealthService.ts:200-204`).
+11. **Cloud Health was all-or-nothing and misfiled** — the all-or-nothing half is **CLOSED** by APP-WIZARD-HEALTH-011 (`cloudHealth.list` isolates a throwing check; `writePolicyToDisk` logs and throws a plain error); `CloudHealthService` is still a Settings feature provided by `WizardModule` (`wizard.module.ts:37`) because it shares IAM helpers.
 12. **IAM check suggests an over-broad policy** — `IamCheckService.buildPolicyJson` emits `Resource: '*'` for every missing action (`IamCheckService.ts:306-315`), unlike the scoped statements in `iamPolicy.ts:79`.
 13. **Credential signature embeds the access key id** — `resolveAwsClientCredentialsWithSignature` returns `pasted:<profile>:<accessKeyId>` (`awsCredentialSource.ts:185`); not a secret, but it travels into every cache comparison. `awsClientCache.ts` has no tests.
 14. **Template placeholder substitution is single-shot** — `GuidedIamService.renderTemplate` uses `String.replace` (first occurrence only, `:210-212`); safe today because each placeholder occurs once in `iam-bootstrap.yaml:38,55`, but latent.
@@ -182,15 +183,6 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 ## Work Required
 
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md`; items with no matching gap spec carry none.
-
-### Must Fix
-1. Make `SafeStorageService.decrypt` fail loudly when the keychain is unavailable for an encrypted value instead of passing ciphertext through (finding 5). (specs: `APP-WIZARD-CUSTODY-007`)
-
-### Should Fix
-4. Wrap client creation inside each `BootstrapService.ensure*` try so credential errors return `{ status: 'failed' }` (finding 6). (specs: `APP-WIZARD-BOOT-004`)
-5. Resolve the runs table name from the operator's project name (finding 7). (specs: `APP-WIZARD-BOOT-012`)
-6. Either wire `rotateActiveCredentials` to an IPC channel and UI, or drop `APP-WIZARD-ROTKEY-001` to `APP-WIZARD-ROTKEY-004` (finding 3). (specs: `APP-WIZARD-ROTKEY-005`)
-7. Use `Promise.allSettled` in `cloudHealth.list`; guard `writePolicyToDisk` (finding 11). (specs: `APP-WIZARD-HEALTH-011`)
 
 ### Nice to Have
 9. Collapse `awsClientCache.ts` into `cloud-aws/src/cachedClient.ts`; share `GUIDED_PROFILE_NAME` and the Cloud Health/Guided IAM helpers (finding 8).
