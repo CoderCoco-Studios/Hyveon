@@ -164,7 +164,7 @@ Specs: `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md` · Arrow do
 | `RT-TASK-LAUNCH-014` (CLOSED) | b | low | Closed: implemented or reconciled in the task-and-dns gap pass. |
 | `RT-TASK-STATUS-008` (CLOSED) | d | - | Closed: implemented or reconciled in the task-and-dns gap pass. |
 | `RT-TASK-DNS-009` (CLOSED) | b | med | Closed: implemented or reconciled in the task-and-dns gap pass. |
-| `RT-TASK-DNS-010` | b | med | update-dns/src/handler.ts:240-243 STOPPED deletes whatever record exists, no IP ownership check (deleteDns :144-149) -> late/duplicate-task STOPPED removes live record. STOPPED event has no public IP and the ENI is deleted, so an owner check needs an ecs:ListTasks grant on the update-dns role (decision pending) |
+| `RT-TASK-DNS-010` (CLOSED) | c | med | Deferred: the STOPPED event carries no public IP and the update-dns role stays at `ecs:DescribeTasks`; see the task-and-dns design Decisions. |
 | `RT-TASK-DNS-014` (CLOSED) | b | low | Closed: implemented or reconciled in the task-and-dns gap pass. |
 | `RT-TASK-NOTIFY-005` (CLOSED) | b | med | Closed: implemented or reconciled in the task-and-dns gap pass. |
 | `RT-TASK-NOTIFY-006` (CLOSED) | b | low | Closed: implemented or reconciled in the task-and-dns gap pass. |

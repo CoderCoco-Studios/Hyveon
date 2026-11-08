@@ -13,7 +13,7 @@ What it owns:
 
 - The `CloudProvider` contract for workloads (`app/packages/shared/src/cloud.ts:50-56`) and its AWS implementation: start, stop, status, log streaming and cost estimate (`AwsCloudProvider.ts:437-665`).
 - The Nest facade `EcsService` that maps provider results onto the app's `GameStatus`/`StartResult` shapes (`app/packages/desktop-main/src/services/EcsService.ts:295-356`), plus raw ECS helpers it exposes to other leaves.
-- The update-dns Lambda: UPSERT on `RUNNING`, DELETE on `STOPPED`, and the RUNNING-side Discord follow-up PATCH (`update-dns/src/handler.ts:71-240`).
+- The update-dns Lambda: UPSERT on `RUNNING`, DELETE on `STOPPED`, and the RUNNING-side Discord follow-up PATCH.
 - The shared ENI helpers `getTaskEniId`, `getTaskPrivateIp`, `resolveEniPublicIp` (`app/packages/shared/src/aws/ecsTask.ts:53-107`).
 - The `costs.estimate` channel and `CostService` arithmetic (`app/packages/desktop-main/src/controllers/costs.controller.ts:28-48`, `app/packages/desktop-main/src/services/CostService.ts:31-42`).
 - The renderer side: `GameStatusProvider` polling, the dashboard cards and KPI strip, `useGameActions`, and the Costs page.
@@ -30,8 +30,8 @@ What it deliberately does not own:
 CLAUDE.md invariants that live here:
 
 - **No persistent ECS Service.** Holds: the only launch is `RunTaskCommand` with `count: 1` (`AwsCloudProvider.ts:466-477`); the class doc restates it (`EcsService.ts:175-177`).
-- **DNS records are Lambda-managed.** Holds: `stopWorkload` does no DNS work and defers to the STOPPED event (`AwsCloudProvider.ts:495-496`); the Lambda owns UPSERT/DELETE (`update-dns/src/handler.ts:98-170`).
-- **TLS terminates in-task; no ALB.** Holds: update-dns has one path for every game, HTTPS or not (`update-dns/src/handler.ts:6-9,217-240`), as the in-task TLS invariant requires: an HTTPS game needs no load balancer registration or separate DNS step.
+- **DNS records are Lambda-managed.** Holds: `stopWorkload` does no DNS work and defers to the STOPPED event (`AwsCloudProvider.ts:495-496`); the Lambda owns UPSERT/DELETE.
+- **TLS terminates in-task; no ALB.** Holds: update-dns has one path for every game, HTTPS or not, as the in-task TLS invariant requires: an HTTPS game needs no load balancer registration or separate DNS step.
 - **Lambda env vars use `AWS_REGION_`.** Holds: `region()` reads `AWS_REGION_` first (`update-dns/src/handler.ts:51-59`) and the infra program sets it (`lambdas.ts:646`).
 - **`@hyveon/shared` stays free of SDK imports.** Holds for this leaf's shared code: `ecsTask.ts` uses hand-rolled structural types and a caller-supplied describe callback (`ecsTask.ts:1-16,68-107`).
 
@@ -93,9 +93,9 @@ The EventBridge rule `${projectName}-task-state-change` matches `aws.ecs` / `ECS
 
 The handler strips `family:` from `detail.group` and looks it up in `FAMILY_TO_GAME` (`{game}-server` to `{game}`, `shared/src/env.ts:64-66`); unknown families, including the helper task's, return `skipped` (`handler.ts:257-263`).
 
-On `RUNNING`, `resolvePublicIp` tries up to five times with 3 s sleeps: `DescribeTasks`, pull the ENI from the task's attachments, `DescribeNetworkInterfaces`, take the public IP (`handler.ts:71-96`). Each attempt's errors are caught and logged. If no IP is found the handler PATCHes any pending Discord interaction with an error message and returns `no_ip` without touching DNS (`:224-230`). Otherwise it UPSERTs an A record with `DNS_TTL` (`:98-118,231`), then PATCHes the pending interaction with the formatted running status and deletes the row (`:176-198,232`). Discord failures are logged and swallowed (`:195-197`). An UPSERT failure PATCHes any pending interaction with an error status, then fails the invocation so Lambda's asynchronous invoke retries run; the pending row is kept so a successful retry overwrites the error message and deletes the row.
+On `RUNNING`, `resolvePublicIp` tries up to five times with 3 s sleeps: `DescribeTasks`, pull the ENI from the task's attachments, `DescribeNetworkInterfaces`, take the public IP. Each attempt's errors are caught and logged. If no IP is found the handler PATCHes any pending Discord interaction with an error message and returns `no_ip` without touching DNS. Otherwise it UPSERTs an A record with `DNS_TTL`, then PATCHes the pending interaction with the formatted running status and deletes the row. Discord failures are logged and swallowed. An UPSERT failure PATCHes any pending interaction with an error status, then fails the invocation so Lambda's asynchronous invoke retries run; the pending row is kept so a successful retry overwrites the error message and deletes the row.
 
-On `STOPPED`, `deleteDns` reads the current A record with `ListResourceRecordSets` (`:120-139`); if none exists it logs and returns. Otherwise it sends DELETE echoing the stored record's TTL and IP, because Route 53 requires a DELETE to match the existing record set exactly and a `dnsTtl` change between a task's start and stop must not leave the record behind; a failure is logged as a warning. The delete does not compare the record with the stopping task's identity, so a late STOPPED for an old task could remove a newer task's record (an open question below). After the DELETE it consults the `PENDING#{taskArn}` row: a row still present means the task stopped before reaching RUNNING, so the Lambda PATCHes the interaction with an error status and deletes the row.
+On `STOPPED`, `deleteDns` reads the current A record with `ListResourceRecordSets`; if none exists it logs and returns. Otherwise it sends DELETE echoing the stored record's TTL and IP, because Route 53 requires a DELETE to match the existing record set exactly and a `dnsTtl` change between a task's start and stop must not leave the record behind; a failure is logged as a warning. The delete does not compare the record with the stopping task's identity, so a late STOPPED for an old task could remove a newer task's record (an open question below). After the DELETE it consults the `PENDING#{taskArn}` row: a row still present means the task stopped before reaching RUNNING, so the Lambda PATCHes the interaction with an error status and deletes the row.
 
 Other statuses return `no_action` (`:239`), though the rule already filters them out. The handler logs the task ARN, family and `lastStatus` on every invocation, never the full event.
 
@@ -149,7 +149,7 @@ The dashboard derives its KPI tiles from the same estimate: "Current run rate" s
 
 1. ✅ Cost Explorer is not used; estimates are static and the console link covers billed spend (the Costs page links out to the AWS console for billed spend).
 2. ✅ Running tasks carry the `Game` tag through `propagateTags: 'TASK_DEFINITION'` on both start paths (`AwsCloudProvider.ts:476`, `followup/src/handler.ts:150`).
-3. ✅ HTTPS games use the shared Lambda DNS lifecycle with no load balancer (`update-dns/src/handler.ts:6-9,217-240`).
+3. ✅ HTTPS games use the shared Lambda DNS lifecycle with no load balancer.
 4. ✅ Every desktop ECS call, the provider's start, stop and status included, takes its region from `ConfigService.getRegion()`, not `outputs.awsRegion` (`IAC-ENGINE-REGION-002`; `docs/high-level-design.md`, decision 10).
 
 ### Open

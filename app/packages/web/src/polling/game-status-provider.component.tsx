@@ -108,6 +108,7 @@ export function GameStatusProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     mountedRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- setState runs after the awaited fetch, not synchronously
     void reloadEstimates();
     return () => {
       mountedRef.current = false;

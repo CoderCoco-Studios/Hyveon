@@ -4,7 +4,8 @@ import { CostsController } from './costs.controller.js';
 import type { ConfigService } from '../services/ConfigService.js';
 import type { CostService } from '../services/CostService.js';
 import type { EcsService } from '../services/EcsService.js';
-import { FALLBACK_TASK_CPU, FALLBACK_TASK_MEMORY, type StackOutputs } from '@hyveon/shared';
+import { estimateFargateHourlyCost, FALLBACK_TASK_CPU, FALLBACK_TASK_MEMORY, type StackOutputs } from '@hyveon/shared';
+import { CostService as RealCostService } from '../services/CostService.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { expectChannels } from '../testing/message-pattern.test-utils.js';
@@ -79,6 +80,15 @@ describe('CostsController', () => {
       const costs = makeCosts();
       await new CostsController(makeConfig(), costs, ecs).estimate();
       expect(costs.estimateForSpec).toHaveBeenCalledWith(FALLBACK_TASK_CPU, FALLBACK_TASK_MEMORY);
+    });
+
+    // @spec RT-TASK-COST-011
+    it('should price a game with no task definition at 2048 CPU units and 8192 MiB', async () => {
+      const result = await new CostsController(makeConfig(), new RealCostService(), makeEcs(null)).estimate();
+
+      expect([FALLBACK_TASK_CPU, FALLBACK_TASK_MEMORY]).toEqual([2048, 8192]);
+      expect(result.games.minecraft).toMatchObject({ vcpu: 2, memoryGb: 8 });
+      expect(result.games.minecraft!.costPerHour).toBe(estimateFargateHourlyCost(2048, 8192));
     });
 
     // @spec RT-TASK-COST-007

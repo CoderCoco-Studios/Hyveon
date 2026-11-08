@@ -1,5 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { estimateFargateHourlyCost } from '@hyveon/shared';
+
+vi.mock('@hyveon/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hyveon/shared')>();
+  return { ...actual, estimateFargateHourlyCost: vi.fn(actual.estimateFargateHourlyCost) };
+});
 import { CostService } from './CostService.js';
 
 describe('CostService', () => {
@@ -14,6 +19,14 @@ describe('CostService', () => {
     for (const [cpu, memory] of [[256, 512], [1024, 2048], [2048, 8192], [4096, 30720]] as const) {
       expect(service.estimateForSpec(cpu, memory).costPerHour).toBe(estimateFargateHourlyCost(cpu, memory));
     }
+  });
+
+  // @spec RT-TASK-COST-010
+  it('should take costPerHour from the shared pricing function', () => {
+    vi.mocked(estimateFargateHourlyCost).mockReturnValueOnce(7.7777);
+
+    expect(service.estimateForSpec(1024, 2048).costPerHour).toBe(7.7777);
+    expect(estimateFargateHourlyCost).toHaveBeenCalledWith(1024, 2048);
   });
 
   // @spec RT-TASK-COST-007

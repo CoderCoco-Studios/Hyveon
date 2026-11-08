@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { fargateHourlyCostRaw, type GameEstimate } from '@hyveon/shared';
+import { estimateFargateHourlyCost, fargateHourlyCostRaw, type GameEstimate } from '@hyveon/shared';
 
 // @spec RT-TASK-COST-001
 /**
@@ -20,7 +20,7 @@ export class CostService {
     return {
       vcpu: cpuUnits / 1024,
       memoryGb: memoryMib / 1024,
-      costPerHour: Math.round(hourly * 10000) / 10000,
+      costPerHour: estimateFargateHourlyCost(cpuUnits, memoryMib),
       costPerDay24h: Math.round(hourly * 24 * 100) / 100,
       costPerMonth4hpd: Math.round(hourly * 4 * 30 * 100) / 100,
     };
