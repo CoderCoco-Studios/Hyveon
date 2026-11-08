@@ -84,10 +84,10 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 4. `hyveon-api.ts`: the full hand-written IPC contract (`HyveonApi`, `HyveonTestApi`, ~2,700 lines, 142 "Mirrors / keep in sync" markers) plus `GUIDED_PROFILE_NAME` (`hyveon-api.ts:2107`).
 5. `index.ts`: type-only barrel and the single `declare global { interface Window { hyveon?: HyveonApi } }` (`index.ts:58-62`); `app/packages/web/src/globals.d.ts:10` pulls it in by side-effect import.
 6. `ipc-main-bridge.ts`: `BridgedElectronIPCTransport` (`:49`) exposes Nest's protected handler map; `registerIpcMainBridges` (`:124`) puts every pattern not in `SELF_BRIDGED_PATTERNS` (`:27-37`) onto `ipcMain.handle`, unwraps Observable rejections, and rethrows `new Error(message)` (`:138-155`).
-7. `rpc-error-message.filter.ts`: global `@Catch()` filter (`:25`) that replaces Nest's "Internal server error" with `errMessage(exception)`; registered at `main.ts:49`.
+7. `rpc-error-message.filter.ts`: global `@Catch()` filter (`:25`) that replaces Nest's "Internal server error" with `ipcErrorMessage(exception)`; registered at `main.ts:49`.
 8. `validation.ts`: `isNonEmptyString` and `requireStringArray` (`:18`), the payload guards controllers throw `BadRequestException` from.
 9. `api.service.ts`: renderer `api.*` facade (`:276`) over a throwing `hyveon()` accessor (`:257-265`) for games, costs, folderUpload, volumeFiles, discord, diagnostics, drift, audit, cloudHealth; declares web-only DTOs.
-10. `bridge.utils.ts`: `BRIDGE_UNAVAILABLE` / `SETTINGS_BRIDGE_UNAVAILABLE` strings for direct `window.hyveon` callers.
+10. `bridge.utils.ts`: the single `BRIDGE_UNAVAILABLE` string shared by direct `window.hyveon` callers and `api.service.ts`.
 11. `message-pattern.test-utils.ts`: `expectChannels` (`:18`), the reflect-metadata guard that a controller method's `@MessagePattern` string is the channel the preload calls; used in 17 test files.
 12. `ipc-handlers.ts`: `ipcErrorMessage` (one message extractor that reads `HttpException` bodies), `toIpcError` (log and plain-`Error` normalisation) and `registerSelfBridgedHandlers` (the single registration path for the nine self-bridged channels).
 13. `ipc-broadcast.ts`: `forwardToWindows` (`:16-29`), the main-to-renderer push helper that subscribes to an event source and `webContents.send`s each event to every non-destroyed window; returns `null` without subscribing outside Electron. The preload side is one `subscribe` helper (`preload.ts:216-220`) shared by all four push subscriptions.

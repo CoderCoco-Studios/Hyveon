@@ -210,7 +210,7 @@ arrows:
     blocks: [run, infra-logs, app-update-and-release, desktop-shell]
     blockedBy: []
     detail: operator-app/ipc-bridge.md
-    next: "Make requireStringArray failures reach the renderer with their field message and add a filter test for an object-body BadRequestException."
+    next: "Derive the hand-mirrored preload types (GameWizardDraft and the other \"Mirrors X\" declarations in hyveon-api.ts) from shared types."
     drift: null
 
   # ---------------------------------------------------------------- standalone leaves

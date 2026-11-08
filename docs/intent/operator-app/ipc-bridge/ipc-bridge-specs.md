@@ -40,13 +40,13 @@ EARS requirements for prefix `APP-IPC`; design in `docs/intent/operator-app/ipc-
 ## Error path (ERR)
 
 - [x] **APP-IPC-ERR-001**: `RpcErrorMessageFilter` shall be registered as a global `@Catch()` filter on the desktop-main microservice before `registerIpcMainBridges` runs. (observed)
-- [x] **APP-IPC-ERR-002**: When a generic-bridge `@MessagePattern` handler throws a non-`RpcException`, `RpcErrorMessageFilter` shall re-emit it as an erroring Observable of a plain `Error` whose message is `errMessage(exception)`, instead of Nest's "Internal server error". (observed)
+- [x] **APP-IPC-ERR-002**: When a generic-bridge `@MessagePattern` handler throws a non-`RpcException`, `RpcErrorMessageFilter` shall re-emit it as an erroring Observable of a plain `Error` whose message is `ipcErrorMessage(exception)`, instead of Nest's "Internal server error". (observed)
 - [x] **APP-IPC-ERR-003**: If a generic-bridge handler rejects or its Observable errors, then the generic IPC bridge shall log `ipc-main-bridge: handler for "<pattern>" failed: <message>` at `error` with the stack, and rethrow a new plain `Error` carrying only that message, so the rejection survives structured clone to the renderer. (observed)
 - [x] **APP-IPC-ERR-004**: If a controller payload guard rejects a request (for example `requireStringArray` on a non-string-array field), then the renderer shall receive an `Error` whose message is the guard's field error (such as `<field> must be an array of strings`). (observed)
 - [x] **APP-IPC-ERR-005**: If a handler on a self-bridged channel (one listed in `SELF_BRIDGED_PATTERNS`) throws before returning its ack, then desktop-main shall log the failure and reject the invoke with a plain `Error` carrying only the handler's message, as the generic bridge does. (observed)
 - [x] **APP-IPC-ERR-006**: If a stream's main-side source fails with a non-abort error, then the main process shall log it and send `{ error }` on that stream's end channel, and the preload stream shall throw an `Error` with that text to the renderer consumer. (observed)
 - [x] **APP-IPC-ERR-007**: When a stream fails, the error message the renderer receives from that stream's end channel shall match the handler's error message, with no added `Error: ` prefix, as invoke errors do. (observed)
-- [x] **APP-IPC-ERR-008**: When `api.service.ts` is called while `window.hyveon` is absent, the `api.*` facade shall reject (not throw synchronously) with an `Error` stating the bridge is unavailable outside the Electron preload context. (observed)
+- [x] **APP-IPC-ERR-008**: When `api.service.ts` is called while `window.hyveon` is absent, the `api.*` facade shall reject (not throw synchronously) with an `Error` stating that the IPC bridge (`window.hyveon`) is not available in this context. (observed)
 
 ## Streaming across the context bridge (STREAM)
 
