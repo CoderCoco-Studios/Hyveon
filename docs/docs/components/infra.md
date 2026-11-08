@@ -377,7 +377,7 @@ because one is known at apply time and the other genuinely isn't:
   3. `exec`s the operator's configured `command` — never falls through to the
      image's own `ENTRYPOINT`/`CMD`, since the wrapper replaced it.
   4. Exits non-zero without ever reaching step 3 if discovery fails after all
-     30 attempts, so the task stops instead of starting the game with no
+     5 attempts (about 60 seconds in the worst case), so the task stops instead of starting the game with no
      public address to advertise.
 
   Overriding `entryPoint` this way clears the image's built-in start chain,

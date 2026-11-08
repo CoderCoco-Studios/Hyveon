@@ -53,6 +53,41 @@ describe('validateGameServer', () => {
     }
   });
 
+  // @spec GAME-VALID-010
+  describe('port protocol values', () => {
+    it('should accept tcp, udp and icmp for a non-https game', () => {
+      const ports = [
+        { container: 25565, protocol: 'tcp' },
+        { container: 25566, protocol: 'udp' },
+        { container: 8, protocol: 'icmp' },
+      ];
+      expect(validateGameServer('game', makeProposed({ ports }), []).success).toBe(true);
+    });
+
+    it.each(['sctp', 'TCP', 'Udp', ''])('should reject protocol %j on a non-https game at ports[0].protocol', (protocol) => {
+      const result = validateGameServer('game', makeProposed({ ports: [{ container: 25565, protocol }] }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'ports[0].protocol')).toBe(true);
+      }
+    });
+  });
+
+  // @spec GAME-VALID-011
+  describe('case-insensitive protocol comparisons on raw reads', () => {
+    it('should not add an https tcp/udp issue for a TCP port beyond the protocol-value issue', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, webPort: 8080, ports: [{ container: 25565, protocol: 'TCP' }] }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.filter((i) => i.message.includes('must be "tcp" or "udp"'))).toHaveLength(0);
+      }
+    });
+  });
+
   // @spec GAME-VALID-004
   describe('Fargate cpu/memory pairing', () => {
     it('should accept each of the three discrete memory values for cpu=256', () => {

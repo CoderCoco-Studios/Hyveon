@@ -14,7 +14,7 @@
  */
 
 import { z } from 'zod';
-import { isIcmpProtocol, type GameServer, type GameServerPort } from './gameServerConfig.js';
+import { isIcmpProtocol, isTcpProtocol, isUdpProtocol, type GameServer, type GameServerPort } from './gameServerConfig.js';
 import { isReservedHttpsPort } from './gameServerPorts.js';
 import { ALLOWED_HYVEON_ENV_TOKENS, HYVEON_ENV_TOKENS, findHyveonTokenCandidates, valueUsesToken } from './envTokens.js';
 
@@ -75,9 +75,12 @@ export const HOSTNAME_SHIM_RESERVED_NAME = 'hostname-shim';
 /** Zod schema mirroring {@link GameServerPort}. */
 export const gameServerPortSchema = z.object({
   container: z.number(),
-  protocol: z.string(),
+  protocol: z.enum(['tcp', 'udp', 'icmp'], { error: 'protocol must be exactly "tcp", "udp" or "icmp" (lowercase).' }),
   visibility: z.enum(['public', 'internal']).optional(),
 });
+
+/** {@link gameServerPortSchema} with `protocol` left free-form, so the raw-draft networking rules still run on a mistyped protocol. */
+const rawGameServerPortSchema = gameServerPortSchema.extend({ protocol: z.string() });
 
 /** Zod schema mirroring `GameServerEnvironmentVariable`. */
 export const gameServerEnvironmentVariableSchema = z.object({
@@ -771,7 +774,7 @@ function checkHttpsPortRules(ports: GameServerPort[], webPort: unknown): GameSer
   const issues: GameServerValidationIssue[] = [];
 
   ports.forEach((port, index) => {
-    if (port.protocol !== 'tcp' && port.protocol !== 'udp') {
+    if (!isTcpProtocol(port.protocol) && !isUdpProtocol(port.protocol)) {
       issues.push({
         path: `ports[${index}]`,
         message: `ports[${index}].protocol must be "tcp" or "udp" for an https = true game server, got "${port.protocol}".`,
@@ -783,7 +786,7 @@ function checkHttpsPortRules(ports: GameServerPort[], webPort: unknown): GameSer
         message: `ports[${index}] uses container port ${port.container}, which is reserved for the Caddy sidecar on an https = true game server. Enter your game's own listen port instead; Caddy terminates TLS on 443 and proxies to webPort.`,
       });
     }
-    if (port.protocol === 'tcp' && port.container === webPort) {
+    if (isTcpProtocol(port.protocol) && port.container === webPort) {
       issues.push({
         path: `ports[${index}]`,
         message: `ports[${index}] duplicates webPort ${port.container}/tcp; webPort is already served through Caddy, so list only additional ports here.`,
@@ -836,12 +839,12 @@ function checkIcmpPortRules(ports: GameServerPort[]): GameServerValidationIssue[
 
 /** `true` for container port 443 or 80 on protocol `tcp` (case-insensitively, like {@link portKey}) — the Caddy sidecar's fixed, unconditional ingress. `443/udp`/`80/udp` never collide with it, since Caddy only ever binds `tcp`. */
 function isCaddyReservedPort(port: GameServerPort): boolean {
-  return isReservedHttpsPort(port.container) && port.protocol.toLowerCase() === 'tcp';
+  return isReservedHttpsPort(port.container) && isTcpProtocol(port.protocol);
 }
 
 /** `true` for a `tcp` port entry (case-insensitively, like {@link portKey}). */
 function isTcpPort(port: GameServerPort): boolean {
-  return port.protocol.toLowerCase() === 'tcp';
+  return isTcpProtocol(port.protocol);
 }
 
 /**
@@ -1020,7 +1023,7 @@ function checkHealthCheckRules(entry: GameServerEntryInput): GameServerValidatio
   const issues: GameServerValidationIssue[] = [];
 
   const targetsWebPort = entry.webPort !== undefined && healthCheck.port === entry.webPort;
-  if (!targetsWebPort && !entry.ports.some((port) => port.container === healthCheck.port && port.protocol === 'tcp')) {
+  if (!targetsWebPort && !entry.ports.some((port) => port.container === healthCheck.port && isTcpProtocol(port.protocol))) {
     issues.push({
       path: 'healthCheck.port',
       message: `healthCheck.port ${healthCheck.port} is not among this game server's declared tcp ports or its webPort.`,
@@ -1111,7 +1114,7 @@ export function validateGameServer(
   const webPort = isRecord(proposed) ? proposed['webPort'] : undefined;
   issues.push(...checkWebPortRules(isHttps, webPort));
   const portsResult = z
-    .array(gameServerPortSchema)
+    .array(rawGameServerPortSchema)
     .safeParse(isRecord(proposed) ? proposed['ports'] : undefined);
   if (portsResult.success) {
     issues.push(...checkPortCollisions(name, portsResult.data, existingGameServers));
