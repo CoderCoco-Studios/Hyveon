@@ -14,19 +14,21 @@
  *   `RunRecordStore.acquireRunLock`/`getRunLock`/`releaseRunLock` (see
  *   `@hyveon/shared/cloud.js`), which makes the lock durable across app
  *   restarts and consistent if more than one desktop-main process is ever
- *   run against the same deploy. When `runsTableName` isn't in the
- *   Pulumi stack outputs yet (table not deployed — the same chicken-and-egg
- *   case `RunRecordService.persist`/`AuditService.record` guard against),
- *   the DynamoDB call is skipped entirely and the in-memory lock alone
- *   enforces exclusivity.
+ *   run against the same deploy. The table name resolves through the same
+ *   stack-outputs-then-deployment-config chain as `RunRecordService`
+ *   ({@link resolveRunsTableName}), so the first apply on a fresh install
+ *   holds the durable lock too; only when no table name resolves at all is
+ *   the DynamoDB call skipped and the in-memory lock alone enforces
+ *   exclusivity.
  */
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { RunLockHeldError, errMessage, isRunLockExpired } from '@hyveon/shared';
-import type { RunKind, RunLock, RunRecordStore } from '@hyveon/shared';
+import type { RemoteFileStore, RunKind, RunLock, RunRecordStore } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
-import { RUN_RECORD_STORE } from '../modules/cloud-provider.tokens.js';
+import { REMOTE_FILE_STORE, RUN_RECORD_STORE } from '../modules/cloud-provider.tokens.js';
+import { resolveRunsTableName } from './runs-table-name.js';
 import { LockClearConfirmationGate } from './LockClearConfirmationGate.js';
 
 // @spec IAC-RUN-LOCK-005
@@ -127,9 +129,15 @@ export class RunService {
   constructor(
     private readonly config: ConfigService,
     @Inject(RUN_RECORD_STORE) private readonly store: RunRecordStore,
+    @Inject(REMOTE_FILE_STORE) private readonly remoteFileStore: RemoteFileStore,
   ) {}
 
-  // @spec IAC-RUN-LOCK-001, IAC-RUN-LOCK-002, IAC-RUN-LOCK-003, IAC-RUN-LOCK-004
+  /** Resolves the runs table name through the shared stack-outputs-then-deployment-config chain. */
+  private resolveRunsTableName(): Promise<string | undefined> {
+    return resolveRunsTableName(this.config, this.remoteFileStore);
+  }
+
+  // @spec IAC-RUN-LOCK-001, IAC-RUN-LOCK-002, IAC-RUN-LOCK-003, IAC-RUN-LOCK-004, IAC-RUN-LOCK-009
   /**
    * Attempts to acquire the apply lock on behalf of a new Pulumi
    * apply/destroy run (plans never call this) and returns the acquired {@link RunLock}
@@ -138,14 +146,13 @@ export class RunService {
    * Checks (and, if free, optimistically sets) the in-memory lock
    * synchronously before touching DynamoDB, so a second call issued before
    * this one's first `await` is rejected immediately rather than racing the
-   * network call. If `runs_table_name` is configured, the lock is then
+   * network call. If a runs table name resolves, the lock is then
    * mirrored to the DynamoDB-backed apply lock item via
    * `RunRecordStore.acquireRunLock` — if that call rejects with a
    * `RunLockHeldError` (another process holds the durable lock), the
    * in-memory lock this call had provisionally set is rolled back and the
-   * error is re-thrown. When `runs_table_name` isn't configured yet (table
-   * not deployed), the DynamoDB call is skipped and the in-memory lock
-   * alone enforces exclusivity.
+   * error is re-thrown. When no runs table name resolves at all, the DynamoDB
+   * call is skipped and the in-memory lock alone enforces exclusivity.
    *
    * @param kind - Which Pulumi subcommand the caller is about to run.
    * @param initiator - Opaque identifier (e.g. username or API caller) of
@@ -178,7 +185,7 @@ export class RunService {
     // happened yet), so a concurrent caller sees it immediately.
     this.currentLock = lock;
 
-    const tableName = (await this.config.getStackOutputs())?.runsTableName;
+    const tableName = await this.resolveRunsTableName();
     if (tableName) {
       try {
         await this.store.acquireRunLock(lock);
@@ -213,11 +220,11 @@ export class RunService {
     return undefined;
   }
 
-  // @spec IAC-RUN-LOCK-006
+  // @spec IAC-RUN-LOCK-006, IAC-RUN-LOCK-009, IAC-RUN-STORE-009
   /**
    * Releases the apply lock, scoped to `runId` so a caller can never release
    * a lock it doesn't itself hold. Clears the in-memory lock first (only if
-   * it's still held by `runId`), then, when `runs_table_name` is configured,
+   * it's still held by `runId`), then, when a runs table name resolves,
    * releases the DynamoDB-backed lock item via `RunRecordStore.releaseRunLock`
    * — both layers no-op rather than throw when `runId` doesn't match the
    * currently held lock.
@@ -231,7 +238,7 @@ export class RunService {
       this.currentLock = null;
     }
 
-    const tableName = (await this.config.getStackOutputs())?.runsTableName;
+    const tableName = await this.resolveRunsTableName();
     if (tableName) {
       try {
         await this.store.releaseRunLock(runId);
@@ -241,7 +248,7 @@ export class RunService {
         // error here is safe to swallow — the lock self-heals once
         // `expiresAt` passes (see `isRunLockExpired`).
         logger.warn('RunService.releaseRun: failed to release DynamoDB apply lock, relying on TTL self-heal', {
-          err,
+          error: errMessage(err),
           runId,
         });
       }
@@ -251,8 +258,8 @@ export class RunService {
   /**
    * Resolves the lock currently held, preferring {@link getCurrentLock}
    * (in-memory, no I/O) and falling back to `RunRecordStore.getRunLock()`
-   * (the durable DynamoDB read, skipped when `runs_table_name` isn't
-   * configured) when the in-memory field is empty — covers the case where
+   * (the durable DynamoDB read, skipped when no runs table name
+   * resolves) when the in-memory field is empty — covers the case where
    * this process lost the lock race to another process (its own
    * provisional in-memory lock was already rolled back by {@link createRun})
    * or was restarted since the lock was acquired elsewhere. Shared by
@@ -272,7 +279,7 @@ export class RunService {
     const inMemory = this.getCurrentLock();
     if (inMemory) return inMemory;
     try {
-      const tableName = (await this.config.getStackOutputs())?.runsTableName;
+      const tableName = await this.resolveRunsTableName();
       if (tableName) {
         return await this.store.getRunLock();
       }
@@ -281,6 +288,18 @@ export class RunService {
       logger.warn(`${context}: failed to read DynamoDB apply lock`, { error: message });
     }
     return undefined;
+  }
+
+  // @spec IAC-RUN-LOCK-010
+  /**
+   * Resolves the apply lock currently held anywhere, in memory first and then durably, so a run whose lock outlived an
+   * app restart is still reported until it is cleared or its TTL passes.
+   *
+   * @returns The held, unexpired {@link RunLock}, or `undefined` when none is held or the durable read fails.
+   */
+  async getHeldLock(): Promise<RunLock | undefined> {
+    const lock = await this.resolveCurrentLock('RunService.getHeldLock');
+    return lock && !isRunLockExpired(lock) ? lock : undefined;
   }
 
   // @spec IAC-RUN-LCLR-003, IAC-RUN-LCLR-004

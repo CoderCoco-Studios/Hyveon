@@ -335,6 +335,29 @@ describe('RunRecordService', () => {
       expect(putRecordMock).toHaveBeenCalledTimes(1);
     });
 
+    // @spec IAC-RUN-STORE-009
+    it('should log the normalised message, never the raw error object, for each swallowed persist failure', async () => {
+      putRecordMock.mockRejectedValue(new Error('DynamoDB is down'));
+      putLogMock.mockRejectedValue(new Error('S3 is down'));
+      const service = makeService();
+      const oversizedLog = 'x'.repeat(INLINE_LOG_LIMIT_BYTES + 1);
+
+      await service.persist(makeParams(), writeLogFile(oversizedLog));
+      await service.persist(makeParams(), join(tmpdir(), 'missing-run-log-does-not-exist.log'));
+
+      const contexts = loggerMock.warn.mock.calls
+        .filter(([message]) => String(message).includes('failed to'))
+        .map(([, ctx]) => ctx as Record<string, unknown>);
+      expect(contexts.length).toBeGreaterThanOrEqual(3);
+      for (const ctx of contexts) {
+        expect(ctx).not.toHaveProperty('err');
+        expect(typeof ctx['error']).toBe('string');
+      }
+      expect(contexts.map((c) => c['error'])).toEqual(
+        expect.arrayContaining(['DynamoDB is down', 'S3 is down', expect.stringContaining('ENOENT')]),
+      );
+    });
+
     it('should persist the record without a log when store.putLog rejects, rather than aborting the whole write', async () => {
       putRecordMock.mockResolvedValue(undefined);
       putLogMock.mockRejectedValue(new Error('S3 is down'));
@@ -692,6 +715,30 @@ describe('RunRecordService', () => {
       expect(persisted.approvedBy).toBe('alice');
       expect(typeof persisted.approvedAt).toBe('string');
       expect(result).toEqual(persisted);
+    });
+
+    // @spec IAC-RUN-STORE-008
+    it('should preserve every other stored field, including partialApply and the log, when writing the approval', async () => {
+      const record = makeRecord({
+        configVersionId: 'v-7',
+        planHash: 'hash-1',
+        engineVersion: '3.1.0',
+        rolledBackFrom: 'apply-9',
+        changeSummary: { create: 1, update: 2, delete: 3, replace: 4 },
+        partialApply: true,
+        logInline: 'plan output',
+      });
+      getRecordByRunIdMock.mockResolvedValue(record);
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+
+      await service.approveRun('run-123', 'alice');
+
+      expect(putRecordMock.mock.calls[0]?.[0]).toEqual({
+        ...record,
+        approvedBy: 'alice',
+        approvedAt: expect.any(String),
+      });
     });
 
     it('should reject with RunRecordTableNotConfiguredError when runs_table_name is not configured', async () => {

@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException, Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
-import { computeRunDetailStatus, errMessage, type RunDetailStatus, type RunPageResult, type RunStatus } from '@hyveon/shared';
+import {
+  computeRunDetailStatus,
+  errMessage,
+  type RunDetailStatus,
+  type RunPageResult,
+  type RunRecord,
+  type RunStatus,
+} from '@hyveon/shared';
 import {
   PulumiService,
   type PulumiRunChunk,
@@ -14,6 +21,14 @@ import { logger } from '../logger.js';
 
 /** Every {@link RunStatus} value — used to validate {@link IacRunsController.list}'s `status` filter. */
 const RUN_STATUSES: readonly RunStatus[] = ['success', 'failed', 'aborted'];
+
+/** Payload accepted by {@link IacRunsController.record}. */
+export interface IacRunsRecordPayload {
+  runId: string;
+}
+
+/** Result of {@link IacRunsController.record}: the persisted history record for the run, when one exists. */
+export type IacRunsRecordResult = { found: false } | { found: true; record: RunRecord };
 
 /** Result of {@link IacRunsController.logUrl}: a presigned/temporary URL the renderer can fetch the offloaded log from directly. */
 export interface IacRunsLogUrlResult {
@@ -132,7 +147,7 @@ interface IacRunsLogsAck {
  *
  * `get()` combines two data sources to derive the run's
  * {@link RunDetailStatus} via the shared, pure `computeRunDetailStatus`
- * helper: `RunService.getCurrentLock()` (the in-flight apply lock, #106) for
+ * helper: `RunService.getHeldLock()` (the in-flight apply lock, in memory or durable) for
  * a still-running run, and `PulumiService.readRunRecord()` /
  * `PulumiService.hasPlanArtifact()` (the local `<runsDir>/<runId>/run.json`
  * + saved plan artifact) for a finished one.
@@ -194,7 +209,7 @@ export class IacRunsController implements OnModuleInit {
    * {@link RunDetailStatus}:
    *
    * - `{ found: true, status: 'running' }` when `runId` matches the run
-   *   currently holding the apply lock (`RunService.getCurrentLock()`) — no
+   *   currently holding the apply lock, in memory or durably (`RunService.getHeldLock()`, so a lock that outlived an app restart still reads as running) — no
    *   `record` is attached, since a {@link PulumiRunRecord} is only ever
    *   persisted once the run has settled.
    * - `{ found: true, status, record }` when a persisted
@@ -220,7 +235,7 @@ export class IacRunsController implements OnModuleInit {
       });
     }
 
-    const currentLock = this.runService.getCurrentLock();
+    const currentLock = await this.runService.getHeldLock();
     if (currentLock?.runId === runId) {
       return { found: true, status: 'running' };
     }
@@ -330,6 +345,29 @@ export class IacRunsController implements OnModuleInit {
       });
     }
     return this.runRecordService.listRuns(opts ?? {});
+  }
+
+  // @spec IAC-RUN-DETL-004
+  /**
+   * Resolves the persisted history record for one run by its `runId`, however old it is, through
+   * `RunRecordService.getByRunId`. An apply shares its plan's `runId`, so the newest match for an applied plan is its
+   * apply record.
+   *
+   * @throws `BadRequestException` when `payload.runId` isn't a non-empty string.
+   */
+  @MessagePattern('iac.runs.record')
+  async record(@Payload() payload: IacRunsRecordPayload): Promise<IacRunsRecordResult> {
+    logger.debug('IacRunsController: iac.runs.record invoked');
+    const runId = payload?.runId;
+    if (typeof runId !== 'string' || runId.length === 0) {
+      throw new BadRequestException({
+        success: false,
+        error: 'iac.runs.record requires a non-empty runId string',
+      });
+    }
+
+    const record = await this.runRecordService.getByRunId(runId);
+    return record ? { found: true, record } : { found: false };
   }
 
   // @spec IAC-RUN-STORE-006

@@ -26,7 +26,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { Inject, Injectable } from '@nestjs/common';
-import { buildRunSk, deriveRunStatus, errMessage, resolvePreApplyRunsTableName } from '@hyveon/shared';
+import { buildRunSk, deriveRunStatus, errMessage } from '@hyveon/shared';
 import type {
   ChangeSummary,
   RemoteFileStore,
@@ -39,6 +39,7 @@ import type {
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { RunService } from './RunService.js';
+import { resolveRunsTableName } from './runs-table-name.js';
 import { RUN_RECORD_STORE, REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
 
 /**
@@ -241,38 +242,13 @@ export class RunRecordService {
   ) {}
 
   // @spec IAC-RUN-STORE-001
-  /**
-   * Resolves the run-history table's name, preferring
-   * `ConfigService.getStackOutputs()`'s `runsTableName` (the deployed
-   * stack's own report, once one exists) and falling back to
-   * `@hyveon/shared`'s `resolvePreApplyRunsTableName` — which reads the
-   * persisted `DeploymentConfig` directly via the injected `RemoteFileStore`
-   * — when no stack output is available yet.
-   *
-   * This fallback is the fix for the bootstrap deadlock this table used to
-   * cause: `getStackOutputs()` only ever reports a value after a stack's
-   * FIRST successful `apply` (see that method's own doc, "empty outputs also
-   * degrades to null"), but every one of this class's public methods needs
-   * to resolve a table name on the very first plan/apply cycle of a fresh
-   * install, before that has ever happened. Since the runs table is now
-   * created via the AWS SDK at wizard-bootstrap time (`BootstrapService.ensureRunsTable`),
-   * before any `DeploymentConfig`/Pulumi apply exists at all, computing its
-   * deterministic name directly from the persisted config is both correct
-   * and available immediately — see `resolvePreApplyRunsTableName`'s own doc
-   * for why this never throws and degrades to `undefined` for every "not
-   * ready yet" case identically to a genuinely-undeployed stack.
-   *
-   * @returns The resolved table name, or `undefined` if neither source has
-   *   one yet (no stack deployed AND no `DeploymentConfig` persisted yet).
-   */
-  private async resolveRunsTableName(): Promise<string | undefined> {
-    const fromStack = (await this.config.getStackOutputs())?.runsTableName;
-    if (fromStack) return fromStack;
-    return resolvePreApplyRunsTableName(this.remoteFileStore);
+  /** Resolves the run-history table name through the shared stack-outputs-then-deployment-config chain. */
+  private resolveRunsTableName(): Promise<string | undefined> {
+    return resolveRunsTableName(this.config, this.remoteFileStore);
   }
 
   // @spec IAC-RUN-REC-002, IAC-RUN-REC-003, IAC-RUN-REC-004, IAC-RUN-REC-005, IAC-RUN-STORE-002, IAC-RUN-STORE-003
-  // @spec IAC-RUN-STORE-004, IAC-RUN-STORE-005
+  // @spec IAC-RUN-STORE-004, IAC-RUN-STORE-005, IAC-RUN-STORE-009
   /**
    * Builds a {@link RunRecord} from `params` (`status` derived via
    * {@link deriveRunStatus}, `sk` via {@link buildRunSk}) and persists it via
@@ -336,7 +312,7 @@ export class RunRecordService {
           logText = readFileSync(logFilePath, 'utf8');
         } catch (err) {
           logger.warn('RunRecordService.persist: failed to read captured log file, persisting record without log', {
-            err,
+            error: errMessage(err),
             runId: params.runId,
             kind: params.kind,
             logFilePath,
@@ -351,7 +327,7 @@ export class RunRecordService {
             } catch (err) {
               logger.warn(
                 'RunRecordService.persist: failed to offload log to remote store, persisting record without log',
-                { err, runId: params.runId, kind: params.kind },
+                { error: errMessage(err), runId: params.runId, kind: params.kind },
               );
             }
           } else {
@@ -382,7 +358,7 @@ export class RunRecordService {
         await this.store.putRecord(record);
       } catch (err) {
         logger.warn('RunRecordService.persist: failed to persist run record', {
-          err,
+          error: errMessage(err),
           runId: params.runId,
           kind: params.kind,
         });
@@ -582,7 +558,7 @@ export class RunRecordService {
     }
   }
 
-  // @spec IAC-RUN-APPR-003, IAC-RUN-STORE-005
+  // @spec IAC-RUN-APPR-003, IAC-RUN-STORE-005, IAC-RUN-STORE-008
   /**
    * Approves a successful `plan` run for apply: stamps `approvedBy` and an
    * `approvedAt` timestamp onto its persisted {@link RunRecord} and writes it
