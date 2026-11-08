@@ -367,6 +367,18 @@ describe('PulumiService.destroy confirmation gate', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-DSTR-014
+  it('should log the specific rejection reason from the shared confirmation gate', async () => {
+    const service = makeService({ workspace: makeWorkspace(makeHappyPathDestroy()) });
+    service.mintDestroyConfirmationToken();
+
+    await expect(collectDestroyChunks(service.destroy('some-other-token'))).rejects.toBeInstanceOf(DestroyNotConfirmedError);
+
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'pulumi destroy confirmation rejected: supplied token does not match the most recently minted token',
+    );
+  });
+
   it('should reject with DestroyNotConfirmedError when the most recently minted token has expired', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
     const service = makeService({ workspace });
