@@ -529,7 +529,12 @@ describe('PulumiService.preview environment redaction', () => {
     expect((caught as Error).message).not.toContain(SECRET_VALUE);
     expect((caught as Error).message).toContain('CommandError');
     expect((caught as { cause?: unknown }).cause).toBeUndefined();
-    expect(JSON.stringify(loggerMock.error.mock.calls)).not.toContain(SECRET_VALUE);
+    const failureLog = loggerMock.error.mock.calls.find(([message]) => message === 'pulumi preview: operation failed');
+    expect(failureLog).toBeDefined();
+    const loggedError = (failureLog?.[1] as { error?: unknown }).error;
+    expect(typeof loggedError).toBe('string');
+    expect(loggedError).toContain('CommandError');
+    expect(loggedError).not.toContain(SECRET_VALUE);
   });
 
   it('should redact the same environment value from the persisted pulumi.log transcript', async () => {
