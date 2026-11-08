@@ -324,7 +324,7 @@ async function invokeFollowup(payload: FollowupPayload, startedAtMs: number): Pr
 async function deferToFollowup(payload: FollowupPayload, startedAtMs: number): Promise<APIGatewayProxyResultV2> {
   if (await invokeFollowup(payload, startedAtMs)) return ephemeralMessage('', true);
   return ephemeralMessage(
-    'Could not confirm that command was sent. It may already be starting: check `/server-status` before retrying.',
+    'Could not confirm that the command was sent. It may already be starting: check `/server-status` before retrying.',
   );
 }
 

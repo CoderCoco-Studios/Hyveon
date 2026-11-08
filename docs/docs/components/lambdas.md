@@ -71,7 +71,7 @@ makes no AWS SDK calls (see below).
 
 If the followup invoke times out or is rejected, the handler logs the
 normalised error (identifiers only, never the interaction token) and answers
-with an ephemeral "Could not confirm that command was sent. It may already be
+with an ephemeral "Could not confirm that the command was sent. It may already be
 starting: check `/server-status` before retrying." instead of throwing. A
 timed-out invoke may already have been accepted, so a retry can run the
 followup twice; that is safe because `/server-start` is guarded by the start
