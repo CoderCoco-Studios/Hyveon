@@ -19,6 +19,9 @@ const MAX_BATCH_ENTRIES = 50;
 /** Hard cap on entries buffered between flushes, bounding memory if console output bursts faster than the flush interval. */
 const MAX_QUEUE_SIZE = 200;
 
+/** How long a `diagnostics.reportLog` call may stay unsettled before the batch is treated as failed and requeued. */
+const FLUSH_TIMEOUT_MS = 10_000;
+
 let queue: RendererLogEntry[] = [];
 let droppedSinceLastFlush = 0;
 
@@ -34,7 +37,7 @@ let inFlightCount = 0;
 
 /**
  * True while a `diagnostics.reportLog` call from a prior {@link flush} is
- * still unsettled. Guards against a later flush tick submitting newer
+ * still unsettled (and within {@link FLUSH_TIMEOUT_MS}). Guards against a later flush tick submitting newer
  * entries before an older, still-pending call settles — if the older call
  * later rejects, its requeued entries would otherwise be delivered after
  * entries that were logged more recently, breaking oldest-first order.
@@ -93,8 +96,9 @@ function requeueAfterFailedFlush(entries: RendererLogEntry[], droppedCount: numb
  * {@link MAX_QUEUE_SIZE}, so the per-flush cap only paces IPC message size,
  * not total delivery. The batch is reserved against the queue cap via
  * {@link inFlightCount} while its `diagnostics.reportLog` call is pending;
- * if the call rejects, throws synchronously, or otherwise never resolves
- * (transient failure), the batch is requeued rather than lost.
+ * if the call rejects, throws synchronously, or fails to settle within
+ * {@link FLUSH_TIMEOUT_MS} (transient failure), the batch is requeued rather than lost. A late settle after the
+ * timeout is ignored, so a batch is never requeued twice.
  */
 function flush(): void {
   if (flushInFlight) {
@@ -126,16 +130,23 @@ function flush(): void {
     flushInFlight = false;
     return;
   }
-  void pending.then(
-    () => {
-      inFlightCount -= entries.length;
-      flushInFlight = false;
-    },
-    () => {
-      inFlightCount -= entries.length;
+  let settled = false;
+  const settle = (failed: boolean): void => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    clearTimeout(timeout);
+    inFlightCount -= entries.length;
+    if (failed) {
       requeueAfterFailedFlush(entries, droppedCount);
-      flushInFlight = false;
-    },
+    }
+    flushInFlight = false;
+  };
+  const timeout = setTimeout(() => settle(true), FLUSH_TIMEOUT_MS);
+  void pending.then(
+    () => settle(false),
+    () => settle(true),
   );
 }
 
@@ -161,19 +172,27 @@ export function reportRendererError(
   void window.hyveon.diagnostics.reportError(message, stack, source)?.catch(() => undefined);
 }
 
-// @spec APP-DIAG-RERR-002
+/** Whether {@link installGlobalErrorReporting} has already registered its window listeners in this session. */
+let globalErrorReportingInstalled = false;
+
+// @spec APP-DIAG-RERR-002, APP-DIAG-RERR-008, APP-DIAG-RERR-009
 /**
  * Installs `window.onerror`/`unhandledrejection` listeners that forward to
- * {@link reportRendererError}. Call once, before `createRoot(...).render(...)`.
+ * {@link reportRendererError}. Call before `createRoot(...).render(...)`; repeat calls are no-ops so each error is
+ * reported once. A rejection reason is read with the cross-realm {@link isErrorLike} check.
  */
 export function installGlobalErrorReporting(): void {
+  if (globalErrorReportingInstalled) {
+    return;
+  }
+  globalErrorReportingInstalled = true;
   window.addEventListener('error', (evt) => {
     reportRendererError(evt.message, evt.error?.stack, 'window-error');
   });
   window.addEventListener('unhandledrejection', (evt) => {
     const reason = evt.reason as unknown;
-    const message = reason instanceof Error ? reason.message : String(reason);
-    reportRendererError(message, reason instanceof Error ? reason.stack : undefined, 'unhandled-rejection');
+    const errorLike = isErrorLike(reason);
+    reportRendererError(errorLike ? reason.message : String(reason), errorLike ? reason.stack : undefined, 'unhandled-rejection');
   });
 }
 

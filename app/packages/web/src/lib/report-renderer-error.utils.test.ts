@@ -100,6 +100,36 @@ describe('installGlobalErrorReporting', () => {
 
     expect(reportError).toHaveBeenCalledWith('plain string rejection', undefined, 'unhandled-rejection');
   });
+
+  // @spec APP-DIAG-RERR-008
+  it('should register the error and unhandledrejection listeners only once across repeated installs', async () => {
+    vi.resetModules();
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const { installGlobalErrorReporting: install } = await import(MODULE_PATH);
+
+    install();
+    install();
+
+    const registered = addSpy.mock.calls.map(([type]) => type);
+    expect(registered.filter((type) => type === 'error')).toHaveLength(1);
+    expect(registered.filter((type) => type === 'unhandledrejection')).toHaveLength(1);
+    addSpy.mockRestore();
+  });
+
+  // @spec APP-DIAG-RERR-009
+  it('should report the message and stack of a cross-realm Error rejection reason', () => {
+    const reportError = vi.fn().mockResolvedValue(undefined);
+    stubBridge(reportError);
+    installGlobalErrorReporting();
+
+    const reason = vm.runInNewContext('new Error("foreign rejection")') as Error;
+    expect(reason instanceof Error).toBe(false);
+    const event = new Event('unhandledrejection') as PromiseRejectionEvent & { reason: unknown };
+    Object.defineProperty(event, 'reason', { value: reason });
+    window.dispatchEvent(event);
+
+    expect(reportError).toHaveBeenCalledWith('foreign rejection', reason.stack, 'unhandled-rejection');
+  });
 });
 
 describe('installConsoleForwarding', () => {
@@ -472,6 +502,46 @@ describe('installConsoleForwarding', () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(reportLog).toHaveBeenCalledTimes(2);
     expect(reportLog).toHaveBeenLastCalledWith([{ level: 'log', message: 'should survive a synchronous throw' }], undefined);
+  });
+
+  // @spec APP-DIAG-CONS-012
+  it('should recover and resend the batch when reportLog never settles', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi.fn().mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    console.log('stuck batch');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reportLog).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(reportLog).toHaveBeenCalledTimes(2);
+    expect(reportLog).toHaveBeenLastCalledWith([{ level: 'log', message: 'stuck batch' }], undefined);
+  });
+
+  // @spec APP-DIAG-CONS-012
+  it('should not requeue a batch twice when a timed-out reportLog later rejects', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let rejectFirst: (reason: Error) => void = () => undefined;
+    const first = new Promise<void>((_resolve, reject) => {
+      rejectFirst = reject;
+    });
+    const reportLog = vi.fn().mockReturnValueOnce(first).mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    console.log('only once');
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    rejectFirst(new Error('late'));
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    const sent = reportLog.mock.calls.flatMap(([entries]) => entries as RendererLogEntry[]);
+    expect(sent.filter((e) => e.message === 'only once')).toHaveLength(2);
   });
 
   it('should preserve message/stack for a cross-realm Error, where `instanceof Error` fails', async () => {

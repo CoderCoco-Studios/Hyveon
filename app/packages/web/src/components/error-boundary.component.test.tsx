@@ -59,4 +59,36 @@ describe('ErrorBoundary', () => {
 
     consoleSpy.mockRestore();
   });
+
+  // @spec APP-DIAG-RERR-006
+  it.each([0, '', null])('should render the fallback when a child throws %j', (thrown) => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    function Thrower(): never {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
+      throw thrown;
+    }
+
+    render(
+      <ErrorBoundary>
+        <Thrower />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    consoleSpy.mockRestore();
+  });
+
+  // @spec APP-DIAG-RERR-007
+  it('should point the operator at Settings → Diagnostics', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    render(
+      <ErrorBoundary>
+        <Bomb />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Settings → Diagnostics');
+    consoleSpy.mockRestore();
+  });
 });

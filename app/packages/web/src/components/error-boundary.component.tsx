@@ -7,10 +7,10 @@ interface Props {
 }
 
 interface State {
-  error: unknown;
+  hasError: boolean;
 }
 
-// @spec APP-DIAG-RERR-003
+// @spec APP-DIAG-RERR-003, APP-DIAG-RERR-006, APP-DIAG-RERR-007
 /**
  * Top-level render-error boundary. Renders a visible fallback instead of
  * silently unmounting the tree (React 18's default with no boundary), and
@@ -20,18 +20,17 @@ interface State {
  * is the only path that logs an in-render crash.
  */
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  state: State = { hasError: false };
 
   /**
    * React lifecycle hook invoked after a descendant throws during render.
-   * Stores the error so the next render shows the fallback UI.
+   * Flags the boundary so the next render shows the fallback UI. Tracks a boolean rather than the thrown value,
+   * because a descendant can `throw` a falsy value (`0`, `''`, `null`).
    *
-   * @param error - The value thrown by a descendant component. React does not
-   * guarantee this is an `Error` — a descendant can `throw` any value.
    * @returns The updated state.
    */
-  static getDerivedStateFromError(error: unknown): State {
-    return { error };
+  static getDerivedStateFromError(): State {
+    return { hasError: true };
   }
 
   /**
@@ -53,13 +52,13 @@ export class ErrorBoundary extends Component<Props, State> {
 
   /** Renders the fallback UI when a descendant has thrown, otherwise the children. */
   render(): ReactNode {
-    if (this.state.error) {
+    if (this.state.hasError) {
       return (
         <div role="alert" className="flex h-screen items-center justify-center p-8 text-center">
           <div className="max-w-md space-y-2">
             <h1 className="text-lg font-semibold text-[var(--color-foreground)]">Something went wrong</h1>
             <p className="text-sm text-[var(--color-muted-foreground)]">
-              Hyveon hit an unexpected error and can&apos;t continue. Check Settings → Logs, or restart the app.
+              Hyveon hit an unexpected error and can&apos;t continue. Check Settings → Diagnostics, or restart the app.
             </p>
           </div>
         </div>

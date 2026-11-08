@@ -666,7 +666,7 @@ to an end user's build.
   Electron `BrowserWindow`. `main.tsx` calls two forwarding installers from
   `src/lib/report-renderer-error.utils.ts` before rendering:
   `installGlobalErrorReporting()` (wires `window.onerror`/`unhandledrejection`
-  to `diagnostics.reportError`) and `installConsoleForwarding()` (wraps
+  to `diagnostics.reportError`, once per session) and `installConsoleForwarding()` (wraps
   `console.log`/`info`/`warn`/`error` so every call is both printed to
   devtools as normal and queued for batched delivery to
   `diagnostics.reportLog` — a no-op wherever the bridge doesn't implement
