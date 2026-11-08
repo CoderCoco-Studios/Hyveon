@@ -173,6 +173,8 @@ async function invokeHealthCheck(
     console.warn(`${game}: health check declared but no health-check function is configured — assuming active`);
     return { active: true, reason: 'health check invocation failed: no health-check function configured', failureDerived: true };
   }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), remainingMs);
   try {
     const resp = await lambda.send(
       new InvokeCommand({
@@ -180,7 +182,7 @@ async function invokeHealthCheck(
         InvocationType: 'RequestResponse',
         Payload: Buffer.from(JSON.stringify({ game, taskArn, privateIp, healthCheck })),
       }),
-      { abortSignal: AbortSignal.timeout(remainingMs) },
+      { abortSignal: controller.signal },
     );
     if (resp.FunctionError) {
       throw new Error(`health-check function returned ${resp.FunctionError}`);
@@ -195,6 +197,8 @@ async function invokeHealthCheck(
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`${game}: health check invocation failed — assuming active`, { err: message });
     return { active: true, reason: `health check invocation failed: ${message}`, failureDerived: true };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -246,9 +250,23 @@ async function describeAllTasks(arns: string[]): Promise<Task[]> {
     const resp = await ecs.send(
       new DescribeTasksCommand({ cluster: ECS_CLUSTER, tasks: arns.slice(i, i + DESCRIBE_TASKS_BATCH_SIZE) }),
     );
+    for (const failure of resp.failures ?? []) {
+      console.warn(`DescribeTasks could not describe ${failure.arn ?? 'a task'}`, { reason: failure.reason });
+    }
     tasks.push(...(resp.tasks ?? []));
   }
   return tasks;
+}
+
+// @spec RT-WATCHDOG-STATE-007
+/**
+ * Rotates `tasks` left by the current check-window number modulo the task count, so a task listed after slow checks
+ * still reaches the front on some run instead of always meeting an exhausted health-check budget.
+ */
+function rotateByWindow(tasks: Task[]): Task[] {
+  if (tasks.length === 0) return tasks;
+  const offset = Math.floor(Date.now() / (CHECK_WINDOW_MINUTES * 60_000)) % tasks.length;
+  return [...tasks.slice(offset), ...tasks.slice(0, offset)];
 }
 
 // @spec RT-WATCHDOG-SCHED-005, RT-WATCHDOG-SCOPE-002, RT-WATCHDOG-SCOPE-003, RT-WATCHDOG-HC-010, RT-WATCHDOG-HC-011, RT-WATCHDOG-SCOPE-004
@@ -279,7 +297,7 @@ export const handler = async (): Promise<{ checked: number }> => {
   let checked = 0;
   let healthCheckSpentMs = 0;
 
-  for (const task of described) {
+  for (const task of rotateByWindow(described)) {
     if (task.lastStatus !== 'RUNNING' || !task.taskArn) continue;
     const family = (task.group ?? '').replace('family:', '');
     const game = FAMILY_TO_GAME[family];
@@ -290,6 +308,7 @@ export const handler = async (): Promise<{ checked: number }> => {
     const declaredHealthCheck = HEALTH_CHECKS[game];
     let idleThisCheck: boolean;
     let verdictDetail: string;
+    let failureDerived = false;
 
     if (declaredHealthCheck) {
       const startedAt = Date.now();
@@ -302,6 +321,7 @@ export const handler = async (): Promise<{ checked: number }> => {
       healthCheckSpentMs += Date.now() - startedAt;
       idleThisCheck = !verdict.active;
       verdictDetail = verdict.reason;
+      failureDerived = verdict.failureDerived === true;
       if (verdict.failureDerived) {
         console.warn(`${game}: health check is failure-derived — treating as active (${verdict.reason})`);
       }
@@ -334,7 +354,7 @@ export const handler = async (): Promise<{ checked: number }> => {
       } else {
         await setIdleCount(task.taskArn, idleCount);
       }
-    } else {
+    } else if (!failureDerived) {
       if (idleCount > 0) {
         console.log(`${game}: activity detected (${verdictDetail}), resetting idle counter.`);
         await setIdleCount(task.taskArn, 0);

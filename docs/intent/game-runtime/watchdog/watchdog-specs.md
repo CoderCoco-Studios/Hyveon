@@ -47,7 +47,7 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 - [x] **RT-WATCHDOG-HC-007**: When the watchdog builds a health-check invoke payload for a task, it shall set `privateIp` to the `privateIPv4Address` detail of that task's `ElasticNetworkInterface` attachment as returned by the `DescribeTasks` calls of the same watchdog run.
 - [x] **RT-WATCHDOG-HC-008**: If the `privateIPv4Address` detail of a RUNNING health-checked task's `ElasticNetworkInterface` attachment is absent (`undefined` or `null`), empty, or a value that Node's `net.isIPv4` does not accept when applied to the value as received, without trimming, then the watchdog shall not invoke the health-check Lambda for that task.
 - [x] **RT-WATCHDOG-HC-009**: If the `privateIPv4Address` detail of a RUNNING health-checked task's `ElasticNetworkInterface` attachment is absent (`undefined` or `null`), empty, or a value that Node's `net.isIPv4` does not accept when applied to the value as received, without trimming, then the watchdog shall take for that task the verdict `active: true`, `failureDerived: true`, and a reason prefixed `health check failed:` stating that the task's private IP is missing or unreadable.
-- [x] **RT-WATCHDOG-HC-010**: If the `privateIPv4Address` detail of a RUNNING health-checked task's `ElasticNetworkInterface` attachment is absent (`undefined` or `null`), empty, or a value that Node's `net.isIPv4` does not accept when applied to the value as received, without trimming, then the watchdog shall update that task's idle count exactly as for a failure-derived active health-check verdict under `RT-WATCHDOG-STATE-007`.
+- [x] **RT-WATCHDOG-HC-010**: If the `privateIPv4Address` detail of a RUNNING health-checked task's `ElasticNetworkInterface` attachment is absent (`undefined` or `null`), empty, or a value that Node's `net.isIPv4` does not accept when applied to the value as received, without trimming, then the watchdog shall leave that task's idle count untouched, exactly as for a failure-derived active health-check verdict under `RT-WATCHDOG-STATE-007`.
 - [x] **RT-WATCHDOG-HC-011**: The watchdog shall not invoke the health-check Lambda for a task whose `lastStatus` is not `RUNNING`.
 
 ## Idle-count state
@@ -58,7 +58,7 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 - [x] **RT-WATCHDOG-STATE-004**: When a game-server task is active for the current window and its idle count is greater than 0, the watchdog shall reset the task's `idle_checks` tag to 0. (observed)
 - [x] **RT-WATCHDOG-STATE-005**: When a game-server task is active for the current window and its idle count is already 0, the watchdog shall not write the `idle_checks` tag. (observed)
 - [x] **RT-WATCHDOG-STATE-006**: If writing a game-server task's `idle_checks` tag fails, then the watchdog shall log a warning and continue evaluating the remaining tasks in that run. (observed)
-- [x] **RT-WATCHDOG-STATE-007**: When a game-server task's failure-derived health-check verdict is reported as active, the watchdog shall not increment that task's idle count.
+- [x] **RT-WATCHDOG-STATE-007**: When a game-server task's health-check verdict is failure-derived, including a verdict forced by an exhausted run budget, a missing or unreadable private IP, or a failed invoke, the watchdog shall neither increment nor reset that task's idle count, and shall start each run's task loop at an offset derived from the current check-window number so that a task listed late is checked on some run.
 
 ## Shutdown
 

@@ -24,6 +24,7 @@ import {
 } from '@aws-sdk/client-cloudwatch';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { Uint8ArrayBlobAdapter } from '@smithy/core/serde';
+import { HEALTH_CHECK_RUN_BUDGET_MS } from '@hyveon/shared';
 
 /** Builds a mock InvokeCommand response Payload from a JSON-serializable value, matching the shape the AWS SDK returns. */
 function invokePayload(value: unknown) {
@@ -481,8 +482,7 @@ describe('watchdog handler: health-check private IP', () => {
     expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(0);
     expect(cwMock.commandCalls(GetMetricStatisticsCommand)).toHaveLength(0);
     expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(0);
-    const tagCalls = ecsMock.commandCalls(TagResourceCommand);
-    expect(tagCalls.map((c) => c.args[0]!.input.tags![0]!.value)).not.toContain('4');
+    expect(ecsMock.commandCalls(TagResourceCommand)).toHaveLength(0);
     const logged = warnSpy.mock.calls.flat().map(String).join(' ');
     expect(logged).toContain('health check failed:');
     expect(logged).toContain('private IP');
@@ -575,18 +575,69 @@ describe('watchdog handler: health-check run budget', () => {
   });
 
   // @spec RT-WATCHDOG-HC-006
-  it('should bound each invoke with an abort signal sized to the remaining budget', async () => {
+  it('should abort an invoke exactly when the remaining budget elapses', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
     const taskArn = 'arn:task/signal';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
     ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask({ taskArn, game: 'checkedgame' })] });
-    lambdaMock.on(InvokeCommand).resolves({
-      Payload: invokePayload({ active: true, reason: 'players online', failureDerived: false }),
-    });
+    lambdaMock.on(InvokeCommand).callsFake(() => new Promise(() => undefined));
     ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [] });
+
+    const pending = handler();
+    await vi.advanceTimersByTimeAsync(0);
+    const signal = (lambdaMock.call(0).args[1] as { abortSignal?: AbortSignal } | undefined)?.abortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    await vi.advanceTimersByTimeAsync(HEALTH_CHECK_RUN_BUDGET_MS - 1);
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signal?.aborted).toBe(true);
+    void pending;
+  });
+
+  // @spec RT-WATCHDOG-STATE-007
+  it('should leave a stored idle count untouched when a task is skipped for budget exhaustion', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const arns = ['arn:task/a', 'arn:task/b'];
+    ecsMock.on(ListTasksCommand).resolves({ taskArns: arns });
+    ecsMock.on(DescribeTasksCommand).resolves({
+      tasks: arns.map((taskArn) => runningTask({ taskArn, game: 'checkedgame' })),
+    });
+    lambdaMock.on(InvokeCommand).callsFake(() => {
+      vi.advanceTimersByTime(45_000);
+      return { Payload: invokePayload({ active: true, reason: 'players online', failureDerived: false }) };
+    });
+    ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [{ key: 'idle_checks', value: '3' }] });
+    ecsMock.on(TagResourceCommand).resolves({});
 
     await handler();
 
-    const options = lambdaMock.call(0).args[1] as { abortSignal?: AbortSignal } | undefined;
-    expect(options?.abortSignal).toBeInstanceOf(AbortSignal);
+    const written = ecsMock.commandCalls(TagResourceCommand).map((c) => c.args[0]!.input.resourceArn);
+    expect(written).not.toContain('arn:task/b');
+  });
+
+  // @spec RT-WATCHDOG-STATE-007
+  it('should rotate the starting task each check window so a late-listed task is eventually checked', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const windowMs = 15 * 60_000;
+    const arns = ['arn:task/a', 'arn:task/b', 'arn:task/c'];
+    ecsMock.on(ListTasksCommand).resolves({ taskArns: arns });
+    ecsMock.on(DescribeTasksCommand).resolves({
+      tasks: arns.map((taskArn) => runningTask({ taskArn, game: 'checkedgame' })),
+    });
+    lambdaMock.on(InvokeCommand).callsFake(() => {
+      vi.advanceTimersByTime(25_000);
+      return { Payload: invokePayload({ active: true, reason: 'players online', failureDerived: false }) };
+    });
+    ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [] });
+
+    const checkedTaskArns: string[] = [];
+    for (let window = 0; window < 3; window++) {
+      vi.setSystemTime(window * windowMs);
+      lambdaMock.resetHistory();
+      await handler();
+      checkedTaskArns.push(...lambdaMock.commandCalls(InvokeCommand).map((_, i) => sentPayload(i)['taskArn'] as string));
+    }
+
+    expect(checkedTaskArns).toContain('arn:task/c');
   });
 });

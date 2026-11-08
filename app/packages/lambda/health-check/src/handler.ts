@@ -13,10 +13,10 @@
  * failure handles it, rather than relying on a lower layer that may never
  * run at all.
  */
-import { isIPv4 } from 'node:net';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import {
   HEALTH_CHECK_SECRET_DEADLINE_MS,
+  isPrivateIPv4,
   type GameServerHealthCheck,
   type GameServerHealthCheckAuth,
 } from '@hyveon/shared';
@@ -86,19 +86,20 @@ async function resolveAuthSecretValue(healthCheck: GameServerHealthCheck): Promi
  * Validates the payload's `privateIp`, the sole source of the request's destination host.
  *
  * @remarks
- * Accepts exactly what `net.isIPv4` accepts, applied to the value as received with no trimming; there is no VPC CIDR
- * or private-range check because the watchdog, the function's only invoker, reads the address from ECS.
+ * Accepts only an RFC 1918 IPv4 literal ({@link isPrivateIPv4}), applied to the value as received with no trimming, so
+ * loopback, link-local (including the instance metadata address), multicast, broadcast and public addresses are
+ * never request targets even from a direct invoker. The VPC CIDR is configuration, so the private ranges are the bound.
  *
  * @param privateIp - The payload field, which may be absent despite its type.
  * @returns The validated IPv4 literal.
- * @throws When the value is absent or is not a well-formed IPv4 literal.
+ * @throws When the value is absent, is not a well-formed IPv4 literal, or is outside the RFC 1918 ranges.
  */
 function requirePayloadHost(privateIp: string | null | undefined): string {
   if (privateIp === undefined || privateIp === null) {
     throw new Error('invoke payload has no privateIp');
   }
-  if (typeof privateIp !== 'string' || !isIPv4(privateIp)) {
-    throw new Error('invoke payload privateIp is not a well-formed IPv4 address');
+  if (typeof privateIp !== 'string' || !isPrivateIPv4(privateIp)) {
+    throw new Error('invoke payload privateIp is not a private IPv4 address');
   }
   return privateIp;
 }

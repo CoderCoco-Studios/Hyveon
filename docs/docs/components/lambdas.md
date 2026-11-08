@@ -240,7 +240,10 @@ Failure modes:
      `{ game, taskArn, privateIp, healthCheck }`, where `privateIp` is the
      task's private IPv4 address read from the same `DescribeTasks` result.
      A `RUNNING` task whose address is missing or not a well-formed IPv4
-     literal is not invoked and reads as a failure-derived active verdict. All
+     literal is not invoked and reads as a failure-derived active verdict.
+     A failure-derived verdict neither increments nor resets the idle counter,
+     and each run starts its task loop at an offset that rotates every check
+     window, so a late-listed task is checked on some run. All
      health-check invokes in one run share a 40-second budget: each invoke is
      aborted when the budget left elapses, and once it is spent the remaining
      health-checked tasks read failure-derived active without an invoke. A
@@ -353,7 +356,7 @@ Failure modes:
 | **Pulumi** | `app/packages/infra/src/lambdas.ts` (`healthCheckFunction`, `healthCheckLogGroup`). **A single shared function, conditionally created** — provisioned only when at least one game declares `healthCheck` (`iam.ts`'s `gamesWithHealthChecks`), unlike efs-seeder's one-function-per-game shape. A deployment where no game opts in gets no health-check function, role, security group, or log group. |
 | **IAM** | Single shared role: `logs:CreateLogGroup`/`CreateLogStream`/`PutLogEvents`, `ec2:CreateNetworkInterface`/`DescribeNetworkInterfaces`/`DeleteNetworkInterface` (required for Lambda VPC networking), and — only when at least one opted-in game references a credential — `secretsmanager:GetSecretValue` scoped to exactly those `auth.secretArn` values. No `ecs:` action: the function makes no ECS call. |
 | **Env vars** | `AWS_REGION_` only. Everything else it needs (`game`, `taskArn`, `privateIp`, the full `healthCheck` declaration) arrives in the invocation payload from the watchdog. |
-| **Network** | VPC-attached in both public subnets with its own security group, whose only egress is TCP to the game-servers group on each declared health-check port and, while any game declares `healthCheck.auth`, TCP 443 to the Secrets Manager interface endpoint. The endpoint (one ENI in the first public subnet, private DNS on) exists only while some game declares `healthCheck.auth`; it bills hourly (about $7.30 a month in us-east-1) whether or not a game runs, and a deployment whose checks are all unauthenticated declares none. There is no NAT gateway, so a credentialed check cannot fetch its secret until an apply has created the endpoint. |
+| **Network** | VPC-attached in both public subnets with its own security group, whose only egress is TCP to the game-servers group on each declared health-check port and, while any game declares `healthCheck.auth`, TCP 443 to the Secrets Manager interface endpoint. The endpoint (one ENI in the first public subnet, private DNS on) exists only while some game declares `healthCheck.auth`; it bills hourly (about $7.30 a month in us-east-1) whether or not a game runs, sits in one subnet only (an outage of that zone makes credentialed checks fail-active), and with private DNS on routes every in-VPC Secrets Manager call (game tasks, Fargate secret pulls) through it while it exists, and a deployment whose checks are all unauthenticated declares none. There is no NAT gateway, so a credentialed check cannot fetch its secret until an apply has created the endpoint. |
 
 ### Behaviour
 
@@ -361,12 +364,14 @@ Invocation payload: `{ game: string, taskArn: string, privateIp: string, healthC
 
 1. Take the destination host from the payload's `privateIp`, which the
    watchdog read from the task's ECS attachment details. The value must be
-   a well-formed IPv4 literal (Node's `net.isIPv4`, applied as received); an
-   absent or malformed value is a fail-active verdict and no request is made.
+   an RFC 1918 IPv4 literal (applied as received); an absent, malformed or
+   out-of-range value (loopback, link-local, multicast, public) is a fail-active
+   verdict and no request is made.
    This is the *only* source of the request's destination host; the declared
    configuration never supplies one, and the declared `path` cannot change the
-   request URL's authority, closing the SSRF surface by construction rather
-   than by validation. The function makes no ECS call.
+   request URL's authority. The host is trusted because the watchdog is the
+   only invoker (an IAM identity grant, no resource policy) and is
+   additionally range-checked. The function makes no ECS call.
 2. When `healthCheck.auth` is present, fetch the credential's raw value
    from Secrets Manager over the interface endpoint, under one 5-second
    overall deadline that covers SDK retries, and build the `Authorization`

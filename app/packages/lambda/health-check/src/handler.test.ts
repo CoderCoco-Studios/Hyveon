@@ -273,12 +273,36 @@ describe('handler', () => {
   );
 
   // @spec RT-HEALTH-HTTP-010
-  it.each(['10.0.1.23', '8.8.8.8', '192.168.0.1'])('should accept the well-formed IPv4 literal %s without a range check', async (privateIp) => {
-    fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
+  it.each(['10.0.1.23', '10.255.255.254', '172.16.0.1', '172.31.255.254', '192.168.0.1'])(
+    'should accept the private IPv4 literal %s',
+    async (privateIp) => {
+      fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
 
-    await handler({ game: 'palworld', taskArn: 'task-arn', privateIp, healthCheck: makeHealthCheck() });
+      await handler({ game: 'palworld', taskArn: 'task-arn', privateIp, healthCheck: makeHealthCheck() });
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(`http://${privateIp}:8211/status`);
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(`http://${privateIp}:8211/status`);
+    },
+  );
+
+  // @spec RT-HEALTH-HTTP-010
+  it.each([
+    '127.0.0.1',
+    '0.0.0.0',
+    '169.254.169.254',
+    '224.0.0.1',
+    '239.255.255.255',
+    '255.255.255.255',
+    '8.8.8.8',
+    '172.15.255.255',
+    '172.32.0.1',
+    '192.169.0.1',
+    '100.64.0.1',
+  ])('should be fail-active without a request when privateIp %s is outside the private ranges', async (privateIp) => {
+    const verdict = await handler({ game: 'palworld', taskArn: 'task-arn', privateIp, healthCheck: makeHealthCheck() });
+
+    expect(verdict).toMatchObject({ active: true, failureDerived: true });
+    expect(verdict.reason).toMatch(/^health check failed:/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   // @spec RT-HEALTH-HTTP-006, RT-HEALTH-HTTP-011
@@ -338,12 +362,12 @@ describe('handler', () => {
   });
 
   // @spec RT-HEALTH-FAIL-005
-  it('should pass an abort signal to GetSecretValue so SDK retries stop at the deadline', async () => {
-    secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: 'tok' });
-    fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
+  it('should abort the GetSecretValue signal exactly at the deadline so SDK retries stop', async () => {
+    vi.useFakeTimers();
+    secretsManagerMock.on(GetSecretValueCommand).callsFake(() => new Promise(() => undefined));
     const sendSpy = vi.spyOn(SecretsManagerClient.prototype, 'send');
 
-    await handler({
+    const pending = handler({
       game: 'palworld',
       taskArn: 'task-arn',
       privateIp: '10.0.1.23',
@@ -351,9 +375,15 @@ describe('handler', () => {
         auth: { secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:palworld-token-AbCdEf' },
       }),
     });
-
-    const options = sendSpy.mock.calls[0]?.[1] as { abortSignal?: AbortSignal } | undefined;
-    expect(options?.abortSignal).toBeInstanceOf(AbortSignal);
+    await vi.advanceTimersByTimeAsync(0);
+    const signal = (sendSpy.mock.calls[0]?.[1] as { abortSignal?: AbortSignal } | undefined)?.abortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    await vi.advanceTimersByTimeAsync(HEALTH_CHECK_SECRET_DEADLINE_MS - 1);
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signal?.aborted).toBe(true);
+    await pending;
+    vi.useRealTimers();
   });
 
   // @spec RT-HEALTH-FAIL-004
