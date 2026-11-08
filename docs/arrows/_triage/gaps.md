@@ -249,15 +249,15 @@ Specs: `docs/intent/operator-app/app-update-and-release/app-update-and-release-s
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `APP-UPDATE-FALL-007` | c | low | Still per_page=10, no pagination (app/packages/desktop-main/src/updater-fallback.ts:10); needs 10 consecutive feedless releases while DRAFT-003 verifies feeds, so speculative |
-| `APP-UPDATE-DL-005` | b | low | Still string-compares rejection text NO_PRIOR_CHECK_MESSAGE='Please check update first' (app/packages/desktop-main/src/updater.ts:178,225); breaks only on an electron-updater wording change |
-| `APP-UPDATE-DL-009` | b | low | installDownloadedUpdate calls quitAndInstall unconditionally and returns ok:true (app/packages/desktop-main/src/updater.ts:256-259); UI only offers install after download, masking it |
-| `APP-UPDATE-IPC-009` | d | - | Real dup (desktop-main/src/controllers/iac-settings.controller.ts:35,38 vs desktop-preload/src/preload.ts:158,161) but a pure dedupe wish, not behaviour; belongs in LLD Work Required |
-| `APP-UPDATE-PKG-004` | d | - | Real dup (electron-builder.yml:18, updater-fallback.ts:5,8, web/src/pages/settings.page.tsx:80) but single-source refactor, not behaviour; move to Work Required |
-| `APP-UPDATE-PKG-005` | d | - | Matrix still duplicated (.github/workflows/release.yml:337-364 vs package.yml:37-64, keep-in-sync comment :331-333) but a CI dedupe wish, not behaviour |
-| `APP-UPDATE-PKG-006` | b | low | .github/actions/build-package/action.yml:18 still installs @tailwindcss/oxide@4.3.0; package-lock.json:7054 resolves 4.3.3 |
-| `APP-UPDATE-PKG-008` | b | med | No guard: app/test/packaging-manifest-pins.test.ts:62-93 checks pins only; electron-builder.yml:40-48 admits new transitive deps aren't picked up; miss = packaged app crash |
-| `APP-UPDATE-DRAFT-004` | b | med | Draft created at .github/actions/publish-release/action.yml:24-33 before verify step :39-61 which exits 1 with no cleanup; comment :22-23 claims the opposite |
+| `APP-UPDATE-FALL-007` | closed | - | Fixed (was): fetched `per_page=10` only. The lookup pages 100 at a time until a short page |
+| `APP-UPDATE-DL-005` | closed | - | Fixed (was): compared the rejection text `Please check update first`. Download re-checks from tracked `updateState.checkCached` |
+| `APP-UPDATE-DL-009` | closed | - | Fixed (was): `quitAndInstall` called unconditionally. Install returns `{ ok: false }` unless a download finished in this process |
+| `APP-UPDATE-IPC-009` | closed | - | Fixed (was): channel names declared in controller and preload. One declaration in `@hyveon/shared/updateChannels` |
+| `APP-UPDATE-PKG-004` | d | - | Updater feeds and Settings link now derive from `RELEASE_REPO` (`@hyveon/shared`); `electron-builder.yml` `publish` remains a literal copy guarded by `packaging-manifest-pins.test.ts`. Needs a decision on an `electron-builder` JS config |
+| `APP-UPDATE-PKG-005` | d | - | Matrix still written in `package.yml` and `release.yml`; `ci-workflows.test.ts` fails on drift. Needs a decision on a single shared definition (reusable workflow changes required-check names) |
+| `APP-UPDATE-PKG-006` | closed | - | Fixed (was): hard-coded `@tailwindcss/oxide@4.3.0`. `build-package` reads the lockfile version |
+| `APP-UPDATE-PKG-008` | closed | - | Fixed (was): no guard on the `files` closure. `packaging-files-closure.test.ts` walks the externalized packages' runtime closure |
+| `APP-UPDATE-DRAFT-004` | closed | - | Fixed (was): incomplete draft left behind. A final `if: failure()` step deletes the draft by id |
 
 ### `desktop-shell`
 
