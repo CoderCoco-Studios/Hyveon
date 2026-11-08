@@ -38,7 +38,7 @@ CLAUDE.md invariants that live here:
 Each invocation is a stateless pass over the cluster, triggered by `${projectName}-watchdog-schedule` with `rate(N minute|minutes)` where N is `watchdogIntervalMinutes` (`lambdas.ts:590-599`). The event payload is ignored (`handler.ts:191`). The function has a 60 s timeout and Lambda's default 128 MB memory (`lambdas.ts:568-570`).
 
 1. **List.** `listAllRunningTaskArns()` pages through `ListTasks(desiredStatus: RUNNING)` on `ECS_CLUSTER` (`handler.ts:170-181`). No tasks returns `{ checked: 0 }` immediately (`:195-198`).
-2. **Describe.** One `DescribeTasks` call over every listed ARN (`handler.ts:200`). This is not chunked; `DescribeTasks` accepts at most 100 tasks, so a cluster with more than 100 RUNNING tasks appears to fail the whole run here (arrow finding 3).
+2. **Describe.** `DescribeTasks` accepts at most 100 tasks per call, so the listed ARNs are described in sequential batches of at most 100 and the results concatenated; every listed task is evaluated in the run (`RT-WATCHDOG-SCOPE-005`).
 3. **Filter.** A task is skipped unless `lastStatus === 'RUNNING'` and it has an ARN (`handler.ts:204`), and unless its `group` (`family:<name>`) maps through `FAMILY_TO_GAME` (`:205-207`). `FAMILY_TO_GAME` is built from `GAME_NAMES` as `{game}-server → game` with a null prototype (`handler.ts:51`, `app/packages/shared/src/env.ts:64-65`), so helper tasks and foreign families are ignored.
 4. **Count.** `checked` increments for every RUNNING task of a configured game, before its verdict is taken.
 5. **Verdict.** Exactly one source per task, described in the next section (`handler.ts:211-228`).
@@ -95,6 +95,8 @@ Container Insights metrics are billed as CloudWatch custom metrics for the hours
 
 The watchdog resolves the checked task's private IP and passes it as `privateIp` in the payload. It reads the address with `getTaskPrivateIp` (`app/packages/shared/src/aws/ecsTask.ts`) from the task object the run's single `DescribeTasks` call already returned, so the check costs no extra ECS call and needs no permission beyond the `ecs:DescribeTasks` the run already holds. This is what lets the health-check Lambda run with no ECS access and no route to the ECS API; the reachability decision, its alternatives and its cost rationale are owned by `health-check-design.md` (Decisions: "VPC placement and AWS API reachability"). Only RUNNING tasks are evaluated or invoked. When a RUNNING task has no readable private IP (its `privateIPv4Address` attachment detail is `undefined`, `null`, empty, or rejected by Node's `net.isIPv4` applied without trimming), the watchdog makes no invoke and takes the standard failure-derived verdict itself (`active: true`, `failureDerived: true`, reason prefixed `health check failed:` stating that the private IP is missing or unreadable). The idle count is then handled exactly as for any failure-derived active verdict (`RT-WATCHDOG-STATE-007`), so the task is never counted idle and no invocation is spent on a check that cannot run.
 
+The run's health-check time is bounded: the watchdog sums the time its health-check invokes take, passes each invoke an abort signal sized to the budget still unspent (`HEALTH_CHECK_RUN_BUDGET_MS`, 40 s of the 60 s run), and once the budget is spent gives every remaining health-checked task the failure-derived active verdict `health check failed: the health-check run time budget was exhausted` without an invoke (`RT-WATCHDOG-HC-006`). Tasks of games without a health check are unaffected and still evaluated, and a skipped task is retried on the next scheduled run.
+
 The watchdog forwards the game's declaration verbatim, including any `auth.secretArn`, and never resolves the secret itself; it holds no `secretsmanager` permission (`iam.ts:445-457`). An ARN is a reference, not a credential, so the watchdog gains no new network reach or credential-value access; only the health-check Lambda resolves the secret and issues the request (`health-check-design.md`, Decisions: "How the watchdog learns opt-ins").
 
 Fail-active is applied at the watchdog layer as well as inside the health-check Lambda, because the most important failure (the function absent or unreachable) is one where no lower layer runs (`handler.ts:104-112`; same design.md, "Fail-active is implemented at every layer"). This satisfies `game-health-checks/spec.md:152-158`. A failure-derived verdict is logged twice at warn level, once in `invokeHealthCheck` (`handler.ts:141`) and once in the loop (`:219-221`), which is how the watchdog meets the "distinguishable severity" clause of `spec.md:292-301`.
@@ -149,6 +151,7 @@ Operator-side validation is positive-integer only for the three tunables (`app/p
 | Which tasks are eligible | `{game}-server` families from `GAME_NAMES` | tag-based selection, all tasks in cluster | `[inferred]`: the family naming convention is already the cross-package contract (`env.ts:51-63`); excludes helper tasks for free. |
 | Check window vs schedule | one tunable drives both `CHECK_WINDOW_MINUTES` and the rate | separate tunables | `[inferred]`: each run looks back exactly one interval, so windows neither overlap nor leave gaps. |
 | Per-run concurrency | sequential task loop, per-task try/catch around `StopTask` | parallel evaluation, per-task try/catch | Unknown; no rationale in code or docs `[inferred: simplicity]`. |
+| Health-check run budget | A 40 s cumulative budget with a per-invoke abort signal | No bound; one budget per task; concurrent invokes | Two hung checks at the function's 30 s timeout exhaust the 60 s run and skip every later task; the cumulative bound keeps 20 s for the CloudWatch path and tag writes (`health-check-design.md`, Decisions: "Health-check time bounds") |
 | Threshold unit | mean inbound bytes per second (`watchdogMinBytesPerSecond`); the earlier `watchdogMinPackets` key is dropped without migration | keep a packet count; carry the old key forward | Container Insights publishes bytes per second, not packets. Hyveon has no released install, so no stored `deployment-config.json` needs the old key translated. |
 | Tunable delivery | env vars, applied on next infra apply | runtime read of `deployment-config.json` | `[inferred]`: keeps the watchdog free of S3 permissions; `WatchdogPanel` documents the apply requirement. |
 
@@ -158,23 +161,23 @@ Operator-side validation is positive-integer only for the three tunables (`app/p
 
 1. Routing, fail-active layering, and secret-handling boundary for health-checked games: resolved as `health-check-design.md` Decisions record and shipped in `handler.ts:104-144,211-228`.
 2. Who resolves the checked task's private IP: the watchdog, from its own `DescribeTasks` result (`health-check-design.md`, Decisions: "VPC placement and AWS API reachability").
+3. Chunking `DescribeTasks` into batches of 100 so a cluster with more than 100 RUNNING tasks does not fail the run: resolved (`RT-WATCHDOG-SCOPE-005`).
+4. Bounding health-check time per run: resolved with a 40 s budget (`RT-WATCHDOG-HC-006`).
+5. The settings page no longer attributes DNS writes to the watchdog (`RT-WATCHDOG-DOC-002`).
 
 ### Deferred
 
-1. Should `DescribeTasks` be chunked into batches of 100 so a cluster with more than 100 RUNNING tasks does not fail the run (`handler.ts:200`)?
-2. ~~Should `StopTask` be wrapped per task~~ Resolved: it is wrapped, and the handler does not rethrow (`RT-WATCHDOG-STOP-004`). Should a persistent `StopTask` failure also raise a Lambda error or metric so an alarm fires?
-3. How should health-check time be bounded per run? Sequential `RequestResponse` invokes against a 30 s health-check timeout (`lambdas.ts:563`) can exceed the watchdog's 60 s timeout (`lambdas.ts:584`) with two hung checks (`handler.ts:203-255`). The value is chosen together with the health-check secret fetch's overall deadline, which must fit inside it (`health-check-design.md`, Deferred 1).
-4. Should `watchdog-panel.component.tsx:4` drop its historical `server_config.json` reference?
-5. Should `docs/docs/app/settings.md:250` stop attributing DNS writes to the watchdog, 
-6. Should the now-unused `ec2:DescribeNetworkInterfaces` grant (`iam.ts:452`) be dropped, and are the `@aws-sdk/client-route-53` and `@smithy/core` devDependencies in `app/packages/lambda/watchdog/package.json` used?
-7. Should the `AWS_REGION_` fallback chain (`handler.ts:53-61`) move into one shared helper used by every Lambda?
-8. Should a malformed `HEALTH_CHECKS` env var, which silently becomes `{}` (`env.ts:39-49`), be logged by the watchdog so the downgrade to CloudWatch is visible?
-9. Should non-numeric `IDLE_CHECKS`/`MIN_BYTES_PER_SECOND`/`CHECK_WINDOW_MINUTES` fail at module init instead of becoming `NaN` (`handler.ts:43-45`)?
-10. Should `watchdogIntervalMinutes` have an upper bound or CloudWatch-period validation (`deploymentSettingsWrite.ts:70-72`)?
-11. Should the CloudWatch fallback log a distinct detail instead of a synthetic threshold-plus-one reading (`handler.ts:97,227`)?
-12. Should `StopTask`/`TagResource` be scoped to the game cluster's task ARNs instead of `*` (`iam.ts:449-451`)?
-13. Should the duplicated `HealthCheckInvokeResult` (`handler.ts:67-72`) gain a contract test against the health-check package so the shapes cannot drift silently?
-14. Should a game be able to override `MIN_BYTES_PER_SECOND` when its idle background traffic sits above the global threshold?
+1. ~~Should `StopTask` be wrapped per task~~ Resolved: it is wrapped, and the handler does not rethrow (`RT-WATCHDOG-STOP-004`). Should a persistent `StopTask` failure also raise a Lambda error or metric so an alarm fires?
+2. Should `watchdog-panel.component.tsx:4` drop its historical `server_config.json` reference?
+3. Should the now-unused `ec2:DescribeNetworkInterfaces` grant (`iam.ts:452`) be dropped, and are the `@aws-sdk/client-route-53` and `@smithy/core` devDependencies in `app/packages/lambda/watchdog/package.json` used?
+4. Should the `AWS_REGION_` fallback chain (`handler.ts:53-61`) move into one shared helper used by every Lambda?
+5. Should a malformed `HEALTH_CHECKS` env var, which silently becomes `{}` (`env.ts:39-49`), be logged by the watchdog so the downgrade to CloudWatch is visible?
+6. Should non-numeric `IDLE_CHECKS`/`MIN_BYTES_PER_SECOND`/`CHECK_WINDOW_MINUTES` fail at module init instead of becoming `NaN` (`handler.ts:43-45`)?
+7. Should `watchdogIntervalMinutes` have an upper bound or CloudWatch-period validation (`deploymentSettingsWrite.ts:70-72`)?
+8. Should the CloudWatch fallback log a distinct detail instead of a synthetic threshold-plus-one reading (`handler.ts:97,227`)?
+9. Should `StopTask`/`TagResource` be scoped to the game cluster's task ARNs instead of `*` (`iam.ts:449-451`)?
+10. Should the duplicated `HealthCheckInvokeResult` (`handler.ts:67-72`) gain a contract test against the health-check package so the shapes cannot drift silently?
+11. Should a game be able to override `MIN_BYTES_PER_SECOND` when its idle background traffic sits above the global threshold?
 
 ## References
 

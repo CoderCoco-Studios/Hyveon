@@ -223,7 +223,7 @@ Failure modes:
 ### Behaviour
 
 1. `ListTasks(desiredStatus: RUNNING)` across the cluster. Paginates.
-2. `DescribeTasks` on the batch to get each task's group and status.
+2. `DescribeTasks` on the listed ARNs, in batches of at most 100 (the API's limit), to get each task's group, status and ENI attachment.
 3. For each task, resolve its game from the task-def family, then get a
    verdict from exactly one of two sources — never both:
    - **`HEALTH_CHECKS[game]` is absent** (the common case today):
@@ -237,7 +237,14 @@ Failure modes:
      does; it costs roughly one cent per running game-hour.
    - **`HEALTH_CHECKS[game]` is present**: synchronously `Invoke` the
      health-check Lambda (`RequestResponse`) with
-     `{ game, taskArn, healthCheck }`. A failed invoke — throttled, the
+     `{ game, taskArn, privateIp, healthCheck }`, where `privateIp` is the
+     task's private IPv4 address read from the same `DescribeTasks` result.
+     A `RUNNING` task whose address is missing or not a well-formed IPv4
+     literal is not invoked and reads as a failure-derived active verdict. All
+     health-check invokes in one run share a 40-second budget: each invoke is
+     aborted when the budget left elapses, and once it is spent the remaining
+     health-checked tasks read failure-derived active without an invoke. A
+     failed invoke — throttled, the
      function absent or unreachable, a timeout, a `FunctionError`, or a
      malformed response — is fail-active (assumed active) and does **not**
      increment the idle counter, the same treatment a failed CloudWatch
@@ -344,21 +351,26 @@ Failure modes:
 | **Package** | `@hyveon/lambda-health-check` |
 | **Trigger** | Synchronous invoke (`InvocationType: RequestResponse`) from the watchdog Lambda, once per running task belonging to a game that declares a `healthCheck`. Not exposed externally, and invocable only by the watchdog — no Function URL, no resource-based `aws.lambda.Permission`; the grant is an IAM identity-policy statement on the watchdog's own role. |
 | **Pulumi** | `app/packages/infra/src/lambdas.ts` (`healthCheckFunction`, `healthCheckLogGroup`). **A single shared function, conditionally created** — provisioned only when at least one game declares `healthCheck` (`iam.ts`'s `gamesWithHealthChecks`), unlike efs-seeder's one-function-per-game shape. A deployment where no game opts in gets no health-check function, role, security group, or log group. |
-| **IAM** | Single shared role: `logs:CreateLogGroup`/`CreateLogStream`/`PutLogEvents`, `ec2:CreateNetworkInterface`/`DescribeNetworkInterfaces`/`DeleteNetworkInterface` (required for Lambda VPC networking), `ecs:DescribeTasks` scoped to the deployed cluster, and — only when at least one opted-in game references a credential — `secretsmanager:GetSecretValue` scoped to exactly those `auth.secretArn` values. |
-| **Env vars** | `AWS_REGION_` and `ECS_CLUSTER` (the handler requires it at module load, to resolve the task's private IP via `DescribeTasks`). Everything else it needs (`game`, `taskArn`, the full `healthCheck` declaration) arrives in the invocation payload from the watchdog. |
+| **IAM** | Single shared role: `logs:CreateLogGroup`/`CreateLogStream`/`PutLogEvents`, `ec2:CreateNetworkInterface`/`DescribeNetworkInterfaces`/`DeleteNetworkInterface` (required for Lambda VPC networking), and — only when at least one opted-in game references a credential — `secretsmanager:GetSecretValue` scoped to exactly those `auth.secretArn` values. No `ecs:` action: the function makes no ECS call. |
+| **Env vars** | `AWS_REGION_` only. Everything else it needs (`game`, `taskArn`, `privateIp`, the full `healthCheck` declaration) arrives in the invocation payload from the watchdog. |
+| **Network** | VPC-attached in both public subnets with its own security group, whose only egress is TCP to the game-servers group on each declared health-check port and, while any game declares `healthCheck.auth`, TCP 443 to the Secrets Manager interface endpoint. The endpoint (one ENI in the first public subnet, private DNS on) exists only while some game declares `healthCheck.auth`; it bills hourly (about $7.30 a month in us-east-1) whether or not a game runs, and a deployment whose checks are all unauthenticated declares none. There is no NAT gateway, so a credentialed check cannot fetch its secret until an apply has created the endpoint. |
 
 ### Behaviour
 
-Invocation payload: `{ game: string, taskArn: string, healthCheck: GameServerHealthCheck }`.
+Invocation payload: `{ game: string, taskArn: string, privateIp: string, healthCheck: GameServerHealthCheck }`.
 
-1. Resolve the checked task's private IPv4 address from ECS
-   `DescribeTasks` attachment details — the same attachment-walking shape
-   the watchdog's own ENI resolution uses, reading `privateIPv4Address`
-   instead of `networkInterfaceId`. This is the *only* source of the
-   request's destination host; the declared configuration never supplies
-   one, closing the SSRF surface by construction rather than by validation.
+1. Take the destination host from the payload's `privateIp`, which the
+   watchdog read from the task's ECS attachment details. The value must be
+   a well-formed IPv4 literal (Node's `net.isIPv4`, applied as received); an
+   absent or malformed value is a fail-active verdict and no request is made.
+   This is the *only* source of the request's destination host; the declared
+   configuration never supplies one, and the declared `path` cannot change the
+   request URL's authority, closing the SSRF surface by construction rather
+   than by validation. The function makes no ECS call.
 2. When `healthCheck.auth` is present, fetch the credential's raw value
-   from Secrets Manager and build the `Authorization` header value by
+   from Secrets Manager over the interface endpoint, under one 5-second
+   overall deadline that covers SDK retries, and build the `Authorization`
+   header value by
    branching on `auth.type` (`'raw' | 'basic' | 'bearer'`, defaulting to
    `'raw'` when absent):
    - **`raw`** (or no `type` — every declaration made before `type`
@@ -401,8 +413,8 @@ watchdog's own fail-active handling of a failed CloudWatch query:
   (object/array) value.
 - A value the declared `activeWhen.operator` can't compare (e.g. a string
   where `greaterThan` expects a number).
-- Any transport or credential failure — timeout, refused connection, an
-  unavailable secret.
+- Any transport or credential failure — a missing or malformed `privateIp`, timeout, refused connection, an
+  unavailable secret, or a secret fetch that exceeds its deadline.
 
 Every verdict carries a `reason` naming the JSONPath and operator involved,
 **never the resolved response value** — a game's response body may carry

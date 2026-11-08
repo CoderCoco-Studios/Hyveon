@@ -21,7 +21,7 @@ Impact applies to class **b** (and is noted on a few **c** items): **high** = op
 
 No `[ ]` spec is implemented-but-unmarked: every gap note still describes the current code. 132 are real gaps (8 since closed: `DISCORD-AUTH-007`, `IAC-RUN-HIST-004`, `DISCORD-RUN-010`, `DISCORD-RUN-011`, `DISCORD-RUN-014`, `APP-WIZARD-RECONF-009`, `APP-WIZARD-ROTATE-008`, `RT-TASK-LAUNCH-010`), 28 should be deferred and 26 need their spec text fixed.
 
-The 6 remaining high-impact specs reduce to 4 root causes: one single-spec one (`APP-DIAG-SCRUB-003`), the health-check Lambda environment (`RT-HEALTH-PROV-003`, `IAC-PROGRAM-LAMBDA-011`), and the health-check Lambda network path (`RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-012`). The install-region set of five (`IAC-ENGINE-REGION-001`, `CONFIG-SET-012`, `CONFIG-FORM-003`, `CONFIG-FORM-007`, `APP-WIZARD-REGLOCK-001`) has since closed. The Reconfigure credential set (`APP-WIZARD-RECONF-009`, `APP-WIZARD-ROTATE-008`) has also closed, as has the start race (`RT-TASK-LAUNCH-010`).
+The 6 remaining high-impact specs reduce to 4 root causes: one single-spec one (`APP-DIAG-SCRUB-003`), the health-check Lambda environment (`RT-HEALTH-PROV-003`, `IAC-PROGRAM-LAMBDA-011`), and the health-check Lambda network path (`RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-012`), which has since closed. The install-region set of five (`IAC-ENGINE-REGION-001`, `CONFIG-SET-012`, `CONFIG-FORM-003`, `CONFIG-FORM-007`, `APP-WIZARD-REGLOCK-001`) has since closed. The Reconfigure credential set (`APP-WIZARD-RECONF-009`, `APP-WIZARD-ROTATE-008`) has also closed, as has the start race (`RT-TASK-LAUNCH-010`).
 
 Totals count specs, one class per spec. `APP-WIZARD-HEALTH-008` is counted once, as class d; its guided-install remediation-copy gap is listed as a second row in its segment and is not counted again.
 
@@ -29,10 +29,10 @@ Totals count specs, one class per spec. `APP-WIZARD-HEALTH-008` is counted once,
 |---|---|---|---|---|---|---|
 | `run` | `docs/intent/iac/run/run-specs.md` | 0 | 0 | 0 | 0 | 0 (12 since closed) |
 | `engine` | `docs/intent/iac/engine/engine-specs.md` | 0 | 13 (1 / 5 / 7) | 2 | 0 | 15 |
-| `program` | `docs/intent/iac/program/program-specs.md` | 0 | 2 (1 / 1 / 0) | 0 | 0 | 2 (11 since closed) |
+| `program` | `docs/intent/iac/program/program-specs.md` | 0 | 1 (0 / 1 / 0) | 0 | 0 | 1 (12 since closed) |
 | `task-and-dns` | `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md` | 0 | 10 (1 / 3 / 6) | 1 | 3 | 14 |
-| `watchdog` | `docs/intent/game-runtime/watchdog/watchdog-specs.md` | 0 | 3 (0 / 2 / 1) | 1 | 0 | 4 |
-| `health-check` | `docs/intent/game-runtime/health-check/health-check-specs.md` | 0 | 4 (2 / 1 / 1) | 0 | 1 | 5 |
+| `watchdog` | `docs/intent/game-runtime/watchdog/watchdog-specs.md` | 0 | 0 | 0 | 0 | 0 (4 since closed) |
+| `health-check` | `docs/intent/game-runtime/health-check/health-check-specs.md` | 0 | 0 | 0 | 0 | 0 (5 since closed) |
 | `wizard-and-bootstrap` | `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md` | 0 | 14 (2 / 5 / 7) | 4 | 2 | 20 |
 | `diagnostics` | `docs/intent/operator-app/diagnostics/diagnostics-specs.md` | 0 | 8 (1 / 1 / 6) | 4 | 2 | 14 |
 | `infra-logs` | `docs/intent/operator-app/infra-logs/infra-logs-specs.md` | 0 | 10 (0 / 1 / 9) | 2 | 1 | 13 |
@@ -51,7 +51,7 @@ Ranked by consequence to an operator. Several rank entries group specs that desc
 
 | # | Gap | Specs | Consequence | Evidence |
 |---|---|---|---|---|
-| 1 | Health-check Lambda cannot run | `RT-HEALTH-PROV-003`, `RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-011`, `IAC-PROGRAM-LAMBDA-012`, then `RT-HEALTH-HTTP-005` | Every game that declares `healthCheck` is judged active forever and never idle-stops, so it bills until stopped by hand. | Handler requires `ECS_CLUSTER` at load (`app/packages/lambda/health-check/src/handler.ts:40`) but infra sets only `AWS_REGION_` (`app/packages/infra/src/lambdas.ts:568`); Lambda sits in public subnets with no NAT or VPC endpoints and egress only to game ports (`lambdas.ts:564-567`); watchdog treats a failed check as active (`app/packages/lambda/watchdog/src/handler.ts:159-163`). Once reachable, `https` checks still fail the TLS handshake against the task's private IP (`health-check/src/handler.ts:173-179`). |
+| 1 | ~~Health-check Lambda cannot run~~ (resolved: the watchdog passes the task's private IP, the function has no ECS call, and a conditional Secrets Manager endpoint serves credentialed checks; `RT-HEALTH-HTTP-005` is deferred) | `RT-HEALTH-PROV-003`, `RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-011`, `IAC-PROGRAM-LAMBDA-012`, then `RT-HEALTH-HTTP-005` | Every game that declares `healthCheck` is judged active forever and never idle-stops, so it bills until stopped by hand. | Handler requires `ECS_CLUSTER` at load (`app/packages/lambda/health-check/src/handler.ts:40`) but infra sets only `AWS_REGION_` (`app/packages/infra/src/lambdas.ts:568`); Lambda sits in public subnets with no NAT or VPC endpoints and egress only to game ports (`lambdas.ts:564-567`); watchdog treats a failed check as active (`app/packages/lambda/watchdog/src/handler.ts:159-163`). Once reachable, `https` checks still fail the TLS handshake against the task's private IP (`health-check/src/handler.ts:173-179`). |
 | 2 | ~~Desktop Start and Discord `/server-start` race~~ (resolved: both launch paths take a 120 s DynamoDB start lease through `startWithLease`) | `RT-TASK-LAUNCH-010` | Overlapping starts launch two paid Fargate tasks for one game; DNS points at whichever reaches RUNNING last. | Resolved. `withGameLock` was in-process only and the followup Lambda checked then called `RunTask` with no guard and no `clientToken`. Both paths now call `startWithLease` (`app/packages/shared/src/aws/startLease.ts`): `AwsCloudProvider.startWorkload` (`app/packages/cloud-aws/src/AwsCloudProvider.ts:437-488`) and the followup `runStart` (`app/packages/lambda/followup/src/handler.ts:126-167`), each passing the lease id as the `RunTask` `clientToken`. |
 | 3 | Install region is not locked (CLOSED) | `IAC-ENGINE-REGION-001`, `CONFIG-SET-012`, `CONFIG-FORM-003`, `CONFIG-FORM-007`, `APP-WIZARD-REGLOCK-001` (and `IAC-ENGINE-REGION-002`) | One edit of the Settings region field points the next apply at a different region: the stack is replaced and EFS world saves are destroyed. A Reconfigure that changes region writes only the electron-store `aws.region`, so it re-points the state backend and the desktop stores at another region without moving the stack. | Settings exposes a free-text region (`app/packages/web/src/components/deployment-settings-form.component.tsx:92-94`) that the hook sends (`use-deployment-settings.hook.ts:155`) and the validator accepts (`app/packages/shared/src/deploymentSettingsWrite.ts:58`); preview/apply pass the stored `awsRegion` to the program (`PulumiService.ts:1611,1629,2293` → `app/packages/infra/src/program.ts:177`, `region: config.awsRegion`); Reconfigure writes any region to `aws.region` (`wizard.controller.ts:205-207`, `GuidedIamService.ts:498`), which only selects the state backend region (`PulumiService.ts:1620-1631`). |
 | 4 | Closed: Discord page shows a blank editable config after a failed load | `DISCORD-UI-008` | A failed config load (not only an undeployed stack) renders as an empty config, and the page labels every load error "not deployed". | `DiscordConfigService.load()` degrades any read failure to an empty config; `discord.page.tsx:45-51` labels any `loadError` not deployed. |
@@ -75,7 +75,7 @@ These pairs describe one behaviour from two leaves. Keep one ID as the owner and
 | Behaviour | Specs | Suggested owner |
 |---|---|---|
 | Health-check Lambda env vars | `RT-HEALTH-PROV-003`, `IAC-PROGRAM-LAMBDA-011` | `iac/program` (provisioning) |
-| Health-check Lambda network path | `RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-012` | `iac/program` |
+| Health-check Lambda network path (closed) | `RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-012` | `iac/program` |
 | Install region single-sourced | `IAC-ENGINE-REGION-001`, `CONFIG-SET-012`, `CONFIG-FORM-003`, `CONFIG-FORM-007`, `APP-WIZARD-REGLOCK-001` | `iac/engine` (decision 10 in the HLD); the others cite it |
 | Quit-time abort of IaC runs (`IAC-ENGINE-LIFE-009` and `IAC-RUN-DSTR-011` closed) | `IAC-RUN-DSTR-011` | `iac/run` |
 | Audit-read error handling | `APP-DIAG-AUDR-004`, `APP-DIAG-SVC-002` | `APP-DIAG-SVC-002` |
@@ -128,7 +128,7 @@ Specs: `docs/intent/iac/program/program-specs.md` · Arrow doc: `docs/arrows/iac
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
 | `IAC-PROGRAM-LAMBDA-011` (CLOSED) | b | high | health-check env is only AWS_REGION_ (infra/src/lambdas.ts:568) but handler does requireEnv('ECS_CLUSTER') at module load (lambda/health-check/src/handler.ts:40); watchdog fails active (watchdog handler.ts:159-163) so games never idle-stop |
-| `IAC-PROGRAM-LAMBDA-012` | b | high | health-check Lambda in public subnets (lambdas.ts:564-567), SG egress only to game ports (securityGroups.ts:295-320), no NAT/VPC endpoints in network.ts; can't reach ECS/Secrets Manager APIs; fail-active, so no idle stop |
+| `IAC-PROGRAM-LAMBDA-012` (CLOSED) | b | high | health-check Lambda in public subnets (lambdas.ts:564-567), SG egress only to game ports (securityGroups.ts:295-320), no NAT/VPC endpoints in network.ts; can't reach ECS/Secrets Manager APIs; fail-active, so no idle stop |
 
 ### `task-and-dns`
 
@@ -157,10 +157,10 @@ Specs: `docs/intent/game-runtime/watchdog/watchdog-specs.md` · Arrow doc: `docs
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `RT-WATCHDOG-SCOPE-005` | c | low | real (lambda/watchdog/src/handler.ts:230 one DescribeTasks for all ARNs, >100 throws) but >100 RUNNING tasks in a personal game cluster is speculative |
-| `RT-WATCHDOG-HC-006` | b | med | watchdog/src/handler.ts:233-246 sequential RequestResponse invokes; health-check timeout 30s (infra lambdas.ts:561) vs watchdog 60s (:577); latent until PROV-003/004 fixed |
+| `RT-WATCHDOG-SCOPE-005` (CLOSED) | c | low | real (lambda/watchdog/src/handler.ts:230 one DescribeTasks for all ARNs, >100 throws) but >100 RUNNING tasks in a personal game cluster is speculative |
+| `RT-WATCHDOG-HC-006` (CLOSED) | b | med | watchdog/src/handler.ts:233-246 sequential RequestResponse invokes; health-check timeout 30s (infra lambdas.ts:561) vs watchdog 60s (:577); latent until PROV-003/004 fixed |
 | `RT-WATCHDOG-STOP-004` | b | med | watchdog/src/handler.ts:267-273 StopTask awaited with no try/catch -> one failure aborts run, later tasks unevaluated (stay running, cost) |
-| `RT-WATCHDOG-DOC-002` | b | low | docs/docs/app/settings.md:250 still says DNS TTL applies to records 'the watchdog Lambda writes' |
+| `RT-WATCHDOG-DOC-002` (CLOSED) | b | low | docs/docs/app/settings.md:250 still says DNS TTL applies to records 'the watchdog Lambda writes' |
 
 ### `health-check`
 
@@ -168,11 +168,11 @@ Specs: `docs/intent/game-runtime/health-check/health-check-specs.md` · Arrow do
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `RT-HEALTH-HTTP-005` | b | med | lambda/health-check/src/handler.ts:173-179 fetch(`https://<privateIP>`) with default TLS: no SNI/servername, Caddy cert is for {game}.{zone} -> handshake fails -> fail-active, https games never idle-stop |
+| `RT-HEALTH-HTTP-005` (DEFERRED) | b | med | lambda/health-check/src/handler.ts:173-179 fetch(`https://<privateIP>`) with default TLS: no SNI/servername, Caddy cert is for {game}.{zone} -> handshake fails -> fail-active, https games never idle-stop |
 | `RT-HEALTH-PROV-003` (CLOSED) | b | high | handler.ts:40 requireEnv('ECS_CLUSTER') at load; infra/src/lambdas.ts:568 env only AWS_REGION_ (pinned lambdas.test.ts:832) -> init crash, every health-checked game judged active forever |
-| `RT-HEALTH-PROV-004` | b | high | infra/src/lambdas.ts:564-567 public subnets (Lambda ENIs get no public IP), no NAT/VPC endpoints in network.ts; SG egress only game ports (securityGroups.ts:437-452) -> ECS/SM calls cannot leave VPC |
+| `RT-HEALTH-PROV-004` (CLOSED) | b | high | infra/src/lambdas.ts:564-567 public subnets (Lambda ENIs get no public IP), no NAT/VPC endpoints in network.ts; SG egress only game ports (securityGroups.ts:437-452) -> ECS/SM calls cannot leave VPC |
 | `RT-HEALTH-PROV-005` (CLOSED) | d | - | test-process wish, not runtime behaviour; handler.test.ts:18 still masks it. Better expressed as an infra test pinning ECS_CLUSTER under PROV-003 (fix lambdas.test.ts:832) |
-| `RT-HEALTH-REDACT-004` | b | low | web/src/components/add-game-wizard/health-check-fields.component.tsx:124 timeout FormField has no errors prop (only aria-invalid at :130); message not shown |
+| `RT-HEALTH-REDACT-004` (CLOSED) | b | low | web/src/components/add-game-wizard/health-check-fields.component.tsx:124 timeout FormField has no errors prop (only aria-invalid at :130); message not shown |
 
 ### `wizard-and-bootstrap`
 

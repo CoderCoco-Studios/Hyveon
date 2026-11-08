@@ -247,7 +247,7 @@ values without hand-editing the JSON object in S3.
 | **AWS region** | Read-only. The region you chose in the setup wizard, which is fixed for the install from the first bootstrap call. Moving to another region means destroying the stack, deleting the bootstrap resources and resetting the app |
 | **VPC CIDR** | CIDR block for the VPC, e.g. `10.0.0.0/16` |
 | **Hosted zone name** | The Route 53 hosted zone domain (must already exist). Required — there is no default |
-| **DNS TTL (seconds)** | TTL on the per-game DNS A records the watchdog Lambda writes |
+| **DNS TTL (seconds)** | TTL on the per-game DNS A records the dns-updater Lambda writes |
 | **Discord application ID** | The bot's public Application (Client) ID — can also be set from the Discord page's Credentials tab |
 | **Watchdog tuning (3 fields)** | `dnsTtl`'s siblings — check interval, idle checks, min bytes per second — see below |
 | **Base allowed guild IDs / admin user IDs / admin role IDs** | See below |
