@@ -22,6 +22,7 @@ import { resolveRunsTableName, type DeploymentConfig, type GameServerConfig, typ
 import { defineNetwork, type NetworkResources } from './network.js';
 import { defineSecurityGroups, type SecurityGroupResources } from './securityGroups.js';
 import { defineIamRoles, defineIamPolicies, type IamRoleResources, type IamPolicyResources } from './iam.js';
+import { normalizeHostedZoneName } from './hostedZoneName.js';
 import { accessPointKey, defineEfs, type EfsResources } from './efs.js';
 import { defineEcs, type EcsResources } from './ecs.js';
 import { defineLambdas, type LambdaResources } from './lambdas.js';
@@ -166,7 +167,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
   // cannot end with a period" error respectively — both surfaced deep in
   // the Pulumi preview with no indication the root cause is a blank config
   // field. Fail fast here instead.
-  const hostedZoneName = config.hostedZoneName.trim();
+  const hostedZoneName = normalizeHostedZoneName(config.hostedZoneName);
   if (hostedZoneName.length === 0) {
     throw new Error(
       'defineAll: config.hostedZoneName is empty — set the hosted zone name in Settings before deploying.',
@@ -420,7 +421,7 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
    * (`efs.gameAccessPoints[accessPointKey(game, volumeName)].id`), every volume of every game.
    */
   efsVolumeAccessPoints: pulumi.Output<Record<string, Record<string, string>>>;
-  /** Mirrors {@link StackOutputs.domainName} — `config.hostedZoneName` directly. */
+  /** Mirrors {@link StackOutputs.domainName} — `config.hostedZoneName` after {@link normalizeHostedZoneName}. */
   domainName: string;
   /** Mirrors {@link StackOutputs.gameNames} — `Object.keys(config.gameServers)`, SORTED so the value is deterministic regardless of definition order. */
   gameNames: string[];
@@ -518,7 +519,7 @@ export function buildStackOutputs(resources: InfraResources, config: DeploymentC
     efsFileSystemId: resources.efs.fileSystem.id,
     efsAccessPoints: pulumi.all(gameAccessPointIds),
     efsVolumeAccessPoints: pulumi.all(volumeAccessPointIds),
-    domainName: config.hostedZoneName,
+    domainName: normalizeHostedZoneName(config.hostedZoneName),
     gameNames: Object.keys(config.gameServers).sort(),
     discordTableName: resources.dynamoDb.discordTable.name,
     auditTableName: resources.dynamoDb.auditTable.name,

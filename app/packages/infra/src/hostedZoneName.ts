@@ -23,3 +23,17 @@ export function stripTrailingDots(hostedZoneName: string): string {
   }
   return hostedZoneName.slice(0, end);
 }
+
+/**
+ * Normalises the operator-supplied hosted-zone name once: trims surrounding whitespace, then strips trailing dots.
+ *
+ * @remarks
+ * Every consumer — the zone lookup, each derived hostname and the `domainName` stack output — takes this value
+ * rather than the raw `DeploymentConfig.hostedZoneName`.
+ *
+ * @param hostedZoneName - The raw configured hosted-zone name.
+ * @returns The normalised name; empty when the input is blank or only dots.
+ */
+export function normalizeHostedZoneName(hostedZoneName: string): string {
+  return stripTrailingDots(hostedZoneName.trim());
+}

@@ -441,6 +441,27 @@ describe('buildStackOutputs', () => {
     expect(outputs.appliedGameServers).toEqual(config.gameServers);
   });
 
+  // @spec IAC-PROGRAM-DNS-004
+  it('should normalise hostedZoneName once for the zone lookup, the derived hostnames and the domainName output', async () => {
+    const mocks = installPulumiMocks();
+    const config = buildTestDeploymentConfig({ hostedZoneName: '  example.com.  ' });
+    const resources = await runDefineAll(config);
+    const outputs = buildStackOutputs(resources, config);
+
+    const zoneCall = mocks.calls.find((call) => call.token === 'aws:route53/getZone:getZone');
+    expect(zoneCall?.inputs.name).toBe('example.com');
+    expect(outputs.domainName).toBe('example.com');
+    expect(await promiseOf(outputs.discordInteractionsUrl)).toBe('https://discord.example.com/');
+  });
+
+  // @spec IAC-PROGRAM-DNS-004
+  it('should reject a hostedZoneName that is only dots as empty', () => {
+    installPulumiMocks();
+    const config = buildTestDeploymentConfig({ hostedZoneName: ' . ' });
+
+    expect(() => defineAll(config, TEST_INFRA_PROGRAM_OPTIONS)).toThrow(/hostedZoneName is empty/);
+  });
+
   // @spec IAC-PROGRAM-OUT-003
   it('should resolve interactionsInvokeUrl and discordInteractionsUrl to the discord custom domain, not the raw Lambda Function URL', async () => {
     const config = buildTestDeploymentConfig({ hostedZoneName: 'example.com' });
