@@ -46,9 +46,9 @@ CLAUDE.md invariants that live here:
 | Level | `debug` in dev, `info` when `NODE_ENV === 'production'` | `logger.ts:4,74` |
 | Dev file format | `HH:mm:ss [level] message`, pretty-printed meta on prefixed, tab-indented continuation lines | `logger.ts:12-18,41` |
 | Production file format | `timestamp()` + `json()`, one line per entry | `logger.ts:42` |
-| Log directory | `<userData>/logs` in Electron; `DIAGNOSTICS_LOG_DIR` env or `os.tmpdir()` outside Electron | `main.ts:26`, `app.module.ts:105-110` |
+| Log directory | `<userData>/logs` in Electron; `DIAGNOSTICS_LOG_DIR` env or `os.tmpdir()` outside Electron | `logDir.ts` (`resolveLogDir`), shared by `main.ts` and `app.module.ts` |
 
-The directory is computed in two places that must agree (`main.ts:26` writes, `app.module.ts:109` reads), with no shared helper.
+`main.ts` (writes) and `app.module.ts` (reads) both call `resolveLogDir`, so the two paths cannot drift.
 
 ### Tail reads
 
@@ -77,9 +77,9 @@ The main process caps a single batch at 200 entries independently of the rendere
 
 ### Crash paths
 
-- **Window errors and unhandled rejections**: `installGlobalErrorReporting` adds `error` and `unhandledrejection` listeners that call `reportRendererError` (`report-renderer-error.utils.ts:165-174`). It has no install guard and uses `instanceof Error` (`:171-172`), unlike the cross-realm `isErrorLike` used for console formatting (`:4-11`).
-- **Render crashes**: `ErrorBoundary.componentDidCatch` combines the error stack and React component stack and reports with source `boundary` (`error-boundary.component.tsx:43-51`); its doc notes this is the only path that sees in-render crashes (`:13-20`). The fallback renders when `this.state.error` is truthy (`:55`) and tells the operator to "Check Settings → Logs" (`:61`), but the Settings section is titled "Diagnostics" (`settings.page.tsx:381`); there is no reset or reload control.
-- `reportRendererError` is a no-op without a bridge and swallows its own IPC rejection (`report-renderer-error.utils.ts:150-159`).
+- **Window errors and unhandled rejections**: `installGlobalErrorReporting` adds `error` and `unhandledrejection` listeners that call `reportRendererError`. A module-level guard makes repeat installs no-ops, and a rejection reason is read with the same cross-realm `isErrorLike` check used for console formatting.
+- **Render crashes**: `ErrorBoundary.componentDidCatch` combines the error stack and React component stack and reports with source `boundary`; its doc notes this is the only path that sees in-render crashes. The error is read with the cross-realm `isErrorLike` check, so a foreign-realm error keeps its message and stack. The fallback renders on a `hasError` flag, not the thrown value, so a descendant that throws `0`, `''` or `null` still gets the fallback. It tells the operator to "Check Settings → Diagnostics", the section that hosts the log viewer (`settings.page.tsx:381`); there is no reset or reload control.
+- `reportRendererError` is a no-op without a bridge and swallows its own IPC rejection.
 
 ### Console forwarding queue
 
@@ -90,13 +90,14 @@ The main process caps a single batch at 200 entries independently of the rendere
 | `FLUSH_INTERVAL_MS` | 2,000 | `setInterval(flush)`; the only drain trigger, never cleared | `:14,208` |
 | `MAX_BATCH_ENTRIES` | 50 | per-flush send cap; remainder stays queued | `:17,108-109` |
 | `MAX_QUEUE_SIZE` | 200 | the only drop point, checked against `queue.length + inFlightCount` | `:20,67-73` |
+| `FLUSH_TIMEOUT_MS` | 10,000 | an unsettled `reportLog` call is treated as failed after this long: the batch is requeued and flushing resumes; each consecutive timeout doubles the next attempt's timeout (20 s, 40 s) up to `MAX_FLUSH_TIMEOUT_MS` (60,000), and any settle, including a late one, resets it | `report-renderer-error.utils.ts` |
 
 The in-flight batch is reserved against the queue cap (`inFlightCount`, `:33,113`) so a rejected or synchronously throwing `reportLog` call can always requeue it at the front, preserving oldest-first order (`:82-85,115-136`).
 `flushInFlight` blocks a newer flush while an older call is unsettled, for the same ordering reason (`:42,98-100`).
-The flush doc says a call that "otherwise never resolves" is requeued (`:94-95`), but nothing times out an unsettled promise, so a hung `reportLog` stops forwarding for the session.
+A call that fails to settle within `FLUSH_TIMEOUT_MS` is treated as failed: the batch is requeued and `flushInFlight` clears, so a hung `reportLog` cannot stop forwarding for the session. A late settle after the timeout is ignored for requeueing, so a batch is never requeued twice; the cost is that a batch that was in fact delivered slowly may be sent again (at-least-once delivery). The doubling timeout bounds that cost when the main process is blocked: a stall of N seconds produces on the order of log2(N) resends rather than N/12, so the main IPC queue and the renderer's unsettled promises stay small.
 Reserving headroom means newer entries can be dropped before the visible queue reaches 200 while a batch is in flight; that is the intended trade: bounded memory and oldest-first delivery outrank admitting the newest entries (APP-DIAG-CONS-007).
 
-There is no redaction of console arguments; callers own not logging secrets (spec, same requirement).
+The renderer does not redact console arguments; `DiagnosticsService` scrubs every forwarded console entry, renderer error message and stack with `scrubSecrets` before writing it to `main-*.log`, and again on every line `readTail` returns, so unscrubbed text never reaches the log file or the Settings → Diagnostics viewer (APP-DIAG-SCRUB-005).
 
 ## Settings → Diagnostics Panel and Bundle Export
 
@@ -187,6 +188,9 @@ The audit trail's required behaviour is currently only what the code above does;
 | Logger construction | Console-only singleton upgraded in place via a reassigned live ESM binding | Inject a logger via Nest DI | Lets modules imported before `main.ts` log immediately and pick up the file transport without re-importing (`logger.ts:56-60,87`). |
 | Console forwarding channel | New sibling `diagnostics.reportLog`, crash channel untouched | Widen `reportError` to a union; per-call synchronous IPC; separate pipeline | Purely additive: the existing crash payload, callers and tests are unchanged. A batch is console-originated by arriving on `reportLog` rather than `reportError`, so entries carry no per-entry `source` field. Per-call synchronous IPC would turn every `console.log` in a hot loop into an IPC round-trip and a log line; a separate pipeline would duplicate `DiagnosticsService`'s file-path and write logic for no benefit. |
 | Console batching | 2 s flush, 50 per flush, 200 queue cap with in-flight reservation and requeue | Per-call IPC; drop at the 50 send cap | Hot-loop console output would flood IPC and the log. The 50-entry send cap only paces IPC: the unsent remainder stays queued for the next tick. The 200-entry cap is the only point data is dropped, reported as one combined "N entries dropped" warning per flush rather than a line per entry. While a flush is pending its entry count is reserved against the cap, so a rejected call can always requeue its batch at the front, oldest first, without displacing newer entries; a burst of 120 calls is delivered in full over three ticks. |
+| Hung console flush | A 10 s timeout settles the batch as failed (requeue, resume); a late settle is ignored | Wait forever; abort via `AbortController` | `window.hyveon` IPC calls cannot be cancelled, so the renderer stops waiting rather than aborting. Waiting forever stops all forwarding for the session, the worst outcome for a diagnostics channel. A duplicate delivery is the accepted cost over loss. |
+| Log directory derivation | One `resolveLogDir(userDataPath)` helper used by the writer and the reader | Two inline `path.join` calls | The writer (`createLogger`) and the diagnostics reader must agree on the directory; one derivation removes the drift risk. |
+| Error boundary state | A `hasError` boolean | Test the thrown value for truthiness | React lets a component throw any value, including falsy ones; a truthiness test would re-render the crashing children. |
 | Panel data source | Keep a 5 s cumulative-tail poll; pause buffers the latest snapshot | Push/stream model like `/logs`; append successive polls | Reuse `/logs` interaction patterns (pause with buffering, level filter, substring search without regex) without its data source; the snapshot shape makes appending incorrect. The app's own log is a local file with no main-process file-watch-and-stream mechanism, and building one is materially more work than porting controls onto the existing poll for a panel used for post-hoc debugging rather than live monitoring. A `LogViewer` component shared with `/logs` would need a fetch-strategy prop layer; it remains a possible follow-up. |
 | Bundle orchestration | New `DiagnosticsBundleService` calling into existing services | Grow `DiagnosticsService` | `DiagnosticsService` is a narrow tail reader; bundling, zipping and cross-service orchestration is a distinct responsibility with its own test surface. |
 | Section isolation | `Promise.allSettled` over four gatherers, failures to `errors.json` | Sequential try/catch chaining | One slow AWS call must not serialize behind or block the cheap sections (logs, metadata); each settled result becomes bundle content or an `errors.json` entry. |
@@ -214,21 +218,17 @@ The audit trail's required behaviour is currently only what the code above does;
 
 ### Deferred
 
-1. Should `scrubSecrets` redact JSON-quoted labeled values (`"botToken":"..."`, `"apiKey": "..."`) that the production `json()` and dev meta formats actually emit? Today `LABELED_SECRET_VALUE_PATTERN` needs `[:=]` right after the label (`diagnosticsLogScrubber.ts:15-16`, `logger.ts:14,42`), and tests cover only unquoted shapes (`diagnosticsLogScrubber.test.ts:14-29`).
-2. How should the console forwarder recover from a `reportLog` promise that never settles? `flushInFlight` is cleared only on settle (`report-renderer-error.utils.ts:98-100,127-137`), contradicting its own doc (`:94-95`).
-3. Should `ExportBundleButton` (and `StrayHelpersButton`) stay rendered when the tail read fails (`DiagnosticsPanel.tsx:43-47,74-76`)? The bundle already tolerates a failed log section (`DiagnosticsBundleService.ts:123`).
-4. Should `AuditService.list` catch, normalize and log store failures per `.claude/rules/logging.md` rule 2 (`AuditService.ts:140`), and should `record()` normalize its logged error and move the stack-outputs read inside its try (`AuditService.ts:90,114-118`)? No test covers a `listEntries` rejection (`AuditService.test.ts:143-170`).
-5. Should `ErrorBoundary` detect falsy throws (`error-boundary.component.tsx:55`), point to "Settings → Diagnostics" instead of the non-existent "Settings → Logs" (`:61`), and offer a reload action?
-6. Should `installGlobalErrorReporting` gain an install guard and use `isErrorLike` like `formatConsoleArgs` (`report-renderer-error.utils.ts:4-11,165-174`)? Should the flush interval ever be cleared (`:208`)?
-7. Should the audit trail get its own leaf, given it is a separate concern from diagnostics and now records IaC actions under a game-only schema and copy (`audit.ts:29-33`, `audit.controller.ts:8-11`, `audit.page.tsx:84`, `iac.controller.ts:755,885,1029`)? If IaC rows stay, how should the page render an empty Game cell and a `null`/`null` diff?
-8. Should the `/audit` page drop or rewire `<PollingIndicator />`, which reflects the global status poller on a page that fetches once (`audit.page.tsx:85`, `polling-indicator.component.tsx:18`)?
-9. Should per-game `getStatus` failure messages in `aws-snapshot.json` pass through `scrubSecrets` like section errors do (`DiagnosticsBundleService.ts:192-199` vs `:149`)?
-10. Should the log directory and `readAppVersion` route through `electronRuntime.ts` (`main.ts:26`, `app.module.ts:109`, `electronRuntime.ts:17`, `app-version.ts:5-6,12-21`) so the write and read paths cannot drift?
-11. Should `useDiagnosticsTail` move onto the shared polling registry and stop re-fetching the static log path every 5 s (`use-diagnostics-tail.hook.ts:56,83`)? Should the 500-line panel tail be a shared constant rather than a literal (`diagnostics.controller.ts:50`), and `TAIL_READ_BYTES` be exported instead of duplicated in tests (`DiagnosticsService.test.ts:17-18`)?
-12. Stale pointers to refresh: "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`), `DiagnosticsBundleService`'s class doc naming a change directory that no longer exists (`DiagnosticsBundleService.ts:64`), and `diagnosticsBundle.ts:3` naming `DiagnosticsPanel` as the switcher.
-13. `AwsAuditLogStore` resolves `getConfig()` twice per operation (`AwsAuditLogStore.ts:65,83`); acceptable, or fold into one resolution?
-14. Test hygiene: `logger.test.ts:16,27,99` builds real `DailyRotateFile` transports under `/tmp`; there are no dedicated tests for `export-bundle-button.component.tsx` or `use-diagnostics-tail.hook.ts`; `DiagnosticsPanel.tsx` is the lone PascalCase component filename (sweep disagreement, `final-clustering.md` §6).
-15. The stray-helper cleanup button renders inside this leaf's panel (`DiagnosticsPanel.tsx:76`, APP-DIAG-PANEL-002) while its behaviour belongs to `helper-task`. Should this leaf keep acknowledging that hosting, or should the panel's spec drop the button?
+1. Should `ExportBundleButton` and `StrayHelpersButton` stay rendered when the tail read fails? The bundle already tolerates a failed log section (`DiagnosticsBundleService.ts:123`); `StrayHelpersButton` is currently hidden with the log viewer.
+2. Should `AuditService.list` catch, normalize and log store failures per `.claude/rules/logging.md` rule 2 (`AuditService.ts:140`), and should `record()` normalize its logged error and move the stack-outputs read inside its try (`AuditService.ts:90,114-118`)? No test covers a `listEntries` rejection (`AuditService.test.ts:143-170`).
+3. Should the `ErrorBoundary` fallback offer a reload action?
+4. Should the console-forwarding flush interval ever be cleared?
+5. Should the audit trail get its own leaf, given it is a separate concern from diagnostics and now records IaC actions under a game-only schema and copy (`audit.ts:29-33`, `audit.controller.ts:8-11`, `audit.page.tsx:84`, `iac.controller.ts:755,885,1029`)? If IaC rows stay, how should the page render an empty Game cell and a `null`/`null` diff?
+6. Should the `/audit` page drop or rewire `<PollingIndicator />`, which reflects the global status poller on a page that fetches once (`audit.page.tsx:85`, `polling-indicator.component.tsx:18`)?
+7. Should `useDiagnosticsTail` move onto the shared polling registry and stop re-fetching the static log path every 5 s (`use-diagnostics-tail.hook.ts:56,83`)? Should the 500-line panel tail be a shared constant rather than a literal (`diagnostics.controller.ts:50`), and `TAIL_READ_BYTES` be exported instead of duplicated in tests (`DiagnosticsService.test.ts:17-18`)?
+8. Stale pointers to refresh: "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`), `DiagnosticsBundleService`'s class doc naming a change directory that no longer exists (`DiagnosticsBundleService.ts:64`), and `diagnosticsBundle.ts:3` naming `DiagnosticsPanel` as the switcher.
+9. `AwsAuditLogStore` resolves `getConfig()` twice per operation (`AwsAuditLogStore.ts:65,83`); acceptable, or fold into one resolution?
+10. Test hygiene: `logger.test.ts:16,27,99` builds real `DailyRotateFile` transports under `/tmp`; there are no dedicated tests for `export-bundle-button.component.tsx` or `use-diagnostics-tail.hook.ts`; `DiagnosticsPanel.tsx` is the lone PascalCase component filename (sweep disagreement, `final-clustering.md` §6).
+11. The stray-helper cleanup button renders inside this leaf's panel (`DiagnosticsPanel.tsx:76`, APP-DIAG-PANEL-002) while its behaviour belongs to `helper-task`. Should this leaf keep acknowledging that hosting, or should the panel's spec drop the button?
 
 ## References
 

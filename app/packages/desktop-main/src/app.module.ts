@@ -1,5 +1,4 @@
 import * as os from 'node:os';
-import * as path from 'node:path';
 import { createRequire } from 'module';
 import { Module } from '@nestjs/common';
 import { AwsModule } from './modules/aws.module.js';
@@ -31,6 +30,7 @@ import { IacSettingsController } from './controllers/iac-settings.controller.js'
 import { WizardController } from './controllers/wizard.controller.js';
 import { CloudHealthController } from './controllers/cloud-health.controller.js';
 import { WindowController } from './controllers/window.controller.js';
+import { resolveLogDir } from './logDir.js';
 import { DiagnosticsService, DIAGNOSTICS_LOG_DIR } from './services/DiagnosticsService.js';
 import { DiagnosticsBundleService } from './services/DiagnosticsBundleService.js';
 import { DriftService } from './services/DriftService.js';
@@ -110,7 +110,7 @@ import { WindowService } from './services/WindowService.js';
         }
         const _require = createRequire(import.meta.url);
         const { app } = _require('electron') as { app: { getPath(name: string): string } };
-        return path.join(app.getPath('userData'), 'logs');
+        return resolveLogDir(app.getPath('userData'));
       },
     },
     DiagnosticsService,

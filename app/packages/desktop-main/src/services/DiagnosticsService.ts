@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import { logger } from '../logger.js';
 import type { RendererConsoleLevel, RendererLogEntry } from '@hyveon/shared';
 import { errMessage } from '@hyveon/shared';
+import { scrubSecrets } from './diagnosticsLogScrubber.js';
 
 /** Maximum bytes read from the end of the log file per tail call (~200 KB covers ~500 typical log lines). */
 const TAIL_READ_BYTES = 200 * 1024;
@@ -94,7 +95,7 @@ export class DiagnosticsService {
   }
 
   // @spec APP-DIAG-TAIL-001, APP-DIAG-TAIL-002, APP-DIAG-TAIL-003, APP-DIAG-TAIL-004, APP-DIAG-TAIL-005
-  // @spec APP-DIAG-SVC-001
+  // @spec APP-DIAG-SVC-001, APP-DIAG-SCRUB-005
   /**
    * Reads the tail of today's log file, returning up to `maxLines` entries.
    * Returns an empty array when the file does not yet exist (e.g. on the
@@ -138,7 +139,7 @@ export class DiagnosticsService {
         }
         trimmed = trimmed.slice(firstEntryIndex);
       }
-      return mergeMetaContinuationLines(trimmed).slice(-maxLines);
+      return mergeMetaContinuationLines(trimmed).slice(-maxLines).map(scrubSecrets);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         return [];
@@ -151,10 +152,11 @@ export class DiagnosticsService {
     }
   }
 
-  // @spec APP-DIAG-RERR-001
+  // @spec APP-DIAG-RERR-001, APP-DIAG-SCRUB-005
   /**
    * Logs a renderer-side JS error/unhandled-rejection into the same winston
    * log the operator already checks via `diagnostics.tail`/`diagnostics.path`.
+   * Message and stack are scrubbed with {@link scrubSecrets} before writing.
    * Never throws — a failure to log a crash must never itself crash anything.
    *
    * @param message - `Error.message`, or a string coercion for non-Error rejections.
@@ -162,10 +164,12 @@ export class DiagnosticsService {
    * @param source - Where the report originated.
    */
   logRendererError(message: string, stack: string | undefined, source: 'boundary' | 'window-error' | 'unhandled-rejection'): void {
-    logger.error(`renderer error (${source}): ${message}`, { stack });
+    logger.error(`renderer error (${source}): ${scrubSecrets(message)}`, {
+      stack: stack === undefined ? undefined : scrubSecrets(stack),
+    });
   }
 
-  // @spec APP-DIAG-CONS-003, APP-DIAG-CONS-004, APP-DIAG-CONS-008, APP-DIAG-CONS-009
+  // @spec APP-DIAG-CONS-003, APP-DIAG-CONS-004, APP-DIAG-CONS-008, APP-DIAG-CONS-009, APP-DIAG-SCRUB-005
   /**
    * Logs a batch of renderer-side `console.*` calls into the same winston
    * log `readTail`/`getTodayLogPath` already expose. Never throws — a
@@ -181,7 +185,7 @@ export class DiagnosticsService {
 
     for (const entry of toLog) {
       const winstonLevel = CONSOLE_LEVEL_TO_WINSTON_LEVEL[entry.level] ?? 'debug';
-      logger[winstonLevel](`renderer console (${entry.level}): ${entry.message}`);
+      logger[winstonLevel](`renderer console (${entry.level}): ${scrubSecrets(entry.message)}`);
     }
 
     const totalDropped = (droppedCount ?? 0) + overflow;

@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import path from 'node:path';
+import { resolveLogDir } from './logDir.js';
 import { NestFactory } from '@nestjs/core';
 import type { INestMicroservice } from '@nestjs/common';
 import { MicroserviceOptions } from '@nestjs/microservices';
@@ -25,7 +25,7 @@ if (!process.versions['electron']) {
 
 const { app } = await import('electron') as unknown as { app: { getPath(name: string): string } };
 // @spec APP-DIAG-LOG-007
-createLogger(path.join(app.getPath('userData'), 'logs'));
+createLogger(resolveLogDir(app.getPath('userData')));
 
 // @spec APP-SHELL-BOOT-005
 // @spec APP-IPC-XPORT-001, APP-IPC-XPORT-004, APP-IPC-ERR-001

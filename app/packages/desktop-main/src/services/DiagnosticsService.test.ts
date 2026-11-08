@@ -248,6 +248,47 @@ describe('DiagnosticsService.logRendererError', () => {
   });
 });
 
+describe('DiagnosticsService renderer text scrubbing', () => {
+  const leakedToken = `botToken=${'A'.repeat(24)}`;
+
+  beforeEach(() => {
+    mockOpen.mockReset();
+    vi.mocked(logger.error).mockClear();
+    vi.mocked(logger.info).mockClear();
+  });
+
+  // @spec APP-DIAG-SCRUB-005
+  it('should scrub secrets from a renderer error message and stack before writing the log line', () => {
+    const service = makeService('/var/log/hyveon');
+
+    service.logRendererError(`failed with ${leakedToken}`, `Error\n  at ${leakedToken}`, 'boundary');
+
+    const [line, meta] = vi.mocked(logger.error).mock.calls[0] as [string, { stack?: string }];
+    expect(line).not.toContain('A'.repeat(24));
+    expect(meta.stack).not.toContain('A'.repeat(24));
+  });
+
+  // @spec APP-DIAG-SCRUB-005
+  it('should scrub secrets from forwarded console entries before writing the log line', () => {
+    const service = makeService('/var/log/hyveon');
+
+    service.logRendererConsoleBatch([{ level: 'info', message: leakedToken }]);
+
+    expect(vi.mocked(logger.info).mock.calls[0][0]).not.toContain('A'.repeat(24));
+  });
+
+  // @spec APP-DIAG-SCRUB-005
+  it('should scrub secrets from tail lines already present in the log file', async () => {
+    mockOpen.mockResolvedValueOnce(makeMockHandle(`18:04:00 [info] hello ${leakedToken}\n`) as never);
+    const service = makeService('/var/log/hyveon');
+
+    const lines = await service.readTail();
+
+    expect(lines.join('\n')).not.toContain('A'.repeat(24));
+    expect(lines.join('\n')).toContain('[REDACTED]');
+  });
+});
+
 describe('DiagnosticsService.logRendererConsoleBatch', () => {
   beforeEach(() => {
     vi.mocked(logger.debug).mockClear();

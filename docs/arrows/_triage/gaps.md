@@ -207,12 +207,12 @@ Specs: `docs/intent/operator-app/diagnostics/diagnostics-specs.md` · Arrow doc:
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `APP-DIAG-LOG-008` | d | - | Computed twice (desktop-main/src/main.ts:28 and app.module.ts:113) but both yield userData/logs today; pure single-source refactor wish |
-| `APP-DIAG-RERR-006` | c | low | Fallback gated on truthy this.state.error (web/src/components/error-boundary.component.tsx:56); only bites on throw null/0/'' which app code never does |
-| `APP-DIAG-RERR-007` | b | low | Fallback still says 'Settings → Logs' (web/src/components/error-boundary.component.tsx:62) while log viewer lives under Diagnostics (pages/settings.page.tsx:384-387) |
-| `APP-DIAG-RERR-008` | c | low | No install guard (web/src/lib/report-renderer-error.utils.ts:169-178) but only call site is main.tsx:8, once per session; speculative |
-| `APP-DIAG-RERR-009` | c | low | Uses instanceof Error (report-renderer-error.utils.ts:175-176) vs isErrorLike at :4; renderer has no cross-realm rejection source today, speculative |
-| `APP-DIAG-CONS-012` | b | low | flushInFlight cleared only in .then handlers (web/src/lib/report-renderer-error.utils.ts:126-137); a hung reportLog stops forwarding, contradicting doc :94-97 |
+| `APP-DIAG-LOG-008` | closed | - | Fixed (was): Computed twice (desktop-main/src/main.ts:28 and app.module.ts:113) but both yield userData/logs today; pure single-source refactor wish |
+| `APP-DIAG-RERR-006` | closed | - | Fixed (was): Fallback gated on truthy this.state.error (web/src/components/error-boundary.component.tsx:56); only bites on throw null/0/'' which app code never does |
+| `APP-DIAG-RERR-007` | closed | - | Fixed (was): Fallback still says 'Settings → Logs' (web/src/components/error-boundary.component.tsx:62) while log viewer lives under Diagnostics (pages/settings.page.tsx:384-387) |
+| `APP-DIAG-RERR-008` | closed | - | Fixed (was): No install guard (web/src/lib/report-renderer-error.utils.ts:169-178) but only call site is main.tsx:8, once per session; speculative |
+| `APP-DIAG-RERR-009` | closed | - | Fixed (was): Uses instanceof Error (report-renderer-error.utils.ts:175-176) vs isErrorLike at :4; renderer has no cross-realm rejection source today, speculative |
+| `APP-DIAG-CONS-012` | closed | - | Fixed (was): flushInFlight cleared only in .then handlers (web/src/lib/report-renderer-error.utils.ts:126-137); a hung reportLog stops forwarding, contradicting doc :94-97 |
 | `APP-DIAG-SVC-002` | b | low | AuditService.list returns store.listEntries uncaught (desktop-main/src/services/AuditService.ts:142); AwsAuditLogStore.listEntries has no catch (cloud-aws/src/AwsAuditLogStore.ts:139-150) |
 | `APP-DIAG-SVC-003` | b | low | record's catch still logs raw { err } object (app/packages/desktop-main/src/services/AuditService.ts:113-118) instead of errMessage(err) |
 | `APP-DIAG-PANEL-010` | b | med | On tail error the panel returns only <ErrorBanner> (web/src/components/DiagnosticsPanel.tsx:44-48), hiding ExportBundleButton (:74) exactly when an operator needs it |
