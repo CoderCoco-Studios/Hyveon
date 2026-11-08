@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { bootstrap } from './main.js';
 import { electronRendererUrl, isTestMode } from './env.js';
 import { createHelperQuitStopper } from './helper-quit-hook.js';
+import { ipcErrorMessage } from './ipc-handlers.js';
+import { logger } from './logger.js';
 import { installOperationQuitHook } from './operation-quit-hook.js';
 import { initUpdater } from './updater.js';
 import { ElectronStoreService } from './services/ElectronStoreService.js';
@@ -39,6 +41,19 @@ export function resolveWindowIcon(): string | undefined {
   return candidates.find((candidate) => candidate !== undefined && existsSync(candidate));
 }
 
+// @spec APP-SHELL-BOOT-008
+/**
+ * Records a main-process start-up or window failure in the winston log file, the only record once the app is packaged.
+ *
+ * @param what - Short description of the step that failed.
+ * @param err - The value the failing step rejected with.
+ */
+function logStartupFailure(what: string, err: unknown): void {
+  logger.error(`[desktop-main] ${what}: ${ipcErrorMessage(err)}`, {
+    stack: err instanceof Error ? err.stack : undefined,
+  });
+}
+
 // @spec APP-SHELL-BOOT-010
 /**
  * Routes the renderer's `target="_blank"` links (e.g. the "Open AWS Cost
@@ -50,7 +65,7 @@ export function resolveWindowIcon(): string | undefined {
 function setDefaultBrowserOpener(win: BrowserWindow): void {
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url).catch((err: unknown) => {
-      console.error('[desktop-main] Failed to open external URL:', err);
+      logStartupFailure('Failed to open external URL', err);
     });
     return { action: 'deny' };
   });
@@ -99,7 +114,7 @@ const NO_SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 12, y: 20 };
  * - Linux gets neither — the renderer draws its own buttons there.
  *
  * The overlay's `height: 56` matches the header's `h-14` Tailwind class; its
- * `color`/`symbolColor` match `--color-surface` (#1a1d2e) and
+ * `color`/`symbolColor` match `--color-card` (#1a1d2e) and
  * `--color-foreground` (#e1e4ed) from `app/packages/web/src/index.css`, the
  * header's actual background/text colors — the app has no runtime theme
  * switching yet, so these are hard-coded rather than resolved dynamically.
@@ -203,7 +218,7 @@ function createWindow(): BrowserWindow {
     : win.loadFile(path.join(__dirname, '../renderer/index.html'));
 
   load.catch((err: unknown) => {
-    console.error('[desktop-main] Renderer failed to load — quitting:', err);
+    logStartupFailure('Renderer failed to load — quitting', err);
     app.quit();
   });
 
@@ -228,7 +243,7 @@ app.whenReady().then(() => {
       // unhandled rejection can never reach the Electron main process from
       // here, even if that contract is ever violated.
       initUpdater(nestApp.get(ElectronStoreService)).catch((err: unknown) => {
-        console.error('[desktop-main] updater init failed:', err);
+        logStartupFailure('Updater init failed', err);
       });
 
       installOperationQuitHook(app, nestApp.get(PulumiService), [createHelperQuitStopper(nestApp.get(HelperSessionRegistry))]);
@@ -249,7 +264,7 @@ app.whenReady().then(() => {
       });
     })
     .catch((err: unknown) => {
-      console.error('[desktop-main] NestJS IPC bootstrap failed — quitting:', err);
+      logStartupFailure('NestJS IPC bootstrap failed — quitting', err);
       app.quit();
     });
 });

@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -23,6 +24,18 @@ vi.mock('./polling/polling-provider.component.js', () => ({
 }));
 vi.mock('./polling/game-status-provider.component.js', () => ({
   GameStatusProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+const { toastError, visibleToasts } = vi.hoisted(() => ({
+  toastError: vi.fn(),
+  /** Toasts currently on screen, keyed by id: a repeated id replaces rather than adds, as sonner does. */
+  visibleToasts: new Map<string, string>(),
+}));
+vi.mock('sonner', () => ({
+  toast: {
+    error: toastError.mockImplementation((message: string, opts?: { id?: string }) => {
+      visibleToasts.set(opts?.id ?? `anon-${visibleToasts.size}`, message);
+    }),
+  },
 }));
 vi.mock('./components/ui/sonner.component.js', () => ({ Toaster: () => null }));
 vi.mock('./pages/dashboard.page.js', () => ({ DashboardPage: () => <div>dashboard</div> }));
@@ -51,6 +64,8 @@ function stubBridge(bridge: unknown): void {
 describe('App first-run gate', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
+    toastError.mockClear();
+    visibleToasts.clear();
   });
 
   afterEach(() => {
@@ -128,5 +143,48 @@ describe('App first-run gate', () => {
 
     await waitFor(() => expect(screen.getByTestId('app-shell')).toBeInTheDocument());
     expect(screen.queryByTestId('wizard')).not.toBeInTheDocument();
+  });
+
+  // @spec APP-SHELL-GATE-006
+  it('should tell the operator setup state could not be read when the check rejects and the shell falls open', async () => {
+    stubBridge({ wizard: { getState: vi.fn().mockRejectedValue(new Error('ipc down')) } });
+
+    render(<App />);
+
+    expect(await screen.findByTestId('app-shell')).toBeInTheDocument();
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+    expect(toastError).toHaveBeenCalledWith(
+      expect.stringMatching(/setup state could not be read/i),
+      expect.objectContaining({ id: 'setup-state-unreadable' }),
+    );
+  });
+
+  // @spec APP-SHELL-GATE-006
+  it('should not raise the setup-state notice when the check succeeds or there is no bridge', async () => {
+    stubBridge({ wizard: { getState: vi.fn().mockResolvedValue({ wizardCompleted: true }) } });
+    const { unmount } = render(<App />);
+    expect(await screen.findByTestId('app-shell')).toBeInTheDocument();
+    unmount();
+
+    stubBridge(undefined);
+    render(<App />);
+
+    expect(screen.getByTestId('app-shell')).toBeInTheDocument();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  // @spec APP-SHELL-GATE-006
+  it('should still reach the shell and raise the notice under StrictMode double-mounting', async () => {
+    stubBridge({ wizard: { getState: vi.fn().mockRejectedValue(new Error('ipc down')) } });
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+
+    expect(await screen.findByTestId('app-shell')).toBeInTheDocument();
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect([...visibleToasts.keys()]).toEqual(['setup-state-unreadable']);
   });
 });

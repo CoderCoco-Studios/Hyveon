@@ -76,16 +76,19 @@ export function LiveIndicator() {
  * the routed page content; the sidebar/drawer nav lives in {@link AppLayout}.
  *
  * @param envLabel - Rendered pill text, e.g. `"PROD · us-east-1"` or `"local"`.
+ * @param envError - Failure message when the `env` call rejected; renders the pill in the error style with the message as its tooltip.
  * @param mobileMenuOpen - Whether the mobile drawer is currently open, for the
  *   hamburger button's `aria-expanded`.
  * @param onOpenMobileMenu - Opens the mobile drawer; wired to the hamburger button.
  */
 export function AppTopbar({
   envLabel,
+  envError = null,
   mobileMenuOpen,
   onOpenMobileMenu,
 }: {
   envLabel: string;
+  envError?: string | null;
   mobileMenuOpen: boolean;
   onOpenMobileMenu: () => void;
 }) {
@@ -113,7 +116,15 @@ export function AppTopbar({
         </button>
 
         <h1 className="hidden sm:block text-lg font-semibold text-foreground shrink-0">Hyveon</h1>
-        <span className="inline-flex shrink-0 items-center px-2.5 py-0.5 rounded text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">
+        <span
+          title={envError ?? undefined}
+          className={cn(
+            'inline-flex shrink-0 items-center px-2.5 py-0.5 rounded text-xs font-medium border',
+            envError !== null
+              ? 'bg-red/10 text-red border-red/40'
+              : 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+          )}
+        >
           {envLabel}
         </span>
       </div>

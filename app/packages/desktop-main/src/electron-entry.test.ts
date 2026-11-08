@@ -17,6 +17,8 @@ const {
   mockGetAllWindows,
   mockExistsSync,
   mockOpenExternal,
+  mockSetWindowOpenHandler,
+  mockLoggerError,
   mockSetApplicationMenu,
   bootstrapMock,
   initUpdaterMock,
@@ -36,6 +38,8 @@ const {
   const mockOpenExternal = vi.fn().mockResolvedValue(undefined);
   /** Spy for `Menu.setApplicationMenu`. */
   const mockSetApplicationMenu = vi.fn();
+  /** Spy for the winston `logger.error` the entry point reports failures through. */
+  const mockLoggerError = vi.fn();
 
   /**
    * Collects every callback passed to `app.whenReady().then(cb)`.
@@ -135,6 +139,7 @@ const {
     mockExistsSync,
     mockSetWindowOpenHandler,
     mockOpenExternal,
+    mockLoggerError,
     mockSetApplicationMenu,
     bootstrapMock,
     initUpdaterMock,
@@ -166,6 +171,10 @@ vi.mock('electron', () => ({
 
 vi.mock('./main.js', () => ({
   bootstrap: bootstrapMock,
+}));
+
+vi.mock('./logger.js', () => ({
+  logger: { error: mockLoggerError, info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
 vi.mock('./updater.js', () => ({
@@ -436,6 +445,58 @@ describe('electron-entry', () => {
     );
 
     logSpy.mockRestore();
+  });
+
+  // @spec APP-SHELL-BOOT-008
+  describe('start-up failure logging', () => {
+    /** Imports the entry point and fires the ready callback so the start-up chain runs. */
+    async function runStartup(): Promise<void> {
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+    }
+
+    it('should log the failure to winston when the Nest bootstrap rejects', async () => {
+      bootstrapMock.mockRejectedValueOnce(new Error('IPC init failure'));
+
+      await runStartup();
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.stringContaining('IPC init failure'),
+        expect.objectContaining({ stack: expect.stringContaining('IPC init failure') }),
+      );
+    });
+
+    it('should log the failure to winston when the renderer fails to load', async () => {
+      mockLoadFile.mockRejectedValueOnce(new Error('renderer bundle missing'));
+
+      await runStartup();
+
+      expect(mockLoggerError).toHaveBeenCalledWith(expect.stringContaining('renderer bundle missing'), expect.anything());
+    });
+
+    it('should log the failure to winston when the updater init rejects', async () => {
+      initUpdaterMock.mockRejectedValueOnce(new Error('updater boom'));
+
+      await runStartup();
+
+      expect(mockLoggerError).toHaveBeenCalledWith(expect.stringContaining('updater boom'), expect.anything());
+    });
+
+    it('should log the failure to winston when opening an external URL rejects', async () => {
+      mockOpenExternal.mockRejectedValueOnce(new Error('no browser'));
+      await runStartup();
+      const handler = mockSetWindowOpenHandler.mock.calls[0]?.[0] as (d: { url: string }) => { action: string };
+
+      const result = handler({ url: 'https://example.com' });
+      await flushPromises();
+
+      expect(result).toEqual({ action: 'deny' });
+      expect(mockLoggerError).toHaveBeenCalledWith(expect.stringContaining('no browser'), expect.anything());
+    });
   });
 
   // @spec APP-SHELL-ICON-004

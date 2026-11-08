@@ -1,14 +1,21 @@
 import { useEffect } from 'react';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppLayout, LiveIndicator, RefreshAllButton } from './app-layout.component.js';
 import { PollingProvider, usePollingActions } from '../polling/polling-provider.component.js';
 
+const { envMock } = vi.hoisted(() => ({ envMock: vi.fn() }));
+
 vi.mock('../api.service.js', () => ({
-  api: { env: () => Promise.resolve(null) },
+  api: { env: envMock },
 }));
+
+beforeEach(() => {
+  envMock.mockReset();
+  envMock.mockResolvedValue(null);
+});
 
 /**
  * Mounts a child component that registers a poller in `useEffect` so the
@@ -802,5 +809,86 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(restoreButton).toBeInTheDocument();
     expect(restoreButton.querySelector('svg.lucide-copy')).toBeInTheDocument();
     expect(restoreButton.querySelector('svg.lucide-square')).not.toBeInTheDocument();
+  });
+});
+
+describe('AppLayout — shell chrome behaviour gaps', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /** Renders the layout inside the providers it needs. */
+  function renderLayout(): void {
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+  }
+
+  // @spec APP-SHELL-CHROME-014
+  it('should apply no -webkit-app-region style to any element outside Electron', () => {
+    vi.unstubAllGlobals();
+
+    renderLayout();
+
+    const withRegion = Array.from(document.body.querySelectorAll<HTMLElement>('*')).filter(
+      (el) => el.style.getPropertyValue('-webkit-app-region') !== '',
+    );
+    expect(withRegion).toEqual([]);
+  });
+
+  // @spec APP-SHELL-CHROME-014
+  it('should keep the skip link no-drag inside Electron', () => {
+    vi.stubGlobal('hyveon', { window: { platform: 'darwin' } });
+
+    renderLayout();
+
+    const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
+    expect(skipLink.style.getPropertyValue('-webkit-app-region')).toBe('no-drag');
+  });
+
+  // @spec APP-SHELL-NAV-009
+  it('should show the product name Hyveon in the sidebar brand block, the drawer header and the top bar', () => {
+    renderLayout();
+
+    expect(within(screen.getByTestId('sidebar-brand-block')).getByText('Hyveon')).toBeInTheDocument();
+    expect(within(document.getElementById('mobile-nav')!).getByText('Hyveon')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Hyveon' })).toBeInTheDocument();
+    expect(screen.queryByText('Game Servers')).not.toBeInTheDocument();
+  });
+
+  // @spec APP-SHELL-TOP-001
+  it('should show the environment and region in the env pill once env resolves', async () => {
+    envMock.mockResolvedValue({ environment: 'prod', region: 'us-east-1' });
+
+    renderLayout();
+
+    expect(await screen.findByText('prod · us-east-1')).toBeInTheDocument();
+  });
+
+  // @spec APP-SHELL-TOP-002
+  it('should show a failure state in the env pill, distinct from local, when the env call rejects', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    envMock.mockRejectedValue(new Error('ipc down'));
+
+    renderLayout();
+
+    const pill = await screen.findByText('env unavailable');
+    expect(pill).toBeInTheDocument();
+    expect(pill).toHaveAttribute('title', expect.stringContaining('ipc down'));
+    expect(screen.queryByText('local')).not.toBeInTheDocument();
+  });
+
+  // @spec APP-SHELL-TOP-002
+  it('should keep reading local while the env call is still in flight', () => {
+    envMock.mockReturnValue(new Promise(() => undefined));
+
+    renderLayout();
+
+    expect(screen.getByText('local')).toBeInTheDocument();
   });
 });

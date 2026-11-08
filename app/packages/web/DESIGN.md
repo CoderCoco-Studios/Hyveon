@@ -14,13 +14,17 @@ Datadog-style dark ops aesthetic. All tokens are defined as CSS custom propertie
 | `--color-surface` | `#1a1d2e` | Card / panel background |
 | `--color-surface-2` | `#252a40` | Nested surfaces, input backgrounds, hover fills |
 | `--color-border` | `#2e3350` | Borders, dividers, separators |
+| `--color-card` | `#1a1d2e` | Sidebar, mobile drawer and header background (same value as `--color-surface`) |
+| `--color-background` | `#0f1117` | App root background (same value as `--color-bg`) |
+| `--color-muted` | `#252a40` | Muted fills such as the LIVE pill (same value as `--color-surface-2`) |
+| `--color-accent` | `#252a40` | Hover fill for icon buttons and nav entries (same value as `--color-surface-2`); distinct from the legacy `--accent` var, which is the brand purple |
 
 ### Foreground
 
 | Token | Value | Usage |
 |---|---|---|
 | `--color-foreground` | `#e1e4ed` | Primary text |
-| `--color-muted-foreground` | `#8b90a5` | Secondary / metadata text |
+| `--color-muted-foreground` | `#9398ad` | Secondary / metadata text |
 
 ### Accent palette
 

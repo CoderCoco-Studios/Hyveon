@@ -393,6 +393,8 @@ Winston in `src/logger.ts`. Dev: colourised timestamps + JSON metadata.
 Prod: JSON lines with ISO timestamps. Use `logger.info` / `warn` / `error`
 everywhere, not `console.log`.
 
+The main-process entry (`electron-entry.ts`) follows the same rule for start-up and window failures: a failed external-link open, renderer load, updater init or Nest bootstrap is written to the winston log through `logStartupFailure`, not to `console.error`.
+
 The winston log file is the only durable record of what happened in a given
 run — there's no HTTP transport to fall back on for tracing (see
 [Auth](#auth) above); the global `RpcErrorMessageFilter` preserves a handler's
