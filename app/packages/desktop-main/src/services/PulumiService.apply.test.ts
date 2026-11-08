@@ -1061,6 +1061,43 @@ describe('PulumiService.apply lock-recovery', () => {
     expect(result).toEqual({ runId: PLAN_RUN_ID, changeSummary: {} });
   });
 
+  // @spec IAC-ENGINE-LIFE-007, IAC-ENGINE-LOCK-004
+  it.each([
+    ['the first call is failing with the conflict', 'call'],
+    ['stack.cancel() is clearing the lock', 'cancel'],
+  ] as const)('should not retry stack.up() when the signal aborts while %s', async (_label, phase) => {
+    vi.spyOn(process, 'kill').mockImplementation(() => {
+      const err = new Error('no such process') as NodeJS.ErrnoException;
+      err.code = 'ESRCH';
+      throw err;
+    });
+    const store = makeFullyConfiguredStore();
+    store.recordPulumiLockAttempt('production');
+    const conflictMessage = diyLockMessage([
+      { pid: 4242, username: TEST_USERNAME, hostname: TEST_HOSTNAME, lockedAt: new Date().toISOString() },
+    ]);
+    const controller = new AbortController();
+    let engineCalls = 0;
+    const cancelMock = vi.fn().mockImplementation(async () => {
+      if (phase === 'cancel') controller.abort();
+    });
+    const workspace = makeWorkspace(
+      async () => {
+        engineCalls += 1;
+        if (phase === 'call') controller.abort();
+        throw new Error(conflictMessage);
+      },
+      { cancel: cancelMock },
+    );
+    const service = makeService({ workspace, store });
+
+    const { result } = await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH, controller.signal));
+
+    expect(result).toBeUndefined();
+    expect(engineCalls).toBe(1);
+    expect(cancelMock).toHaveBeenCalledTimes(phase === 'cancel' ? 1 : 0);
+  });
+
   // @spec IAC-ENGINE-LOCK-005
   it('should reject with PulumiUnrecognizedLockError, and never call stack.cancel(), when the lock cannot be proven this installation\'s own orphan', async () => {
     // A live process (mockPidAlive) and/or an identity mismatch both fail

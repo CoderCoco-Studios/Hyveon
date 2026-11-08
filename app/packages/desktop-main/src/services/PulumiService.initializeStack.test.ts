@@ -11,7 +11,8 @@
  * REMOTE_FILE_STORE/RUN_RECORD_PERSISTER/RUN_LOCK_SERVICE wiring" shape, so
  * the same lightweight construction pattern applies.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { hostname, userInfo } from 'node:os';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ModuleRef } from '@nestjs/core';
 import type { Stack } from '@pulumi/pulumi/automation/index.js';
 import type { RunLock } from '@hyveon/shared';
@@ -36,6 +37,7 @@ import type { PulumiWorkspaceService } from './PulumiWorkspaceService.js';
 import type { PulumiEngineService, PulumiPhaseCallback } from './PulumiEngineService.js';
 import { PulumiEngineNetworkError } from './PulumiEngineService.js';
 import { PulumiUnrecognizedLockError } from './PulumiLockRecovery.js';
+import { PulumiOperationAbortedError, PulumiOperationEscalatedError } from './PulumiCancellation.js';
 import { PulumiCredentialsNotConfiguredError } from './PulumiCredentialResolver.js';
 import { AwsPastedCredentialDecryptError } from './awsCredentialSource.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
@@ -658,6 +660,105 @@ describe('PulumiService.initializeStack', () => {
       expect(cancel).not.toHaveBeenCalled();
       expect(refresh).toHaveBeenCalledTimes(1);
     });
+
+    /** DIY-backend lock-conflict text naming this machine's user as the holder of a dead pid. */
+    function ownOrphanConflict(): Error {
+      const lockedAt = new Date().toISOString();
+      return new Error(
+        'the stack is currently locked by 1 lock(s). Either wait for the other process(es) to end or delete the lock file with `pulumi cancel`.' +
+          `\n  s3://b/.pulumi/locks/production/lock-0.json: created by ${userInfo().username}@${hostname()} (pid 4242) at ${lockedAt}`,
+      );
+    }
+
+    /** Makes `process.kill(pid, 0)` report every pid as dead so a lock held by this user is a provable orphan. */
+    function mockDeadPids(): void {
+      vi.spyOn(process, 'kill').mockImplementation(() => {
+        const err = new Error('no such process') as NodeJS.ErrnoException;
+        err.code = 'ESRCH';
+        throw err;
+      });
+    }
+
+    it('should reclaim a provable own-orphan lock with stack.cancel() and retry the refresh exactly once', async () => {
+      mockDeadPids();
+      const store = makeNewStackStore();
+      store.recordPulumiLockAttempt('production');
+      const cancel = vi.fn().mockResolvedValue(undefined);
+      const refresh = vi.fn().mockRejectedValueOnce(ownOrphanConflict()).mockResolvedValueOnce(undefined);
+      const stack = { workspace: { installPlugin: vi.fn().mockResolvedValue(undefined) }, refresh, cancel } as unknown as Stack;
+      const workspace = { getOrCreateStack: vi.fn().mockResolvedValue(stack) } as unknown as PulumiWorkspaceService;
+      const service = makeService({ workspace, store });
+
+      await expect(service.initializeStack()).resolves.toBeUndefined();
+
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(refresh).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not retry the refresh when the signal aborts while the first call is failing with a reclaimable conflict', async () => {
+      mockDeadPids();
+      const store = makeNewStackStore();
+      store.recordPulumiLockAttempt('production');
+      const controller = new AbortController();
+      const cancel = vi.fn().mockResolvedValue(undefined);
+      const refresh = vi.fn().mockImplementation(async () => {
+        controller.abort();
+        throw ownOrphanConflict();
+      });
+      const stack = { workspace: { installPlugin: vi.fn().mockResolvedValue(undefined) }, refresh, cancel } as unknown as Stack;
+      const workspace = { getOrCreateStack: vi.fn().mockResolvedValue(stack) } as unknown as PulumiWorkspaceService;
+      const service = makeService({ workspace, store });
+
+      const caught = await service.initializeStack(undefined, controller.signal).catch((err: unknown) => err);
+
+      expect(caught).toBeInstanceOf(PulumiStackInitializationError);
+      expect((caught as PulumiStackInitializationError).cause).toBeInstanceOf(PulumiOperationAbortedError);
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not retry the refresh when the signal aborts while stack.cancel() is clearing the lock', async () => {
+      mockDeadPids();
+      const store = makeNewStackStore();
+      store.recordPulumiLockAttempt('production');
+      const controller = new AbortController();
+      const cancel = vi.fn().mockImplementation(async () => {
+        controller.abort();
+      });
+      const refresh = vi.fn().mockRejectedValue(ownOrphanConflict());
+      const stack = { workspace: { installPlugin: vi.fn().mockResolvedValue(undefined) }, refresh, cancel } as unknown as Stack;
+      const workspace = { getOrCreateStack: vi.fn().mockResolvedValue(stack) } as unknown as PulumiWorkspaceService;
+      const service = makeService({ workspace, store });
+
+      const caught = await service.initializeStack(undefined, controller.signal).catch((err: unknown) => err);
+
+      expect(caught).toBeInstanceOf(PulumiStackInitializationError);
+      expect((caught as PulumiStackInitializationError).cause).toBeInstanceOf(PulumiOperationAbortedError);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+
+    describe('escalation', () => {
+      beforeEach(() => vi.useFakeTimers());
+      afterEach(() => vi.useRealTimers());
+
+      it('should keep the lock-ownership record when an aborted refresh has to be escalated', async () => {
+        const store = makeNewStackStore();
+        const controller = new AbortController();
+        const refresh = vi.fn().mockImplementation(() => new Promise<void>(() => undefined));
+        const stack = { workspace: { installPlugin: vi.fn().mockResolvedValue(undefined) }, refresh } as unknown as Stack;
+        const workspace = { getOrCreateStack: vi.fn().mockResolvedValue(stack) } as unknown as PulumiWorkspaceService;
+        const service = makeService({ workspace, store });
+
+        const caughtPromise = service.initializeStack(undefined, controller.signal).catch((err: unknown) => err);
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+        controller.abort();
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        const caught = await caughtPromise;
+        expect((caught as PulumiStackInitializationError).cause).toBeInstanceOf(PulumiOperationEscalatedError);
+        expect(store.listPulumiLockAttempts('production')).toHaveLength(1);
+      });
+    });
   });
 
   // @spec IAC-ENGINE-LIFE-007
@@ -674,11 +775,15 @@ describe('PulumiService.initializeStack', () => {
       const service = makeService({ workspace });
 
       const run = service.initializeStack(undefined, controller.signal);
-      const assertion = expect(run).rejects.toMatchObject({ phase: 'operation' });
+      const caughtPromise = run.catch((err: unknown) => err);
       await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
       controller.abort();
 
-      await assertion;
+      const caught = await caughtPromise;
+      expect(refresh).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }));
+      expect(caught).toBeInstanceOf(PulumiStackInitializationError);
+      expect((caught as PulumiStackInitializationError).phase).toBe('operation');
+      expect((caught as PulumiStackInitializationError).cause).toBeInstanceOf(PulumiOperationAbortedError);
     });
 
     it('should refuse to start the refresh when the signal is already aborted', async () => {

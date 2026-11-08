@@ -1236,7 +1236,7 @@ export class PulumiService {
           (innerSignal) =>
             runTreatingLeakedPromiseAsSuccess(
               () =>
-                this.runWithOwnOrphanLockRecovery(stack, 'refresh', {}, async () => {
+                this.runWithOwnOrphanLockRecovery(stack, 'refresh', {}, innerSignal, async () => {
                   await stack.refresh({ signal: innerSignal });
                 }),
               async () => undefined,
@@ -1271,19 +1271,26 @@ export class PulumiService {
    * @param stack - The stack whose lock may be cleared.
    * @param label - Operation name used in the reclaim log line.
    * @param logContext - Extra identifiers to log when a lock is reclaimed.
+   * @param signal - The operation's abort signal; once aborted no reclaim or retry is attempted, because Pulumi only
+   *   wires an abort listener at call time and a retry started with an already-aborted signal would never be interrupted.
    * @param call - The engine call; invoked a second time after a reclaim.
+   * @throws {@link PulumiOperationAbortedError} if the signal aborted before the retry could start.
    * @throws {@link PulumiUnrecognizedLockError} if a lock conflict cannot be proven to be this installation's orphan.
    */
   private async runWithOwnOrphanLockRecovery<T>(
     stack: Stack,
     label: string,
     logContext: Record<string, unknown>,
+    signal: AbortSignal,
     call: () => Promise<T>,
   ): Promise<T> {
     try {
       return await call();
     } catch (err) {
       if (!isStackLockConflict(err)) {
+        throw err;
+      }
+      if (signal.aborted) {
         throw err;
       }
       const classification = classifyStackLockConflict(err, this.store, PULUMI_STACK_NAME);
@@ -1294,6 +1301,9 @@ export class PulumiService {
           { ...logContext, locks: classification.locks },
         );
         await stack.cancel();
+        if (signal.aborted) {
+          throw new PulumiOperationAbortedError(err);
+        }
         return await call();
       }
       throw new PulumiUnrecognizedLockError(
@@ -2521,6 +2531,7 @@ export class PulumiService {
             stack,
             'apply',
             { planRunId, runId },
+            innerSignal,
             () => stack.up({ plan: artifactPath, onOutput, onError, onEvent, signal: innerSignal }),
           );
 
@@ -3254,6 +3265,7 @@ export class PulumiService {
             stack,
             'destroy',
             { runId },
+            innerSignal,
             () => stack.destroy({ onOutput, onError, onEvent, signal: innerSignal }),
           );
 
