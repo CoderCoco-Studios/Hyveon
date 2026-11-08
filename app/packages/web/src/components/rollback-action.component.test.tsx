@@ -111,7 +111,9 @@ describe('RollbackAction', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Rollback' }));
 
-    expect(await screen.findByRole('alertdialog')).toHaveTextContent('This restores configuration version v-prior');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent('This restores configuration version v-prior');
+    expect(dialog).toHaveTextContent(/click Rollback again to retry/);
     expect(screen.getByRole('button', { name: 'Roll back' })).toBeDisabled();
     expect(hyveonMock.iac.rollback.confirm).not.toHaveBeenCalled();
   });

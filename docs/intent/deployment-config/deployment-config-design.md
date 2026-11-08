@@ -98,7 +98,7 @@ The etag the caller holds is what makes this safe, not the internal re-read: `wr
 | `updateGameServer(name, config, etag?)` (`:516-521`) | `replaceGameServerEntry` (`:683-692`) | `ifMatch` when supplied | `not-found`, `structural` |
 | `removeGameServer(name, etag?)` (`:545-549`) | `removeGameServerEntry` (`:697-707`) | `ifMatch` when supplied | `not-found`, `structural` |
 | `updateTopLevelSettings(patch, etag?)` (`:456-461`) | `applyTopLevelSettingsPatch` (`:731-739`) | `ifMatch` when supplied | `RunsTableRenameError` |
-| `restoreRawConfig(raw)` (`:381-390`) | none; writes the given bytes verbatim | never | `RunsTableRenameError` |
+| `restoreRawConfig(raw, expectedEtag?)` (`:433-442`) | none; writes the given bytes verbatim | `ifMatch` on `expectedEtag` (the rollback preview's head etag), else the head etag it just read | `RunsTableRenameError`, `OptimisticLockError` |
 
 Three rules are enforced inside the mutations rather than by callers.
 

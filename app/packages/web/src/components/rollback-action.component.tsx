@@ -7,6 +7,9 @@ import { formatTimestamp } from '@/lib/format.utils';
 import { formatDiffSummary } from '@/lib/rollback-diff.utils';
 import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
+/** Shown in the dialog body and on the disabled confirm button when the preview returned no head etag. */
+const NO_HEAD_ETAG_REASON = 'Could not read the current configuration, so this rollback cannot be confirmed. Close this dialog and click Rollback again to retry.';
+
 /** Result of a confirmed rollback, handed to {@link RollbackActionProps.onRolledBack}. */
 export interface RollbackResult {
   /** The freshly-restored configuration version, to plan against. */
@@ -139,13 +142,12 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
           description={
             `This restores configuration version ${target.versionId} (last modified ${formatTimestamp(target.lastModified)}) ` +
             'as the new head, then queues a plan against it. The current head is not deleted — history is append-only.' +
-            (target.diff ? ` ${formatDiffSummary(target.diff)}` : '')
+            (target.diff ? ` ${formatDiffSummary(target.diff)}` : '') +
+            (target.headEtag ? '' : ` ${NO_HEAD_ETAG_REASON}`)
           }
           onConfirm={handleConfirm}
           confirmLabel={confirming ? 'Rolling back…' : 'Roll back'}
-          confirmDisabledReason={
-            target.headEtag ? undefined : 'Could not read the current configuration; close and click Rollback again to retry.'
-          }
+          confirmDisabledReason={target.headEtag ? undefined : NO_HEAD_ETAG_REASON}
         />
       )}
     </div>
