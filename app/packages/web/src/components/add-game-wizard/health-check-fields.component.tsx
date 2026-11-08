@@ -50,7 +50,7 @@ export interface HealthCheckFieldsProps {
   onChange: (patch: Partial<WizardDraftHealthCheck>) => void;
 }
 
-// @spec RT-HEALTH-REDACT-002, RT-HEALTH-REDACT-003
+// @spec RT-HEALTH-REDACT-002, RT-HEALTH-REDACT-003, RT-HEALTH-REDACT-004
 /**
  * Renders the enabled health-check's fields: scheme/port/method/timeout,
  * request path, response-matching condition, and (via
@@ -121,7 +121,12 @@ export function HealthCheckFields({ healthCheck, ports, webPort, issues, onChang
           )}
         </FormField>
 
-        <FormField id="health-check-timeout" label="Timeout (ms)" className="w-32">
+        <FormField
+          id="health-check-timeout"
+          label="Timeout (ms)"
+          className="w-32"
+          errors={messageFor(issues, 'healthCheck.timeoutMs')}
+        >
           {(fieldProps) => (
             <Input
               {...fieldProps}

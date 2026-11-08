@@ -21,6 +21,7 @@ import type { PulumiFn } from '@pulumi/pulumi/automation';
 import { resolveRunsTableName, type DeploymentConfig, type GameServerConfig, type StackOutputs } from '@hyveon/shared';
 import { defineNetwork, type NetworkResources } from './network.js';
 import { defineSecurityGroups, type SecurityGroupResources } from './securityGroups.js';
+import { defineSecretsEndpoint, type SecretsEndpointResources } from './secretsEndpoint.js';
 import { defineIamRoles, defineIamPolicies, type IamRoleResources, type IamPolicyResources } from './iam.js';
 import { normalizeHostedZoneName } from './hostedZoneName.js';
 import { accessPointKey, defineEfs, type EfsResources } from './efs.js';
@@ -93,6 +94,8 @@ export interface InfraResources {
    * see that file's doc) — see {@link SecurityGroupResources}.
    */
   securityGroups: SecurityGroupResources;
+  /** The Secrets Manager interface endpoint area; `undefined` while no game declares `healthCheck.auth.secretArn`. */
+  secretsEndpoint: SecretsEndpointResources | undefined;
   /** IAM roles + the ECS task-execution managed-policy attachment — see {@link IamRoleResources}. */
   iamRoles: IamRoleResources;
   /** EFS resources — see {@link EfsResources}. */
@@ -198,6 +201,17 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     projectName: config.projectName,
     gameServers: config.gameServers,
     vpcId: network.vpc.id,
+    provider,
+  });
+
+  const secretsEndpoint = defineSecretsEndpoint({
+    projectName: config.projectName,
+    awsRegion: config.awsRegion,
+    gameServers: config.gameServers,
+    vpcId: network.vpc.id,
+    vpcCidr: config.vpcCidr,
+    subnetIds: network.publicSubnets.map((subnet) => subnet.id),
+    healthCheckSecurityGroupId: securityGroups.healthCheck?.id,
     provider,
   });
 
@@ -349,6 +363,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     usEast1Provider,
     network,
     securityGroups,
+    secretsEndpoint,
     iamRoles,
     efs,
     ecs,

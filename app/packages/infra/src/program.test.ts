@@ -1,7 +1,13 @@
+import type { GameServerConfig } from '@hyveon/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { accessPointKey } from './efs.js';
 import { buildStackOutputs, createInfraProgram, defineAll, type InfraProgramOptions } from './program.js';
-import { buildTestDeploymentConfig } from './testing/fixtures.js';
+import {
+  FIXTURE_GAME_SERVERS,
+  FIXTURE_HEALTH_CHECK_SECRET_ARN,
+  buildHealthCheckGame,
+  buildTestDeploymentConfig,
+} from './testing/fixtures.js';
 import { installPulumiMocks, promiseOf } from './testing/pulumiMocks.js';
 
 /**
@@ -140,6 +146,46 @@ describe('defineAll', () => {
 
   beforeEach(() => {
     mocks = installPulumiMocks();
+  });
+
+  // @spec IAC-PROGRAM-NET-003, IAC-PROGRAM-NET-004, IAC-PROGRAM-NET-005, IAC-PROGRAM-LAMBDA-011, IAC-PROGRAM-LAMBDA-012
+  describe('health-check reachability', () => {
+    /** Runs `defineAll` for `gameServers` and settles the health-check and endpoint handles `runDefineAll` does not await. */
+    async function runWithHealthCheckGames(gameServers: Record<string, GameServerConfig>) {
+      const result = await runDefineAll(buildTestDeploymentConfig({ projectName: 'hyveon', gameServers }));
+      await Promise.all([
+        promiseOf(result.lambdas.healthCheckFunction!.id),
+        promiseOf(result.iamPolicies.healthCheckLambdaPolicy!.id),
+        ...result.securityGroups.healthCheckEgressRules.map((rule) => promiseOf(rule.id)),
+        ...(result.secretsEndpoint ? [promiseOf(result.secretsEndpoint.endpoint.id)] : []),
+      ]);
+      return result;
+    }
+
+    const vpcEndpoints = () => mocks.resources.filter((r) => r.type === 'aws:ec2/vpcEndpoint:VpcEndpoint');
+
+    it('should declare no VPC endpoint for a health check without auth, and a function with only AWS_REGION_', async () => {
+      const result = await runWithHealthCheckGames({ ...FIXTURE_GAME_SERVERS, echo: buildHealthCheckGame() });
+
+      expect(result.secretsEndpoint).toBeUndefined();
+      expect(vpcEndpoints()).toHaveLength(0);
+      const fn = mocks.resources.find((r) => r.name === 'hyveon-health-check')!;
+      expect((fn.inputs.environment as { variables: unknown }).variables).toEqual({ AWS_REGION_: 'us-east-1' });
+    });
+
+    it('should declare one endpoint in the first public subnet while the function keeps both subnets', async () => {
+      const result = await runWithHealthCheckGames({
+        ...FIXTURE_GAME_SERVERS,
+        echo: buildHealthCheckGame({ secretArn: FIXTURE_HEALTH_CHECK_SECRET_ARN }),
+      });
+
+      expect(vpcEndpoints()).toHaveLength(1);
+      const subnetIds = await Promise.all(result.network.publicSubnets.map((subnet) => promiseOf(subnet.id)));
+      expect(vpcEndpoints()[0].inputs.subnetIds).toEqual([subnetIds[0]]);
+      const fn = mocks.resources.find((r) => r.name === 'hyveon-health-check')!;
+      expect((fn.inputs.vpcConfig as { subnetIds: string[] }).subnetIds).toEqual(subnetIds);
+      expect(vpcEndpoints()[0].inputs.vpcId).toBe(await promiseOf(result.network.vpc.id));
+    });
   });
 
   it('should declare the full networking, security-group, IAM, EFS, ECS, DynamoDB, secrets, route53, and Lambda resource set', async () => {
