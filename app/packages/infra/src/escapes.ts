@@ -15,7 +15,7 @@
  * management UI can never remove — see `deploymentConfig.ts`).
  *
  * Each EFS-seeder invocation's `triggers.seedsHash` is a content hash of
- * that game's `file_seeds`, so it re-runs iff the seed content changes. Each
+ * that game's `file_seeds` and seeded `container_path`, so it re-runs iff either changes. Each
  * invocation also carries an explicit `dependsOn` on `efsSeederPolicies[game]`
  * — `lambdas.ts`'s IAM policies attach after the Lambda functions they
  * target, so this dependency has no automatic edge otherwise.
@@ -205,16 +205,18 @@ export interface DefineEfsSeederInvocationsArgs {
 
 /**
  * Computes the `triggers.seedsHash` value every invocation is declared with
- * — a SHA-256 digest of the game's `file_seeds` array. The hash only needs
- * to change if and only if the seed content changes, which a stable
+ * — a SHA-256 digest of the game's `file_seeds` array and the seeded volume's
+ * `container_path`, both of which the invocation `input` carries. The hash only
+ * needs to change if and only if either changes, which a stable
  * `JSON.stringify` over the same in-memory config value guarantees across
  * repeated calls.
  *
  * @param fileSeeds - The game's `file_seeds` array (possibly empty/undefined).
+ * @param containerPath - The seeded volume's `container_path`.
  * @returns A hex-encoded SHA-256 digest.
  */
-function fileSeedsHash(fileSeeds: GameServerConfig['file_seeds']): string {
-  return crypto.createHash('sha256').update(JSON.stringify(fileSeeds ?? [])).digest('hex');
+function fileSeedsHash(fileSeeds: GameServerConfig['file_seeds'], containerPath: string): string {
+  return crypto.createHash('sha256').update(JSON.stringify({ seeds: fileSeeds ?? [], containerPath })).digest('hex');
 }
 
 // @spec IAC-PROGRAM-FANOUT-001, IAC-PROGRAM-SEED-001, IAC-PROGRAM-SEED-002, IAC-PROGRAM-SEED-005
@@ -258,7 +260,7 @@ export function defineEfsSeederInvocations(args: DefineEfsSeederInvocationsArgs)
       `${projectName}-efs-seeder-${game}-invocation`,
       {
         functionName: seederFunction.name,
-        triggers: { seedsHash: fileSeedsHash(fileSeeds) },
+        triggers: { seedsHash: fileSeedsHash(fileSeeds, containerPath) },
         input: JSON.stringify({ game, seeds: fileSeeds, container_path: containerPath }),
       },
       escapeResourceOptions.forEfsSeederInvocation(provider, policy),
