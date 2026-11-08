@@ -79,13 +79,17 @@ function sentPayload(index = 0): Record<string, unknown> {
   return JSON.parse(Buffer.from(input.Payload as Uint8Array).toString('utf-8')) as Record<string, unknown>;
 }
 
+// Task order rotates by wall-clock check window, so every test starts at window 0 (offset 0) unless it sets its own time.
 beforeEach(() => {
   ecsMock.reset();
   cwMock.reset();
   lambdaMock.reset();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(0);
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -529,6 +533,7 @@ describe('watchdog handler: health-check run budget', () => {
   // @spec RT-WATCHDOG-HC-006
   it('should skip the remaining health-checked tasks as failure-derived active once the run budget is spent', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(0);
     const arns = ['arn:task/a', 'arn:task/b', 'arn:task/c'];
     ecsMock.on(ListTasksCommand).resolves({ taskArns: arns });
     ecsMock.on(DescribeTasksCommand).resolves({
@@ -552,6 +557,7 @@ describe('watchdog handler: health-check run budget', () => {
   // @spec RT-WATCHDOG-HC-006
   it('should still evaluate a CloudWatch-path task after the health-check budget is spent', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(0);
     const arns = ['arn:task/a', 'arn:task/b', 'arn:task/c'];
     ecsMock.on(ListTasksCommand).resolves({ taskArns: arns });
     ecsMock.on(DescribeTasksCommand).resolves({
@@ -597,6 +603,7 @@ describe('watchdog handler: health-check run budget', () => {
   // @spec RT-WATCHDOG-STATE-007
   it('should leave a stored idle count untouched when a task is skipped for budget exhaustion', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(0);
     const arns = ['arn:task/a', 'arn:task/b'];
     ecsMock.on(ListTasksCommand).resolves({ taskArns: arns });
     ecsMock.on(DescribeTasksCommand).resolves({
