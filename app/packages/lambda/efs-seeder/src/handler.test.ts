@@ -214,4 +214,24 @@ describe('efs-seeder handler', () => {
     ).rejects.toThrow(/Invalid efs-seeder event.*seeds\[1\]/);
     expect(writeFileSyncMock).not.toHaveBeenCalled();
   });
+
+  // @spec HELPER-SEED-006
+  it.each([
+    ['an invalid mode', { path: '/palworld/b.ini', content: 'b=2', mode: '9zz' }, /invalid mode/],
+    ['no content', { path: '/palworld/b.ini' }, /neither content nor content_base64/],
+    ['both contents', { path: '/palworld/b.ini', content: 'b', content_base64: 'Yg==' }, /both content and content_base64/],
+    ['a path outside the volume', { path: '/other/b.ini', content: 'b' }, /does not start with container_path/],
+  ])('should write nothing when a later seed has %s', async (_label, bad, message) => {
+    await expect(
+      handler({
+        game: GAME,
+        seeds: [{ path: '/palworld/a.ini', content: 'a=1' }, bad],
+        container_path: CONTAINER_PATH,
+      }),
+    ).rejects.toThrow(message);
+
+    expect(mkdirSyncMock).not.toHaveBeenCalled();
+    expect(writeFileSyncMock).not.toHaveBeenCalled();
+    expect(chmodSyncMock).not.toHaveBeenCalled();
+  });
 });
