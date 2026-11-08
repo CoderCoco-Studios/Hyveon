@@ -134,9 +134,14 @@ Each game's `environment` values (container environment variables declared
 in the deployment configuration) are echoed verbatim into the stack outputs
 Pulumi's engine prints (`program.ts`'s `appliedGameServers`) — `PulumiService`
 redacts every sufficiently long (4+ characters) value, drawn from the
-current deployment configuration, out of `preview`/`apply`'s streamed
+current deployment configuration, out of `preview`, `apply` and `destroy`'s streamed
 stdout/stderr before it reaches the run-log viewer or the persisted
-`pulumi.log`. Shorter values pass through unredacted. See
+`pulumi.log`, and out of a failed run's error message. Destroy builds that
+set from the stack state's `appliedGameServers`, because it prints the
+outputs it deletes, and adds the configuration object as an extra source: an
+unreadable stack state fails the destroy before the engine runs, an
+unreadable configuration object does not. Shorter values pass through
+unredacted. See
 [Infrastructure — Run plan](/app/iac#run-plan).
 
 ## Files

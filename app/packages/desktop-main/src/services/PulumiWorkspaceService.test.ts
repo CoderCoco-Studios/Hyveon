@@ -37,11 +37,12 @@ import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { Writable } from 'node:stream';
 
-const { createMock, createOrSelectMock, mkdirSyncMock, existsSyncMock, loggerMock, spawnMock } = vi.hoisted(() => ({
+const { createMock, createOrSelectMock, mkdirSyncMock, existsSyncMock, writeFileSyncMock, loggerMock, spawnMock } = vi.hoisted(() => ({
   createMock: vi.fn(),
   createOrSelectMock: vi.fn(),
   mkdirSyncMock: vi.fn(),
   existsSyncMock: vi.fn(),
+  writeFileSyncMock: vi.fn(),
   loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   spawnMock: vi.fn(),
 }));
@@ -51,7 +52,7 @@ vi.mock('@pulumi/pulumi/automation/index.js', () => ({
   Stack: { createOrSelect: createOrSelectMock },
 }));
 
-vi.mock('node:fs', () => ({ mkdirSync: mkdirSyncMock, existsSync: existsSyncMock }));
+vi.mock('node:fs', () => ({ mkdirSync: mkdirSyncMock, existsSync: existsSyncMock, writeFileSync: writeFileSyncMock }));
 
 // Mocked file-wide for the legacy-passphrase-migration describe block below —
 // `migrateLegacyPassphrase` spawns the resolved `pulumi` binary directly
@@ -304,6 +305,7 @@ beforeEach(() => {
   createOrSelectMock.mockReset();
   mkdirSyncMock.mockReset();
   existsSyncMock.mockReset();
+  writeFileSyncMock.mockReset();
   loggerMock.debug.mockReset();
   loggerMock.info.mockReset();
   loggerMock.warn.mockReset();
@@ -907,6 +909,35 @@ describe('PulumiWorkspaceService.getOrCreateStack — legacy passphrase migratio
     const ws = createOrSelectWs();
     expect(ws.envVars['PULUMI_CONFIG_PASSPHRASE']).toBe(deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME));
     expect(createOrSelectMock).toHaveBeenCalledOnce();
+  });
+
+  // @spec IAC-ENGINE-PASS-008
+  it('should restore the missing project file before running the migration CLI', async () => {
+    const { service, store } = makeService();
+    store.setPulumiPassphrase(LEGACY_PASSPHRASE);
+    queueSpawnResult({ code: 0 });
+    existsSyncMock.mockReturnValue(false);
+
+    await service.getOrCreateStack(baseInput());
+
+    expect(writeFileSyncMock).toHaveBeenCalledTimes(1);
+    const [path, body] = writeFileSyncMock.mock.calls[0] as [string, string];
+    expect(path).toMatch(/Pulumi\.yaml$/);
+    expect(body).toContain('runtime: nodejs');
+    expect(writeFileSyncMock.mock.invocationCallOrder[0]).toBeLessThan(spawnMock.mock.invocationCallOrder[0]!);
+    expect(store.get('pulumi')?.passphrase).toBeUndefined();
+  });
+
+  // @spec IAC-ENGINE-PASS-008
+  it('should leave an existing project file alone', async () => {
+    const { service, store } = makeService();
+    store.setPulumiPassphrase(LEGACY_PASSPHRASE);
+    queueSpawnResult({ code: 0 });
+    existsSyncMock.mockReturnValue(true);
+
+    await service.getOrCreateStack(baseInput());
+
+    expect(writeFileSyncMock).not.toHaveBeenCalled();
   });
 
   it('should log stack name only, never either passphrase value, on successful migration', async () => {

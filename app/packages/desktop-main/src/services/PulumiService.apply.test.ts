@@ -800,6 +800,32 @@ describe('PulumiService.apply environment redaction', () => {
 
     expect(chunks).toEqual([{ stream: 'stdout', line: 'token=***REDACTED***' }]);
   });
+
+  // @spec IAC-ENGINE-REDACT-001
+  it('should redact environment values from a failed apply error message and the logged error', async () => {
+    const workspace = makeWorkspace(async () => {
+      throw new Error(`CommandError: code 255\nstdout: RCON_PASSWORD=${SECRET_VALUE}`);
+    });
+    const service = makeService({ workspace, remoteFileStore: makeRemoteFileStoreWithSecretEnv() });
+
+    let caught: unknown;
+    try {
+      await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(PulumiUpError);
+    expect((caught as Error).message).not.toContain(SECRET_VALUE);
+    expect((caught as Error).message).toContain('CommandError');
+    expect((caught as { cause?: unknown }).cause).toBeUndefined();
+    const failureLog = loggerMock.error.mock.calls.find(([message]) => message === 'pulumi apply: operation failed');
+    expect(failureLog).toBeDefined();
+    const loggedError = (failureLog?.[1] as { error?: unknown }).error;
+    expect(typeof loggedError).toBe('string');
+    expect(loggedError).toContain('CommandError');
+    expect(loggedError).not.toContain(SECRET_VALUE);
+  });
 });
 
 // @spec IAC-RUN-PART-001
@@ -1038,6 +1064,43 @@ describe('PulumiService.apply lock-recovery', () => {
     expect(cancelMock).toHaveBeenCalledTimes(1);
     expect(upCallCount).toBe(2);
     expect(result).toEqual({ runId: PLAN_RUN_ID, changeSummary: {} });
+  });
+
+  // @spec IAC-ENGINE-LIFE-007, IAC-ENGINE-LOCK-004
+  it.each([
+    ['the first call is failing with the conflict', 'call'],
+    ['stack.cancel() is clearing the lock', 'cancel'],
+  ] as const)('should not retry stack.up() when the signal aborts while %s', async (_label, phase) => {
+    vi.spyOn(process, 'kill').mockImplementation(() => {
+      const err = new Error('no such process') as NodeJS.ErrnoException;
+      err.code = 'ESRCH';
+      throw err;
+    });
+    const store = makeFullyConfiguredStore();
+    store.recordPulumiLockAttempt('production');
+    const conflictMessage = diyLockMessage([
+      { pid: 4242, username: TEST_USERNAME, hostname: TEST_HOSTNAME, lockedAt: new Date().toISOString() },
+    ]);
+    const controller = new AbortController();
+    let engineCalls = 0;
+    const cancelMock = vi.fn().mockImplementation(async () => {
+      if (phase === 'cancel') controller.abort();
+    });
+    const workspace = makeWorkspace(
+      async () => {
+        engineCalls += 1;
+        if (phase === 'call') controller.abort();
+        throw new Error(conflictMessage);
+      },
+      { cancel: cancelMock },
+    );
+    const service = makeService({ workspace, store });
+
+    const { result } = await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH, controller.signal));
+
+    expect(result).toBeUndefined();
+    expect(engineCalls).toBe(1);
+    expect(cancelMock).toHaveBeenCalledTimes(phase === 'cancel' ? 1 : 0);
   });
 
   // @spec IAC-ENGINE-LOCK-005

@@ -68,6 +68,7 @@ export class PulumiServiceStub {
   private stackOutputs: StackOutputs | null = null;
   private operationInFlight: PulumiOperationName | null = null;
   private destroyToken = 'stub-destroy-confirmation-token';
+  private lockClearToken = 'stub-lock-clear-confirmation-token';
   private previewRun: ScriptedPulumiRun<PulumiPreviewResult> = EMPTY_RUN;
   private applyRun: ScriptedPulumiRun<PulumiUpResult> = EMPTY_RUN;
   private destroyRun: ScriptedPulumiRun<PulumiDestroyResult> = EMPTY_RUN;
@@ -109,6 +110,7 @@ export class PulumiServiceStub {
     this.stackOutputs = null;
     this.operationInFlight = null;
     this.destroyToken = 'stub-destroy-confirmation-token';
+    this.lockClearToken = 'stub-lock-clear-confirmation-token';
     this.previewRun = EMPTY_RUN;
     this.applyRun = EMPTY_RUN;
     this.destroyRun = EMPTY_RUN;
@@ -129,6 +131,12 @@ export class PulumiServiceStub {
   /** @see PulumiService.mintDestroyConfirmationToken */
   mintDestroyConfirmationToken(): string {
     return this.destroyToken;
+  }
+
+  // @spec IAC-ENGINE-RT-003
+  /** @see PulumiService.mintLockClearConfirmationToken */
+  mintLockClearConfirmationToken(): string {
+    return this.lockClearToken;
   }
 
   /** @see PulumiService.initializeStack — no-op; there is no real workspace to provision against an in-memory stub. */

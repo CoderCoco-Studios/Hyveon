@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Injectable } from '@nestjs/common';
@@ -178,6 +178,9 @@ function isNetworkFailureMessage(message: string): boolean {
 /** `NodeJS.ErrnoException` codes treated as an unwritable cache directory. */
 const CACHE_WRITE_ERRNO_CODES = new Set(['EACCES', 'EPERM', 'EROFS', 'ENOSPC']);
 
+/** Minimum age before a `.staging-`/`.trash-` leftover is treated as crashed-install debris, not another instance's work. */
+const STALE_LEFTOVER_MIN_AGE_MS = 60 * 60 * 1000;
+
 // @spec IAC-ENGINE-PFAIL-001
 /**
  * Classifies a failure raised while installing the engine (either from
@@ -251,7 +254,7 @@ function removeDirBestEffort(path: string, context: string): void {
   try {
     rmSync(path, { recursive: true, force: true });
   } catch (err) {
-    logger.error('Failed to clean up Pulumi engine directory', { path, context, err });
+    logger.error('Failed to clean up Pulumi engine directory', { path, context, error: errMessage(err) });
   }
 }
 
@@ -448,14 +451,14 @@ export class PulumiEngineService {
       if (isProvablyBadCacheEntry(err)) {
         logger.warn('Pulumi engine cache entry is provably invalid — discarding and reprovisioning', {
           root,
-          err,
+          error: errMessage(err),
         });
         removeDirBestEffort(root, 'provably invalid cache entry');
       } else {
         logger.warn(
           'Pulumi engine cache entry failed an ambiguous, possibly-transient check — leaving it in ' +
             'place and reprovisioning fresh; a successful reprovision will swap it aside rather than lose it',
-          { root, err },
+          { root, error: errMessage(err) },
         );
       }
       return null;
@@ -534,7 +537,7 @@ export class PulumiEngineService {
           logger.error('Failed to restore prior Pulumi engine install after a failed swap', {
             root,
             trashDir,
-            restoreErr,
+            error: errMessage(restoreErr),
           });
         }
       }
@@ -578,7 +581,7 @@ export class PulumiEngineService {
           logger.error('Failed to restore prior Pulumi engine install after post-rename verification failed', {
             root,
             trashDir,
-            restoreErr,
+            error: errMessage(restoreErr),
           });
         }
       }
@@ -604,32 +607,45 @@ export class PulumiEngineService {
     }
   }
 
-  // @spec IAC-ENGINE-PIN-004
+  // @spec IAC-ENGINE-PIN-004, IAC-ENGINE-PROV-012
   /**
-   * Best-effort removes every entry directly under `versionsDir` other than
-   * the current pin's own directory (`keepRoot`) and any in-flight
-   * `.staging-`/`.trash-` directory — version-namespacing (see the class
-   * TSDoc) solved staleness by never reusing an old pin's directory, but
-   * without pruning the cache would otherwise grow by a few hundred MB on
-   * every pin bump for the lifetime of the installation. Called once per
-   * successful provisioning, right after a new pin's directory is confirmed
-   * installed and verified. Never throws — a pruning failure (including
-   * failing to even list `versionsDir`) is logged and otherwise ignored,
-   * since failing to reclaim disk space is not a reason to fail
-   * provisioning that already succeeded.
+   * Best-effort removes every entry directly under `versionsDir` other than the current pin's own directory
+   * (`keepRoot`), including `.staging-` and `.trash-` directories left by an earlier crashed install.
+   *
+   * @remarks
+   * This service's own staging and trash directories are already gone by the time it runs, but the app has no
+   * single-instance lock, so a second instance may be mid-install in its own `.staging-` directory. Leftovers are
+   * therefore removed only once their mtime is older than {@link STALE_LEFTOVER_MIN_AGE_MS}; one that cannot be
+   * stat'ed is skipped. Version-namespacing means an old pin's directory is never reused, so pruning only reclaims
+   * disk. Never throws: a pruning failure, including failing to list `versionsDir`, is logged and ignored because
+   * provisioning already succeeded.
+   *
+   * @param versionsDir - The `versions/` directory under the engine cache root.
+   * @param keepRoot - The current pin's install directory, which is never removed.
    */
   private pruneOldVersions(versionsDir: string, keepRoot: string): void {
     let entries: string[];
     try {
       entries = readdirSync(versionsDir);
     } catch (err) {
-      logger.warn('Failed to list Pulumi engine versions directory for pruning', { versionsDir, err });
+      logger.warn('Failed to list Pulumi engine versions directory for pruning', { versionsDir, error: errMessage(err) });
       return;
     }
+    const now = Date.now();
     for (const entry of entries) {
-      if (entry.startsWith('.staging-') || entry.startsWith('.trash-')) continue;
       const entryPath = join(versionsDir, entry);
       if (entryPath === keepRoot) continue;
+      if (entry.startsWith('.staging-') || entry.startsWith('.trash-')) {
+        try {
+          if (now - statSync(entryPath).mtimeMs < STALE_LEFTOVER_MIN_AGE_MS) continue;
+        } catch (err) {
+          logger.warn('Failed to stat a Pulumi engine install leftover; leaving it in place', {
+            entryPath,
+            error: errMessage(err),
+          });
+          continue;
+        }
+      }
       removeDirBestEffort(entryPath, 'superseded pinned version');
     }
   }

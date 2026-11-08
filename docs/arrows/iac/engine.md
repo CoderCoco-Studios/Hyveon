@@ -6,7 +6,7 @@ The machinery that actually runs Pulumi inside the app: downloads the pinned eng
 
 **MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
 
-Engine provisioning, the workspace seam, credential exclusivity and provable-ownership lock recovery are implemented and heavily unit-tested; gaps are destroy-output redaction, quit-time termination of an in-flight engine, an uncancellable stack initialization, and a 5,004-line `PulumiService.ts` shared with `iac/run` that carries triplicated streaming code and many stale comments.
+Engine provisioning, the workspace seam, credential exclusivity and provable-ownership lock recovery are implemented and heavily unit-tested; every active spec is implemented or deferred; the remaining work is structural: a 5,000-line `PulumiService.ts` shared with `iac/run` that carries triplicated streaming code and many stale comments.
 
 ## References
 
@@ -99,61 +99,54 @@ Engine provisioning, the workspace seam, credential exclusivity and provable-own
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
-| Engine provisioning | `IAC-ENGINE-PROV-001` to `IAC-ENGINE-PROV-012` | 10 | 0 | 2 |
+| Engine provisioning | `IAC-ENGINE-PROV-001` to `IAC-ENGINE-PROV-012` | 11 | 1 | 0 |
 | Engine version pin | `IAC-ENGINE-PIN-001` to `IAC-ENGINE-PIN-005` | 5 | 0 | 0 |
-| Engine provisioning failure | `IAC-ENGINE-PFAIL-001` to `IAC-ENGINE-PFAIL-006` | 5 | 0 | 1 |
+| Engine provisioning failure | `IAC-ENGINE-PFAIL-001` to `IAC-ENGINE-PFAIL-006` | 6 | 0 | 0 |
 | Workspace seam | `IAC-ENGINE-WS-001` to `IAC-ENGINE-WS-010` | 10 | 0 | 0 |
-| Secrets passphrase | `IAC-ENGINE-PASS-001` to `IAC-ENGINE-PASS-008` | 7 | 0 | 1 |
+| Secrets passphrase | `IAC-ENGINE-PASS-001` to `IAC-ENGINE-PASS-008` | 8 | 0 | 0 |
 | Credentials | `IAC-ENGINE-CRED-001` to `IAC-ENGINE-CRED-006` | 6 | 0 | 0 |
-| Output redaction | `IAC-ENGINE-REDACT-001` to `IAC-ENGINE-REDACT-002` | 1 | 0 | 1 |
-| Stale backend lock recovery | `IAC-ENGINE-LOCK-001` to `IAC-ENGINE-LOCK-010` | 9 | 0 | 1 |
-| Engine process lifecycle | `IAC-ENGINE-LIFE-001` to `IAC-ENGINE-LIFE-009` | 5 | 0 | 4 |
+| Output redaction | `IAC-ENGINE-REDACT-001` to `IAC-ENGINE-REDACT-002` | 2 | 0 | 0 |
+| Stale backend lock recovery | `IAC-ENGINE-LOCK-001` to `IAC-ENGINE-LOCK-010` | 10 | 0 | 0 |
+| Engine process lifecycle | `IAC-ENGINE-LIFE-001` to `IAC-ENGINE-LIFE-009` | 8 | 1 | 0 |
 | Leaked-promise recovery | `IAC-ENGINE-LEAK-001` to `IAC-ENGINE-LEAK-003` | 3 | 0 | 0 |
-| Stack initialization | `IAC-ENGINE-INIT-001` to `IAC-ENGINE-INIT-007` | 6 | 0 | 1 |
-| Stack outputs | `IAC-ENGINE-OUT-001` to `IAC-ENGINE-OUT-011` | 10 | 0 | 1 |
+| Stack initialization | `IAC-ENGINE-INIT-001` to `IAC-ENGINE-INIT-007` | 7 | 0 | 0 |
+| Stack outputs | `IAC-ENGINE-OUT-001` to `IAC-ENGINE-OUT-011` | 11 | 0 | 0 |
 | Install region | `IAC-ENGINE-REGION-001` to `IAC-ENGINE-REGION-002` | 2 | 0 | 0 |
-| Electron runtime guard | `IAC-ENGINE-RT-001` to `IAC-ENGINE-RT-003` | 2 | 0 | 1 |
+| Electron runtime guard | `IAC-ENGINE-RT-001` to `IAC-ENGINE-RT-003` | 3 | 0 | 0 |
 
-**Summary:** 81 of 94 active specs implemented; 0 deferred; 13 gaps.
+**Summary:** 92 of 94 active specs implemented; 2 deferred; 0 gaps.
 
 ## Key Findings
 
-1. **Destroy output is not env-redacted**: `destroy()`'s `push` enqueues raw lines (`PulumiService.ts:3034-3037`) while preview (`:1648`) and apply (`:2297`) pass every line through `redactEnvironmentValues`. Destroy lines reach `recordRunChunk`, the live stream and `pulumi.log` (`:3130-3131,3190`). `appliedGameServers` is a stack output (`:1054`) that appears to carry game env values, so a destroy transcript may print them [inferred: depends on Pulumi's destroy display]. `PulumiService.destroy.test.ts` has no redaction case (sweep-5, consistent with code).
-2. **No quit-time termination of an in-flight engine**: `electron-entry.ts` only calls `app.quit()` on `window-all-closed` (`electron-entry.ts:251`), with no `before-quit`/`will-quit` handler, and no desktop-main provider implements `onModuleDestroy`/`onApplicationShutdown` except `folder-upload.controller.ts`. Nothing aborts `PulumiService`'s internal controllers on quit. Whether the Electron process still exits cleanly with a live `pulumi` child is `[unverified]`; the spec scenario "App quits with an operation in flight" has no code behind it.
-3. **Escalation claims a kill that never happens**: escalation only abandons the promise (`PulumiCancellation.ts:226-238`), but `PulumiOperationEscalatedError`'s message says the invocation "has been forcefully terminated" (`:118-119`) and the log says "force-terminating" (`:232`). No caller passes `onEscalate` (`PulumiService.ts:1674-1683,2375-2378,3110-3113`), so an escalated `pulumi` child keeps running. Escalated runs deliberately keep their lock-ownership record as reclaim evidence (`:2417-2420,3151-3154`).
-4. **Stack initialization is neither cancellable nor lock-recoverable**: `initializeStack(onPhase?)` takes no `AbortSignal` (`PulumiService.ts:1113`) and `stack.refresh()` runs bare (`:1168`), with no `runWithEscalatingCancellation`, no leaked-promise wrapper and no `classifyStackLockConflict` (unlike up/destroy at `:2325-2347,3061-3083`). The wizard's `cancel()` only stops consumption (`stack-init-step.component.tsx:118-122`). A lock conflict during refresh surfaces as `PulumiStackInitializationError('operation')` (`:1172`) with no reclaim path.
+1. **Destroy output redaction fails closed on the stack state**: `destroy()` builds its redaction set with `loadDestroyRedactionSet`, which reads the stack state (`appliedGameServers`) first; an unreadable state fails the destroy before the engine runs. The stored configuration object is an additional best-effort source, and an unreadable or malformed one only logs a fixed warning (`IAC-ENGINE-REDACT-002`).
+2. **Quit waits for in-flight operations to wind down**: `installOperationQuitHook` prevents the first `before-quit`, calls `PulumiService.abortInFlightOperations()`, waits up to 15 s for `PulumiService.whenIdle()` and the file manager helper stopper, then calls `quit()` once; a 10 s force-exit timer after `quit()` is the backstop (`IAC-ENGINE-LIFE-009`). Whether Electron exits cleanly with a live `pulumi` child without the force-exit is `[unverified]`.
+3. **Escalation wording is honest**: escalation abandons the promise and says so (`IAC-ENGINE-LIFE-004`). Only `initializeStack` passes `onEscalate`, and its hook merely records that the run escalated; it does not kill the child, so an escalated `pulumi` child keeps running. Escalated runs deliberately keep their lock-ownership record as reclaim evidence.
+4. **Stack initialization is cancellable and lock-recoverable**: `initializeStack(onPhase?, signal?)` runs `refresh()` through `runWithEscalatingCancellation`, the leaked-promise wrapper and the shared `runWithOwnOrphanLockRecovery` (`IAC-ENGINE-LIFE-007`, `IAC-ENGINE-LOCK-010`). No operator cancel channel exists yet (`IAC-ENGINE-LIFE-006`, deferred with `IAC-RUN-CANCEL-001`).
 5. **Passphrase is portable**: code derives a per-AWS-account passphrase (`PulumiWorkspaceService.ts:95-99,425-435`), never stored; `iac/engine` owns the decision.
-6. **Legacy passphrase migration has a documented dead end**: migration runs the CLI in `workDir` before `LocalWorkspace.create` and needs a `Pulumi.yaml` from a prior run; if `workDir` was wiped but `pulumi.passphrase` survived, every `getOrCreateStack` fails and needs a manual reset (doc comment in `PulumiWorkspaceService.ts:522-591`; call site `:459-473`). Every Pulumi read, including `getStackOutputs`, is blocked in that state.
-7. **`getStackOutputs` is a write-capable, flaky read**: it returns `null` whenever any operation or stack init is in flight (`PulumiService.ts:970-976`), and `ConfigService` caches that `null` for 20 s (`ConfigService.ts:99,145-150`). It goes through `getOrCreateStack`, which calls `Stack.createOrSelect` (`PulumiWorkspaceService.ts:508`) and can run the legacy migration, so a dashboard poll can create a stack or re-encrypt secrets [inferred]. It logs the raw `err` object (`PulumiService.ts:1006-1008`), against `.claude/rules/logging.md`.
+6. **Legacy passphrase migration restores a missing project file**: `restoreProjectSettingsFileIfMissing` writes a minimal `Pulumi.yaml` before the migration CLI runs, so a wiped `workDir` no longer dead-ends (`IAC-ENGINE-PASS-008`). Every Pulumi read, including `getStackOutputs`, can still trigger the migration.
+7. **`getStackOutputs` is a write-capable, flaky read**: it returns `null` whenever any operation or stack init is in flight (`PulumiService.ts:970-976`), and `ConfigService` caches that `null` for 20 s (`ConfigService.ts:99,145-150`). It goes through `getOrCreateStack`, which calls `Stack.createOrSelect` (`PulumiWorkspaceService.ts:508`) and can run the legacy migration, so a dashboard poll can create a stack or re-encrypt secrets [inferred].
 8. **Lock-recovery side effects and identity scope**: `classifyStackLockConflict` prunes and consumes ownership records as a side effect of classifying (`PulumiLockRecovery.ts:281,301`). The app never calls `requestSingleInstanceLock` (`:33-34`), so a second instance on the same host shares the identity; the dead-PID check (`:217`) is what stops a live sibling's lock being reclaimed.
-9. **Engine cache hygiene and logging**: `pruneOldVersions` skips every `.staging-`/`.trash-` entry (`PulumiEngineService.ts:622`), so debris from a crashed install is never reclaimed. Raw `err` objects are logged at `:253,446,453,618` (and `restoreErr` at `:531,575`), which serialise to `{}` through this logger per `PulumiLeakedPromise.ts:205-210`. `getEngineCacheRoot` says it mirrors `ConfigService.getRunsDir()` (`:641`), which does not exist; the method is `PulumiService.getRunsDir` (`PulumiService.ts:4359`).
+9. **Engine cache hygiene**: `pruneOldVersions` reclaims crashed-install `.staging-`/`.trash-` directories and every engine log normalises the error message (`IAC-ENGINE-PROV-012`, `IAC-ENGINE-PFAIL-006`). `getEngineCacheRoot` says it mirrors `ConfigService.getRunsDir()`, which does not exist; the method is `PulumiService.getRunsDir`.
 10. **Raw `process.env` in business logic**: `PulumiService.ts:4341` (`HYVEON_CONFIG_BUCKET`), `:4360` (`RUNS_DIR_PATH`), `:4397` (`HYVEON_LAMBDA_BUNDLES_DIR`); `PulumiEngineService.ts:656`; `PulumiWorkspaceService.ts:787`. `PulumiService.getConfigurationBucket` (`:4339-4343`) duplicates `ConfigService.getConfigurationBucket` (`ConfigService.ts:233-238`) because of the import cycle (`PulumiService.ts:195-208`). Violates `typescript-conventions.md` rule 2.
 11. **Duplication past the `duplication.md` threshold**: chunk-streaming setup and drain loop three times (`PulumiService.ts:1635-1714`, `:2285-2406`, `:3027-3141`); identical outcome switches three times (`:3909-3918`, `:3926-3935`, `:4054-4063`); hand-rolled destroy token (`:2734-2744,3798-3838`) beside the shared `LockClearConfirmationGate` used for lock clear (`:700-707,3853-3888`).
 12. **Stale comments in the orchestrator and its modules**: Terraform-era `plan()`/`spawnAndStream` references (`PulumiService.ts:1566,1635,1671,1685,1698,1737`); "no `PulumiController` yet" (`:1854,2700,3893`) although `IacController` drives the service; `:2114-2115` says destroy never touches `RunLockService` but destroy calls `createRun` (`:2960`). `PulumiWorkspaceService.ts:800-801` says "three constructor dependencies" (two, `:335-338`). `pulumi-workspace.module.ts:10-11` describes an "encrypted passphrase accessor pair" that "gates generating one", though the passphrase is now derived. `ConfigService.ts:102-104` cites `/api/games`/`/api/status` handlers that no longer exist; `:27` lists only `AWS_DEFAULT_REGION` though `CONFIG_CACHE_TTL_MS` and `HYVEON_CONFIG_BUCKET` are also read; `:9-13` documents the TTL as `DeploymentConfigService`'s.
 13. **Dead code**: `ConfigService.readResourcesPath` (`ConfigService.ts:213-215`) has no caller in desktop-main (only `PulumiService.ts:4401` uses its own delegate). `getActiveCloud()` is hard-coded `'aws'` (`:276-278`).
-14. **Test double drift**: `PulumiServiceStub` has no `mintLockClearConfirmationToken` (`pulumi-mock.ts:119-191`) though `iac.controller.ts:956` calls it, and `PulumiOperationName` re-declares `getOperationInFlight`'s union by hand (`pulumi-mock.ts:10-11`). `ConfigService.test.ts:279-283` is titled "should default to 30000 and warn" but never asserts the warn (sweep-4) `[unverified]`.
-15. **Phase attribution can mislabel**: failures inside `getOrCreateStack` after the engine phase has ended (STS, migration, `createOrSelect`) are classified `'operation'` (`PulumiService.ts:1346-1354`) before any `'operation'` start event, while the wizard marks the last-started row, the already-finished `engine` row, as failed (`stack-init-step.component.tsx:129,140,149`) [inferred].
+14. **Test double drift**: `PulumiOperationName` re-declares `getOperationInFlight`'s union by hand (`pulumi-mock.ts:10-11`). `ConfigService.test.ts:279-283` is titled "should default to 30000 and warn" but never asserts the warn (sweep-4) `[unverified]`. `PulumiServiceStub` now implements `mintLockClearConfirmationToken` (`IAC-ENGINE-RT-003`).
+15. **Phase attribution is accurate**: a `getOrCreateStack` failure after the engine phase ended emits an `operation` start/end pair so the wizard marks the `operation` row (`IAC-ENGINE-INIT-005`).
 
 ## Work Required
 
-Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/engine/engine-specs.md`; items with no matching gap spec carry none.
+Every active spec in `docs/intent/iac/engine/engine-specs.md` is implemented or deferred; the items below are structural and carry no gap spec.
 
 ### Must Fix
-1. Route destroy output through `redactEnvironmentValues` like preview and apply, and add the missing destroy redaction test (finding 1). (specs: `IAC-ENGINE-REDACT-002`)
-2. Abort in-flight Pulumi operations on app quit (a `before-quit` handler or a Nest shutdown hook), or amend the spec scenario if exit-without-termination is accepted (finding 2). (specs: `IAC-ENGINE-LIFE-009`)
-3. Make `initializeStack` cancellable and run its `refresh()` through the same cancellation, leaked-promise and lock-classification wrappers as up and destroy (finding 4). (specs: `IAC-ENGINE-LIFE-007`, `IAC-ENGINE-LOCK-010`)
+None.
 
 ### Should Fix
-6. Correct `PulumiOperationEscalatedError`'s message and the escalation log to say the promise was abandoned, not the process killed (finding 3). (specs: `IAC-ENGINE-LIFE-004`)
 8. Extract the triplicated streaming setup, outcome switches and destroy-token gate; reuse `LockClearConfirmationGate` for destroy (finding 11).
 9. Move raw `process.env` reads behind stubbable accessors and remove the duplicated `getConfigurationBucket` once the import cycle allows it (finding 10).
-10. Normalise raw `err` logging in `PulumiEngineService` and `PulumiService.getStackOutputs` (findings 7, 9). (specs: `IAC-ENGINE-PFAIL-006`, `IAC-ENGINE-OUT-003`)
-11. Prune orphaned `.staging-`/`.trash-` engine directories (finding 9). (specs: `IAC-ENGINE-PROV-012`)
 12. Remove stale comments and dead `ConfigService.readResourcesPath` (findings 12, 13).
-13. Add `mintLockClearConfirmationToken` to `PulumiServiceStub` and derive `PulumiOperationName` from the real type (finding 14). (specs: `IAC-ENGINE-RT-003`)
+13. Derive `PulumiOperationName` in `pulumi-mock.ts` from the real type (finding 14).
 14. Split `PulumiService.ts` along the run/engine seam (run gates, locking and run lifecycle for `iac/run`; workspace, backend, credentials and engine plumbing for this leaf) as its own pure-refactor change with no behaviour change. This removes the `run` <-> `engine` cycle in `docs/arrows/index.yaml` (`iac-design.md`, decision 10; `engine-design.md`, Decisions & Alternatives, "File layout").
 
 ### Nice to Have
 15. Give `getStackOutputs` a select-only, migration-free path so reads cannot create a stack (finding 7).
-16. Provide an operator-facing reset for the legacy-migration dead end (finding 6). (specs: `IAC-ENGINE-PASS-008`)
-17. Align stack-init phase attribution between backend and wizard (finding 15). (specs: `IAC-ENGINE-INIT-005`)

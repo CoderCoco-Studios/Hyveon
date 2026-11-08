@@ -30,6 +30,7 @@ import type {
   ChangeSummary,
   DeploymentConfig,
   DeploymentConfigDiff,
+  GameServerConfig,
   OpType,
   RemoteFileStore,
   RunKind,
@@ -756,6 +757,95 @@ export class PulumiService {
   }
 
   /**
+   * Aborted by {@link abortInFlightOperations}; folded into every operation's own signal. One-way by design: the
+   * only caller is app shutdown, after which every new operation is refused as not started, so it is never reset.
+   */
+  private readonly shutdownController = new AbortController();
+
+  /** Operations (preview, apply, destroy, rollback, stack init) from first start to final settlement. */
+  private activeOperations = 0;
+
+  private idleWaiters: Array<() => void> = [];
+
+  /**
+   * Resolves once no operation is running and every run record has been persisted and its durable lock released.
+   * App shutdown awaits it after {@link abortInFlightOperations}.
+   *
+   * @returns A promise that resolves immediately when nothing is running.
+   */
+  whenIdle(): Promise<void> {
+    if (this.activeOperations === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.idleWaiters.push(resolve);
+    });
+  }
+
+  /** Marks one tracked operation finished and wakes {@link whenIdle} waiters when it was the last. */
+  private releaseOperation(): void {
+    this.activeOperations -= 1;
+    if (this.activeOperations > 0) return;
+    const waiters = this.idleWaiters;
+    this.idleWaiters = [];
+    for (const wake of waiters) wake();
+  }
+
+  /**
+   * Counts an operation generator as active from its first step until its own `finally` blocks, which persist the run
+   * record and release the lock, have completed.
+   *
+   * @param operation - The operation's generator.
+   * @returns A generator that forwards every chunk, the return value and any force-close to `operation`.
+   */
+  private async *trackOperation<T, R>(operation: AsyncGenerator<T, R>): AsyncGenerator<T, R> {
+    this.activeOperations += 1;
+    try {
+      return yield* operation;
+    } finally {
+      this.releaseOperation();
+    }
+  }
+
+  // @spec IAC-ENGINE-LIFE-009
+  /**
+   * Aborts every in-flight preview, apply, destroy, rollback and stack
+   * initialization so a `SIGINT` reaches the engine during app shutdown. An
+   * operation started afterwards is refused as not started.
+   *
+   * @returns `true` when an operation was in flight and has been signalled.
+   */
+  abortInFlightOperations(): boolean {
+    const busy = this.operationInFlight !== null || this.stackInitInFlight;
+    this.shutdownController.abort();
+    return busy;
+  }
+
+  /**
+   * Makes `onAbort` fire when {@link abortInFlightOperations} runs, or immediately if it already has. The caller
+   * detaches `onAbort` from `shutdownController.signal` when its operation settles.
+   *
+   * @param controller - The operation's internal controller, aborted at once when shutdown has already begun.
+   * @param onAbort - The operation's abort handler.
+   */
+  private linkShutdownSignal(controller: AbortController, onAbort: () => void): void {
+    if (this.shutdownController.signal.aborted) {
+      controller.abort();
+    } else {
+      this.shutdownController.signal.addEventListener('abort', onAbort, { once: true });
+    }
+  }
+
+  /**
+   * Folds the app-shutdown signal into a caller's signal so
+   * {@link abortInFlightOperations} reaches the engine call.
+   *
+   * @param signal - The caller's own cancellation signal, if any.
+   * @returns A signal that aborts when either source does.
+   */
+  private withShutdownSignal(signal: AbortSignal | undefined): AbortSignal {
+    return signal ? AbortSignal.any([signal, this.shutdownController.signal]) : this.shutdownController.signal;
+  }
+
+  /**
    * Dedicated reentrancy guard for {@link initializeStack} — deliberately
    * NOT folded into {@link operationInFlight} (widening that union to a
    * fifth `'stack-init'` value would ripple into `IacController`'s
@@ -939,7 +1029,7 @@ export class PulumiService {
     }
   }
 
-  // @spec IAC-ENGINE-OUT-001, IAC-ENGINE-OUT-002
+  // @spec IAC-ENGINE-OUT-001, IAC-ENGINE-OUT-003, IAC-ENGINE-OUT-002
   // @spec IAC-PROGRAM-OUT-008
   /**
    * Reads every value the app cares about off the deployed Pulumi stack.
@@ -1008,7 +1098,7 @@ export class PulumiService {
       // (not just a missing backend) degrades to `null` rather than
       // propagating — the never-throw contract every call site relies on.
       logger.warn('PulumiService.getStackOutputs: failed to read stack outputs, treating as not deployed', {
-        err,
+        error: errMessage(err),
       });
       return null;
     }
@@ -1062,6 +1152,7 @@ export class PulumiService {
 
   // @spec IAC-ENGINE-INIT-001, IAC-ENGINE-INIT-002, IAC-ENGINE-INIT-003, IAC-ENGINE-INIT-004, IAC-ENGINE-PROV-009,
   // @spec IAC-ENGINE-PFAIL-005, IAC-ENGINE-LOCK-001
+  // @spec IAC-ENGINE-LOCK-010, IAC-ENGINE-LIFE-007, IAC-ENGINE-INIT-005
   /**
    * The wizard's stack-initialization step. Initializes — or, on a retry,
    * re-verifies — the one Pulumi stack this app manages end to end:
@@ -1095,12 +1186,17 @@ export class PulumiService {
    * respective step directly.
    *
    * `stack.refresh()`, unlike `preview()`, does take the DIY backend lock, so
-   * this records lock ownership immediately before calling it — mirroring
-   * `apply`/`destroy`'s own "recorded immediately before, cleared on every
-   * normal settlement" pattern — but deliberately does not also wire their
-   * full retry-on-reclaimable-orphan / `PulumiUnrecognizedLockError`
-   * classification: against a brand-new, zero-resource stack, the wizard's
-   * own Retry button is already a strictly simpler recovery path.
+   * it records lock ownership immediately before calling it and runs through
+   * the same escalating-cancellation, leaked-promise and lock-classification
+   * wrappers as `up`/`destroy`: a provable own-orphan lock is cleared and the
+   * refresh retried once, any other conflict surfaces as
+   * {@link PulumiUnrecognizedLockError} (the cause of the thrown
+   * `'operation'` {@link PulumiStackInitializationError}). The ownership
+   * record is kept when the refresh is escalated.
+   *
+   * When `getOrCreateStack` fails after the engine phase ended, an
+   * `'operation'` start/end pair is reported before throwing so the wizard
+   * marks the right row.
    *
    * Refuses to start while {@link operationInFlight} is set — this method
    * touches the same shared local `workDir`/`Pulumi.<stack>.yaml` that
@@ -1111,14 +1207,28 @@ export class PulumiService {
    * @param onPhase - Optional progress callback; receives a `'start'`/`'end'`
    *   pair for every phase actually reached, in order. A phase never
    *   reached never fires.
+   * @param signal - Optional cancellation signal; aborting it sends
+   *   `SIGINT` to the `refresh` engine call through the same escalating
+   *   wrapper `up`/`destroy` use.
    * @throws {@link PulumiOperationInFlightError} if `preview`/`apply`/
    *   `destroy`/`confirmRollback` is already running.
    * @throws `Error` if this method is already running (reentrancy guard).
    * @throws {@link PulumiStackInitializationError} for every other failure —
    *   see "Error attribution" above.
    */
-  async initializeStack(onPhase?: PulumiPhaseCallback): Promise<void> {
+  async initializeStack(onPhase?: PulumiPhaseCallback, signal?: AbortSignal): Promise<void> {
+    this.activeOperations += 1;
+    try {
+      await this.initializeStackOperation(onPhase, signal);
+    } finally {
+      this.releaseOperation();
+    }
+  }
+
+  /** The body of {@link initializeStack}, split out so the public method can track it for {@link whenIdle}. */
+  private async initializeStackOperation(onPhase?: PulumiPhaseCallback, signal?: AbortSignal): Promise<void> {
     logger.debug('PulumiService.initializeStack: initializing pulumi stack');
+    signal = this.withShutdownSignal(signal);
     if (this.operationInFlight) {
       throw new PulumiOperationInFlightError(this.operationInFlight);
     }
@@ -1153,7 +1263,13 @@ export class PulumiService {
         logger.error('PulumiService.initializeStack: getOrCreateStack failed', {
           error: errMessage(err),
         });
-        throw new PulumiStackInitializationError(PulumiService.classifyGetOrCreateStackFailure(err), err);
+        const phase = PulumiService.classifyGetOrCreateStackFailure(err);
+        if (phase === 'operation') {
+          // The engine phase already ended; give the wizard an `operation` row to mark failed.
+          onPhase?.('operation', 'start');
+          onPhase?.('operation', 'end');
+        }
+        throw new PulumiStackInitializationError(phase, err);
       }
 
       onPhase?.('plugins', 'start');
@@ -1169,21 +1285,87 @@ export class PulumiService {
       }
 
       onPhase?.('operation', 'start');
-      // Lock-recovery bookkeeping only (see TSDoc) — not the full apply/destroy recovery apparatus.
       const lockAttemptId = this.store.recordPulumiLockAttempt(PULUMI_STACK_NAME);
+      let escalated = false;
       try {
-        await stack.refresh();
+        await runWithEscalatingCancellation(
+          (innerSignal) =>
+            runTreatingLeakedPromiseAsSuccess(
+              () =>
+                this.runWithOwnOrphanLockRecovery(stack, 'refresh', {}, innerSignal, async () => {
+                  await stack.refresh({ signal: innerSignal });
+                }),
+              async () => undefined,
+            ),
+          signal,
+          { onEscalate: () => { escalated = true; } },
+        );
       } catch (err) {
         logger.error('PulumiService.initializeStack: stack.refresh() failed', {
           error: errMessage(err),
         });
         throw new PulumiStackInitializationError('operation', err);
       } finally {
-        this.store.clearPulumiLockAttempt(lockAttemptId);
+        // An escalated refresh may still hold the lock; keep its ownership record as reclaim evidence.
+        if (!escalated) this.store.clearPulumiLockAttempt(lockAttemptId);
         onPhase?.('operation', 'end');
       }
     } finally {
       this.stackInitInFlight = false;
+    }
+  }
+
+  // @spec IAC-ENGINE-LOCK-004, IAC-ENGINE-LOCK-005, IAC-ENGINE-LOCK-010
+  /**
+   * Runs a lock-taking engine call and, when it hits a backend lock conflict,
+   * either clears a provable own-orphan with `stack.cancel()` and retries the
+   * call once, or throws {@link PulumiUnrecognizedLockError} so the operator
+   * confirms before anything is cleared. Shared by `up`, `destroy` and the
+   * stack-init `refresh` so all three classify identically.
+   *
+   * @typeParam T - The engine call's result type.
+   * @param stack - The stack whose lock may be cleared.
+   * @param label - Operation name used in the reclaim log line.
+   * @param logContext - Extra identifiers to log when a lock is reclaimed.
+   * @param signal - The operation's abort signal; once aborted no reclaim or retry is attempted, because Pulumi only
+   *   wires an abort listener at call time and a retry started with an already-aborted signal would never be interrupted.
+   * @param call - The engine call; invoked a second time after a reclaim.
+   * @throws {@link PulumiOperationAbortedError} if the signal aborted before the retry could start.
+   * @throws {@link PulumiUnrecognizedLockError} if a lock conflict cannot be proven to be this installation's orphan.
+   */
+  private async runWithOwnOrphanLockRecovery<T>(
+    stack: Stack,
+    label: string,
+    logContext: Record<string, unknown>,
+    signal: AbortSignal,
+    call: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await call();
+    } catch (err) {
+      if (!isStackLockConflict(err)) {
+        throw err;
+      }
+      if (signal.aborted) {
+        throw err;
+      }
+      const classification = classifyStackLockConflict(err, this.store, PULUMI_STACK_NAME);
+      if (classification.kind === 'reclaimable-own-orphan') {
+        logger.warn(
+          `pulumi ${label}: backend lock is a provable orphan of this installation's own prior run — ` +
+            `clearing it via stack.cancel() and retrying the ${label} once`,
+          { ...logContext, locks: classification.locks },
+        );
+        await stack.cancel();
+        if (signal.aborted) {
+          throw new PulumiOperationAbortedError(err);
+        }
+        return await call();
+      }
+      throw new PulumiUnrecognizedLockError(
+        PULUMI_STACK_NAME,
+        classification.kind === 'requires-confirmation' ? classification.locks : [],
+      );
     }
   }
 
@@ -1377,11 +1559,25 @@ export class PulumiService {
    *   redact.
    */
   private static buildEnvironmentRedactionSet(deploymentConfig: DeploymentConfig): Set<string> {
+    return PulumiService.redactionValuesFromGameServers(deploymentConfig.gameServers);
+  }
+
+  /**
+   * Collects the redactable environment values out of a `gameServers` map, whether it came from the stored
+   * configuration or from the `appliedGameServers` stack output.
+   *
+   * @param gameServers - A `gameServers`-shaped map; `undefined` or non-object input yields an empty set.
+   * @returns The set of distinct, sufficiently long environment values.
+   */
+  private static redactionValuesFromGameServers(
+    gameServers: Record<string, Pick<GameServerConfig, 'environment'>> | undefined,
+  ): Set<string> {
+    if (!gameServers || typeof gameServers !== 'object') return new Set();
     return new Set(
-      Object.values(deploymentConfig.gameServers)
-        .flatMap((game) => game.environment ?? [])
+      Object.values(gameServers)
+        .flatMap((game) => game?.environment ?? [])
         .map((entry) => entry.value)
-        .filter((value) => value.length >= MIN_REDACTABLE_ENV_VALUE_LENGTH),
+        .filter((value) => typeof value === 'string' && value.length >= MIN_REDACTABLE_ENV_VALUE_LENGTH),
     );
   }
 
@@ -1414,6 +1610,19 @@ export class PulumiService {
       redacted = redacted.split(value).join(ENV_REDACTION_PLACEHOLDER);
     }
     return redacted;
+  }
+
+  // @spec IAC-ENGINE-REDACT-001, IAC-ENGINE-REDACT-002
+  /**
+   * Renders an engine failure as text with every redacted value scrubbed. The Automation API's `CommandError` embeds
+   * the command's raw stdout and stderr in its message, so the raw error must never reach a log line or an IPC reply.
+   *
+   * @param cause - The error the engine call threw.
+   * @param redactedValues - The operation's redaction set.
+   * @returns The scrubbed message.
+   */
+  private static redactedErrorMessage(cause: unknown, redactedValues: Set<string>): string {
+    return PulumiService.redactEnvironmentValues(errMessage(cause), redactedValues);
   }
 
   // @spec IAC-RUN-GATE-002, IAC-RUN-REC-007, IAC-RUN-LOCK-007
@@ -1452,6 +1661,16 @@ export class PulumiService {
    *   (config staleness, engine failures, hashing, persistence).
    */
   async *preview(
+    configVersionId?: string,
+    signal?: AbortSignal,
+    preMintedRunId?: string,
+    rolledBackFrom?: string,
+  ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
+    return yield* this.trackOperation(this.previewOperation(configVersionId, signal, preMintedRunId, rolledBackFrom));
+  }
+
+  /** The body of {@link preview}, split out so the public method can track it for {@link whenIdle}. */
+  private async *previewOperation(
     configVersionId?: string,
     signal?: AbortSignal,
     preMintedRunId?: string,
@@ -1558,6 +1777,7 @@ export class PulumiService {
     // `stack.preview()` call on force-close — see TSDoc's "cancellation" paragraph.
     const internalController = new AbortController();
     const onAbort = (): void => internalController.abort();
+    this.linkShutdownSignal(internalController, onAbort);
     if (signal) {
       if (signal.aborted) {
         internalController.abort();
@@ -1760,7 +1980,7 @@ export class PulumiService {
       const outcome: PulumiPreviewOutcome = wasAborted
         ? { kind: 'aborted' }
         : previewError
-          ? { kind: 'failed', error: new PulumiPreviewError(previewError) }
+          ? { kind: 'failed', error: new PulumiPreviewError(PulumiService.redactedErrorMessage(previewError, redactedEnvironmentValues)) }
           : planHashError
             ? { kind: 'failed', error: planHashError }
             : {
@@ -1830,6 +2050,7 @@ export class PulumiService {
     } finally {
       // Unconditional detach — `{ once: true }` alone leaks a listener across long-lived signal reuse; see TSDoc.
       signal?.removeEventListener('abort', onAbort);
+      this.shutdownController.signal.removeEventListener('abort', onAbort);
 
       // Force-closed generator with the operation still running: abort and AWAIT settlement before clearing
       // operationInFlight below, else a new preview/up/destroy could race the still-live shared workDir — see TSDoc.
@@ -2025,6 +2246,15 @@ export class PulumiService {
     planHash: string,
     signal?: AbortSignal,
   ): AsyncGenerator<PulumiRunChunk, PulumiUpResult | undefined> {
+    return yield* this.trackOperation(this.applyOperation(planRunId, planHash, signal));
+  }
+
+  /** The body of {@link apply}, split out so the public method can track it for {@link whenIdle}. */
+  private async *applyOperation(
+    planRunId: string,
+    planHash: string,
+    signal?: AbortSignal,
+  ): AsyncGenerator<PulumiRunChunk, PulumiUpResult | undefined> {
     logger.debug('PulumiService.apply: starting pulumi apply', { planRunId });
     // Checked, never set here — see TSDoc "Nothing is reserved before step 8"; two applies racing the same plan
     // are ordered by RunLockService.createRun's atomicity at step 8, never by this observation.
@@ -2059,6 +2289,7 @@ export class PulumiService {
     // removeEventListener it on every exit path, avoiding a leaked listener across long-lived signal reuse.
     const internalController = new AbortController();
     const onAbort = (): void => internalController.abort();
+    this.linkShutdownSignal(internalController, onAbort);
     if (signal) {
       if (signal.aborted) {
         internalController.abort();
@@ -2303,6 +2534,7 @@ export class PulumiService {
       // above the outer `try` (see there for why) — only `upError` is local
       // to this inner try/catch.
       let upError: unknown;
+      let errorRedactionSet = new Set<string>();
 
       try {
         const obj = await this.getRemoteFileStore().get(key);
@@ -2311,6 +2543,7 @@ export class PulumiService {
         }
         const deploymentConfig = PulumiService.parseConfigurationObject(obj.body);
         const redactedEnvironmentValues = PulumiService.buildEnvironmentRedactionSet(deploymentConfig);
+        errorRedactionSet = redactedEnvironmentValues;
 
         const stateBucket = this.store.get('bootstrap')?.stateBucket;
         const stateBucketRegion = this.store.get('aws')?.region;
@@ -2368,29 +2601,14 @@ export class PulumiService {
         // "Lock-recovery wiring" / "Force-close safety net" sections.
         lockAttemptId = this.store.recordPulumiLockAttempt(PULUMI_STACK_NAME);
 
-        const attemptUp = async (innerSignal: AbortSignal): Promise<UpResult> => {
-          try {
-            return await stack.up({ plan: artifactPath, onOutput, onError, onEvent, signal: innerSignal });
-          } catch (err) {
-            if (!isStackLockConflict(err)) {
-              throw err;
-            }
-            const classification = classifyStackLockConflict(err, this.store, PULUMI_STACK_NAME);
-            if (classification.kind === 'reclaimable-own-orphan') {
-              logger.warn(
-                'pulumi apply: backend lock is a provable orphan of this installation\'s own prior run — ' +
-                  'clearing it via stack.cancel() and retrying the update once',
-                { planRunId, runId, locks: classification.locks },
-              );
-              await stack.cancel();
-              return await stack.up({ plan: artifactPath, onOutput, onError, onEvent, signal: innerSignal });
-            }
-            throw new PulumiUnrecognizedLockError(
-              PULUMI_STACK_NAME,
-              classification.kind === 'requires-confirmation' ? classification.locks : [],
-            );
-          }
-        };
+        const attemptUp = (innerSignal: AbortSignal): Promise<UpResult> =>
+          this.runWithOwnOrphanLockRecovery(
+            stack,
+            'apply',
+            { planRunId, runId },
+            innerSignal,
+            () => stack.up({ plan: artifactPath, onOutput, onError, onEvent, signal: innerSignal }),
+          );
 
         const recoverResult = async (): Promise<UpResult> => {
           const [outputs, summary] = await Promise.all([stack.outputs(), stack.info()]);
@@ -2485,8 +2703,8 @@ export class PulumiService {
           ? upError instanceof PulumiUnrecognizedLockError
             ? { kind: 'failed', error: upError, partialApply: false }
             : completedSteps.length > 0
-              ? { kind: 'failed', error: new PulumiPartialApplyError(completedSteps, upError), partialApply: true }
-              : { kind: 'failed', error: new PulumiUpError(upError), partialApply: false }
+              ? { kind: 'failed', error: new PulumiPartialApplyError(completedSteps, PulumiService.redactedErrorMessage(upError, errorRedactionSet)), partialApply: true }
+              : { kind: 'failed', error: new PulumiUpError(PulumiService.redactedErrorMessage(upError, errorRedactionSet)), partialApply: false }
           : { kind: 'success', result: { runId, changeSummary: capturedChangeSummary } };
 
       if (outcome.kind === 'failed') {
@@ -2629,6 +2847,7 @@ export class PulumiService {
       // accumulate one listener per call. Safe/idempotent to call even when the listener already
       // detached itself (a `{ once: true }` listener that already fired).
       signal?.removeEventListener('abort', onAbort);
+      this.shutdownController.signal.removeEventListener('abort', onAbort);
 
       // Covers the force-closed generator case — see preview()'s identical
       // block for the full rationale; mirrored here verbatim except for the
@@ -2810,6 +3029,7 @@ export class PulumiService {
   // @spec IAC-RUN-GATE-013, IAC-RUN-LOCK-007
   // @spec IAC-ENGINE-LOCK-001, IAC-ENGINE-LOCK-002, IAC-ENGINE-LOCK-004, IAC-ENGINE-LOCK-005, IAC-ENGINE-LOCK-009,
   // @spec IAC-ENGINE-LIFE-005, IAC-ENGINE-OUT-006
+  // @spec IAC-ENGINE-REDACT-002
   /**
    * Runs `pulumi destroy` against the deployed stack, yielding a
    * {@link PulumiRunChunk} per line of stdout/stderr as the operation
@@ -2860,11 +3080,14 @@ export class PulumiService {
    *
    * Passes a no-op `async () => ({})` program to `getOrCreateStack` — a
    * plain `pulumi destroy` never runs the program (it only reads the
-   * existing state checkpoint), so this method never needs to read the
-   * deployment configuration object at all. That's operationally important:
+   * existing state checkpoint), so the destroy itself never depends on the
+   * deployment configuration object. That's operationally important:
    * `destroy` can tear down a stack even when the current configuration
    * object is missing, malformed, or describes a different layout than
-   * what's actually deployed.
+   * what's actually deployed. The redaction set comes from the stack state
+   * (see {@link loadDestroyRedactionSet}), with the configuration object as
+   * an additional best-effort source; an unreadable state fails the destroy
+   * before the engine runs, an unreadable configuration does not.
    *
    * `changeSummary` is captured from `onEvent`'s `summaryEvent` exactly like
    * `apply` (not `preview`), never read off `DestroyResult.summary`
@@ -2901,6 +3124,15 @@ export class PulumiService {
    *   run record couldn't be persisted afterward.
    */
   async *destroy(
+    confirmationToken: string,
+    signal?: AbortSignal,
+    preMintedRunId?: string,
+  ): AsyncGenerator<PulumiRunChunk, PulumiDestroyResult | undefined> {
+    return yield* this.trackOperation(this.destroyOperation(confirmationToken, signal, preMintedRunId));
+  }
+
+  /** The body of {@link destroy}, split out so the public method can track it for {@link whenIdle}. */
+  private async *destroyOperation(
     confirmationToken: string,
     signal?: AbortSignal,
     preMintedRunId?: string,
@@ -2944,6 +3176,7 @@ export class PulumiService {
     // with-unconditional-removal handling.
     const internalController = new AbortController();
     const onAbort = (): void => internalController.abort();
+    this.linkShutdownSignal(internalController, onAbort);
     if (signal) {
       if (signal.aborted) {
         internalController.abort();
@@ -3063,10 +3296,10 @@ export class PulumiService {
       startedAt = new Date().toISOString();
 
       let destroyError: unknown;
+      let errorRedactionSet = new Set<string>();
       try {
         const stack = await this.workspace.getOrCreateStack({
-          // See this method's TSDoc, "No-op inline program", for why destroy
-          // never reads the deployment configuration object at all.
+          // See this method's TSDoc, "No-op inline program": the program never depends on the configuration object.
           program: async () => ({}),
           stateBucket,
           stateBucketRegion,
@@ -3082,8 +3315,10 @@ export class PulumiService {
           wake?.();
           wake = null;
         };
+        const redactedEnvironmentValues = await this.loadDestroyRedactionSet(stack);
+        errorRedactionSet = redactedEnvironmentValues;
         const push = (chunk: PulumiRunChunk): void => {
-          queue.push(chunk);
+          queue.push({ ...chunk, line: PulumiService.redactEnvironmentValues(chunk.line, redactedEnvironmentValues) });
           notify();
         };
         const handleData = (stream: 'stdout' | 'stderr', data: string): void => {
@@ -3109,29 +3344,14 @@ export class PulumiService {
         // stack.destroy() take the DIY backend lock?".
         lockAttemptId = this.store.recordPulumiLockAttempt(PULUMI_STACK_NAME);
 
-        const attemptDestroy = async (innerSignal: AbortSignal): Promise<DestroyResult> => {
-          try {
-            return await stack.destroy({ onOutput, onError, onEvent, signal: innerSignal });
-          } catch (err) {
-            if (!isStackLockConflict(err)) {
-              throw err;
-            }
-            const classification = classifyStackLockConflict(err, this.store, PULUMI_STACK_NAME);
-            if (classification.kind === 'reclaimable-own-orphan') {
-              logger.warn(
-                'pulumi destroy: backend lock is a provable orphan of this installation\'s own prior run — ' +
-                  'clearing it via stack.cancel() and retrying the destroy once',
-                { runId, locks: classification.locks },
-              );
-              await stack.cancel();
-              return await stack.destroy({ onOutput, onError, onEvent, signal: innerSignal });
-            }
-            throw new PulumiUnrecognizedLockError(
-              PULUMI_STACK_NAME,
-              classification.kind === 'requires-confirmation' ? classification.locks : [],
-            );
-          }
-        };
+        const attemptDestroy = (innerSignal: AbortSignal): Promise<DestroyResult> =>
+          this.runWithOwnOrphanLockRecovery(
+            stack,
+            'destroy',
+            { runId },
+            innerSignal,
+            () => stack.destroy({ onOutput, onError, onEvent, signal: innerSignal }),
+          );
 
         const recoverResult = async (): Promise<DestroyResult> => {
           const summary = await stack.info();
@@ -3226,7 +3446,7 @@ export class PulumiService {
               error:
                 destroyError instanceof PulumiUnrecognizedLockError
                   ? destroyError
-                  : new PulumiDestroyError(destroyError),
+                  : new PulumiDestroyError(PulumiService.redactedErrorMessage(destroyError, errorRedactionSet)),
             }
           : { kind: 'success', result: { runId, changeSummary: capturedChangeSummary } };
 
@@ -3320,6 +3540,7 @@ export class PulumiService {
     } finally {
       // Mirrors apply()'s abort-listener cleanup — see apply()'s TSDoc.
       signal?.removeEventListener('abort', onAbort);
+      this.shutdownController.signal.removeEventListener('abort', onAbort);
 
       // Covers the force-closed generator case — see apply()'s identical
       // block for the full rationale; mirrored here verbatim except for the
@@ -3451,6 +3672,35 @@ export class PulumiService {
       throw new RollbackVersionMissingError(record.configVersionId);
     }
     return prior;
+  }
+
+  // @spec IAC-ENGINE-REDACT-002
+  /**
+   * Builds the set of game-server environment values to scrub from a destroy's output and error text. The primary
+   * source is the stack state (`appliedGameServers`), because `pulumi destroy` prints the outputs it deletes and the
+   * state is what is actually deployed; the stored configuration is added as a second source and never required.
+   *
+   * @param stack - The stack about to be destroyed.
+   * @returns The redaction set.
+   * @throws Error when the stack state cannot be read, so the destroy fails before any engine output exists.
+   */
+  private async loadDestroyRedactionSet(stack: Stack): Promise<Set<string>> {
+    const outputs = await stack.outputs();
+    const applied = outputs['appliedGameServers']?.value as Record<string, GameServerConfig> | undefined;
+    const values = PulumiService.redactionValuesFromGameServers(applied);
+    try {
+      const obj = await this.getRemoteFileStore().get(CONFIGURATION_OBJECT_KEY);
+      if (obj) {
+        for (const value of PulumiService.buildEnvironmentRedactionSet(PulumiService.parseConfigurationObject(obj.body))) {
+          values.add(value);
+        }
+      }
+    } catch (err) {
+      logger.warn('PulumiService: could not read the deployment configuration to extend the output redaction set', {
+        error: err instanceof SyntaxError ? 'configuration object is not valid JSON' : errMessage(err),
+      });
+    }
+    return values;
   }
 
   // @spec GAME-HTTPS-010
@@ -3656,6 +3906,16 @@ export class PulumiService {
    *   but the follow-up plan could not be completed.
    */
   async *confirmRollback(
+    applyRunId: string,
+    signal?: AbortSignal,
+    preMintedRunId?: string,
+    expectedHeadEtag?: string,
+  ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
+    return yield* this.trackOperation(this.confirmRollbackOperation(applyRunId, signal, preMintedRunId, expectedHeadEtag));
+  }
+
+  /** The body of {@link confirmRollback}, split out so the public method can track it for {@link whenIdle}. */
+  private async *confirmRollbackOperation(
     applyRunId: string,
     signal?: AbortSignal,
     preMintedRunId?: string,
@@ -4577,8 +4837,9 @@ export class PulumiStackInitializationError extends Error {
  * of an `exitCode`.
  */
 export class PulumiPreviewError extends Error {
-  constructor(public readonly cause: unknown) {
-    super(`pulumi preview failed: ${errMessage(cause)}`);
+  /** @param redactedMessage - The engine failure's text with environment values already scrubbed; the raw error is never retained. */
+  constructor(redactedMessage: string) {
+    super(`pulumi preview failed: ${redactedMessage}`);
     this.name = 'PulumiPreviewError';
   }
 }
@@ -4592,8 +4853,9 @@ export class PulumiPreviewError extends Error {
  * through applying resources rather than before any resource was touched.
  */
 export class PulumiUpError extends Error {
-  constructor(public readonly cause: unknown) {
-    super(`pulumi up failed: ${errMessage(cause)}`);
+  /** @param redactedMessage - The engine failure's text with environment values already scrubbed; the raw error is never retained. */
+  constructor(redactedMessage: string) {
+    super(`pulumi up failed: ${redactedMessage}`);
     this.name = 'PulumiUpError';
   }
 }
@@ -4605,8 +4867,9 @@ export class PulumiUpError extends Error {
  * `exitCode`.
  */
 export class PulumiDestroyError extends Error {
-  constructor(public readonly cause: unknown) {
-    super(`pulumi destroy failed: ${errMessage(cause)}`);
+  /** @param redactedMessage - The engine failure's text with environment values already scrubbed; the raw error is never retained. */
+  constructor(redactedMessage: string) {
+    super(`pulumi destroy failed: ${redactedMessage}`);
     this.name = 'PulumiDestroyError';
   }
 }
@@ -4673,11 +4936,11 @@ export interface PulumiPartialApplyStep {
 export class PulumiPartialApplyError extends Error {
   constructor(
     public readonly completedSteps: PulumiPartialApplyStep[],
-    public readonly cause: unknown,
+    redactedMessage: string,
   ) {
     super(
       `pulumi up failed partway through (${completedSteps.length} resource step(s) already applied): ` +
-        `${errMessage(cause)}`,
+        `${redactedMessage}`,
     );
     this.name = 'PulumiPartialApplyError';
   }

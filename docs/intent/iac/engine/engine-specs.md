@@ -13,9 +13,9 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 - [x] **IAC-ENGINE-PROV-007**: The engine cache root shall resolve, in order, to `HYVEON_PULUMI_ENGINE_DIR`, then `<userData>/pulumi`, then an `os.tmpdir()` fallback for plain-Node contexts, with each pinned version installed under `<root>/versions/<pin>`.
 - [x] **IAC-ENGINE-PROV-008**: When the Nest application context is constructed on a machine with no engine installed and no network, `PulumiEngineService` shall instantiate without performing any engine work, so a provisioning failure surfaces only when an operation is attempted.
 - [x] **IAC-ENGINE-PROV-009**: When `PulumiService.initializeStack` runs, it shall report the cloud provider plugin install as a `plugins` phase distinct from the `engine` phase and the `operation` phase.
-- [ ] **IAC-ENGINE-PROV-010**: When `preview`, `apply` or `destroy` is the first operation on a machine whose plugin cache is empty, the system shall report the provider plugin download to the caller as its own phase rather than as part of the operation. (gap: only `initializeStack` emits a `plugins` phase, `PulumiService.ts:1151-1161`; preview/apply/destroy stream no phase events)
+- [D] **IAC-ENGINE-PROV-010**: When `preview`, `apply` or `destroy` is the first operation on a machine whose plugin cache is empty, the system shall report the provider plugin download to the caller as its own phase rather than as part of the operation. (deferred: preview, apply and destroy stream only output chunks; a phase event needs a new chunk shape across the run, IPC and renderer segments)
 - [x] **IAC-ENGINE-PROV-011**: The engine install and its provider plugins shall land under app-owned directories derived from Electron `userData` (`<userData>/pulumi` for the engine, `<userData>/pulumi-workspace/home` as `PULUMI_HOME` for plugins), never under a shared user-level `~/.pulumi`.
-- [ ] **IAC-ENGINE-PROV-012**: When a successful engine provisioning prunes superseded versions, `PulumiEngineService` shall also reclaim `.staging-` and `.trash-` directories left behind by an earlier crashed install. (observed) (gap: `PulumiEngineService.ts:622` skips every `.staging-`/`.trash-` entry)
+- [x] **IAC-ENGINE-PROV-012**: When a successful engine provisioning prunes superseded versions, `PulumiEngineService` shall also reclaim `.staging-` and `.trash-` directories left behind by an earlier crashed install. (observed)
 
 ## Engine version pin
 
@@ -32,7 +32,7 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 - [x] **IAC-ENGINE-PFAIL-003**: When a fresh engine install replaces an existing cache entry that failed only an ambiguous check, `PulumiEngineService` shall rename the prior entry aside to `.trash-<uuid>` rather than delete it, and if the swapped-in install fails re-verification shall remove it and restore the prior entry. (observed)
 - [x] **IAC-ENGINE-PFAIL-004**: If a cached engine entry fails verification with positive evidence of corruption, then `PulumiEngineService` shall delete it and reprovision; if the failure is inconclusive, then it shall leave the entry in place and reprovision fresh. (observed)
 - [x] **IAC-ENGINE-PFAIL-005**: When stack initialization fails during engine provisioning, the failure shall reach the wizard as a `PulumiStackInitializationError` attributed to the `engine` phase, and the wizard shall show the error with a retry rather than crashing the main process.
-- [ ] **IAC-ENGINE-PFAIL-006**: When `PulumiEngineService` logs a caught provisioning, pruning or restore error, it shall log the normalised error message rather than the raw error object. (observed; `.claude/rules/logging.md`) (gap: raw `err` logged at `PulumiEngineService.ts:446,453,618` and `restoreErr` at `:528-532,572-576`)
+- [x] **IAC-ENGINE-PFAIL-006**: When `PulumiEngineService` logs a caught provisioning, pruning or restore error, it shall log the normalised error message rather than the raw error object. (observed; `.claude/rules/logging.md`)
 
 ## Workspace seam
 
@@ -56,7 +56,7 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 - [x] **IAC-ENGINE-PASS-005**: When `getOrCreateStack` runs on an install whose store still holds a legacy `pulumi.passphrase`, it shall re-encrypt the stack's secrets provider to the derived passphrase via `pulumi stack change-secrets-provider` and only then remove `pulumi.passphrase` from the store, with no operator action.
 - [x] **IAC-ENGINE-PASS-006**: If the legacy passphrase re-encryption fails, then `getOrCreateStack` shall leave `pulumi.passphrase` in place so the next workspace construction retries the migration with the same legacy value.
 - [x] **IAC-ENGINE-PASS-007**: If a legacy `pulumi.passphrase` is stored while the OS keychain is unavailable, then `getOrCreateStack` shall throw an operator-actionable error telling the operator to unlock the keychain, without attempting to decrypt or migrate. (observed)
-- [ ] **IAC-ENGINE-PASS-008**: If the legacy passphrase migration cannot run because the workspace directory no longer holds a `Pulumi.yaml` from a prior run, then the system shall offer the operator a recovery path rather than failing every `getOrCreateStack` call. (observed) (gap: documented dead end with manual reset only, `PulumiWorkspaceService.ts:522-591`)
+- [x] **IAC-ENGINE-PASS-008**: If the legacy passphrase migration cannot run because the workspace directory no longer holds a `Pulumi.yaml` from a prior run, then the system shall restore the project file before running the migration, rather than failing every `getOrCreateStack` call. (observed)
 
 ## Credentials
 
@@ -70,7 +70,7 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 ## Output redaction
 
 - [x] **IAC-ENGINE-REDACT-001**: While a preview or apply streams engine output, `PulumiService` shall replace every operator-set game-server environment value with a fixed placeholder before the line reaches the run record, the live stream or `pulumi.log`. (observed)
-- [ ] **IAC-ENGINE-REDACT-002**: While a destroy streams engine output, `PulumiService` shall apply the same game-server environment-value redaction as preview and apply. (observed) (gap: destroy's `push` enqueues raw lines, `PulumiService.ts:3034-3037`)
+- [x] **IAC-ENGINE-REDACT-002**: While a destroy runs, `PulumiService` shall redact every game-server environment value held in the stack state (`appliedGameServers`), plus any held in the stored configuration, from the streamed output, the persisted `pulumi.log` and the failure message, and shall fail the destroy before the engine runs when the stack state cannot be read. (observed)
 
 ## Stale backend lock recovery
 
@@ -83,19 +83,19 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 - [x] **IAC-ENGINE-LOCK-007**: Lock recovery shall not treat the absence of an in-flight operation in this app instance as evidence that a lock is stale; a lock held by another installation shall never be auto-reclaimed.
 - [x] **IAC-ENGINE-LOCK-008**: When classifying a lock conflict, `classifyStackLockConflict` shall prune ownership records older than two hours, so a leaked record cannot arm auto-reclaim indefinitely. (observed)
 - [x] **IAC-ENGINE-LOCK-009**: While a preview, apply, destroy or rollback is in flight in this app instance, a new plan, apply or destroy request shall be refused as busy through `getOperationInFlight()` and the controller's conflict response, with no lock recovery offered.
-- [ ] **IAC-ENGINE-LOCK-010**: When the stack-init `refresh` hits a backend lock conflict, `PulumiService.initializeStack` shall classify and reclaim or surface it exactly as `up` and `destroy` do. (observed) (gap: `refresh()` at `PulumiService.ts:1168` has no lock classification; a conflict becomes `PulumiStackInitializationError('operation')`)
+- [x] **IAC-ENGINE-LOCK-010**: When the stack-init `refresh` hits a backend lock conflict, `PulumiService.initializeStack` shall classify and reclaim or surface it exactly as `up` and `destroy` do. (observed)
 
 ## Engine process lifecycle
 
 - [x] **IAC-ENGINE-LIFE-001**: When the abort signal of a preview, up or destroy fires, `runWithEscalatingCancellation` shall forward it to the SDK so a single `SIGINT` reaches the engine invocation.
 - [x] **IAC-ENGINE-LIFE-002**: If the abort signal is already aborted before a preview, up or destroy starts, then `runWithEscalatingCancellation` shall refuse to invoke it and reject with `PulumiOperationNotStartedError`. (observed)
 - [x] **IAC-ENGINE-LIFE-003**: If a cancelled preview, up or destroy has not settled within `PULUMI_CANCELLATION_ESCALATION_TIMEOUT_MS` (30 s), then `runWithEscalatingCancellation` shall stop waiting and reject with `PulumiOperationEscalatedError`, sending no further signal.
-- [ ] **IAC-ENGINE-LIFE-004**: When escalation abandons an engine invocation, the escalation error message and log line shall say the invocation was abandoned, not that it was forcefully terminated. (gap: "has been forcefully terminated" at `PulumiCancellation.ts:118-119`, "force-terminating" at `:232`)
+- [x] **IAC-ENGINE-LIFE-004**: When escalation abandons an engine invocation, the escalation error message and log line shall say the invocation was abandoned, not that it was forcefully terminated.
 - [x] **IAC-ENGINE-LIFE-005**: When an apply or destroy ends not-started, aborted or escalated, `PulumiService` shall record the run outcome as `aborted` with a null exit code and release the durable apply lock through `RunLockService.releaseRun`.
-- [ ] **IAC-ENGINE-LIFE-006**: When the operator cancels an in-flight plan, apply or destroy, the system shall abort that operation's signal so `SIGINT` reaches the engine. (gap: no `iac.*.cancel` channel is registered; aborts fire only on `WebContents` destruction, `iac.controller.ts:532-549,740`)
-- [ ] **IAC-ENGINE-LIFE-007**: `PulumiService.initializeStack` shall accept an abort signal and run its `refresh` through the same escalating-cancellation and leaked-promise wrappers as up and destroy. (gap: `initializeStack(onPhase?)` takes no signal and `stack.refresh()` runs bare, `PulumiService.ts:1113,1168`)
+- [D] **IAC-ENGINE-LIFE-006**: When the operator cancels an in-flight plan, apply or destroy, the system shall abort that operation's signal so `SIGINT` reaches the engine. (deferred with `IAC-RUN-CANCEL-001`: the engine side is built, since every operation accepts an abort signal, but no `iac.*.cancel` channel exists to deliver an operator cancel)
+- [x] **IAC-ENGINE-LIFE-007**: `PulumiService.initializeStack` shall accept an abort signal and run its `refresh` through the same escalating-cancellation and leaked-promise wrappers as up and destroy.
 - [x] **IAC-ENGINE-LIFE-008**: When a cancellable engine call settles, `runWithEscalatingCancellation` shall clear its escalation timer and remove its abort listener, so no engine-leaf listener keeps the event loop alive after an idle quit.
-- [ ] **IAC-ENGINE-LIFE-009**: When the app is quit while an infrastructure operation is running, the system shall abort the operation during shutdown and the process shall exit rather than hang. (gap: no `before-quit`/`will-quit` handler or Nest shutdown hook, `electron-entry.ts:251`)
+- [x] **IAC-ENGINE-LIFE-009**: When the app is quit while an infrastructure operation is running, the system shall abort the operation, hold the quit until the operation has persisted its run record and released its durable lock (bounded at 15 seconds), and exit rather than hang.
 
 ## Leaked-promise recovery
 
@@ -109,7 +109,7 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 - [x] **IAC-ENGINE-INIT-002**: If `initializeStack` is called while a preview, apply, destroy or rollback is in flight, then it shall throw `PulumiOperationInFlightError`; if another stack initialization is in flight, then it shall throw a plain `Error` refusing the second call. (observed)
 - [x] **IAC-ENGINE-INIT-003**: If `initializeStack` runs before the state bucket or AWS region is configured, then it shall throw `PulumiStackInitializationError('engine')` directing the operator to the bootstrap step. (observed)
 - [x] **IAC-ENGINE-INIT-004**: If `initializeStack` fails, then it shall throw `PulumiStackInitializationError` tagged with the phase it attributes the failure to: `engine` for credential, pasted-credential decrypt and engine provisioning errors, `plugins` for the plugin install, and `operation` otherwise. (observed)
-- [ ] **IAC-ENGINE-INIT-005**: If `getOrCreateStack` fails inside `initializeStack` after the engine phase has ended (STS, legacy migration or `createOrSelect`), then the failure shall be attributed to a phase the wizard can mark accurately rather than leaving the wizard to mark the finished `engine` row as failed. (observed) (gap: classified `operation` before any `operation` start event, `PulumiService.ts:1346-1354`; wizard blames last-started row, `stack-init-step.component.tsx:129,140,149`) [inferred]
+- [x] **IAC-ENGINE-INIT-005**: If `getOrCreateStack` fails inside `initializeStack` after the engine phase has ended (STS, legacy migration or `createOrSelect`), then the failure shall be attributed to a phase the wizard can mark accurately rather than leaving the wizard to mark the finished `engine` row as failed. (observed) [inferred]
 - [x] **IAC-ENGINE-INIT-006**: The wizard's `StackInitializationStep` shall render one checklist row per stack-init phase, mark a row in-progress on its start event and done on its end event, and on a stream error mark the last-started row failed, show the error message, and offer retry. (observed)
 - [x] **IAC-ENGINE-INIT-007**: The wizard's `StackInitializationStep` shall debounce its `iac.stack.initialize` call with a zero-delay timer cleared on unmount, so a React StrictMode double mount starts exactly one stack initialization. (observed)
 
@@ -117,7 +117,7 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 
 - [x] **IAC-ENGINE-OUT-001**: `PulumiService.getStackOutputs` shall never throw; it shall return `null` when no state bucket, no AWS region, or no evidence of a prior stack (`pulumi.stackInitialized` or a surviving legacy passphrase) exists, when the read fails, or when the outputs map is empty. (observed)
 - [x] **IAC-ENGINE-OUT-002**: While any preview, apply, destroy, rollback or stack initialization is in flight in this app instance, `PulumiService.getStackOutputs` shall return `null` without touching the workspace. (observed)
-- [ ] **IAC-ENGINE-OUT-003**: When `PulumiService.getStackOutputs` catches a read failure, it shall log the normalised error message rather than the raw error object. (observed; `.claude/rules/logging.md`) (gap: raw `err` at `PulumiService.ts:1006-1008`)
+- [x] **IAC-ENGINE-OUT-003**: When `PulumiService.getStackOutputs` catches a read failure, it shall log the normalised error message rather than the raw error object. (observed; `.claude/rules/logging.md`)
 - [x] **IAC-ENGINE-OUT-004**: `ConfigService.getStackOutputs` shall memoise the in-flight `PulumiService.getStackOutputs` promise so concurrent callers share one read, and shall drop a cached rejection so it does not wedge later calls. (observed)
 - [x] **IAC-ENGINE-OUT-005**: `ConfigService.getStackOutputs` shall cache a non-null result until `invalidateCache()` and shall refetch a cached `null` result once it is at least 20 s old. (observed)
 - [x] **IAC-ENGINE-OUT-006**: When an apply or destroy succeeds, `PulumiService` shall invalidate the `ConfigService` stack-outputs cache through the `CONFIG_CACHE_INVALIDATOR` token. (observed)
@@ -136,4 +136,4 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 
 - [x] **IAC-ENGINE-RT-001**: `electronRuntime.ts` shall read Electron `userData`, `isPackaged` and `resourcesPath` only when `process.versions.electron` is set, returning undefined or false otherwise, so the plain-Node integration harness can construct the engine services. (observed; CLAUDE.md IPC controller electron bootstrap guard)
 - [x] **IAC-ENGINE-RT-002**: The web integration harness shall be able to replace `PulumiService` with `PulumiServiceStub` through the DI seam, so integration specs run without a real engine. (observed)
-- [ ] **IAC-ENGINE-RT-003**: `PulumiServiceStub` shall implement every `PulumiService` method that `IacController` calls, including `mintLockClearConfirmationToken`. (observed) (gap: missing from `pulumi-mock.ts:119-191`, called at `iac.controller.ts:956`)
+- [x] **IAC-ENGINE-RT-003**: `PulumiServiceStub` shall implement every `PulumiService` method that `IacController` calls, including `mintLockClearConfirmationToken`. (observed)

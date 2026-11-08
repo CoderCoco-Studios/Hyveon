@@ -141,19 +141,18 @@ function makeEngine(): PulumiEngineService {
 }
 
 /**
- * Stub `ModuleRef` routing `.get(token, { strict: false })` to the three
- * lazily-resolved dependencies `destroy()` uses. Unlike `apply()`,
- * `destroy()` never resolves `REMOTE_FILE_STORE` (it never reads the
- * deployment configuration object — see the source's "No-op inline program"
- * doc section) — omitted here so an accidental call to
- * `getRemoteFileStore()` fails loudly instead of silently succeeding.
+ * Stub `ModuleRef` routing `.get(token, { strict: false })` to the lazily-resolved dependencies `destroy()` uses.
+ * `REMOTE_FILE_STORE` is only wired when a test supplies one: `destroy()` reads the configuration object solely for
+ * output redaction, and treats an unavailable one as "nothing to redact".
  */
 function makeModuleRef(deps: {
   runRecordPersister: RunRecordPersister;
   runLockService: RunLockService;
   configCacheInvalidator: ConfigCacheInvalidator;
+  remoteFileStore?: RemoteFileStore;
 }): ModuleRef {
   const get = vi.fn((token: unknown) => {
+    if (token === REMOTE_FILE_STORE && deps.remoteFileStore) return deps.remoteFileStore;
     if (token === RUN_RECORD_PERSISTER) return deps.runRecordPersister;
     if (token === RUN_LOCK_SERVICE) return deps.runLockService;
     if (token === CONFIG_CACHE_INVALIDATOR) return deps.configCacheInvalidator;
@@ -189,14 +188,21 @@ function makeUpdateSummary(overrides: Partial<UpdateSummary> = {}): UpdateSummar
  */
 function makeWorkspace(
   destroyImpl: FakeStackDestroy,
-  extra: { cancel?: ReturnType<typeof vi.fn>; info?: ReturnType<typeof vi.fn>; history?: ReturnType<typeof vi.fn> } = {},
+  extra: {
+    cancel?: ReturnType<typeof vi.fn>;
+    info?: ReturnType<typeof vi.fn>;
+    history?: ReturnType<typeof vi.fn>;
+    outputs?: ReturnType<typeof vi.fn>;
+  } = {},
 ): PulumiWorkspaceService & { getOrCreateStack: ReturnType<typeof vi.fn> } {
   const destroyMock = vi.fn().mockImplementation(destroyImpl);
   const cancelMock = extra.cancel ?? vi.fn().mockResolvedValue(undefined);
   const infoMock = extra.info ?? vi.fn().mockResolvedValue(makeUpdateSummary());
   const historyMock = extra.history ?? vi.fn().mockResolvedValue([]);
+  const outputsMock = extra.outputs ?? vi.fn().mockResolvedValue({});
   const getOrCreateStack = vi.fn().mockResolvedValue({
     destroy: destroyMock,
+    outputs: outputsMock,
     cancel: cancelMock,
     info: infoMock,
     history: historyMock,
@@ -225,6 +231,7 @@ function makeService(opts: {
   runRecordPersister?: ReturnType<typeof makeRunRecordPersister>;
   runLockService?: ReturnType<typeof makeRunLockService>;
   configCacheInvalidator?: ReturnType<typeof makeConfigCacheInvalidator>;
+  remoteFileStore?: RemoteFileStore;
 }): PulumiService {
   const runRecordPersister = opts.runRecordPersister ?? makeRunRecordPersister();
   const runLockService = opts.runLockService ?? makeRunLockService();
@@ -232,7 +239,7 @@ function makeService(opts: {
   return new PulumiService(
     opts.workspace,
     opts.store ?? makeFullyConfiguredStore(),
-    makeModuleRef({ runRecordPersister, runLockService, configCacheInvalidator }),
+    makeModuleRef({ runRecordPersister, runLockService, configCacheInvalidator, remoteFileStore: opts.remoteFileStore }),
     makeEngine(),
   );
 }
@@ -255,6 +262,7 @@ beforeEach(() => {
   writeFileSyncMock.mockReset();
   readFileSyncMock.mockReset();
   loggerMock.warn.mockReset();
+  loggerMock.error.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -598,7 +606,7 @@ describe('PulumiService.destroy gate ordering and reservations', () => {
     const destroyMock = vi.fn();
     const getOrCreateStack = vi
       .fn()
-      .mockResolvedValue({ preview: previewMock, destroy: destroyMock, cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
+      .mockResolvedValue({ preview: previewMock, destroy: destroyMock, outputs: vi.fn().mockResolvedValue({}), cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
 
     const store = new ElectronStoreService(new SafeStorageService());
@@ -895,6 +903,43 @@ describe('PulumiService.destroy lock-recovery', () => {
     expect(result).toMatchObject({ changeSummary: {} });
   });
 
+  // @spec IAC-ENGINE-LIFE-007, IAC-ENGINE-LOCK-004
+  it.each([
+    ['the first call is failing with the conflict', 'call'],
+    ['stack.cancel() is clearing the lock', 'cancel'],
+  ] as const)('should not retry stack.destroy() when the signal aborts while %s', async (_label, phase) => {
+    vi.spyOn(process, 'kill').mockImplementation(() => {
+      const err = new Error('no such process') as NodeJS.ErrnoException;
+      err.code = 'ESRCH';
+      throw err;
+    });
+    const store = makeFullyConfiguredStore();
+    store.recordPulumiLockAttempt('production');
+    const conflictMessage = diyLockMessage([
+      { pid: 4242, username: TEST_USERNAME, hostname: TEST_HOSTNAME, lockedAt: new Date().toISOString() },
+    ]);
+    const controller = new AbortController();
+    let engineCalls = 0;
+    const cancelMock = vi.fn().mockImplementation(async () => {
+      if (phase === 'cancel') controller.abort();
+    });
+    const workspace = makeWorkspace(
+      async () => {
+        engineCalls += 1;
+        if (phase === 'call') controller.abort();
+        throw new Error(conflictMessage);
+      },
+      { cancel: cancelMock },
+    );
+    const service = makeService({ workspace, store });
+
+    const { result } = await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken(), controller.signal));
+
+    expect(result).toBeUndefined();
+    expect(engineCalls).toBe(1);
+    expect(cancelMock).toHaveBeenCalledTimes(phase === 'cancel' ? 1 : 0);
+  });
+
   // @spec IAC-ENGINE-LOCK-005
   it('should reject with PulumiUnrecognizedLockError, and never call stack.cancel(), when the lock cannot be proven this installation\'s own orphan', async () => {
     const lockedAt = new Date().toISOString();
@@ -1050,7 +1095,7 @@ describe('PulumiService.destroy abort handling', () => {
     });
     const getOrCreateStack = vi
       .fn()
-      .mockResolvedValue({ destroy: destroyMock, cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
+      .mockResolvedValue({ destroy: destroyMock, outputs: vi.fn().mockResolvedValue({}), cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
     const service = makeService({ workspace });
     const token = service.mintDestroyConfirmationToken();
@@ -1090,7 +1135,7 @@ describe('PulumiService.destroy abort handling', () => {
     });
     const getOrCreateStack = vi
       .fn()
-      .mockResolvedValue({ destroy: destroyMock, cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
+      .mockResolvedValue({ destroy: destroyMock, outputs: vi.fn().mockResolvedValue({}), cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
     const service = makeService({ workspace });
     const token = service.mintDestroyConfirmationToken();
@@ -1160,5 +1205,218 @@ describe('PulumiService.destroy concurrency guard', () => {
     resolveDestroy();
     await firstNext;
     await firstGen.next();
+  });
+});
+
+// @spec IAC-ENGINE-REDACT-002
+describe('PulumiService.destroy environment redaction', () => {
+  const SECRET_VALUE = 'sup3rSecretValue';
+
+  /** A `RemoteFileStore` whose configuration object holds `SECRET_VALUE` as a game-server environment value. */
+  function makeRemoteFileStoreWithSecretEnv(): RemoteFileStore {
+    return {
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            hostedZoneName: 'example.com',
+            gameServers: { minecraft: { environment: [{ name: 'RCON_PASSWORD', value: SECRET_VALUE }] } },
+          }),
+        ),
+        etag: 'etag-1',
+      }),
+    } as Partial<RemoteFileStore> as RemoteFileStore;
+  }
+
+  /** A workspace whose destroy streams a line carrying `SECRET_VALUE` on stdout and stderr. */
+  function makeLeakyWorkspace() {
+    return makeWorkspace(async (opts) => {
+      opts.onOutput?.(`deleting RCON_PASSWORD=${SECRET_VALUE}\n`);
+      opts.onError?.(`warn ${SECRET_VALUE}\n`);
+      return { stdout: '', stderr: '', summary: makeUpdateSummary() };
+    });
+  }
+
+  it('should redact an operator-set environment value from streamed destroy output', async () => {
+    const service = makeService({ workspace: makeLeakyWorkspace(), remoteFileStore: makeRemoteFileStoreWithSecretEnv() });
+
+    const { chunks } = await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken()));
+
+    expect(chunks.length).toBe(2);
+    expect(chunks.some((chunk) => chunk.line.includes(SECRET_VALUE))).toBe(false);
+  });
+
+  /** An `OutputMap` whose `appliedGameServers` holds `value` as a game-server environment value. */
+  function outputsHolding(value: string) {
+    return {
+      appliedGameServers: {
+        value: { minecraft: { environment: [{ name: 'RCON_PASSWORD', value }] } },
+        secret: false,
+      },
+    };
+  }
+
+  it('should redact a value held only in the stack state when the configuration object cannot be read', async () => {
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.(`deleting RCON_PASSWORD=${SECRET_VALUE}\n`);
+        return { stdout: '', stderr: '', summary: makeUpdateSummary() };
+      },
+      { outputs: vi.fn().mockResolvedValue(outputsHolding(SECRET_VALUE)) },
+    );
+    const service = makeService({ workspace });
+
+    const { chunks, result } = await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken()));
+
+    expect(result).toBeDefined();
+    expect(chunks.length).toBe(1);
+    expect(chunks[0]?.line).not.toContain(SECRET_VALUE);
+  });
+
+  it('should redact the value the stack state holds even when the stored configuration now holds a different one', async () => {
+    const DEPLOYED_VALUE = 'deployedPassw0rd';
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.(`deleting RCON_PASSWORD=${DEPLOYED_VALUE}\n`);
+        opts.onOutput?.(`stale RCON_PASSWORD=${SECRET_VALUE}\n`);
+        return { stdout: '', stderr: '', summary: makeUpdateSummary() };
+      },
+      { outputs: vi.fn().mockResolvedValue(outputsHolding(DEPLOYED_VALUE)) },
+    );
+    const service = makeService({ workspace, remoteFileStore: makeRemoteFileStoreWithSecretEnv() });
+
+    const { chunks } = await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken()));
+
+    const streamed = chunks.map((chunk) => chunk.line).join('\n');
+    expect(streamed).not.toContain(DEPLOYED_VALUE);
+    expect(streamed).not.toContain(SECRET_VALUE);
+  });
+
+  it('should fail closed, never calling stack.destroy(), when the stack state cannot be read', async () => {
+    const destroyImpl = vi.fn();
+    const workspace = makeWorkspace(destroyImpl, { outputs: vi.fn().mockRejectedValue(new Error('backend unreachable')) });
+    const runRecordPersister = makeRunRecordPersister();
+    const service = makeService({ workspace, runRecordPersister });
+
+    await expect(
+      collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken())),
+    ).rejects.toBeInstanceOf(PulumiDestroyError);
+
+    expect(destroyImpl).not.toHaveBeenCalled();
+    expect(runRecordPersister.persist).toHaveBeenCalledWith(expect.objectContaining({ exitCode: 1 }), expect.any(String));
+  });
+
+  it('should not echo configuration bytes into the log when the configuration object is not valid JSON', async () => {
+    const remoteFileStore = {
+      get: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(`${SECRET_VALUE} not json`), etag: 'e' }),
+    } as Partial<RemoteFileStore> as RemoteFileStore;
+    const service = makeService({ workspace: makeLeakyWorkspace(), remoteFileStore });
+
+    await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken()));
+
+    expect(JSON.stringify(loggerMock.warn.mock.calls)).not.toContain(SECRET_VALUE.slice(0, 6));
+  });
+
+  it('should redact environment values from a failed destroy error message, the cause, and the logged error', async () => {
+    const workspace = makeWorkspace(
+      async () => {
+        throw new Error(`CommandError: code 255\nstdout: deleting RCON_PASSWORD=${SECRET_VALUE}`);
+      },
+      { outputs: vi.fn().mockResolvedValue(outputsHolding(SECRET_VALUE)) },
+    );
+    const service = makeService({ workspace });
+
+    let caught: unknown;
+    try {
+      await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken()));
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(PulumiDestroyError);
+    expect((caught as Error).message).not.toContain(SECRET_VALUE);
+    expect((caught as Error).message).toContain('CommandError');
+    expect((caught as { cause?: unknown }).cause).toBeUndefined();
+    const failureLog = loggerMock.error.mock.calls.find(([message]) => message === 'pulumi destroy: operation failed');
+    expect(failureLog).toBeDefined();
+    const loggedError = (failureLog?.[1] as { error?: unknown }).error;
+    expect(typeof loggedError).toBe('string');
+    expect(loggedError).toContain('CommandError');
+    expect(loggedError).not.toContain(SECRET_VALUE);
+  });
+});
+
+// @spec IAC-ENGINE-LIFE-009
+describe('PulumiService.destroy app shutdown', () => {
+  it('should abort the engine call and settle the run as aborted when abortInFlightOperations runs mid-destroy', async () => {
+    let started!: () => void;
+    const engineStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const workspace = makeWorkspace(
+      (opts) =>
+        new Promise((_resolve, reject) => {
+          opts.signal?.addEventListener('abort', () => reject(new Error('interrupted')));
+          started();
+        }),
+    );
+    const runRecordPersister = makeRunRecordPersister();
+    const service = makeService({ workspace, runRecordPersister });
+
+    const drained = collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken(), undefined, 'run-1'));
+    await engineStarted;
+
+    expect(service.abortInFlightOperations()).toBe(true);
+
+    const { result } = await drained;
+    expect(result).toBeUndefined();
+    expect(runRecordPersister.persist).toHaveBeenCalledWith(expect.objectContaining({ exitCode: null, kind: 'destroy' }), expect.any(String));
+  });
+});
+
+// @spec IAC-ENGINE-LIFE-009
+describe('PulumiService.whenIdle', () => {
+  it('should resolve at once when nothing is running', async () => {
+    const service = makeService({ workspace: makeWorkspace(makeHappyPathDestroy()) });
+
+    await expect(service.whenIdle()).resolves.toBeUndefined();
+  });
+
+  it('should stay pending until an aborted destroy has persisted its run record', async () => {
+    let started!: () => void;
+    const engineStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const workspace = makeWorkspace(
+      (opts) =>
+        new Promise((_resolve, reject) => {
+          opts.signal?.addEventListener('abort', () => reject(new Error('interrupted')));
+          started();
+        }),
+    );
+    const runRecordPersister = makeRunRecordPersister();
+    let releasePersist!: () => void;
+    runRecordPersister.persist.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releasePersist = resolve;
+        }),
+    );
+    const service = makeService({ workspace, runRecordPersister });
+    const drained = collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken(), undefined, 'run-1'));
+    await engineStarted;
+
+    let idle = false;
+    const idlePromise = service.whenIdle().then(() => {
+      idle = true;
+    });
+    service.abortInFlightOperations();
+    await vi.waitFor(() => expect(runRecordPersister.persist).toHaveBeenCalled());
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(idle).toBe(false);
+
+    releasePersist();
+    await drained;
+    await idlePromise;
+    expect(idle).toBe(true);
   });
 });

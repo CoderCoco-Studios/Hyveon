@@ -182,7 +182,7 @@ describe('PulumiService.clearStaleLock', () => {
     );
     const getOrCreateStack = vi
       .fn()
-      .mockResolvedValue({ destroy: destroyMock, cancel: vi.fn() } as Partial<Stack> as Stack);
+      .mockResolvedValue({ destroy: destroyMock, outputs: vi.fn().mockResolvedValue({}), cancel: vi.fn() } as Partial<Stack> as Stack);
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
 
     // Unlike `makeModuleRef()` (which asserts clearStaleLock() itself never

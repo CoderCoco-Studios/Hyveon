@@ -4,7 +4,7 @@ vi.mock('./logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { installHelperQuitHook, type QuitApp } from './helper-quit-hook.js';
+import { createHelperQuitStopper, installHelperQuitHook, type QuitApp } from './helper-quit-hook.js';
 import { logger } from './logger.js';
 
 type BeforeQuit = Parameters<QuitApp['on']>[1];
@@ -75,5 +75,18 @@ describe('installHelperQuitHook', () => {
     });
     fire();
     await vi.waitFor(() => expect(app.quit).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('createHelperQuitStopper', () => {
+  // @spec HELPER-QUIT-002
+  it('should stop owned helpers and do nothing when none is owned', async () => {
+    const stopAll = vi.fn(async () => undefined);
+
+    await createHelperQuitStopper({ ownedGames: () => new Set<string>(), stopAll })();
+    expect(stopAll).not.toHaveBeenCalled();
+
+    await createHelperQuitStopper({ ownedGames: () => new Set(['mc']), stopAll })();
+    expect(stopAll).toHaveBeenCalledTimes(1);
   });
 });
