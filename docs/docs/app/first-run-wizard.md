@@ -122,7 +122,7 @@ by running through the CloudFormation stack again, or use **Start over**
 
 | State | What you see | Recovery |
 |---|---|---|
-| **Keychain unavailable** | A message that the OS keychain is unavailable and a **Choose a profile or paste keys** button | Rotation is refused before any new key is minted, so retrying cannot help. The button leaves guided setup for the credentials step, where you can pick an existing AWS CLI profile or paste keys |
+| **Keychain unavailable** | A message that the OS keychain is unavailable and a **Choose a profile** button | Rotation is refused before any new key is minted, so retrying cannot help. The button leaves guided setup for the credentials step, where you can pick an existing AWS CLI profile (which needs no keychain); pasting keys fails the same way until the keychain is unlocked |
 | **Verification failed** | An error message and a **Retry rotation** button | Retrying reuses the same in-memory bootstrap key — no need to re-paste anything. When this is a Reconfigure re-run, the guided key you were already using stays stored and active throughout |
 | **Deletion failed** | An amber warning that the new key is already active but the bootstrap key is too, a direct IAM console link, and a **Revoke now** button | The new key is already your active credential; this state only needs the leftover bootstrap key cleaned up. Pressing **Revoke now** finishes the step the same as a clean rotation |
 
@@ -210,8 +210,8 @@ intentional — it stops you advancing with keys you typed but never committed.
 If your OS keychain is unavailable, the save is refused rather than falling
 back to plaintext:
 
-> Cannot save pasted AWS credentials: the OS keychain (safeStorage) is
-> unavailable. Pasted keys are never stored in plaintext — pick an existing
+> Cannot save the value: the OS keychain (safeStorage) is unavailable.
+> Secrets are never stored in plaintext — for AWS access, pick an existing
 > AWS CLI profile instead.
 
 ### What blocks Next
@@ -243,9 +243,11 @@ The region locks the moment the bootstrap step first runs, even if it then fails
 
 These are created with the AWS SDK directly — the wizard does not shell out to
 any CLI for this step. The run-history table's name is not operator-editable
-here: unlike the two buckets, it has no `DeploymentConfig` yet to hold a
-custom name override (that only gets configured later, from the Settings
-page), so it always uses the project-name default shown above.
+here: unlike the two buckets, it follows the `deployment-config.json`
+already in the Configuration bucket, so a re-run targets the table your stack
+uses. A non-empty `runsTableName` in that document wins; otherwise the table is
+`${projectName}-runs`. When no such document exists yet it uses the
+project-name default shown above.
 
 Press **Bootstrap AWS resources**. The State bucket and Run-history table are
 created concurrently with the rest. The initial-configuration seed is chained
@@ -282,15 +284,26 @@ or `Failed` keeps Next disabled; there is no "informational only" resource
 here, since `plan`/`approve` against the run-history table and the seeded
 configuration object both depend on their targets already existing.
 
-### The IAM permission check is advisory
+### The IAM permission check
 
 Below the resources is an **IAM permission check** section with a **Check
 permissions** button (it relabels to **Re-check permissions** afterwards).
 
-**This check never blocks Next, and it never runs on its own.** You can
-complete the entire wizard without ever pressing it. It exists so you find out
-about a missing IAM action now rather than halfway through your first
-infrastructure apply.
+**For your own profile or pasted keys the check is advisory.** It never blocks
+Next and runs only when you press the button, so you can complete the wizard
+without it. It exists so you find out about a missing IAM action now rather
+than halfway through your first infrastructure apply.
+
+**After guided setup the check runs on its own and can block Next.** It runs as
+soon as guided provisioning completes, against the key Hyveon retains, and
+runs again on arriving at this step if no result is on hand (including in
+Reconfigure, where a collapsed step cannot skip it). Next stays disabled while
+the check is running, if it errored, and if it reports missing permissions.
+If the check errored, resolve the error it shows and press **Re-check
+permissions**. If it reports missing permissions, update your CloudFormation
+stack with a freshly rendered template and press **Re-check permissions** to
+get a passing result. The JSON shown lists the
+missing actions only; do not paste it over the stack's policy.
 
 It resolves your caller identity, then asks IAM to simulate every action in
 the `HyveonDeployAll` policy against your principal. Three outcomes:
@@ -298,7 +311,7 @@ the `HyveonDeployAll` policy against your principal. Three outcomes:
 | Result | What you see |
 |---|---|
 | **Passed** | "All required permissions are present." |
-| **Missing** | "Some permissions are missing. Paste the policy below into your IAM user's inline policy." followed by a ready-to-paste JSON policy containing exactly the denied actions, with a copy button |
+| **Missing** | "Some permissions are missing. Add the actions below to the policy of the IAM user, role or permission set these credentials use." followed by a JSON policy labelled "Missing actions only, not a complete policy" that contains exactly the denied actions, with a copy button. After guided setup the message instead says the policy must be fixed before you can continue and tells you to update your CloudFormation stack with a freshly rendered template, noting that an account-level denial (such as a service control policy) or credentials from another account can keep actions missing after the update; the JSON must not be pasted over the stack's policy |
 | **Warning** | The reason the simulation could not run (for example, your principal cannot call `iam:SimulatePrincipalPolicy`), followed by the full list of actions to check by hand |
 
 The full policy, and where to put it, is documented in the

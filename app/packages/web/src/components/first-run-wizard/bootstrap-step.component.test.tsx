@@ -187,12 +187,28 @@ describe('BootstrapStep', () => {
       const missing: IamCheckResult = {
         status: 'missing',
         policyJson: '{\n  "Version": "2012-10-17"\n}',
-        origin: 'guided',
-        blocking: true,
+        origin: 'pasted',
+        blocking: false,
       };
       renderStep({ iamCheck: missing });
       expect(screen.getByText(/some permissions are missing/i)).toBeInTheDocument();
       expect(screen.getByText(/"Version": "2012-10-17"/)).toBeInTheDocument();
+    });
+
+    // @spec APP-WIZARD-IAMCHK-009
+    it('should state the check must be fixed before continuing when the guided result is blocking', () => {
+      const missing: IamCheckResult = {
+        status: 'missing',
+        policyJson: '{"Action":["ec2:RunInstances"]}',
+        origin: 'guided',
+        blocking: true,
+      };
+      renderStep({ iamCheck: missing });
+      expect(screen.getByText(/must be fixed before you can continue/i)).toBeInTheDocument();
+      expect(screen.getByText(/freshly rendered template/i)).toBeInTheDocument();
+      expect(screen.queryByText(/with the policy below/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/missing actions only, not a complete policy/i)).toBeInTheDocument();
+      expect(screen.getByText(/ec2:RunInstances/)).toBeInTheDocument();
     });
 
     // @spec APP-WIZARD-IAMCHK-003

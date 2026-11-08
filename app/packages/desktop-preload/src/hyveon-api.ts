@@ -10,6 +10,8 @@
  */
 
 import type {
+  AwsKeyRotateResult,
+  GuidedIamRotateResult,
   AutoUpdateSettingGetResult,
   AutoUpdateSettingUpdatePayload,
   AutoUpdateSettingWriteResult,
@@ -118,6 +120,8 @@ import type {
  * avoids the same drift risk as hand-duplicating its fields here.
  */
 export type {
+  AwsKeyRotateResult,
+  GuidedIamRotateResult,
   AutoUpdateSettingGetResult,
   AutoUpdateSettingUpdatePayload,
   AutoUpdateSettingWriteResult,
@@ -780,6 +784,8 @@ export interface CloudHealthFixResult {
    * `cloudHealth.openPolicyConsole`.
    */
   policyConsoleUrl?: string;
+  /** Present when `outcome` is `'needsPolicyUpdate'` — `true` when the policy lives in the guided CloudFormation stack and must be updated there. */
+  policyManagedByStack?: boolean;
   /** Present when `outcome` is `'failed'` — an actionable, human-readable message. */
   message?: string;
 }
@@ -1365,20 +1371,6 @@ export interface RotationInput {
   region: string;
 }
 
-/**
- * Outcome of {@link HyveonWizardApi.guidedIamRotate}. Mirrors `GuidedIamRotateResult`
- * in `wizard.controller.ts` — keep in sync.
- */
-export type RotationResult =
-  /** The new key pair is active and the bootstrap key has been revoked. */
-  | { status: 'complete' }
-  /** `sts:GetCallerIdentity` failed for the newly minted key; nothing was activated. */
-  | { status: 'verification-failed'; error: string }
-  /** The new key pair is already active, but `iam:DeleteAccessKey` failed for the bootstrap key — revoke it manually via `consoleUrl`. */
-  | { status: 'delete-failed'; consoleUrl: string }
-  /** The OS keychain is unavailable, so rotation was refused before minting or storing any key. */
-  | { status: 'keychain-unavailable' };
-
 /** Input to {@link HyveonWizardApi.guidedIamRevokeBootstrapKey}. Mirrors `RevokeBootstrapKeyInput` in `GuidedIamService.ts` — keep in sync. */
 export interface RevokeBootstrapKeyInput {
   /** Access key ID of the still-live bootstrap key to revoke. */
@@ -1405,6 +1397,8 @@ export interface HyveonWizardApi {
    * Only the resolved profile name comes back — never the values passed in.
    */
   saveCredentials: (input: SavePastedCredentialsInput) => Promise<{ profileName: string }>;
+  /** Rotates the active pasted or guided access key in place; every outcome comes back as a modeled result. */
+  rotateAwsKey: () => Promise<AwsKeyRotateResult>;
   /** Whether the first-run wizard has completed — used to gate the app router. */
   getState: () => Promise<WizardState>;
   /**
@@ -1444,11 +1438,10 @@ export interface HyveonWizardApi {
    * bootstrap deadlock: this table used to be created by the first Pulumi
    * apply, which itself needed the table to already exist to record its own
    * run — see `BootstrapService.ensureRunsTable`'s doc comment for the full
-   * story. Takes no payload — the table's name isn't operator-editable at
-   * this point in the wizard (no `DeploymentConfig` exists yet to hold an
-   * override), so it always uses the project-name default.
+   * story. The table's name isn't operator-editable: it follows the project name of the configuration document
+   * already in `input.configurationBucket`, or the project-name default when none exists yet.
    */
-  bootstrapRunsTable: () => Promise<BootstrapResult>;
+  bootstrapRunsTable: (input?: { configurationBucket?: string }) => Promise<BootstrapResult>;
   /**
    * Runs the wizard's best-effort IAM permission dry-run against the
    * `HyveonDeployAll` action set (`sts:GetCallerIdentity` +
@@ -1502,12 +1495,12 @@ export interface HyveonWizardApi {
   guidedIamSubmitBootstrapKey: (input: BootstrapKeyIntakeInput) => Promise<BootstrapKeyIntakeResult>;
   /**
    * Performs the mandatory mint-then-revoke rotation onto a freshly-minted
-   * key pair. See {@link RotationResult} for the `complete`/
+   * key pair. See {@link GuidedIamRotateResult} for the `complete`/
    * `verification-failed`/`delete-failed` outcome branches.
    */
-  guidedIamRotate: (input: RotationInput) => Promise<RotationResult>;
+  guidedIamRotate: (input: RotationInput) => Promise<GuidedIamRotateResult>;
   /**
-   * Manual-retry action for a `delete-failed` {@link RotationResult}: revokes
+   * Manual-retry action for a `delete-failed` {@link GuidedIamRotateResult}: revokes
    * the still-live bootstrap access key without re-running the mint/verify
    * sequence. Never rejects — a refusal or AWS failure comes back as
    * `{ revoked: false, message }`.

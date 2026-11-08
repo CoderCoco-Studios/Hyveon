@@ -3,6 +3,7 @@ import {
   S3Client,
   CreateBucketCommand,
   HeadBucketCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
@@ -22,7 +23,12 @@ import {
   waitUntilTableExists,
 } from '@aws-sdk/client-dynamodb';
 import { fromIni } from '@aws-sdk/credential-providers';
-import { CONFIGURATION_OBJECT_KEY, errMessage, withDeploymentConfigDefaults } from '@hyveon/shared';
+import {
+  CONFIGURATION_OBJECT_KEY,
+  errMessage,
+  runsTableNameFromConfigJson,
+  withDeploymentConfigDefaults,
+} from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
@@ -105,7 +111,7 @@ export class BootstrapCredentialsNotConfiguredError extends Error {
 export class BootstrapService {
   constructor(private readonly store: ElectronStoreService) {}
 
-  // @spec APP-WIZARD-BOOT-005, APP-WIZARD-BOOT-006, APP-WIZARD-BOOT-007, APP-WIZARD-BOOT-009
+  // @spec APP-WIZARD-BOOT-005, APP-WIZARD-BOOT-006, APP-WIZARD-BOOT-007, APP-WIZARD-BOOT-009, APP-WIZARD-BOOT-004
   /**
    * Idempotently ensures the S3 bucket backing the self-managed
    * infrastructure state backend exists with versioning, default (AES256)
@@ -123,7 +129,9 @@ export class BootstrapService {
    */
   async ensureStateBucket(bucketName: string): Promise<BootstrapResult> {
     logger.debug('BootstrapService.ensureStateBucket: starting', { bucketName });
-    const client = this.createS3Client();
+    const built = this.buildClient('ensureStateBucket', () => this.createS3Client());
+    if ('failure' in built) return built.failure;
+    const { client } = built;
     let created: boolean;
     try {
       created = await this.createBucket(client, bucketName);
@@ -169,7 +177,7 @@ export class BootstrapService {
     return { status: created ? 'created' : 'exists' };
   }
 
-  // @spec APP-WIZARD-BOOT-006, APP-WIZARD-BOOT-008, APP-WIZARD-BOOT-009
+  // @spec APP-WIZARD-BOOT-006, APP-WIZARD-BOOT-008, APP-WIZARD-BOOT-009, APP-WIZARD-BOOT-004
   /**
    * Idempotently ensures the versioned configuration S3 bucket exists with a
    * lifecycle rule expiring noncurrent object versions after 90 days,
@@ -186,7 +194,9 @@ export class BootstrapService {
    */
   async ensureConfigurationBucket(bucketName: string): Promise<BootstrapResult> {
     logger.debug('BootstrapService.ensureConfigurationBucket: starting', { bucketName });
-    const client = this.createS3Client();
+    const built = this.buildClient('ensureConfigurationBucket', () => this.createS3Client());
+    if ('failure' in built) return built.failure;
+    const { client } = built;
     let created: boolean;
     try {
       created = await this.createBucket(client, bucketName);
@@ -257,7 +267,7 @@ export class BootstrapService {
     return { status: created ? 'created' : 'exists' };
   }
 
-  // @spec APP-WIZARD-BOOT-010
+  // @spec APP-WIZARD-BOOT-010, APP-WIZARD-BOOT-004
   /**
    * Idempotently ensures the {@link CONFIGURATION_OBJECT_KEY} deployment-config
    * JSON object exists in the configuration bucket, seeding a minimal, valid
@@ -315,7 +325,9 @@ export class BootstrapService {
    */
   async ensureDeploymentConfig(bucketName: string): Promise<BootstrapResult> {
     logger.debug('BootstrapService.ensureDeploymentConfig: starting', { bucketName });
-    const client = this.createS3Client();
+    const built = this.buildClient('ensureDeploymentConfig', () => this.createS3Client());
+    if ('failure' in built) return built.failure;
+    const { client } = built;
     try {
       if (await this.deploymentConfigExists(client, bucketName)) {
         logger.debug('BootstrapService.ensureDeploymentConfig: document already exists', { bucketName });
@@ -342,6 +354,57 @@ export class BootstrapService {
     }
   }
 
+  // @spec APP-WIZARD-BOOT-012
+  /**
+   * Resolves the runs table name an already-seeded configuration document implies (its `projectName` and
+   * `runsTableName` override), so a re-run of the bootstrap step targets the same table the stack already uses.
+   *
+   * @remarks
+   * Only a genuine "not found" (object or bucket absent: the state of a fresh install) resolves `undefined`, which
+   * the caller treats as "use the default name". Any other failure (transient S3 error, permission gap, an empty or
+   * malformed document) throws, because falling back to the default name there could create the wrong table.
+   *
+   * @param bucketName - The configuration bucket to read from.
+   * @returns The resolved table name, or `undefined` when no document exists yet.
+   * @throws Error with a normalised message when the document cannot be read or parsed.
+   */
+  async resolveExistingRunsTableName(bucketName: string): Promise<string | undefined> {
+    logger.debug('BootstrapService.resolveExistingRunsTableName: reading the existing document', { bucketName });
+    let json: string | undefined;
+    try {
+      const response = await this.createS3Client().send(
+        new GetObjectCommand({ Bucket: bucketName, Key: CONFIGURATION_OBJECT_KEY }),
+      );
+      json = await response.Body?.transformToString();
+    } catch (err) {
+      if (this.isNotFound(err) || this.isAwsErrorCode(err, 'NoSuchBucket')) {
+        logger.debug('BootstrapService.resolveExistingRunsTableName: no document yet', { bucketName });
+        return undefined;
+      }
+      logger.error('BootstrapService.resolveExistingRunsTableName: read failed', {
+        bucketName,
+        error: errMessage(err),
+      });
+      throw new Error(errMessage(err));
+    }
+    try {
+      if (!json) throw new Error('the document is empty');
+      return runsTableNameFromConfigJson(json);
+    } catch (err) {
+      logger.error('BootstrapService.resolveExistingRunsTableName: existing document is malformed', {
+        bucketName,
+        error: errMessage(err),
+      });
+      throw new Error(`The existing ${CONFIGURATION_OBJECT_KEY} is malformed (${errMessage(err)})`);
+    }
+  }
+
+  /** True for an S3 "object not found" error (HTTP 404, `NotFound` or `NoSuchKey`). */
+  private isNotFound(err: unknown): boolean {
+    const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+    return status === 404 || this.isAwsErrorCode(err, 'NotFound') || this.isAwsErrorCode(err, 'NoSuchKey');
+  }
+
   /**
    * Resolves `true` when {@link CONFIGURATION_OBJECT_KEY} already exists in
    * `bucketName`, via `HeadObject`. Unlike {@link bucketExists}/
@@ -359,8 +422,7 @@ export class BootstrapService {
       logger.debug('BootstrapService: deployment-config object exists', { bucketName });
       return true;
     } catch (err) {
-      const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
-      if (status === 404 || this.isAwsErrorCode(err, 'NotFound') || this.isAwsErrorCode(err, 'NoSuchKey')) {
+      if (this.isNotFound(err)) {
         logger.debug('BootstrapService: deployment-config object does not exist yet', { bucketName });
         return false;
       }
@@ -368,7 +430,7 @@ export class BootstrapService {
     }
   }
 
-  // @spec APP-WIZARD-BOOT-011
+  // @spec APP-WIZARD-BOOT-011, APP-WIZARD-BOOT-004
   /**
    * Idempotently ensures the run-history DynamoDB table exists, with the
    * `status-index` GSI and point-in-time recovery enabled — the exact schema
@@ -411,7 +473,9 @@ export class BootstrapService {
    */
   async ensureRunsTable(tableName: string): Promise<BootstrapResult> {
     logger.debug('BootstrapService.ensureRunsTable: starting', { tableName });
-    const client = this.createDynamoDbClient();
+    const built = this.buildClient('ensureRunsTable', () => this.createDynamoDbClient());
+    if ('failure' in built) return built.failure;
+    const { client } = built;
     let created: boolean;
     try {
       created = await this.createRunsTable(client, tableName);
@@ -688,6 +752,22 @@ export class BootstrapService {
       }),
     );
     logger.debug('BootstrapService.ensurePublicAccessBlock: public-access-block settings applied', { bucketName });
+  }
+
+  /**
+   * Builds an AWS client, converting a construction failure (no stored region, undecryptable credentials) into a
+   * `failed` {@link BootstrapResult} so the IPC call never rejects.
+   *
+   * @param operation - Calling method name, for the log line.
+   * @param build - Factory that constructs the client.
+   */
+  private buildClient<C>(operation: string, build: () => C): { client: C } | { failure: BootstrapResult } {
+    try {
+      return { client: build() };
+    } catch (err) {
+      logger.warn(`BootstrapService.${operation}: could not build AWS client`, { error: errMessage(err) });
+      return { failure: { status: 'failed', message: errMessage(err) } };
+    }
   }
 
   private isAwsErrorCode(err: unknown, code: string): boolean {

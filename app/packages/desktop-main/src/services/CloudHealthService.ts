@@ -10,8 +10,8 @@ import { ConfigService } from './ConfigService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { readIsPackaged as sharedReadIsPackaged } from './electronRuntime.js';
-import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.js';
-import type { OpenConsoleResult } from './GuidedIamService.js';
+import { resolveAwsClientCredentialsWithSignature, resolveAwsCredentialSource } from './awsCredentialSource.js';
+import { GUIDED_PROFILE_NAME, type OpenConsoleResult } from './GuidedIamService.js';
 
 /** Outcome of a single {@link CloudHealthCheck.check} call. */
 export type CloudHealthCheckStatus = 'ok' | 'missing' | 'error';
@@ -40,6 +40,11 @@ export interface CloudHealthFixResult {
    * back to the Copy button alone in that case.
    */
   policyConsoleUrl?: string;
+  /**
+   * Present when `outcome` is `'needsPolicyUpdate'` — `true` when the active credentials are the guided profile, whose
+   * `HyveonDeployAll` lives in the operator's CloudFormation stack and must be updated there.
+   */
+  policyManagedByStack?: boolean;
   /** Present when `outcome` is `'failed'` — an actionable, human-readable message. */
   message?: string;
 }
@@ -79,6 +84,16 @@ export class CloudHealthService {
         fix: () => this.fixEcsServiceLinkedRole(),
       },
     ];
+  }
+
+  /** Whether the active credential source is the guided flow's pasted key, whose policy the CloudFormation stack manages. */
+  private isGuidedPastedSource(): boolean {
+    try {
+      const source = resolveAwsCredentialSource(this.store);
+      return source.kind === 'pasted' && source.profile === GUIDED_PROFILE_NAME;
+    } catch {
+      return false;
+    }
   }
 
   private getIamClient(): IAMClient {
@@ -157,6 +172,7 @@ export class CloudHealthService {
           outcome: 'needsPolicyUpdate',
           policyJson: JSON.stringify(generateHyveonDeployAllPolicy(projectName), null, 2),
           policyConsoleUrl: await this.buildPolicyConsoleUrl(),
+          policyManagedByStack: this.isGuidedPastedSource(),
         };
       }
       logger.error('CloudHealthService.fixEcsServiceLinkedRole: unexpected failure', { message });
@@ -190,6 +206,7 @@ export class CloudHealthService {
     }
   }
 
+  // @spec APP-WIZARD-HEALTH-011
   /**
    * Writes `policyJson` to disk as `hyveon-deploy-all-policy.json`, so the
    * operator has a real file for `aws iam create-policy-version` or similar
@@ -199,10 +216,17 @@ export class CloudHealthService {
    * rather than importing across service files for a two-line helper).
    *
    * @param policyJson - The policy document text to write, verbatim.
+   * @throws Error with only a message when the file cannot be written.
    */
   writePolicyToDisk(policyJson: string): { path: string } {
     const path = this.getPolicyDownloadPath();
-    writeFileSync(path, policyJson);
+    try {
+      writeFileSync(path, policyJson);
+    } catch (err) {
+      const message = errMessage(err);
+      logger.error('CloudHealthService.writePolicyToDisk: could not write the policy file', { path, error: message });
+      throw new Error(`Could not save the policy file: ${message}`);
+    }
     return { path };
   }
 

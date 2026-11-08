@@ -13,7 +13,7 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { SafeStorageService } from './SafeStorageService.js';
+import { SafeStorageService, SafeStorageUnavailableError } from './SafeStorageService.js';
 import { logger } from '../logger.js';
 
 describe('SafeStorageService', () => {
@@ -81,18 +81,19 @@ describe('SafeStorageService', () => {
       vi.spyOn(service as unknown as { readIsAvailable(): boolean }, 'readIsAvailable').mockReturnValue(true);
     }
 
-    it('should return plaintext unchanged when keychain is unavailable inside Electron', () => {
+    // @spec APP-WIZARD-CUSTODY-007
+    it('should throw SafeStorageUnavailableError instead of returning plaintext when keychain is unavailable inside Electron', () => {
       vi.spyOn(service as unknown as { readIsElectron(): boolean }, 'readIsElectron').mockReturnValue(true);
       vi.spyOn(service as unknown as { readIsAvailable(): boolean }, 'readIsAvailable').mockReturnValue(false);
 
-      expect(service.encrypt('my-secret')).toBe('my-secret');
+      expect(() => service.encrypt('my-secret')).toThrow(SafeStorageUnavailableError);
     });
 
     it('should log a warning when keychain is unavailable inside Electron', () => {
       vi.spyOn(service as unknown as { readIsElectron(): boolean }, 'readIsElectron').mockReturnValue(true);
       vi.spyOn(service as unknown as { readIsAvailable(): boolean }, 'readIsAvailable').mockReturnValue(false);
 
-      service.encrypt('my-secret');
+      expect(() => service.encrypt('my-secret')).toThrow();
 
       expect(logger.warn).toHaveBeenCalled();
     });
@@ -189,12 +190,14 @@ describe('SafeStorageService', () => {
       vi.spyOn(service as unknown as { readIsAvailable(): boolean }, 'readIsAvailable').mockReturnValue(true);
     }
 
-    it('should return ciphertext unchanged when keychain is unavailable inside Electron', () => {
+    // @spec APP-WIZARD-CUSTODY-007
+    it('should throw instead of returning the stored value when keychain is unavailable inside Electron', () => {
       vi.spyOn(service as unknown as { readIsElectron(): boolean }, 'readIsElectron').mockReturnValue(true);
       vi.spyOn(service as unknown as { readIsAvailable(): boolean }, 'readIsAvailable').mockReturnValue(false);
 
-      const ciphertext = Buffer.from('some-data').toString('base64');
-      expect(service.decrypt(ciphertext)).toBe(ciphertext);
+      const ciphertext = Buffer.from('some-secret-blob').toString('base64');
+      expect(() => service.decrypt(ciphertext)).toThrow(/keychain/i);
+      expect(() => service.decrypt(ciphertext)).not.toThrow(ciphertext);
     });
 
     // @spec APP-WIZARD-CREDS-005

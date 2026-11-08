@@ -65,6 +65,7 @@ import type {
   VolumeTransferProgress,
 } from '@hyveon/shared/volumeFiles';
 import type {
+  AwsKeyRotateResult,
   CloudHealthCheckStatus,
   CloudHealthCheckSummary,
   CloudHealthFixOutcome,
@@ -74,6 +75,7 @@ import type {
 } from '@hyveon/desktop-preload';
 
 export type {
+  AwsKeyRotateResult,
   ExportDiagnosticsBundleResult,
   GameServerHealthCheckAuth,
   GameServerHealthCheckAuthWriteInput,
@@ -325,6 +327,14 @@ export const api = {
 
   audit: async (opts?: { limit?: number; before?: string }): Promise<AuditPageResult> =>
     hyveon().audit.list(opts),
+
+  rotateAwsKey: async (): Promise<AwsKeyRotateResult> => hyveon().wizard.rotateAwsKey(),
+  /** True when the active credential is a pasted or guided key the app can rotate, false for a `~/.aws` profile or none. */
+  canRotateAwsKey: async (): Promise<boolean> => {
+    const [state, profiles] = await Promise.all([hyveon().wizard.getState(), hyveon().wizard.listAwsProfiles()]);
+    const profile = state.aws?.profile;
+    return profile !== undefined && !profiles.some((p) => p.profileName === profile);
+  },
 
   cloudHealthList: async (): Promise<CloudHealthCheckSummary[]> => hyveon().cloudHealth.list(),
   cloudHealthFix: async (id: string): Promise<CloudHealthFixResult> => hyveon().cloudHealth.fix(id),

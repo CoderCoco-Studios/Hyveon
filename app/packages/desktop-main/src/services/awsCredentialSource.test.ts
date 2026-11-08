@@ -122,6 +122,13 @@ describe('resolveAwsCredentialSource', () => {
     expect(() => resolveAwsCredentialSource(store)).toThrow(/hyveon-pasted/);
   });
 
+  // @spec APP-WIZARD-CUSTODY-007
+  it('should carry the decrypt cause and the unlock-the-keychain hint in the message', () => {
+    const store = makeStoreWithUndecryptableCredentials('hyveon-pasted', new Error('OS keychain is unavailable'));
+
+    expect(() => resolveAwsCredentialSource(store)).toThrow(/OS keychain is unavailable.*unlock it and try again/);
+  });
+
   // @spec APP-WIZARD-CUSTODY-002
   it('should log a warning (not let the raw decrypt error escape unlogged) when getPastedCredentials throws', () => {
     const cause = new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.');

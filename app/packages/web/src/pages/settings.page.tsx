@@ -10,6 +10,7 @@ import { FirstRunWizard } from '../components/first-run-wizard/first-run-wizard.
 import { Button } from '../components/ui/button.component.js';
 import { CloudHealthSection } from '../components/cloud-health-section.component.js';
 import { SettingsRow } from '../components/settings-row.component.js';
+import { RotateAccessKeyRow } from '../components/rotate-access-key-row.component.js';
 import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /**
@@ -295,6 +296,9 @@ export function SettingsPage() {
             Reconfigure
           </Button>
         </SettingsRow>
+        <div className="mt-3">
+          <RotateAccessKeyRow />
+        </div>
       </div>
 
       {/*

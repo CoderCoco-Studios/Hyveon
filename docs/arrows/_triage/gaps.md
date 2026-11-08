@@ -192,15 +192,14 @@ Specs: `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs
 | `APP-WIZARD-REGLOCK-001` (CLOSED) | b | high | wizard.controller.ts:205-207 merges any aws.region; GuidedIamService.ts:498 stores input.region; no bootstrap-completed check anywhere (no region-lock code in web/src or desktop-main/src) |
 | `APP-WIZARD-CREDS-010` | closed | - | Fixed (was): fixed label. The summary shows the resolved IAM user and account ID |
 | `APP-WIZARD-CREDS-011` | closed | - | Fixed (was): `wizard.state.get` returned `aws` whole. `readState` projects `profile` and `region` |
-| `APP-WIZARD-ROTKEY-005` | c | med | AwsProfileService.ts:271 rotateActiveCredentials has no IPC/UI caller (grep); arrow Should 6 is a pending wire-or-drop decision; Reconfigure paste or guided re-run is the workaround |
-| `APP-WIZARD-BOOT-004` | b | low | createS3Client/createDynamoDbClient outside try at BootstrapService.ts:127,190,319,415; resolveClientConfig throws at :713-714; renderer still shows failed via own catch |
-| `APP-WIZARD-BOOT-012` | d | - | No operator project name exists at bootstrap (wizard.controller.ts:296-314 doc); projectName is locked after bootstrap by DeploymentConfigService.ts:152-175, so default derivation is the design. Edge: pre-existing config doc |
-| `APP-WIZARD-IAMCHK-008` | b | low | IAM check runs only on button click: use-bootstrap-resources.hook.ts:226-240 runIamCheck, iam-check-panel.component.tsx:37-38; no auto-run after guided completion |
-| `APP-WIZARD-IAMCHK-009` | b | med | No renderer reads blocking (IamCheckService.ts:93); advance gate is resource status only (use-bootstrap-resources.hook.ts:244-248); missing copy says paste into inline policy (iam-check-panel:55), wrong for guided |
-| `APP-WIZARD-HEALTH-008` | d | - | Spec says always CFN, but profile/pasted installs have no stack; current IAM-console copy (cloud-health-section.component.tsx:82-84) is right for them. Make spec origin-conditional (CFN for guided only) |
-| `APP-WIZARD-HEALTH-008` (split) | b | med | Remediation-copy gap that remains once the spec is rewritten: guided installs own HyveonDeployAll through a CloudFormation stack (resources/cloudformation/iam-bootstrap.yaml:31-34, GuidedIamService.ts:9,71-73,154-157) yet cloud-health-section.component.tsx:82-84 tells every operator to edit the policy in the IAM console, which drifts the stack from its template. Not counted separately in the totals |
-| `APP-WIZARD-HEALTH-011` | b | low | writeFileSync unguarded at CloudHealthService.ts:203-206 (bridge normalises but no log); list half latent: one check, fully try-wrapped (:96-112), bare Promise.all at cloud-health.controller.ts:28-33 |
-| `APP-WIZARD-CUSTODY-007` | b | med | SafeStorageService.ts:88-92 returns ciphertext when isAvailable() false; a later keychain outage hands base64 ciphertext to SDK/Pulumi as secret, giving opaque auth/passphrase errors |
+| `APP-WIZARD-ROTKEY-005` | closed | - | Fixed (was): `rotateActiveCredentials` had no IPC/UI caller. Settings offers "Rotate key" over `wizard.aws.rotateKey` |
+| `APP-WIZARD-BOOT-004` | closed | - | Fixed (was): client construction ran outside the `try`. `buildClient` returns `{ status: 'failed' }` |
+| `APP-WIZARD-BOOT-012` | closed | - | Fixed (was d): the runs table follows the existing `deployment-config.json`: a non-empty `runsTableName` override wins, else `${projectName}-runs`; only when no document exists does it fall back to the default project name |
+| `APP-WIZARD-IAMCHK-008` | closed | - | Fixed (was): the check ran only on button press. `handleGuidedIamComplete` runs it automatically |
+| `APP-WIZARD-IAMCHK-009` | closed | - | Fixed (was): no renderer read `blocking`. The bootstrap step's `complete` gate and panel copy honour it |
+| `APP-WIZARD-HEALTH-008` | closed | - | Spec text fixed (was d): origin-conditional. Guided installs (`policyManagedByStack`) are pointed at their CloudFormation stack, others at the IAM console |
+| `APP-WIZARD-HEALTH-011` | closed | - | Fixed (was): bare `Promise.all` and unguarded `writeFileSync`. `list` isolates a failing check; `writePolicyToDisk` logs and throws a plain error |
+| `APP-WIZARD-CUSTODY-007` | closed | - | Fixed (was): `decrypt` returned ciphertext when the keychain was unavailable. It throws inside Electron |
 
 ### `diagnostics`
 

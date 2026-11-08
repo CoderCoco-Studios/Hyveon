@@ -67,7 +67,7 @@ The credentials step's paste form stages its keys in renderer memory in Reconfig
 Guided rotation and the bootstrap buttons act on AWS immediately in both modes and cannot be unwound, and the commit on entering stack-init is itself the point of no return: after any of them has run, Cancel (state kept in `use-reconfigure-cancel.hook.ts`) opens a confirmation stating that those AWS changes remain in place and were not undone, and a Cancel before any of them leaves without a prompt.
 `commitReconfigureAnswers` sends `credentials.toStatePayload()` whenever the credentials step is not pre-completed (`use-reconfigure-answers.hook.ts:222-224`) without the `!guidedCredentials` guard the first-run path has (`first-run-wizard.component.tsx:307`) `[inferred]` risk, not reproduced.
 
-Step advancement on the bootstrap step requires every resource `created` or `exists` (`first-run-wizard.component.tsx:237-238`, `use-bootstrap-resources.hook.ts:241-246`); it does not consider the IAM check (see below).
+Step advancement on the bootstrap step requires every resource `created` or `exists` (`first-run-wizard.component.tsx:237-238`, `use-bootstrap-resources.hook.ts:241-246`); for a guided install it also requires a finished, non-blocking IAM check (see below).
 
 ## Credential Acquisition Paths
 
@@ -118,10 +118,10 @@ The lock engages at the first bootstrap call: each `wizard.bootstrap.*` handler 
 | `wizard.bootstrap.runsTable` | `ensureRunsTable` (`:408`) | run-history DynamoDB table with `status-index` GSI and point-in-time recovery, waits for `ACTIVE` (`:369-400`) |
 
 Settings are re-applied on the `exists` path so older buckets are brought up to standard (APP-WIZARD-BOOT-005, APP-WIZARD-BOOT-008): `ensureConfigurationBucket` applies the same idempotent default encryption as `ensureStateBucket` on both the `created` and `exists` paths.
-Default names are `<project>-tfstate` and `<project>-config` and are operator-editable (`wizard.utils.ts:44-49`); the runs table name is always `resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, '')` regardless of what the operator typed (`wizard.controller.ts:307-310`).
+Default names are `<project>-tfstate` and `<project>-config` and are operator-editable (`wizard.utils.ts:44-49`); the runs table name is resolved from the `projectName` and `runsTableName` of the `deployment-config.json` already in the configuration bucket (`BootstrapService.resolveExistingRunsTableName`), falling back to `resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, '')` only on a fresh install (document not found), regardless of what the operator typed in the bucket-name fields, because the wizard has no project-name field and a re-run must target the table the stack already uses (APP-WIZARD-BOOT-012).
 The renderer runs the four calls concurrently (`use-bootstrap-resources.hook.ts:219`).
 
-Failure handling: AWS errors inside each method are logged and returned as `{ status: 'failed', message }`, but the client is built before the `try` (`BootstrapService.ts:125,187,315,410`), and `resolveClientConfig` throws `BootstrapCredentialsNotConfiguredError` when `aws.region` is unset (`:701-708`), so that case rejects the IPC call instead.
+Failure handling: AWS errors inside each method are logged and returned as `{ status: 'failed', message }`, and so is a client-construction failure (no stored `aws.region`, undecryptable credentials), because `buildClient` converts the throw into a `failed` result, so no `wizard.bootstrap.*` call rejects (APP-WIZARD-BOOT-004).
 
 ### IAM permission check
 
@@ -130,14 +130,13 @@ Result is `passed | missing | warning` with an `origin` of `guided | pasted | pr
 Any STS or simulation failure degrades to a non-blocking `warning` (`:133,140-156,179-183`).
 For missing actions it emits a suggested policy with `Resource: '*'` for every action (`:306-315`), broader than the scoped statements in `iamPolicy.ts:79`.
 
-Divergence: the intended behaviour is that the check runs automatically after guided rotation and a guided `missing` result blocks progression (APP-WIZARD-IAMCHK-008, APP-WIZARD-IAMCHK-009).
-In the renderer the check runs only when the operator presses the button (`use-bootstrap-resources.hook.ts:223-239`, `bootstrap-step.component.tsx:121`), and no renderer code reads `blocking`; the bootstrap step's advance condition is resource status only (`first-run-wizard.component.tsx:237-238`). The service computes the gate; nothing enforces it.
+After guided provisioning completes the wizard runs the check automatically, and a guided install cannot progress past the bootstrap step, even when Reconfigure collapses it, until a check has finished without error and is not `blocking`; a guided install that reaches the step with no result runs the check itself. The panel lists the denied actions as "missing actions only" JSON and tells a guided operator to update the stack with a freshly rendered template, because that JSON is a delta on `Resource: '*'` and pasting it over the stack's policy would replace the full policy (APP-WIZARD-IAMCHK-008, APP-WIZARD-IAMCHK-009). A result for a picked profile or pasted keys never blocks, and switching away from the guided credentials discards the result.
 
 ### Cloud Health
 
 `CloudHealthService` (`CloudHealthService.ts:63`) holds a typed check list seeded with one entry, `ecs-service-linked-role` (`:74,94-110`), surfaced as an always-visible Settings checklist rather than a silent self-heal (see Decisions & Alternatives, "Cloud Health placement").
 `cloudHealth.fix` calls `iam:CreateServiceLinkedRole` for `ecs.amazonaws.com` (`:133-136`) and degrades to a downloadable policy JSON and a console link (`cloudHealth.downloadPolicy`, `cloudHealth.openPolicyConsole`, `cloud-health.controller.ts:48-55`). The fallback exists because a stack deployed before the permission existed has an out-of-date `HyveonDeployAll`, and code changes to the policy generator do not retroactively update a CloudFormation-managed policy.
-`cloudHealth.list` wraps the checks in a bare `Promise.all` (`cloud-health.controller.ts:28-33`), so one throwing check rejects the list; `writePolicyToDisk` has no try/catch (`CloudHealthService.ts:200-204`).
+`cloudHealth.list` reports a check that throws as an `error` row and still returns the others, and `writePolicyToDisk` logs a write failure and throws a plain `Error` carrying only a message (APP-WIZARD-HEALTH-011). A `needsPolicyUpdate` result carries `policyManagedByStack`, true when the active credentials are the guided profile: guided installs are told to update the policy through their CloudFormation stack, other installs to edit it in the IAM console (APP-WIZARD-HEALTH-008).
 The service is provided by `WizardModule` (`wizard.module.ts:38`) and carries helpers documented as mirroring `GuidedIamService` (`CloudHealthService.ts:193-212,240-291`).
 
 ## Credential Custody
@@ -145,8 +144,8 @@ The service is provided by `WizardModule` (`wizard.module.ts:38`) and carries he
 ### Encryption
 
 `SafeStorageService` wraps Electron `safeStorage`: `isAvailable()` is false outside Electron or when the OS keychain is unavailable (`SafeStorageService.ts:30-33`).
-`encrypt` returns plaintext unchanged with a warning when unavailable (`:51-54`) and `decrypt` returns its input unchanged when unavailable (`:88-93`).
-Writers guard against the first case; nothing guards a read that happens after the keychain becomes unavailable, in which case base64 ciphertext would be returned as the key.
+`encrypt` returns plaintext unchanged outside Electron but throws `SafeStorageUnavailableError` inside Electron when the keychain is unavailable, so a mid-rotation lock fails before the old key is revoked (APP-WIZARD-CUSTODY-007).
+Writers guard against the first case, and `decrypt` throws inside Electron when the keychain is unavailable so a stored ciphertext is never returned as a key (APP-WIZARD-CUSTODY-007); outside Electron it returns the stored plaintext unchanged, matching `encrypt`.
 `ElectronStoreService` exposes typed `get`/`set`/`delete` plus encrypting accessors; `PastedAwsCredentials` fields are encrypted blobs that callers must not read directly (`ElectronStoreService.ts:19-28`).
 
 ### Resolution
@@ -163,7 +162,7 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 
 ### Rotation for non-guided keys
 
-`AwsProfileService.rotateActiveCredentials()` (`AwsProfileService.ts:267`) implements mint, verify, swap and revoke for the active pasted key, satisfying APP-WIZARD-ROTKEY-001 to APP-WIZARD-ROTKEY-004 at the service layer, but no controller channel or UI calls it.
+`AwsProfileService.rotateActiveCredentials()` implements mint, verify, swap and revoke for the active pasted or guided key (APP-WIZARD-ROTKEY-001 to APP-WIZARD-ROTKEY-004). Settings, in the Cloud Setup section, offers it as a "Rotate key" action over `wizard.aws.rotateKey`, which returns a modeled result for every outcome (`complete`, `verification-failed`, `delete-failed`, `keychain-unavailable`, `unsupported`, `busy`, `failed`), shares one in-flight rotation between concurrent calls, and refuses with `busy` while a Pulumi operation is running (APP-WIZARD-ROTKEY-005). The outcome unions live once in `@hyveon/shared` (`keyRotation.ts`) and are imported by desktop-main and the preload. The Settings row is hidden for `~/.aws`-profile installs. Every AWS-calling service resolves the stored key per call, so later calls and Pulumi operations use the new key.
 
 ## Decisions & Alternatives
 
@@ -180,7 +179,7 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 | Credential source discriminator | Profile name lookup: pasted entry wins, else `~/.aws` profile | Explicit `kind` field in the store | `[inferred]` from the doc comment at `BootstrapService.ts:695-700`, which states the behaviour but not why a discriminator was rejected. |
 | Client cache key | Region + credentials signature string | Compare credential objects; region only | Doc comment `awsCredentialSource.ts:160-176`: `fromIni` identity changes per call; region-only missed rotations. |
 | Keychain unavailable on write | Refuse (`SafeStorageUnavailableError`) | Store plaintext | No credential is ever stored in plaintext (APP-WIZARD-CUSTODY-008); `GuidedIamService.ts` rotate doc comment step 0. |
-| Keychain unavailable on read | Pass the stored value through unchanged | Throw | `[inferred]`: appears to exist for non-Electron test/integration runs where `isAvailable()` is false (`SafeStorageService.ts:30-33`); the doc comment at `:78-79` acknowledges the consequence without a rationale. |
+| Keychain unavailable on read | Throw inside Electron; pass the stored value through unchanged outside Electron | Pass through unchanged everywhere | Inside Electron an unavailable keychain means the stored value is ciphertext, and returning it hands base64 noise to the SDK as a secret (APP-WIZARD-CUSTODY-007); outside Electron `encrypt` stored plaintext, so the plain-Node integration harness and tests need the symmetric pass-through. |
 | Cloud Health placement | Always-visible Settings checklist | Silent self-heal in `EcsService.start()`; collapsed summary card | The operator wants visibility and control rather than the app silently auto-fixing account-level problems on `start()`, which would also couple an account-config concern to a per-action code path; an always-visible list generalises to future checks without a new UI each time. The check list is a typed array so a second check is one entry, while only the ECS service-linked-role check ships. Checks run on Settings mount and manual Refresh, with no polling, because the role's existence essentially never changes on its own. The Fix attempts the real remediation first and falls back to the policy JSON only on `AccessDenied`, so only operators with an out-of-date policy do manual work. The service-linked-role statement is scoped by resource path and `iam:AWSServiceName`, which is strictly narrower than the existing `iam:*` on `hyveon-*` resources. |
 | Cloud Health module home | Provided by `WizardModule` | Own module | `[inferred]`: shares IAM/STS client helpers with `GuidedIamService` (`CloudHealthService.ts:193-212`). |
 | Region data source | Committed generated `awsRegions.ts` + manual entry | Fetch region feed at runtime | The guided-IAM region screen runs before any credentials exist, so no AWS call can supply the list: `DescribeRegions` needs credentials and returns country names rather than city-level locations, and the SSM public parameters are not anonymous and would need a new deploy-policy grant. Fetching the feed at runtime would add a network dependency and a failure state for data that changes on the order of months. The manual-entry item means a stale data set degrades to one extra click, never a block. A Radix `Select` with groups fits continent grouping better than a native `<optgroup>`. The data lives in `@hyveon/shared` because region labels are not web-specific, and the display is `{name} — {code}` so operators who know the code still see it. |
@@ -190,6 +189,7 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 | Pasted keys during Reconfigure | Stage in renderer memory, save on entering stack-init | Stage under a pending profile name and promote on commit; snapshot the store and restore on Cancel | A save overwrites `creds.aws.<profile>`, which may be the active credential, so Cancel could not leave the store as it was. Memory needs no new IPC, no promotion step and no cleanup that can itself fail; the keys already sit in the form's inputs, and answers are already buffered until stack-init is entered (APP-WIZARD-RECONF-006). The save cannot wait for Finish: stack initialization resolves credentials from the store, so a revoked or expired active key would fail it with no way forward. A keychain refusal therefore surfaces when the operator continues to stack-init rather than on submit. |
 | Cancel after AWS-side changes | Confirm, stating the changes remain | Snapshot and restore the store, or block Cancel | Rotation revokes the bootstrap key, so restoring the earlier store contents could not restore a working state; the honest contract is that AWS-side steps are not undone and the operator is told so before leaving. |
 | Recording the deploy principal | Parse the IAM user name and account ID from the bootstrap key's `sts:GetCallerIdentity` ARN at intake | A renderer field for the stack's `UserName` parameter | The key belongs to the stack's `UserName` user, so the caller ARN names it exactly, for a default or custom name, with no operator input to mistype or drift from the stack. |
+| Runs table name when the config document cannot be read | Not found falls back to the default name; any other read error or a malformed document fails the step | Fall back to the default name on every failure | A transient S3 error or a corrupt document would otherwise create a table under a guessed name that the stack never uses. A malformed document fails rather than falls back because it proves the document exists, so the default may be wrong. |
 
 ## Open Questions & Future Decisions
 
@@ -201,16 +201,16 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 
 4. ✅ The `HYVEON_TEST_MODE` fallback for an unset `wizardCompleted` left the production read path; the e2e bypass is the preload test seam's default mock (see the Decisions table).
 5. ✅ `wizard.state.get` projects only `profile` and `region` from the stored `aws` record (APP-WIZARD-CREDS-011).
+6. ✅ `SafeStorageService.decrypt` throws inside Electron when the keychain is unavailable instead of returning ciphertext (APP-WIZARD-CUSTODY-007).
+7. ✅ `BootstrapService` builds its client inside a guard so a missing region or undecryptable credentials return `{ status: 'failed' }` (APP-WIZARD-BOOT-004).
+8. ✅ The runs table name follows the `projectName` and `runsTableName` of the existing `deployment-config.json`, and falls back to `DEPLOYMENT_CONFIG_DEFAULTS.projectName` only when no document exists, because the wizard has no project-name field and a re-run must target the table the stack already uses (APP-WIZARD-BOOT-012).
+9. ✅ `rotateActiveCredentials` has an IPC channel and a Settings action (APP-WIZARD-ROTKEY-005).
+10. ✅ The IAM check runs automatically after guided provisioning and its `blocking` flag gates the bootstrap step (APP-WIZARD-IAMCHK-008, APP-WIZARD-IAMCHK-009).
+11. ✅ `cloudHealth.list` isolates a failing check and `writePolicyToDisk` logs and rethrows a plain error (APP-WIZARD-HEALTH-011).
 
 ### Deferred
 
-1. Should `SafeStorageService.decrypt` throw instead of returning ciphertext when the keychain is unavailable for a value that was encrypted (`SafeStorageService.ts:88-92`)?
 3. Should the renderer first-run gate fail closed on a missing bridge or rejected `getState()` (`app.component.tsx:40-54`, desktop-shell)?
-4. Should `BootstrapService` build its client inside each `try` so a missing region returns `{ status: 'failed' }` (`BootstrapService.ts:125,187,315,410,701-708`) per `.claude/rules/logging.md` rule 2?
-5. Should the runs table name use the operator's project name rather than `DEPLOYMENT_CONFIG_DEFAULTS.projectName` (`wizard.controller.ts:310`)?
-6. Should `rotateActiveCredentials` get an IPC channel and UI, or should APP-WIZARD-ROTKEY-001 to APP-WIZARD-ROTKEY-004 be dropped (`AwsProfileService.ts:267`)?
-7. Should the IAM check run automatically after guided rotation and its `blocking` flag gate the bootstrap step, as APP-WIZARD-IAMCHK-009 requires (`use-bootstrap-resources.hook.ts:223-239`, `first-run-wizard.component.tsx:237-238`)?
-9. Should `cloudHealth.list` use `Promise.allSettled` and `writePolicyToDisk` catch its errors (`cloud-health.controller.ts:28-33`, `CloudHealthService.ts:200-204`)?
 10. Should `awsClientCache.ts` be removed in favour of `cloud-aws/src/cachedClient.ts`, `GUIDED_PROFILE_NAME` be declared once (`GuidedIamService.ts:94`, `desktop-preload/src/hyveon-api.ts:2107`), and the Cloud Health helpers that mirror `GuidedIamService` be shared (`CloudHealthService.ts:193-212,240-291`)?
 11. Should the IAM-check suggested policy reuse the scoped `HYVEON_DEPLOY_ALL_STATEMENTS` instead of `Resource: '*'` (`IamCheckService.ts:306-315`)?
 12. Should wizard reset also clear `addGameWizardDraft` and `folderUpload`, or document why not (`FirstRunWizardService.ts:200-208`)?

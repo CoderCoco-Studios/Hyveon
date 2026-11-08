@@ -838,6 +838,94 @@ describe('FirstRunWizard', () => {
     });
   });
 
+  describe('guided IAM check after provisioning', () => {
+    const BLOCKING_RESULT = {
+      status: 'missing',
+      origin: 'guided',
+      blocking: true,
+      policyJson: '{"Statement":[{"Action":["ec2:RunInstances"]}]}',
+    };
+
+    /** Completes guided provisioning (stub), moves past the credentials summary and runs bootstrap successfully. */
+    async function advanceToBootstrapAfterGuided(): Promise<void> {
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
+      await advanceToSatisfiedGuidedCredentialsSummary();
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByLabelText('State bucket name');
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+    }
+
+    // @spec APP-WIZARD-IAMCHK-008
+    it('should run the IAM check automatically when guided provisioning completes', async () => {
+      hyveonMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'passed', origin: 'guided', blocking: false });
+      await advanceToSatisfiedGuidedCredentialsSummary();
+
+      await waitFor(() => expect(hyveonMock.wizard.simulateIamPermissions).toHaveBeenCalledTimes(1));
+    });
+
+    // @spec APP-WIZARD-IAMCHK-009
+    it('should block Next past bootstrap while the guided check is missing, and unblock after a passing re-run', async () => {
+      hyveonMock.wizard.simulateIamPermissions.mockResolvedValue(BLOCKING_RESULT);
+      await advanceToBootstrapAfterGuided();
+
+      expect(await screen.findByText(/ec2:RunInstances/)).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole('button', { name: /re-run bootstrap/i })).toBeEnabled());
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+      expect(screen.getByText(/must be fixed before you can continue/i)).toBeInTheDocument();
+
+      hyveonMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'passed', origin: 'guided', blocking: false });
+      await userEvent.click(screen.getByRole('button', { name: /re-check permissions/i }));
+
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+    });
+
+    // @spec APP-WIZARD-IAMCHK-009
+    it('should keep Next disabled while the guided check is still running, then open the gate once it passes', async () => {
+      let finish!: (value: unknown) => void;
+      hyveonMock.wizard.simulateIamPermissions.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+      await advanceToBootstrapAfterGuided();
+
+      await waitFor(() => expect(screen.getByRole('button', { name: /re-run bootstrap/i })).toBeEnabled());
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+
+      finish({ status: 'passed', origin: 'guided', blocking: false });
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+    });
+
+    // @spec APP-WIZARD-IAMCHK-009
+    it('should not treat a check that errored as a pass', async () => {
+      hyveonMock.wizard.simulateIamPermissions.mockRejectedValue(new Error('sts unreachable'));
+      await advanceToBootstrapAfterGuided();
+
+      expect(await screen.findByText(/sts unreachable/i)).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole('button', { name: /re-run bootstrap/i })).toBeEnabled());
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+    });
+
+    // @spec APP-WIZARD-IAMCHK-009
+    it('should not let a collapsed Reconfigure bootstrap step skip a blocking guided check', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: GUIDED_PROFILE_NAME, region: 'us-east-1' },
+        bootstrap: { stateBucket: 'existing-tfstate', configurationBucket: 'existing-config' },
+      });
+      hyveonMock.wizard.simulateIamPermissions.mockResolvedValue(BLOCKING_RESULT);
+      render(<FirstRunWizard mode="reconfigure" onCancel={vi.fn()} />);
+      await screen.findByText(/choose your cloud is already configured/i);
+      await waitFor(() => expect(hyveonMock.wizard.getState).toHaveBeenCalled());
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await userEvent.click(await screen.findByRole('button', { name: /^next$/i }));
+      await screen.findByText(/aws credentials is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+      await screen.findByText(/bootstrap aws resources is already configured/i);
+      await waitFor(() => expect(hyveonMock.wizard.simulateIamPermissions).toHaveBeenCalled());
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+    });
+  });
+
   describe('reconfigure mode — guided-iam pre-completion', () => {
     // @spec APP-WIZARD-RECONF-004
     it('should NOT pre-complete guided-iam without evidence of guided provisioning', async () => {
@@ -940,6 +1028,7 @@ describe('FirstRunWizard', () => {
         bootstrap: { stateBucket: 'existing-tfstate', configurationBucket: 'existing-config' },
       });
       hyveonMock.iac.stack.initialize.mockImplementation(toStreamHandleMock(async function* () {}));
+      hyveonMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'passed', origin: 'guided', blocking: false });
       hyveonMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
 
       render(<FirstRunWizard mode="reconfigure" onCancel={vi.fn()} />);
@@ -1124,6 +1213,39 @@ describe('FirstRunWizard', () => {
       await userEvent.click(screen.getByRole('button', { name: /cancel reconfigure/i }));
 
       expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    // @spec APP-WIZARD-RECONF-008
+    it('should still ask for confirmation when a bootstrap attempt failed, since a failed step may have created a resource', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: 'default', region: 'us-east-1' },
+        bootstrap: { stateBucket: 'existing-tfstate', configurationBucket: 'existing-config' },
+      });
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'failed', message: 'denied' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'failed', message: 'denied' });
+      hyveonMock.wizard.bootstrapRunsTable.mockResolvedValue({ status: 'failed', message: 'denied' });
+      const onCancel = vi.fn();
+
+      render(<FirstRunWizard mode="reconfigure" onCancel={onCancel} />);
+      await screen.findByText(/choose your cloud is already configured/i);
+      await waitFor(() => expect(hyveonMock.wizard.getState).toHaveBeenCalled());
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText('guided-iam-step-stub');
+      await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
+      await screen.findByText(/aws credentials is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/bootstrap aws resources is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      await userEvent.click(await screen.findByRole('button', { name: /bootstrap aws resources/i }));
+      await waitFor(() => expect(hyveonMock.wizard.bootstrapStateBucket).toHaveBeenCalled());
+      await screen.findAllByText(/denied/i);
+
+      await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+      expect(await screen.findByText(/remain in place and were not undone/i)).toBeInTheDocument();
+      expect(onCancel).not.toHaveBeenCalled();
     });
 
     // @spec APP-WIZARD-RECONF-008

@@ -407,8 +407,10 @@ describe('GuidedIamStep', () => {
       expect(await screen.findByText(/keychain is unavailable/i)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /retry rotation/i })).not.toBeInTheDocument();
       expect(screen.queryByText(/pasted/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/does not need the keychain/i)).toBeInTheDocument();
+      expect(screen.getByText(/pasting keys fails the same way/i)).toBeInTheDocument();
 
-      await userEvent.click(screen.getByRole('button', { name: /choose a profile or paste keys/i }));
+      await userEvent.click(screen.getByRole('button', { name: /choose a profile/i }));
 
       expect(onSkipToManual).toHaveBeenCalledTimes(1);
     });

@@ -1,9 +1,16 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { DEPLOYMENT_CONFIG_DEFAULTS, resolveRunsTableName } from '@hyveon/shared';
+import {
+  DEPLOYMENT_CONFIG_DEFAULTS,
+  errMessage,
+  resolveRunsTableName,
+  type AwsKeyRotateResult,
+  type GuidedIamRotateResult,
+} from '@hyveon/shared';
 import {
   AwsProfileService,
   SafeStorageUnavailableError,
+  UnsupportedCredentialSourceError,
   type AwsProfileSummary,
   type SavePastedCredentialsInput,
 } from '../services/AwsProfileService.js';
@@ -17,11 +24,11 @@ import {
   type BootstrapKeyIntakeInput,
   type BootstrapKeyIntakeResult,
   type RotationInput,
-  type RotationResult,
   type RevokeBootstrapKeyInput,
   type RevokeBootstrapKeyResult,
 } from '../services/GuidedIamService.js';
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
+import { PulumiService } from '../services/PulumiService.js';
 import { logger } from '../logger.js';
 import { assertInstallRegionUnlocked, lockInstallRegion } from '../services/install-region-lock.js';
 
@@ -35,16 +42,16 @@ export interface BootstrapConfigurationBucketInput {
   bucketName: string;
 }
 
+/** Payload accepted by {@link WizardController.bootstrapRunsTable}. */
+export interface BootstrapRunsTableInput {
+  /** The configuration bucket whose existing document, if any, names the project the table belongs to. */
+  configurationBucket?: string;
+}
+
 /** Payload accepted by {@link WizardController.bootstrapDeploymentConfig}. */
 export interface BootstrapDeploymentConfigInput {
   bucketName: string;
 }
-
-/**
- * Outcome of {@link WizardController.rotateGuidedIamKey}: {@link RotationResult} plus the modeled refusal for an
- * unavailable OS keychain, which the service raises before any AWS call.
- */
-export type GuidedIamRotateResult = RotationResult | { status: 'keychain-unavailable' };
 
 /** Payload accepted by {@link WizardController.saveProgress}. */
 export interface SaveWizardProgressInput {
@@ -136,6 +143,9 @@ export interface SaveWizardStateInput {
  */
 @Controller()
 export class WizardController {
+  /** The rotation currently running, shared by concurrent {@link rotateAwsKey} calls. */
+  private rotationInFlight: Promise<AwsKeyRotateResult> | undefined;
+
   constructor(
     private readonly awsProfiles: AwsProfileService,
     private readonly store: ElectronStoreService,
@@ -143,6 +153,7 @@ export class WizardController {
     private readonly iamCheck: IamCheckService,
     private readonly firstRunWizard: FirstRunWizardService,
     private readonly guidedIam: GuidedIamService,
+    private readonly pulumi: PulumiService,
   ) {}
 
   // @spec APP-WIZARD-GATE-001, APP-WIZARD-GATE-002, APP-WIZARD-GATE-003, APP-WIZARD-CREDS-010, APP-WIZARD-CREDS-011
@@ -247,6 +258,46 @@ export class WizardController {
     return this.awsProfiles.savePastedCredentials(body);
   }
 
+  // @spec APP-WIZARD-ROTKEY-005
+  /**
+   * Rotates the active pasted or guided access key in place (see {@link AwsProfileService.rotateActiveCredentials}).
+   * Refuses with `busy` while a Pulumi operation runs (its credentials were fixed at workspace creation, so revoking
+   * the old key mid-run would strand its backend lock). Concurrent calls share one in-flight rotation, so a double
+   * click cannot mint two keys against IAM's two-keys-per-user limit. Never rejects: a refusal or AWS failure comes back as a modeled result.
+   */
+  @MessagePattern('wizard.aws.rotateKey')
+  rotateAwsKey(): Promise<AwsKeyRotateResult> {
+    logger.debug('WizardController: wizard.aws.rotateKey invoked');
+    this.rotationInFlight ??= this.runKeyRotation().finally(() => {
+      this.rotationInFlight = undefined;
+    });
+    return this.rotationInFlight;
+  }
+
+  /** Runs one rotation and maps every thrown failure to a plain modeled result, never an SDK error object. */
+  private async runKeyRotation(): Promise<AwsKeyRotateResult> {
+    const operation = this.pulumi.getOperationInFlight();
+    if (operation !== null) {
+      logger.warn('WizardController: key rotation refused, a Pulumi operation is running', { operation });
+      return { status: 'busy' };
+    }
+    try {
+      return await this.awsProfiles.rotateActiveCredentials();
+    } catch (err) {
+      if (err instanceof SafeStorageUnavailableError) {
+        logger.warn('WizardController: key rotation refused, OS keychain unavailable');
+        return { status: 'keychain-unavailable' };
+      }
+      const message = errMessage(err);
+      if (err instanceof UnsupportedCredentialSourceError) {
+        logger.warn('WizardController: key rotation refused, unsupported credential source', { message });
+        return { status: 'unsupported', message };
+      }
+      logger.error('WizardController: key rotation failed', { message });
+      return { status: 'failed', message };
+    }
+  }
+
   /**
    * Idempotently creates/ensures the Pulumi S3 state bucket (versioning +
    * default encryption). See `BootstrapService.ensureStateBucket` for the
@@ -305,23 +356,30 @@ export class WizardController {
   /**
    * Idempotently creates/ensures the run-history DynamoDB table (see
    * `BootstrapService.ensureRunsTable`'s own doc for the full
-   * bootstrap-deadlock rationale). Unlike {@link bootstrapStateBucket}/
-   * {@link bootstrapConfigurationBucket}, this takes no payload: the table's
-   * name is NOT operator-editable at this point in the wizard — it's
-   * computed from `@hyveon/shared`'s `DEPLOYMENT_CONFIG_DEFAULTS.projectName`
-   * (the default `DeploymentConfig.projectName` every fresh install starts
-   * with, since no `DeploymentConfig` — and therefore no
-   * operator-configured `runsTableName` override — exists yet this early in
-   * the wizard; that only gets configured later, from the Games/Settings
-   * pages). Uses `resolveRunsTableName` so this can never drift from the
-   * identical resolution `@hyveon/infra`'s stack-output computation and
-   * `RunRecordService`'s pre-apply fallback apply.
+   * bootstrap-deadlock rationale). The table's name is not operator-editable here: it comes from the project name
+   * of the configuration document already in `body.configurationBucket` (so a re-run targets the table the stack
+   * already uses), falling back to `@hyveon/shared`'s `DEPLOYMENT_CONFIG_DEFAULTS.projectName` only when no document
+   * exists yet (a fresh install); a document that cannot be read or parsed fails the step instead. Uses `resolveRunsTableName` so this can never drift from the identical resolution
+   * `@hyveon/infra`'s stack-output computation and `RunRecordService`'s pre-apply fallback apply.
    */
+  // @spec APP-WIZARD-BOOT-012
   @MessagePattern('wizard.bootstrap.runsTable')
-  async bootstrapRunsTable(): Promise<BootstrapResult> {
-    logger.debug('WizardController: wizard.bootstrap.runsTable invoked');
+  async bootstrapRunsTable(@Payload() body?: BootstrapRunsTableInput): Promise<BootstrapResult> {
+    logger.debug('WizardController: wizard.bootstrap.runsTable invoked', {
+      configurationBucket: body?.configurationBucket,
+    });
     lockInstallRegion(this.store);
-    return this.bootstrap.ensureRunsTable(resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, ''));
+    let existing: string | undefined;
+    try {
+      existing = body?.configurationBucket
+        ? await this.bootstrap.resolveExistingRunsTableName(body.configurationBucket)
+        : undefined;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('WizardController: runs table name could not be resolved; no table created', { message });
+      return { status: 'failed', message };
+    }
+    return this.bootstrap.ensureRunsTable(existing ?? resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, ''));
   }
 
   /**

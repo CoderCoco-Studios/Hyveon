@@ -6,12 +6,13 @@ vi.mock('../logger.js', () => ({ logger: loggerMock }));
 
 import { WizardController } from './wizard.controller.js';
 import type { AwsProfileService, AwsProfileSummary } from '../services/AwsProfileService.js';
-import { SafeStorageUnavailableError } from '../services/AwsProfileService.js';
+import { SafeStorageUnavailableError, UnsupportedCredentialSourceError } from '../services/AwsProfileService.js';
 import type { ElectronStoreService } from '../services/ElectronStoreService.js';
 import type { BootstrapService, BootstrapResult } from '../services/BootstrapService.js';
 import type { IamCheckService, IamCheckResult } from '../services/IamCheckService.js';
 import type { FirstRunWizardService, WizardProgress } from '../services/FirstRunWizardService.js';
 import type { GuidedIamService } from '../services/GuidedIamService.js';
+import type { PulumiService } from '../services/PulumiService.js';
 import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 const SAMPLE_PROFILES: AwsProfileSummary[] = [
@@ -24,6 +25,7 @@ function makeAwsProfiles(profiles: AwsProfileSummary[] = SAMPLE_PROFILES): AwsPr
   return {
     listProfiles: vi.fn().mockResolvedValue(profiles),
     savePastedCredentials: vi.fn().mockReturnValue({ profileName: 'hyveon-pasted' }),
+    rotateActiveCredentials: vi.fn().mockResolvedValue({ status: 'complete' }),
   } as Partial<AwsProfileService> as AwsProfileService;
 }
 
@@ -58,6 +60,7 @@ function makeBootstrap(result: BootstrapResult = { status: 'created' }): Bootstr
     ensureConfigurationBucket: vi.fn().mockResolvedValue(result),
     ensureDeploymentConfig: vi.fn().mockResolvedValue(result),
     ensureRunsTable: vi.fn().mockResolvedValue(result),
+    resolveExistingRunsTableName: vi.fn().mockResolvedValue(undefined),
   } as Partial<BootstrapService> as BootstrapService;
 }
 
@@ -102,6 +105,7 @@ function makeController(overrides: {
   iamCheck?: IamCheckService;
   firstRunWizard?: FirstRunWizardService;
   guidedIam?: GuidedIamService;
+  pulumi?: PulumiService;
 } = {}): WizardController {
   return new WizardController(
     overrides.awsProfiles ?? makeAwsProfiles(),
@@ -110,6 +114,7 @@ function makeController(overrides: {
     overrides.iamCheck ?? makeIamCheck(),
     overrides.firstRunWizard ?? makeFirstRunWizard(),
     overrides.guidedIam ?? makeGuidedIam(),
+    overrides.pulumi ?? ({ getOperationInFlight: vi.fn().mockReturnValue(null) } as Partial<PulumiService> as PulumiService),
   );
 }
 
@@ -127,6 +132,7 @@ describe('WizardController', () => {
       expectChannels(WizardController.prototype, [
         ['listAwsProfiles', 'wizard.aws.listProfiles'],
         ['saveCredentials', 'wizard.aws.saveCredentials'],
+        ['rotateAwsKey', 'wizard.aws.rotateKey'],
         ['getState', 'wizard.state.get'],
         ['saveState', 'wizard.state.save'],
         ['bootstrapStateBucket', 'wizard.bootstrap.stateBucket'],
@@ -547,6 +553,7 @@ describe('WizardController', () => {
   });
 
   describe('bootstrapRunsTable', () => {
+    // @spec APP-WIZARD-BOOT-012
     it('should delegate to BootstrapService.ensureRunsTable with the default project-prefixed table name', async () => {
       const bootstrap = makeBootstrap({ status: 'created' });
 
@@ -556,12 +563,46 @@ describe('WizardController', () => {
       expect(result).toEqual({ status: 'created' });
     });
 
+    // @spec APP-WIZARD-BOOT-012
+    it('should use the projectName of the existing configuration document instead of pinning the default', async () => {
+      const bootstrap = makeBootstrap({ status: 'created' });
+      vi.mocked(bootstrap.resolveExistingRunsTableName).mockResolvedValue('acme-runs');
+
+      await makeController({ bootstrap }).bootstrapRunsTable({ configurationBucket: 'cfg' });
+
+      expect(bootstrap.resolveExistingRunsTableName).toHaveBeenCalledWith('cfg');
+      expect(bootstrap.ensureRunsTable).toHaveBeenCalledWith('acme-runs');
+    });
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should fall back to the default name when the configuration document is absent or no bucket is given', async () => {
+      const bootstrap = makeBootstrap({ status: 'created' });
+
+      await makeController({ bootstrap }).bootstrapRunsTable({ configurationBucket: 'cfg' });
+      await makeController({ bootstrap }).bootstrapRunsTable();
+
+      expect(bootstrap.ensureRunsTable).toHaveBeenNthCalledWith(1, 'hyveon-runs');
+      expect(bootstrap.ensureRunsTable).toHaveBeenNthCalledWith(2, 'hyveon-runs');
+    });
+
     it('should propagate a failed result unchanged rather than throwing', async () => {
       const bootstrap = makeBootstrap({ status: 'failed', message: 'access denied' });
 
       const result = await makeController({ bootstrap }).bootstrapRunsTable();
 
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
+    });
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should fail the step without creating a table when the existing document cannot be read', async () => {
+      const bootstrap = makeBootstrap();
+      vi.mocked(bootstrap.resolveExistingRunsTableName).mockRejectedValue(new Error('InternalError'));
+
+      const result = await makeController({ bootstrap }).bootstrapRunsTable({ configurationBucket: 'cfg' });
+
+      expect(result).toEqual({ status: 'failed', message: 'InternalError' });
+      expect(bootstrap.ensureRunsTable).not.toHaveBeenCalled();
+      expect(loggerMock.error).toHaveBeenCalled();
     });
   });
 
@@ -709,6 +750,78 @@ describe('WizardController', () => {
       vi.mocked(guidedIam.rotate).mockRejectedValue(new Error('LimitExceeded'));
 
       await expect(makeController({ guidedIam }).rotateGuidedIamKey(ROTATION_INPUT)).rejects.toThrow('LimitExceeded');
+    });
+  });
+
+  describe('rotateAwsKey', () => {
+    // @spec APP-WIZARD-ROTKEY-005
+    it('should delegate to AwsProfileService.rotateActiveCredentials and return its modeled result', async () => {
+      const awsProfiles = makeAwsProfiles();
+      vi.mocked(awsProfiles.rotateActiveCredentials).mockResolvedValue({ status: 'delete-failed', consoleUrl: 'https://x' });
+
+      const result = await makeController({ awsProfiles }).rotateAwsKey();
+
+      expect(result).toEqual({ status: 'delete-failed', consoleUrl: 'https://x' });
+    });
+
+    // @spec APP-WIZARD-ROTKEY-005
+    it.each(['preview', 'up', 'destroy', 'rollback'] as const)(
+      'should refuse with busy and never rotate while a %s operation is running',
+      async (operation) => {
+        const awsProfiles = makeAwsProfiles();
+        const pulumi = { getOperationInFlight: vi.fn().mockReturnValue(operation) } as Partial<PulumiService> as PulumiService;
+
+        const result = await makeController({ awsProfiles, pulumi }).rotateAwsKey();
+
+        expect(result).toEqual({ status: 'busy' });
+        expect(awsProfiles.rotateActiveCredentials).not.toHaveBeenCalled();
+      },
+    );
+
+    // @spec APP-WIZARD-ROTKEY-005
+    it('should return keychain-unavailable instead of rejecting when the keychain is unavailable', async () => {
+      const awsProfiles = makeAwsProfiles();
+      vi.mocked(awsProfiles.rotateActiveCredentials).mockRejectedValue(new SafeStorageUnavailableError());
+
+      await expect(makeController({ awsProfiles }).rotateAwsKey()).resolves.toEqual({ status: 'keychain-unavailable' });
+    });
+
+    // @spec APP-WIZARD-ROTKEY-005
+    it('should return a modeled unsupported result for a ~/.aws profile source', async () => {
+      const awsProfiles = makeAwsProfiles();
+      vi.mocked(awsProfiles.rotateActiveCredentials).mockRejectedValue(new UnsupportedCredentialSourceError('profile'));
+
+      const result = await makeController({ awsProfiles }).rotateAwsKey();
+
+      expect(result).toMatchObject({ status: 'unsupported' });
+    });
+
+    // @spec APP-WIZARD-ROTKEY-005
+    it('should log and return a plain failed message for an unexpected AWS error, never the raw error', async () => {
+      const awsProfiles = makeAwsProfiles();
+      vi.mocked(awsProfiles.rotateActiveCredentials).mockRejectedValue(
+        Object.assign(new Error('LimitExceeded: 2 keys'), { $metadata: { requestId: 'r' } }),
+      );
+
+      const result = await makeController({ awsProfiles }).rotateAwsKey();
+
+      expect(result).toEqual({ status: 'failed', message: 'LimitExceeded: 2 keys' });
+      expect(loggerMock.error).toHaveBeenCalled();
+    });
+
+    // @spec APP-WIZARD-ROTKEY-005
+    it('should share one in-flight rotation between concurrent calls so only one key is minted', async () => {
+      const awsProfiles = makeAwsProfiles();
+      let release!: (r: { status: 'complete' }) => void;
+      vi.mocked(awsProfiles.rotateActiveCredentials).mockReturnValue(new Promise((resolve) => (release = resolve)));
+      const controller = makeController({ awsProfiles });
+
+      const first = controller.rotateAwsKey();
+      const second = controller.rotateAwsKey();
+      release({ status: 'complete' });
+
+      await expect(Promise.all([first, second])).resolves.toEqual([{ status: 'complete' }, { status: 'complete' }]);
+      expect(awsProfiles.rotateActiveCredentials).toHaveBeenCalledTimes(1);
     });
   });
 

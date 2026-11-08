@@ -27,11 +27,8 @@ export type AwsClientCredentials = StaticAwsCredentials | ReturnType<typeof from
  * up the stack that classifies failures by `instanceof` (see
  * `PulumiService.classifyGetOrCreateStackFailure`) has no way to tell it
  * apart from a genuine mid-operation Pulumi engine failure — this wraps it in
- * a typed class so callers CAN, and never has to also cover
- * `SafeStorageService.decrypt`'s OTHER failure mode (a merely-unavailable
- * keychain, which decrypts to garbage silently rather than throwing — see
- * that method's own remarks) since that path never reaches this catch at
- * all.
+ * a typed class so callers CAN. An unavailable keychain also makes
+ * `SafeStorageService.decrypt` throw, so it surfaces here too.
  */
 export class AwsPastedCredentialDecryptError extends Error {
   constructor(
@@ -39,9 +36,10 @@ export class AwsPastedCredentialDecryptError extends Error {
     public readonly cause: unknown,
   ) {
     super(
-      `Cannot decrypt the stored pasted-credentials entry for AWS profile "${profile}" — the ciphertext may be ` +
-        'corrupted, or encrypted on a different machine or OS user account. Re-enter the credentials via the ' +
-        'wizard (or Settings → AWS Resources) to replace the stored entry.',
+      `Cannot decrypt the stored pasted-credentials entry for AWS profile "${profile}" (${errMessage(cause)}). ` +
+        'If the OS keychain is unavailable, unlock it and try again. Otherwise the ciphertext may be corrupted, ' +
+        'or encrypted on a different machine or OS user account: re-enter the credentials via the wizard ' +
+        '(or Settings → AWS Resources) to replace the stored entry.',
     );
     this.name = 'AwsPastedCredentialDecryptError';
   }

@@ -57,8 +57,8 @@ describe('CloudHealthSection', () => {
     expect(apiMock.cloudHealthList).toHaveBeenCalledTimes(2);
   });
 
-  // @spec APP-WIZARD-HEALTH-007
-  it('should show the copyable policy JSON on needsPolicyUpdate, without any CloudFormation instruction', async () => {
+  // @spec APP-WIZARD-HEALTH-007, APP-WIZARD-HEALTH-008
+  it('should show the copyable policy JSON on needsPolicyUpdate and point at the CloudFormation stack', async () => {
     apiMock.cloudHealthList.mockResolvedValue([
       { id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'missing' },
     ]);
@@ -66,16 +66,36 @@ describe('CloudHealthSection', () => {
       outcome: 'needsPolicyUpdate',
       policyJson: '{"Sid":"HyveonServiceLinkedRoles"}',
       policyConsoleUrl: 'https://console.aws.amazon.com/iam/home#/policies/arn:aws:iam::123456789012:policy/HyveonDeployAll',
+      policyManagedByStack: true,
     });
     render(<CloudHealthSection />);
 
     await userEvent.click(await screen.findByRole('button', { name: /fix/i }));
 
     expect(await screen.findByText(/HyveonServiceLinkedRoles/)).toBeInTheDocument();
-    expect(screen.getByText(/IAM console/i)).toBeInTheDocument();
-    expect(screen.queryByText(/CloudFormation/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /open in aws console/i })).toBeInTheDocument();
+    expect(screen.getByText(/freshly rendered template/i)).toBeInTheDocument();
+    expect(screen.queryByText(/with the policy document below/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Edit policy/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open in aws console/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /download json/i })).toBeInTheDocument();
+  });
+
+  // @spec APP-WIZARD-HEALTH-008
+  it('should point at the IAM console, not CloudFormation, when the policy is not stack-managed', async () => {
+    apiMock.cloudHealthList.mockResolvedValue([
+      { id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'missing' },
+    ]);
+    apiMock.cloudHealthFix.mockResolvedValue({
+      outcome: 'needsPolicyUpdate',
+      policyJson: '{}',
+      policyManagedByStack: false,
+    });
+    render(<CloudHealthSection />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /fix/i }));
+
+    expect(await screen.findByText(/edit policy/i)).toBeInTheDocument();
+    expect(screen.queryByText(/CloudFormation/i)).not.toBeInTheDocument();
   });
 
   it('should open the IAM console when "Open in AWS Console" is clicked', async () => {

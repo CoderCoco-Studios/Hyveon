@@ -88,8 +88,6 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   const credentials = useAwsCredentialsForm(mode);
 
-  const bootstrap = useBootstrapResources();
-
   // Whether the durably-stored AWS credential source is the guided-IAM
   // step's rotated profile (see `isGuidedProfile`) — drives the credentials
   // step's `satisfiedByGuidedProvisioning` prop. Re-derived on mount (so a
@@ -105,6 +103,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     region: string;
     deployPrincipal?: WizardDeployPrincipal;
   } | null>(null);
+
+  const bootstrap = useBootstrapResources({ guided: guidedCredentials !== null, onBootstrapStep: steps[stepIndex] === 'bootstrap' });
 
   /** Re-derives {@link guidedCredentials} from `wizard.state.get()` — see that state's own doc comment for when this runs. */
   const refreshGuidedCredentials = useCallback(async () => {
@@ -173,7 +173,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     }
   }
 
-  // @spec APP-WIZARD-GSTEP-003
+  // @spec APP-WIZARD-GSTEP-003, APP-WIZARD-IAMCHK-008
   /**
    * `GuidedIamStep`'s `onComplete` — guided provisioning finished and the
    * rotated key is now the active AWS credential. Re-derives
@@ -198,6 +198,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   async function handleGuidedIamComplete() {
     cancel.markGuidedRotated();
     clearGuidedIamProgress();
+    void bootstrap.runIamCheck();
     await refreshGuidedCredentials();
     void goNext();
   }
@@ -230,6 +231,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    */
   function handleSwitchCredentialSource() {
     setGuidedCredentials(null);
+    bootstrap.clearIamCheck();
   }
 
   // Requires a non-empty region in both modes — this is persisted verbatim
@@ -250,13 +252,16 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   const stepCollapsed = mode === 'reconfigure' && completedSteps.has(step);
 
   // @spec APP-WIZARD-SHELL-007, APP-WIZARD-IAMCHK-006
-  const advanceDisabled = stepCollapsed
-    ? false
-    : step === 'credentials'
-      ? !credentialsChosen
-      : step === 'bootstrap'
-        ? !bootstrap.complete
-        : false;
+  const advanceDisabled =
+    step === 'bootstrap' && !bootstrap.iamGateOpen
+      ? true
+      : stepCollapsed
+        ? false
+        : step === 'credentials'
+          ? !credentialsChosen
+          : step === 'bootstrap'
+            ? !bootstrap.complete
+            : false;
 
   // The shared footer's Next button is hidden for `stack-init` (it drives
   // its own completion via `onFinished`/Finish setup) and, the same way,

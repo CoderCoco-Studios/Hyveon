@@ -117,7 +117,8 @@ import type {
   BootstrapKeyIntakeInput,
   BootstrapKeyIntakeResult,
   RotationInput,
-  RotationResult,
+  GuidedIamRotateResult,
+  AwsKeyRotateResult,
   RevokeBootstrapKeyInput,
   RevokeBootstrapKeyResult,
   RendererLogEntry,
@@ -567,6 +568,7 @@ const api: HyveonApi = {
     listAwsProfiles: () => invoke<AwsProfileSummary[]>('wizard.aws.listProfiles'),
     saveCredentials: (input: SavePastedCredentialsInput) =>
       invoke<{ profileName: string }>('wizard.aws.saveCredentials', input),
+    rotateAwsKey: () => invoke<AwsKeyRotateResult>('wizard.aws.rotateKey'),
     getState: () => invoke<WizardState>('wizard.state.get'),
     saveState: (input: SaveWizardStateInput) => invoke<WizardState>('wizard.state.save', input),
     bootstrapStateBucket: (input: BootstrapStateBucketInput) =>
@@ -575,7 +577,7 @@ const api: HyveonApi = {
       invoke<BootstrapResult>('wizard.bootstrap.configurationBucket', input),
     bootstrapDeploymentConfig: (input: BootstrapDeploymentConfigInput) =>
       invoke<BootstrapResult>('wizard.bootstrap.deploymentConfig', input),
-    bootstrapRunsTable: () => invoke<BootstrapResult>('wizard.bootstrap.runsTable'),
+    bootstrapRunsTable: (input) => invoke<BootstrapResult>('wizard.bootstrap.runsTable', input),
     simulateIamPermissions: () => invoke<IamCheckResult>('wizard.iam.simulate'),
     getProgress: () => invoke<WizardProgress>('wizard.progress.get'),
     saveProgress: (input: SaveWizardProgressInput) => invoke<void>('wizard.progress.save', input),
@@ -586,7 +588,7 @@ const api: HyveonApi = {
       invoke<OpenConsoleResult>('wizard.guidedIam.openConsole', input),
     guidedIamSubmitBootstrapKey: (input: BootstrapKeyIntakeInput) =>
       invoke<BootstrapKeyIntakeResult>('wizard.guidedIam.submitBootstrapKey', input),
-    guidedIamRotate: (input: RotationInput) => invoke<RotationResult>('wizard.guidedIam.rotate', input),
+    guidedIamRotate: (input: RotationInput) => invoke<GuidedIamRotateResult>('wizard.guidedIam.rotate', input),
     guidedIamRevokeBootstrapKey: (input: RevokeBootstrapKeyInput) =>
       invoke<RevokeBootstrapKeyResult>('wizard.guidedIam.revokeBootstrapKey', input),
   },

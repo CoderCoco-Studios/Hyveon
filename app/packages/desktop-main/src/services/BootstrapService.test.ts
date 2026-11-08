@@ -5,6 +5,7 @@ import {
   S3Client,
   CreateBucketCommand,
   HeadBucketCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
@@ -207,12 +208,26 @@ describe('BootstrapService', () => {
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });
 
-    it('should throw BootstrapCredentialsNotConfiguredError when no region is stored', async () => {
+    // @spec APP-WIZARD-BOOT-004
+    it('should return failed rather than reject when no region is stored', async () => {
       const service = new BootstrapService(makeStore(undefined));
 
-      await expect(service.ensureStateBucket('my-state-bucket')).rejects.toThrow(
-        BootstrapCredentialsNotConfiguredError,
-      );
+      const result = await service.ensureStateBucket('my-state-bucket');
+
+      expect(result).toEqual({ status: 'failed', message: new BootstrapCredentialsNotConfiguredError().message });
+    });
+
+    // @spec APP-WIZARD-BOOT-004
+    it('should return failed rather than reject when the stored credentials cannot be decrypted', async () => {
+      const store = makeStore({ profile: 'pasted', region: 'us-west-2' });
+      vi.mocked(store.getPastedCredentials).mockImplementation(() => {
+        throw new Error('keychain unavailable');
+      });
+      const service = new BootstrapService(store);
+
+      const result = await service.ensureStateBucket('my-state-bucket');
+
+      expect(result.status).toBe('failed');
     });
 
     // @spec APP-WIZARD-BOOT-003
@@ -395,12 +410,26 @@ describe('BootstrapService', () => {
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });
 
-    it('should throw BootstrapCredentialsNotConfiguredError when no region is stored', async () => {
+    // @spec APP-WIZARD-BOOT-004
+    it('should return failed rather than reject when no region is stored', async () => {
       const service = new BootstrapService(makeStore(undefined));
 
-      await expect(service.ensureConfigurationBucket('my-config-bucket')).rejects.toThrow(
-        BootstrapCredentialsNotConfiguredError,
-      );
+      const result = await service.ensureConfigurationBucket('my-config-bucket');
+
+      expect(result).toEqual({ status: 'failed', message: new BootstrapCredentialsNotConfiguredError().message });
+    });
+
+    // @spec APP-WIZARD-BOOT-004
+    it('should return failed rather than reject when the stored credentials cannot be decrypted', async () => {
+      const store = makeStore({ profile: 'pasted', region: 'us-west-2' });
+      vi.mocked(store.getPastedCredentials).mockImplementation(() => {
+        throw new Error('keychain unavailable');
+      });
+      const service = new BootstrapService(store);
+
+      const result = await service.ensureConfigurationBucket('my-config-bucket');
+
+      expect(result.status).toBe('failed');
     });
   });
 
@@ -415,6 +444,66 @@ describe('BootstrapService', () => {
    * for the genuine end-to-end proof that a seeded document really does let
    * `updateTopLevelSettings`/`addGameServer` succeed afterward.
    */
+  describe('resolveExistingRunsTableName', () => {
+    /** Resolves `GetObject` with `json` as the config document body. */
+    function stubConfigBody(json: string): void {
+      s3Mock.on(GetObjectCommand).resolves({ Body: { transformToString: async () => json } as never });
+    }
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should resolve the runs table name from the existing document projectName', async () => {
+      stubConfigBody(JSON.stringify({ projectName: 'acme', runsTableName: '' }));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBe('acme-runs');
+      expect(s3Mock.commandCalls(GetObjectCommand)[0]!.args[0].input).toEqual({
+        Bucket: 'cfg',
+        Key: CONFIGURATION_OBJECT_KEY,
+      });
+    });
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should honour an explicit runsTableName override in the existing document', async () => {
+      stubConfigBody(JSON.stringify({ projectName: 'acme', runsTableName: 'custom-runs' }));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBe('custom-runs');
+    });
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should resolve undefined when the document or its bucket does not exist', async () => {
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+      s3Mock.on(GetObjectCommand).rejects(awsError('NoSuchKey'));
+      await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBeUndefined();
+
+      s3Mock.reset();
+      s3Mock.on(GetObjectCommand).rejects(awsError('NoSuchBucket'));
+      await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBeUndefined();
+
+      s3Mock.reset();
+      s3Mock.on(GetObjectCommand).rejects(Object.assign(new Error('x'), { $metadata: { httpStatusCode: 404 } }));
+      await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBeUndefined();
+    });
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should throw a plain normalised Error on a read failure rather than guess the default name', async () => {
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+      s3Mock.on(GetObjectCommand).rejects(awsError('InternalError'));
+      await expect(service.resolveExistingRunsTableName('cfg')).rejects.toThrow(/InternalError/);
+
+      s3Mock.reset();
+      s3Mock.on(GetObjectCommand).rejects(awsError('AccessDenied'));
+      await expect(service.resolveExistingRunsTableName('cfg')).rejects.toThrow(/AccessDenied/);
+    });
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should throw when the existing document is malformed', async () => {
+      stubConfigBody('not json');
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+      await expect(service.resolveExistingRunsTableName('cfg')).rejects.toThrow(/malformed|not valid JSON/i);
+    });
+  });
+
   describe('ensureDeploymentConfig', () => {
     // @spec APP-WIZARD-BOOT-010
     it('should seed a minimal valid deployment-config document when none exists yet', async () => {
@@ -457,12 +546,26 @@ describe('BootstrapService', () => {
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });
 
-    it('should throw BootstrapCredentialsNotConfiguredError when no region is stored', async () => {
+    // @spec APP-WIZARD-BOOT-004
+    it('should return failed rather than reject when no region is stored', async () => {
       const service = new BootstrapService(makeStore(undefined));
 
-      await expect(service.ensureDeploymentConfig('my-config-bucket')).rejects.toThrow(
-        BootstrapCredentialsNotConfiguredError,
-      );
+      const result = await service.ensureDeploymentConfig('my-config-bucket');
+
+      expect(result).toEqual({ status: 'failed', message: new BootstrapCredentialsNotConfiguredError().message });
+    });
+
+    // @spec APP-WIZARD-BOOT-004
+    it('should return failed rather than reject when the stored credentials cannot be decrypted', async () => {
+      const store = makeStore({ profile: 'pasted', region: 'us-west-2' });
+      vi.mocked(store.getPastedCredentials).mockImplementation(() => {
+        throw new Error('keychain unavailable');
+      });
+      const service = new BootstrapService(store);
+
+      const result = await service.ensureDeploymentConfig('my-config-bucket');
+
+      expect(result.status).toBe('failed');
     });
 
     it('should report failure rather than seed over the object when HeadObject fails for a reason other than NotFound', async () => {
@@ -696,10 +799,26 @@ describe('BootstrapService', () => {
       expect(sleepSpy.mock.calls.map((call) => call[0])).toEqual([2000, 4000, 8000, 15000]);
     });
 
-    it('should throw BootstrapCredentialsNotConfiguredError when no region is stored', async () => {
+    // @spec APP-WIZARD-BOOT-004
+    it('should return failed rather than reject when no region is stored', async () => {
       const service = new BootstrapService(makeStore(undefined));
 
-      await expect(service.ensureRunsTable('hyveon-runs')).rejects.toThrow(BootstrapCredentialsNotConfiguredError);
+      const result = await service.ensureRunsTable('hyveon-runs');
+
+      expect(result).toEqual({ status: 'failed', message: new BootstrapCredentialsNotConfiguredError().message });
+    });
+
+    // @spec APP-WIZARD-BOOT-004
+    it('should return failed rather than reject when the stored credentials cannot be decrypted', async () => {
+      const store = makeStore({ profile: 'pasted', region: 'us-west-2' });
+      vi.mocked(store.getPastedCredentials).mockImplementation(() => {
+        throw new Error('keychain unavailable');
+      });
+      const service = new BootstrapService(store);
+
+      const result = await service.ensureRunsTable('hyveon-runs');
+
+      expect(result.status).toBe('failed');
     });
 
     it('should log before and after waitUntilTableExists, with an elapsedMs field in the completion log', async () => {
