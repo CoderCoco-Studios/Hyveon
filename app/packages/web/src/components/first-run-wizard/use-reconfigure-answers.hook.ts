@@ -58,6 +58,8 @@ export interface ReconfigureCredentialsParams {
   setPasteRegion: (region: string) => void;
   /** Derives the `wizard.state.save({ aws })` payload from the current form state — see `useAwsCredentialsForm`'s own doc comment. */
   toStatePayload: () => { profile?: string; region?: string };
+  /** Saves a staged paste at commit time — see `useAwsCredentialsForm`'s `flushStagedPaste`. */
+  flushStagedPaste: () => Promise<string | undefined>;
 }
 
 /** Options for {@link useReconfigureAnswers}. */
@@ -201,7 +203,7 @@ export function useReconfigureAnswers({
     });
   }
 
-  // @spec APP-WIZARD-RECONF-006, APP-WIZARD-RECONF-009
+  // @spec APP-WIZARD-RECONF-006, APP-WIZARD-RECONF-007, APP-WIZARD-RECONF-009
   /**
    * Commits whichever answers were actually opened via Edit in one
    * `wizard.state.save` call, passed to `StackInitializationStep` as
@@ -226,8 +228,10 @@ export function useReconfigureAnswers({
       // A guided install opens Edit onto the satisfied summary, which leaves
       // the form empty; sending that would overwrite the guided
       // `aws.profile` with ''. Only a real chosen profile is committed.
+      const stagedProfile = await credentials.flushStagedPaste();
       const aws = credentials.toStatePayload();
-      if (aws.profile) payload.aws = aws;
+      const profile = stagedProfile ?? aws.profile;
+      if (profile) payload.aws = { ...aws, profile };
     }
     if (!completedSteps.has('bootstrap')) {
       payload.bootstrap = resourceNames;

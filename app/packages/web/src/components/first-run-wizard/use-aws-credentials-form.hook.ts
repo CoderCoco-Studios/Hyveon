@@ -43,6 +43,11 @@ export interface UseAwsCredentialsFormResult {
   pasteSaving: boolean;
   /** Set when the paste-flow save fails (e.g. safeStorage unavailable). */
   pasteError: string | null;
+  /**
+   * Reconfigure mode only: true once the operator submitted the paste form but nothing was written yet — the keys
+   * are held in this hook's state and saved by {@link UseAwsCredentialsFormResult.flushStagedPaste} at Finish.
+   */
+  pasteStaged: boolean;
   /** Set once the paste flow has successfully saved — the profile name it saved under. */
   pastedProfileName: string | null;
   setPastedProfileName: (name: string | null) => void;
@@ -61,14 +66,27 @@ export interface UseAwsCredentialsFormResult {
    * saved profile name, `region` from whichever mode is active.
    */
   toStatePayload: () => { profile?: string; region?: string };
+  /**
+   * Saves the staged paste (reconfigure mode) through `wizard.aws.saveCredentials` — the only point where it touches
+   * the store — and resolves with the saved profile name. Resolves `undefined` when nothing is staged for the active
+   * mode; rejects with the save error (e.g. keychain unavailable).
+   */
+  flushStagedPaste: () => Promise<string | undefined>;
 }
 
 // @spec APP-WIZARD-CREDS-006
 /**
  * Owns the credentials step's form state: the discovered-profile fetch, the
  * profile/paste mode toggle, and the paste-flow's safeStorage save.
+ *
+ * @remarks
+ * In `'reconfigure'` mode the paste form stages its keys in memory instead of saving on submit, because a save
+ * overwrites `creds.aws.<profile>` and a Cancel must leave the stored configuration as it was; the save happens in
+ * {@link UseAwsCredentialsFormResult.flushStagedPaste} when the operator finishes.
+ *
+ * @param mode - The wizard mode; `'first-run'` (default) saves pasted keys immediately.
  */
-export function useAwsCredentialsForm(): UseAwsCredentialsFormResult {
+export function useAwsCredentialsForm(mode: 'first-run' | 'reconfigure' = 'first-run'): UseAwsCredentialsFormResult {
   const [profiles, setProfiles] = useState<AwsProfileSummary[] | null>(null);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [profilesError, setProfilesError] = useState<string | null>(null);
@@ -81,6 +99,7 @@ export function useAwsCredentialsForm(): UseAwsCredentialsFormResult {
   const [pasteSaving, setPasteSaving] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [pastedProfileName, setPastedProfileName] = useState<string | null>(null);
+  const [pasteStaged, setPasteStaged] = useState(false);
 
   useEffect(() => {
     async function fetchProfiles() {
@@ -115,11 +134,17 @@ export function useAwsCredentialsForm(): UseAwsCredentialsFormResult {
     else if (field === 'secretAccessKey') setPasteSecretAccessKey(value);
     else setPasteRegion(value);
     setPastedProfileName(null);
+    setPasteStaged(false);
   }
 
-  // @spec APP-WIZARD-KEYCH-003
-  /** Runs the safeStorage paste-flow immediately (not deferred to Next), per the credentials-step spec. */
+  // @spec APP-WIZARD-KEYCH-003, APP-WIZARD-RECONF-007
+  /** Runs the safeStorage paste-flow immediately (not deferred to Next), per the credentials-step spec; stages it instead in reconfigure mode. */
   async function submitPaste() {
+    if (mode === 'reconfigure') {
+      setPasteError(null);
+      setPasteStaged(true);
+      return;
+    }
     if (!window.hyveon) {
       setPasteError(BRIDGE_UNAVAILABLE);
       return;
@@ -140,6 +165,19 @@ export function useAwsCredentialsForm(): UseAwsCredentialsFormResult {
     }
   }
 
+  async function flushStagedPaste(): Promise<string | undefined> {
+    if (!pasteStaged || credentialMode !== 'paste') return undefined;
+    if (!window.hyveon) throw new Error(BRIDGE_UNAVAILABLE);
+    const result = await window.hyveon.wizard.saveCredentials({
+      accessKeyId: pasteAccessKeyId,
+      secretAccessKey: pasteSecretAccessKey,
+      region: pasteRegion || undefined,
+    });
+    setPastedProfileName(result.profileName);
+    setPasteStaged(false);
+    return result.profileName;
+  }
+
   // @spec APP-WIZARD-CREDS-008
   function toStatePayload(): { profile?: string; region?: string } {
     const profile = credentialMode === 'profile' ? selectedProfileName : (pastedProfileName ?? undefined);
@@ -151,7 +189,7 @@ export function useAwsCredentialsForm(): UseAwsCredentialsFormResult {
   const isFormComplete =
     credentialMode === 'profile'
       ? selectedProfileName !== '' && region !== ''
-      : pastedProfileName !== null && pasteRegion !== '';
+      : (pastedProfileName !== null || pasteStaged) && pasteRegion !== '';
 
   return {
     profiles,
@@ -172,9 +210,11 @@ export function useAwsCredentialsForm(): UseAwsCredentialsFormResult {
     submitPaste: () => void submitPaste(),
     pasteSaving,
     pasteError,
+    pasteStaged,
     pastedProfileName,
     setPastedProfileName,
     isFormComplete,
     toStatePayload,
+    flushStagedPaste,
   };
 }

@@ -16,6 +16,7 @@ import { CheckCircle2 } from 'lucide-react';
 import { InlineAlert } from '@/components/inline-alert.component';
 import { Button } from '@/components/ui/button.component';
 import { ConfirmDialog } from '../confirm-dialog.component.js';
+import { ReconfigureCancelDialog } from './reconfigure-cancel-dialog.component.js';
 import { PickCloudStep, type CloudOption } from './pick-cloud-step.component.js';
 import { CredentialsStep } from './credentials-step.component.js';
 import { BootstrapStep } from './bootstrap-step.component.js';
@@ -26,7 +27,8 @@ import { useBootstrapResources } from './use-bootstrap-resources.hook.js';
 import { useWizardProgress } from './use-wizard-progress.hook.js';
 import { useReconfigureAnswers, isGuidedProfile } from './use-reconfigure-answers.hook.js';
 import { useAwsCredentialsForm } from './use-aws-credentials-form.hook.js';
-import { STEP_LABELS, WIZARD_STEPS, type WizardStep } from './wizard.utils.js';
+import { STEP_LABELS, WIZARD_STEPS, formatDeployPrincipal, type WizardStep } from './wizard.utils.js';
+import type { WizardDeployPrincipal } from '@hyveon/desktop-preload';
 import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /** Props for {@link FirstRunWizard}. */
@@ -50,11 +52,12 @@ export interface FirstRunWizardProps {
    * `isGuidedProfile` below) — a manually picked profile or pasted key never
    * pre-completes it, and it renders as a live step in that case. This covers
    * the durable answer data only, not every side effect: the credentials
-   * step's "paste keys instead" form and the bootstrap step's "Run
-   * bootstrap"/"Check permissions" buttons already perform real, idempotent
-   * IPC calls the moment they're clicked (same as `'first-run'`) — Cancel
-   * doesn't undo those either, it just never points the *active*
-   * `aws`/`bootstrap` config at their result.
+   * step's "paste keys instead" form is staged in memory and saved only at
+   * Finish, so Cancel leaves the store untouched. The bootstrap step's "Run
+   * bootstrap"/"Check permissions" buttons and guided rotation perform real
+   * AWS calls the moment they're clicked (same as `'first-run'`); Cancel
+   * doesn't undo those, and asks for confirmation that says so once any has
+   * run.
    */
   mode?: 'first-run' | 'reconfigure';
   /** `'reconfigure'`-only: invoked when the operator cancels without finishing. Never called in `'first-run'` mode. */
@@ -81,7 +84,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   /** True while {@link GuidedIamStep} has an AWS-mutating IPC call in flight — see its `onBusyChange` prop's doc comment. Gates "Start over" so a reset can't race guided-IAM rotation's key mint/delete calls. */
   const [guidedIamBusy, setGuidedIamBusy] = useState(false);
 
-  const credentials = useAwsCredentialsForm();
+  const credentials = useAwsCredentialsForm(mode);
 
   const bootstrap = useBootstrapResources();
 
@@ -95,7 +98,11 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // without waiting for a relaunch). Cleared locally by the credentials
   // step's "Switch to a different source" escape hatch — see
   // `handleSwitchCredentialSource` below.
-  const [guidedCredentials, setGuidedCredentials] = useState<{ profile: string; region: string } | null>(null);
+  const [guidedCredentials, setGuidedCredentials] = useState<{
+    profile: string;
+    region: string;
+    deployPrincipal?: WizardDeployPrincipal;
+  } | null>(null);
 
   /** Re-derives {@link guidedCredentials} from `wizard.state.get()` — see that state's own doc comment for when this runs. */
   const refreshGuidedCredentials = useCallback(async () => {
@@ -103,7 +110,11 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     try {
       const state = await window.hyveon.wizard.getState();
       const profile = state.aws?.profile;
-      setGuidedCredentials(isGuidedProfile(profile) ? { profile: profile!, region: state.aws?.region ?? '' } : null);
+      setGuidedCredentials(
+        isGuidedProfile(profile)
+          ? { profile: profile!, region: state.aws?.region ?? '', deployPrincipal: state.deployPrincipal }
+          : null,
+      );
     } catch {
       // Best-effort — falls back to the normal credentials form.
     }
@@ -114,6 +125,18 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       await refreshGuidedCredentials();
     })();
   }, [refreshGuidedCredentials]);
+
+  /** True once guided rotation completed this session, an AWS-side change Cancel cannot undo. */
+  const [guidedRotated, setGuidedRotated] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const awsChanged = guidedRotated || Object.values(bootstrap.statuses).some((status) => status !== 'pending');
+
+  // @spec APP-WIZARD-RECONF-008
+  /** Reconfigure's Cancel: leaves at once when nothing reached AWS, otherwise confirms first and states what stays. */
+  function handleCancel() {
+    if (awsChanged) setCancelConfirmOpen(true);
+    else onCancel?.();
+  }
 
   const step = steps[stepIndex];
 
@@ -184,6 +207,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * persisted since.
    */
   async function handleGuidedIamComplete() {
+    setGuidedRotated(true);
     clearGuidedIamProgress();
     await refreshGuidedCredentials();
     void goNext();
@@ -397,9 +421,10 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
             pasteSaving={credentials.pasteSaving}
             pasteError={credentials.pasteError}
             pastedProfileName={credentials.pastedProfileName}
+            pasteStaged={credentials.pasteStaged}
             satisfiedByGuidedProvisioning={
               guidedCredentials
-                ? { principal: 'AWS account (guided setup)', region: guidedCredentials.region }
+                ? { principal: formatDeployPrincipal(guidedCredentials.deployPrincipal), region: guidedCredentials.region }
                 : undefined
             }
             onSwitchSource={handleSwitchCredentialSource}
@@ -442,7 +467,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
               Back
             </Button>
             {mode === 'reconfigure' && onCancel && (
-              <Button type="button" variant="ghost" onClick={onCancel}>
+              <Button type="button" variant="ghost" onClick={handleCancel}>
                 Cancel
               </Button>
             )}
@@ -464,6 +489,11 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
           )}
         </div>
         </div>
+        <ReconfigureCancelDialog
+          open={cancelConfirmOpen}
+          onOpenChange={setCancelConfirmOpen}
+          onConfirm={() => onCancel?.()}
+        />
         <ConfirmDialog
           open={resetConfirmOpen}
           onOpenChange={setResetConfirmOpen}

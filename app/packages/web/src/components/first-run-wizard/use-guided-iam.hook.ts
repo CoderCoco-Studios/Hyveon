@@ -21,7 +21,14 @@ import { useCopiedReset } from '../../hooks/use-copied-reset.hook.js';
  * directly rather than rendering a terminal screen of its own, since the
  * caller is expected to unmount this step once that fires.
  */
-export type GuidedIamPhase = 'region' | 'template' | 'intake' | 'rotating' | 'verification-failed' | 'delete-failed';
+export type GuidedIamPhase =
+  | 'region'
+  | 'template'
+  | 'intake'
+  | 'rotating'
+  | 'verification-failed'
+  | 'delete-failed'
+  | 'keychain-unavailable';
 
 /** The bootstrap key pair, held only in this hook's memory once the intake form validates it — never persisted, never logged. */
 interface BootstrapKeyMaterial {
@@ -95,7 +102,7 @@ export interface UseGuidedIamResult {
   onRetryTemplate: () => void;
 }
 
-// @spec APP-WIZARD-GSTEP-004, APP-WIZARD-GSTEP-005, APP-WIZARD-RESET-002, APP-WIZARD-CONSOLE-001
+// @spec APP-WIZARD-GSTEP-004, APP-WIZARD-GSTEP-005, APP-WIZARD-GSTEP-006, APP-WIZARD-RESET-002, APP-WIZARD-CONSOLE-001
 /**
  * Owns the guided-IAM step's phase machine: rendering `iam-bootstrap.yaml`,
  * intaking the resulting bootstrap access key, and driving the mandatory
@@ -212,9 +219,9 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
   // guided setup" click, defeating the entire point of this persistence —
   // see the intake screen's own region field for how a genuinely
   // unrecoverable region is handled without leaving this phase.
-  // `template-written`/`awaiting-key-intake` resumes have no such
-  // constraint (no bootstrap key is in flight yet), so those alone fall back
-  // to the region screen when no region is recoverable.
+  // An `awaiting-key-intake` resume also lands on `intake` (its region field
+  // is editable); only `template-written` falls back to the region screen
+  // when no region is recoverable, since the template screen needs one.
   useEffect(() => {
     if (!resuming) return;
     let cancelled = false;
@@ -236,6 +243,12 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
         // Always lands on `intake`, with or without a recovered region — see
         // this effect's own doc comment.
         setResumedRotationPending(true);
+        setPhase('intake');
+        setResuming(false);
+        return;
+      }
+
+      if (initialProgress?.subState === 'awaiting-key-intake') {
         setPhase('intake');
         setResuming(false);
         return;
@@ -343,7 +356,7 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     setPhase('intake');
   }
 
-  // @spec APP-WIZARD-GSTEP-003, APP-WIZARD-ROTATE-004, APP-WIZARD-ROTATE-005, APP-WIZARD-ROTATE-007
+  // @spec APP-WIZARD-GSTEP-003, APP-WIZARD-ROTATE-004, APP-WIZARD-ROTATE-005, APP-WIZARD-ROTATE-007, APP-WIZARD-KEYCH-002
   /**
    * Drives one `guidedIamRotate()` attempt against `key`/`rotationRegion` and
    * applies its outcome — called both right after a successful intake and
@@ -374,6 +387,10 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
           await persistProgress({ subState: 'complete', hasBootstrapKey: false });
           if (!mountedRef.current) return;
           onComplete();
+          return;
+        }
+        if (result.status === 'keychain-unavailable') {
+          setPhase('keychain-unavailable');
           return;
         }
         if (result.status === 'verification-failed') {

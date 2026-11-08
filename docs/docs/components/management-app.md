@@ -452,6 +452,9 @@ Two services, both provided by `ElectronStoreModule`:
   `wizardCompleted`, the selected `activeCloud`/AWS profile/region, the
   bootstrap step's last-submitted resource names (state bucket, configuration
   bucket — so Settings' "Reconfigure" flow can rehydrate a non-default name),
+  the guided-IAM `deployPrincipal` (account ID and IAM user name resolved from
+  the bootstrap key; `wizard.state.get` returns it but projects `aws` down to
+  `profile`/`region`, never the key blobs),
   pasted-credentials profiles keyed by profile name, the single
   in-progress add-game wizard draft (`addGameWizardDraft` — the draft's
   field values, which wizard step the operator was on, and when it was last
@@ -639,6 +642,11 @@ for that channel. This backs the `electron` Playwright project's specs
 (`electron-smoke.spec.ts`, `ipc-mock.spec.ts`, `discord.spec.ts`, and the
 documentation screenshot harness — see the
 [maintainer guide](/guides/maintainer#refreshing-the-documentation-screenshots)).
+
+In test mode the seam also pre-registers one default mock, `wizard.state.get` → `{ wizardCompleted: true }`, so specs that
+land on the dashboard skip the first-run wizard; `clearMocks()`/`reset()` restore it and a spec overrides it with its own
+`mock('wizard.state.get', ...)`. The real `wizard.state.get` handler never consults the environment: it reports
+`wizardCompleted: false` until the wizard writes it.
 
 **This seam is gated off in production.** When `HYVEON_TEST_MODE` is unset —
 the default for packaged/production builds and for `npm run desktop:dev`

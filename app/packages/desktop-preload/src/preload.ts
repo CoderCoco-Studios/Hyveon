@@ -683,8 +683,17 @@ const isTestMode = isTestModeEnabled();
 
 const hyveonBridge: HyveonApi & { __test?: HyveonTestApi } = { ...api };
 
-// @spec APP-IPC-SEAM-001, APP-IPC-SEAM-002
+/**
+ * Registers the test seam's baseline mocks: e2e specs that land on the dashboard get `wizardCompleted: true`
+ * here instead of from the production `wizard.state.get` handler. Specs override it with `__test.mock`.
+ */
+function seedDefaultMocks(): void {
+  registerMock('wizard.state.get', () => ({ wizardCompleted: true }));
+}
+
+// @spec APP-IPC-SEAM-001, APP-IPC-SEAM-002, APP-WIZARD-GATE-003
 if (isTestMode) {
+  seedDefaultMocks();
   /**
    * Test-only injection surface, present only when `HYVEON_TEST_MODE=1`.
    *
@@ -696,9 +705,15 @@ if (isTestMode) {
   hyveonBridge.__test = {
     mock: registerMock,
     /** Clears all registered mock handlers from the registry. */
-    clearMocks: () => mockRegistry.clear(),
+    clearMocks: () => {
+      mockRegistry.clear();
+      seedDefaultMocks();
+    },
     /** Alias for {@link clearMocks} — symmetry with `vi.resetAllMocks()`. */
-    reset: () => mockRegistry.clear(),
+    reset: () => {
+      mockRegistry.clear();
+      seedDefaultMocks();
+    },
   };
 }
 

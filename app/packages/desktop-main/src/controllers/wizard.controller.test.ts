@@ -38,6 +38,7 @@ function makeStore(
     activeCloud?: 'aws';
     aws?: { profile?: string; region?: string };
     bootstrap?: { stateBucket: string; configurationBucket: string };
+    deployPrincipal?: { accountId: string; userName?: string };
     installRegionLock?: string;
   } = {},
 ): ElectronStoreService {
@@ -205,25 +206,45 @@ describe('WizardController', () => {
 
   describe('getState', () => {
     // @spec APP-WIZARD-GATE-001
-    it('should return wizardCompleted: false when the store has never set it and test mode is off', () => {
-      const controller = makeController({ store: makeStore() });
-      vi.spyOn(controller as unknown as { isTestMode(): boolean }, 'isTestMode').mockReturnValue(false);
-
-      expect(controller.getState()).toEqual({ wizardCompleted: false, activeCloud: undefined });
+    // @spec APP-WIZARD-GATE-003
+    it('should return wizardCompleted: false when the store has never set it', () => {
+      expect(makeController({ store: makeStore() }).getState()).toEqual({
+        wizardCompleted: false,
+        activeCloud: undefined,
+      });
     });
 
-    it('should default to wizardCompleted: true when unset and HYVEON_TEST_MODE is active', () => {
-      const controller = makeController({ store: makeStore() });
-      vi.spyOn(controller as unknown as { isTestMode(): boolean }, 'isTestMode').mockReturnValue(true);
-
-      expect(controller.getState()).toEqual({ wizardCompleted: true, activeCloud: undefined });
+    // @spec APP-WIZARD-GATE-003
+    it('should return wizardCompleted: false when unset even if HYVEON_TEST_MODE is 1', () => {
+      vi.stubEnv('HYVEON_TEST_MODE', '1');
+      try {
+        expect(makeController({ store: makeStore() }).getState().wizardCompleted).toBe(false);
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
 
-    it('should honor an explicitly-stored false value even under test mode', () => {
-      const controller = makeController({ store: makeStore({ wizardCompleted: false }) });
-      vi.spyOn(controller as unknown as { isTestMode(): boolean }, 'isTestMode').mockReturnValue(true);
+    // @spec APP-WIZARD-CREDS-011
+    it('should return only profile and region from the stored aws record, never key blobs', () => {
+      const store = makeStore({
+        wizardCompleted: true,
+        aws: {
+          profile: 'default',
+          region: 'us-east-1',
+          accessKeyId: 'ENC-AKID',
+          secretAccessKey: 'ENC-SECRET',
+        } as { profile?: string; region?: string },
+      });
+      const state = makeController({ store }).getState();
+      expect(state.aws).toEqual({ profile: 'default', region: 'us-east-1' });
+      expect(JSON.stringify(state)).not.toContain('ENC-');
+    });
 
-      expect(controller.getState()).toEqual({ wizardCompleted: false, activeCloud: undefined });
+    // @spec APP-WIZARD-CREDS-010
+    it('should include the recorded deploy principal when present', () => {
+      const deployPrincipal = { accountId: '123456789012', userName: 'hyveon' };
+      const state = makeController({ store: makeStore({ wizardCompleted: true, deployPrincipal }) }).getState();
+      expect(state.deployPrincipal).toEqual(deployPrincipal);
     });
 
     // @spec APP-WIZARD-GATE-002
@@ -664,6 +685,30 @@ describe('WizardController', () => {
       const serialized = JSON.stringify(loggerMock.debug.mock.calls);
       expect(serialized).not.toContain('AKID-SHOULD-NEVER-BE-LOGGED');
       expect(serialized).not.toContain('SECRET-SHOULD-NEVER-BE-LOGGED');
+    });
+  });
+
+  describe('rotateGuidedIamKey keychain refusal', () => {
+    const ROTATION_INPUT = { bootstrapAccessKeyId: 'AKID', bootstrapSecretAccessKey: 'SECRET', region: 'us-east-1' };
+
+    // @spec APP-WIZARD-KEYCH-002
+    it('should return a modeled keychain-unavailable result instead of rejecting when the keychain is unavailable', async () => {
+      const guidedIam = makeGuidedIam();
+      vi.mocked(guidedIam.rotate).mockRejectedValue(new SafeStorageUnavailableError());
+
+      await expect(makeController({ guidedIam }).rotateGuidedIamKey(ROTATION_INPUT)).resolves.toEqual({
+        status: 'keychain-unavailable',
+      });
+      expect(loggerMock.warn).toHaveBeenCalled();
+      expect(JSON.stringify(loggerMock.warn.mock.calls)).not.toContain('SECRET');
+    });
+
+    // @spec APP-WIZARD-KEYCH-002
+    it('should still reject for any other rotation failure', async () => {
+      const guidedIam = makeGuidedIam();
+      vi.mocked(guidedIam.rotate).mockRejectedValue(new Error('LimitExceeded'));
+
+      await expect(makeController({ guidedIam }).rotateGuidedIamKey(ROTATION_INPUT)).rejects.toThrow('LimitExceeded');
     });
   });
 

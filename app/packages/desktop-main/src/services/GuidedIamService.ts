@@ -77,6 +77,17 @@ export interface BootstrapKeyIntakeInput {
   region: string;
 }
 
+/**
+ * Extracts the IAM user name from a caller ARN of the form `arn:<partition>:iam::<account>:user/<path/>name`.
+ *
+ * @param arn - The `Arn` from `sts:GetCallerIdentity`, if present.
+ * @returns The final path segment, or `undefined` when the ARN is absent or not an IAM user.
+ */
+export function parseIamUserName(arn: string | undefined): string | undefined {
+  const match = /^arn:[^:]*:iam::\d+:user\/(.+)$/.exec(arn ?? '');
+  return match?.[1]?.split('/').pop() || undefined;
+}
+
 /** Result of {@link GuidedIamService.intakeBootstrapKey}. */
 export interface BootstrapKeyIntakeResult {
   /** AWS account ID resolved from `sts:GetCallerIdentity`. */
@@ -297,7 +308,7 @@ export class GuidedIamService {
     }
   }
 
-  // @spec APP-WIZARD-INTAKE-001, APP-WIZARD-INTAKE-003, APP-WIZARD-INTAKE-006
+  // @spec APP-WIZARD-INTAKE-001, APP-WIZARD-INTAKE-002, APP-WIZARD-INTAKE-003, APP-WIZARD-INTAKE-006, APP-WIZARD-TMPL-009
   /**
    * Validate an operator-submitted bootstrap access key pair by calling
    * `sts:GetCallerIdentity` with it, returning the resolved AWS account ID
@@ -322,7 +333,10 @@ export class GuidedIamService {
    * wrapped in a generic "invalid credentials" message) — the caller needs
    * the real error to explain the failure to the operator.
    *
-   * Persists nothing: this method's only job is validation.
+   * On success, records the resolved account ID and the IAM user name parsed from the caller ARN as
+   * `deployPrincipal` in the store (non-secret), so the wizard can show who the deploy principal is — including
+   * a non-default `UserName` stack parameter. A non-user ARN records the account ID alone. A failed validation
+   * records nothing.
    *
    * @param input - The pasted bootstrap key pair and the region to validate
    *   it against.
@@ -335,6 +349,8 @@ export class GuidedIamService {
       if (!response.Account) {
         throw new Error('sts:GetCallerIdentity did not return an Account for the submitted bootstrap key.');
       }
+      const userName = parseIamUserName(response.Arn);
+      this.store.set('deployPrincipal', { accountId: response.Account, ...(userName ? { userName } : {}) });
       return { accountId: response.Account };
     } catch (err) {
       const message = errMessage(err);

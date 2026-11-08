@@ -4,6 +4,7 @@
  * any component.
  */
 import { WIZARD_STEPS, type WizardStep } from '@hyveon/shared';
+import type { WizardDeployPrincipal } from '@hyveon/desktop-preload';
 
 export { WIZARD_STEPS, type WizardStep };
 
@@ -47,4 +48,18 @@ export function defaultBootstrapResourceNames(projectName = 'hyveon'): Record<Bo
     stateBucket: `${projectName}-tfstate`,
     configurationBucket: `${projectName}-config`,
   };
+}
+
+// @spec APP-WIZARD-CREDS-010
+/**
+ * Label for the credentials step's satisfied-by-guided-provisioning summary: the resolved IAM user and account,
+ * or a generic label when the bootstrap key's identity was never recorded.
+ *
+ * @param principal - The deploy principal from `wizard.state.get`, if any.
+ */
+export function formatDeployPrincipal(principal: WizardDeployPrincipal | undefined): string {
+  if (!principal) return 'AWS account (guided setup)';
+  return principal.userName
+    ? `${principal.userName} (account ${principal.accountId})`
+    : `AWS account ${principal.accountId}`;
 }

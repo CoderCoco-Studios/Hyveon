@@ -1366,8 +1366,8 @@ export interface RotationInput {
 }
 
 /**
- * Outcome of {@link HyveonWizardApi.guidedIamRotate}. Mirrors `RotationResult`
- * in `GuidedIamService.ts` — keep in sync.
+ * Outcome of {@link HyveonWizardApi.guidedIamRotate}. Mirrors `GuidedIamRotateResult`
+ * in `wizard.controller.ts` — keep in sync.
  */
 export type RotationResult =
   /** The new key pair is active and the bootstrap key has been revoked. */
@@ -1375,7 +1375,9 @@ export type RotationResult =
   /** `sts:GetCallerIdentity` failed for the newly minted key; nothing was activated. */
   | { status: 'verification-failed'; error: string }
   /** The new key pair is already active, but `iam:DeleteAccessKey` failed for the bootstrap key — revoke it manually via `consoleUrl`. */
-  | { status: 'delete-failed'; consoleUrl: string };
+  | { status: 'delete-failed'; consoleUrl: string }
+  /** The OS keychain is unavailable, so rotation was refused before minting or storing any key. */
+  | { status: 'keychain-unavailable' };
 
 /** Input to {@link HyveonWizardApi.guidedIamRevokeBootstrapKey}. Mirrors `RevokeBootstrapKeyInput` in `GuidedIamService.ts` — keep in sync. */
 export interface RevokeBootstrapKeyInput {
@@ -1551,6 +1553,12 @@ export interface WizardBootstrapNames {
   configurationBucket: string;
 }
 
+/** The guided-IAM deploy principal: the account ID and, when the caller is an IAM user, its name. Non-secret. */
+export interface WizardDeployPrincipal {
+  accountId: string;
+  userName?: string;
+}
+
 /** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */
 export interface WizardState {
   wizardCompleted: boolean;
@@ -1560,6 +1568,8 @@ export interface WizardState {
   aws?: WizardAwsChoice;
   /** The bootstrap step's last-submitted resource names, if any. */
   bootstrap?: WizardBootstrapNames;
+  /** The deploy principal resolved when the guided-IAM bootstrap key authenticated, if any. */
+  deployPrincipal?: WizardDeployPrincipal;
 }
 
 /** Payload accepted by {@link HyveonWizardApi.saveState}. */

@@ -783,6 +783,23 @@ describe('FirstRunWizard', () => {
       expect(screen.queryByLabelText('Profile')).not.toBeInTheDocument();
     });
 
+    // @spec APP-WIZARD-CREDS-010
+    it('should show the resolved deploy principal on the satisfied summary', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: false,
+        aws: { profile: GUIDED_PROFILE_NAME, region: 'us-east-1' },
+        deployPrincipal: { accountId: '123456789012', userName: 'my-deployer' },
+      });
+      await advanceToPickCloud();
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText('guided-iam-step-stub');
+      await userEvent.click(screen.getByRole('button', { name: /stub-complete/i }));
+      await screen.findByText(/already provisioned/i);
+
+      expect(screen.getByText(/my-deployer \(account 123456789012\)/)).toBeInTheDocument();
+      expect(screen.queryByText(/AWS account \(guided setup\)/)).not.toBeInTheDocument();
+    });
+
     // @spec APP-WIZARD-CREDS-009
     it('should enable Next on the credentials step\'s satisfied summary, without requiring the normal picker/paste fields', async () => {
       // Regression test: `credentialsChosen` used to read only the normal
@@ -949,6 +966,124 @@ describe('FirstRunWizard', () => {
       for (const call of hyveonMock.wizard.saveState.mock.calls) {
         expect(call[0]).not.toHaveProperty('aws');
       }
+    });
+  });
+
+  describe('reconfigure mode — pasted credentials staging', () => {
+    /** Opens Reconfigure on a non-guided install and pastes a key pair on the credentials step's Edit form. */
+    async function pasteKeysInReconfigure(onCancel = vi.fn()): Promise<void> {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: 'default', region: 'us-east-1' },
+        bootstrap: { stateBucket: 'existing-tfstate', configurationBucket: 'existing-config' },
+      });
+      hyveonMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'hyveon-pasted' });
+      hyveonMock.iac.stack.initialize.mockImplementation(toStreamHandleMock(async function* () {}));
+      hyveonMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
+
+      render(<FirstRunWizard mode="reconfigure" onCancel={onCancel} />);
+      await screen.findByText(/choose your cloud is already configured/i);
+      await waitFor(() => expect(hyveonMock.wizard.getState).toHaveBeenCalled());
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText('guided-iam-step-stub');
+      await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
+      await screen.findByText(/aws credentials is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      await userEvent.click(await screen.findByRole('button', { name: /paste keys instead/i }));
+      await userEvent.type(screen.getByLabelText('Access key ID'), 'AKID');
+      await userEvent.type(screen.getByLabelText('Secret access key'), 'SECRET');
+      await userEvent.type(screen.getByLabelText('Region'), 'us-west-2');
+      await userEvent.click(screen.getByRole('button', { name: /save credentials/i }));
+    }
+
+    // @spec APP-WIZARD-RECONF-007
+    it('should not write pasted credentials to the store before Finish, so Cancel leaves the stored configuration untouched', async () => {
+      const onCancel = vi.fn();
+      await pasteKeysInReconfigure(onCancel);
+
+      expect(await screen.findByText(/saved when you finish/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
+      expect(hyveonMock.wizard.saveCredentials).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(hyveonMock.wizard.saveCredentials).not.toHaveBeenCalled();
+      expect(hyveonMock.wizard.saveState).not.toHaveBeenCalled();
+    });
+
+    // @spec APP-WIZARD-RECONF-007
+    it('should save the staged pasted credentials and commit their profile at Finish', async () => {
+      await pasteKeysInReconfigure();
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/bootstrap aws resources is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByRole('button', { name: /finish setup/i });
+
+      await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
+
+      await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalled());
+      expect(hyveonMock.wizard.saveCredentials).toHaveBeenCalledTimes(1);
+      expect(hyveonMock.wizard.saveCredentials).toHaveBeenCalledWith({
+        accessKeyId: 'AKID',
+        secretAccessKey: 'SECRET',
+        region: 'us-west-2',
+      });
+      expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({
+        aws: { profile: 'hyveon-pasted', region: 'us-west-2' },
+      });
+    });
+  });
+
+  describe('reconfigure mode — cancel after AWS-side changes', () => {
+    // @spec APP-WIZARD-RECONF-008
+    it('should state that AWS changes remain in place and ask for confirmation when Cancel follows a bootstrap run', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: 'default', region: 'us-east-1' },
+        bootstrap: { stateBucket: 'existing-tfstate', configurationBucket: 'existing-config' },
+      });
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
+      const onCancel = vi.fn();
+
+      render(<FirstRunWizard mode="reconfigure" onCancel={onCancel} />);
+      await screen.findByText(/choose your cloud is already configured/i);
+      await waitFor(() => expect(hyveonMock.wizard.getState).toHaveBeenCalled());
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText('guided-iam-step-stub');
+      await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
+      await screen.findByText(/aws credentials is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/bootstrap aws resources is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      await userEvent.click(await screen.findByRole('button', { name: /bootstrap aws resources/i }));
+      await waitFor(() => expect(hyveonMock.wizard.bootstrapStateBucket).toHaveBeenCalled());
+
+      await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+      expect(await screen.findByText(/remain in place and were not undone/i)).toBeInTheDocument();
+      expect(onCancel).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByRole('button', { name: /cancel reconfigure/i }));
+
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    // @spec APP-WIZARD-RECONF-008
+    it('should cancel immediately without the AWS-changes notice when nothing was applied to AWS', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({ wizardCompleted: true, activeCloud: 'aws' });
+      const onCancel = vi.fn();
+
+      render(<FirstRunWizard mode="reconfigure" onCancel={onCancel} />);
+      await screen.findByText(/choose your cloud is already configured/i);
+
+      await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText(/remain in place/i)).not.toBeInTheDocument();
     });
   });
 

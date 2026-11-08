@@ -360,6 +360,54 @@ describe('GuidedIamService', () => {
       expect(JSON.stringify(loggedPayload)).not.toContain(BOOTSTRAP_INPUT.secretAccessKey);
     });
 
+    // @spec APP-WIZARD-INTAKE-002, APP-WIZARD-TMPL-009
+    it('should record the account ID and the IAM user name from the caller ARN as the deploy principal', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({
+        Account: '123456789012',
+        Arn: 'arn:aws:iam::123456789012:user/my-custom-deployer',
+      });
+
+      await service.intakeBootstrapKey(BOOTSTRAP_INPUT);
+
+      expect(store.set).toHaveBeenCalledWith('deployPrincipal', {
+        accountId: '123456789012',
+        userName: 'my-custom-deployer',
+      });
+    });
+
+    // @spec APP-WIZARD-TMPL-009
+    it('should record only the final path segment of a path-qualified IAM user ARN', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({
+        Account: '123456789012',
+        Arn: 'arn:aws:iam::123456789012:user/teams/infra/deployer',
+      });
+
+      await service.intakeBootstrapKey(BOOTSTRAP_INPUT);
+
+      expect(store.set).toHaveBeenCalledWith('deployPrincipal', { accountId: '123456789012', userName: 'deployer' });
+    });
+
+    // @spec APP-WIZARD-INTAKE-002
+    it('should record only the account ID when the caller ARN is not an IAM user', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({
+        Account: '123456789012',
+        Arn: 'arn:aws:sts::123456789012:assumed-role/Admin/session',
+      });
+
+      await service.intakeBootstrapKey(BOOTSTRAP_INPUT);
+
+      expect(store.set).toHaveBeenCalledWith('deployPrincipal', { accountId: '123456789012' });
+    });
+
+    // @spec APP-WIZARD-INTAKE-002
+    it('should record nothing when the bootstrap key does not authenticate', async () => {
+      stsMock.on(GetCallerIdentityCommand).rejects(new Error('invalid token'));
+
+      await expect(service.intakeBootstrapKey(BOOTSTRAP_INPUT)).rejects.toThrow();
+
+      expect(store.set).not.toHaveBeenCalled();
+    });
+
     it('should throw a clear error when a successful response is missing the Account field', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon-bootstrap' });
 
