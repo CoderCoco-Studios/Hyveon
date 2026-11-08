@@ -9,6 +9,22 @@ import { logger } from '../logger.js';
 import { ipcErrorMessage, registerSelfBridgedHandlers } from '../ipc-handlers.js';
 import { errMessage } from '@hyveon/shared';
 
+// @spec APP-LOGS-PAGE-008
+/**
+ * Runs one paging call and rethrows any failure as a plain `Error` carrying only its message. Does not log:
+ * {@link LogsService} already logged the failure at `warn` where it happened.
+ *
+ * @param call - The paging call to run.
+ * @throws Error — Plain `Error` with the normalized message.
+ */
+async function withPlainError<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (err) {
+    throw new Error(errMessage(err));
+  }
+}
+
 // @spec APP-LOGS-IPC-001, APP-LOGS-IPC-002
 /** IPC-only logs controller. Handles Electron main-process messages via
  * `@MessagePattern`.
@@ -73,14 +89,7 @@ export class LogsController implements OnModuleInit {
   ): Promise<{ game: string } & OlderLogsPage> {
     const { game, beforeTimestamp, limit = 100 } = payload;
     logger.debug('LogsController: logs.getOlder invoked', { game });
-    try {
-      const page = await this.logs.getOlderLogs(game, beforeTimestamp, limit);
-      return { game, ...page };
-    } catch (err) {
-      const message = errMessage(err);
-      logger.error('LogsController: logs.getOlder failed', { game, error: message });
-      throw new Error(message);
-    }
+    return withPlainError(async () => ({ game, ...(await this.logs.getOlderLogs(game, beforeTimestamp, limit)) }));
   }
 
   /**
@@ -97,14 +106,7 @@ export class LogsController implements OnModuleInit {
   ): Promise<{ game: string } & NewerLogsPage> {
     const { game, afterTimestamp, limit = 100, excludeEventIds = [] } = payload;
     logger.debug('LogsController: logs.getNewer invoked', { game });
-    try {
-      const page = await this.logs.getNewerLogs(game, afterTimestamp, limit, excludeEventIds);
-      return { game, ...page };
-    } catch (err) {
-      const message = errMessage(err);
-      logger.error('LogsController: logs.getNewer failed', { game, error: message });
-      throw new Error(message);
-    }
+    return withPlainError(async () => ({ game, ...(await this.logs.getNewerLogs(game, afterTimestamp, limit, excludeEventIds)) }));
   }
 
   // @spec APP-LOGS-IPC-004, APP-LOGS-IPC-005, APP-LOGS-IPC-006, APP-LOGS-IPC-007, APP-LOGS-IPC-008
@@ -273,14 +275,7 @@ export class LogsController implements OnModuleInit {
   ): Promise<{ functionKey: LambdaFunctionKey } & OlderLogsPage> {
     const { functionKey, beforeTimestamp, limit = 100 } = payload;
     logger.debug('LogsController: logs.lambda.getOlder invoked', { functionKey });
-    try {
-      const page = await this.logs.getOlderLambdaLogs(functionKey, beforeTimestamp, limit);
-      return { functionKey, ...page };
-    } catch (err) {
-      const message = errMessage(err);
-      logger.error('LogsController: logs.lambda.getOlder failed', { functionKey, error: message });
-      throw new Error(message);
-    }
+    return withPlainError(async () => ({ functionKey, ...(await this.logs.getOlderLambdaLogs(functionKey, beforeTimestamp, limit)) }));
   }
 
   /**
@@ -297,14 +292,7 @@ export class LogsController implements OnModuleInit {
   ): Promise<{ functionKey: LambdaFunctionKey } & NewerLogsPage> {
     const { functionKey, afterTimestamp, limit = 100, excludeEventIds = [] } = payload;
     logger.debug('LogsController: logs.lambda.getNewer invoked', { functionKey });
-    try {
-      const page = await this.logs.getNewerLambdaLogs(functionKey, afterTimestamp, limit, excludeEventIds);
-      return { functionKey, ...page };
-    } catch (err) {
-      const message = errMessage(err);
-      logger.error('LogsController: logs.lambda.getNewer failed', { functionKey, error: message });
-      throw new Error(message);
-    }
+    return withPlainError(async () => ({ functionKey, ...(await this.logs.getNewerLambdaLogs(functionKey, afterTimestamp, limit, excludeEventIds)) }));
   }
 
   /**

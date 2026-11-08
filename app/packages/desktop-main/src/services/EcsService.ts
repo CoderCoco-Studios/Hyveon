@@ -90,6 +90,7 @@ export async function buildProviderConfig(
  */
 export const awsCloudProviderLogger: AwsCloudProviderLogger = {
   error: (message: string, err: unknown) => logger.error(message, { error: errMessage(err) }),
+  warn: (message: string, detail?: unknown) => logger.warn(message, detail as object | undefined),
 };
 
 /**

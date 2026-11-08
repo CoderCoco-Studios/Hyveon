@@ -228,13 +228,13 @@ Specs: `docs/intent/operator-app/infra-logs/infra-logs-specs.md` · Arrow doc: `
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `APP-LOGS-GROUP-007` | d | - | Both declared by hand (shared/src/lambdaFunctionKey.ts:9-14,21-27) but a derive-from-one-declaration refactor, not behaviour; Work Required item |
-| `APP-LOGS-SNAP-005` | c | low | getRecentLogs passes no notFound hook (desktop-main/src/services/LogsService.ts:279-290) but /ecs/{game}-server is Pulumi-provisioned per game (infra/src/ecs.ts:194-197), so rarely hit |
-| `APP-LOGS-SNAP-006` | b | low | Snapshot uses ${e.message ?? ''} (desktop-main/src/services/LogsService.ts:328) vs paging raw ${e.message} (:519); only differs for message-less events |
-| `APP-LOGS-PAGE-008` | b | low | Four identical catches re-log at error (desktop-main/src/controllers/logs.controller.ts:96,120,258,282) what LogsService already warned (LogsService.ts:362,401,668,705) |
-| `APP-LOGS-TAIL-005` | b | med | streamLambdaLogs starts with startTime undefined (desktop-main/src/services/LogsService.ts:745,751) so first poll replays whole retained group; observed ~50k-line replay; med by the impact definitions (misleading noise with a workaround, no failure, data loss or cost) |
-| `APP-LOGS-TAIL-007` | b | low | FilterLogEventsCommand sent with no abortSignal (desktop-main/src/services/LogsService.ts:750-752) and plain setTimeout sleep (:776) |
-| `APP-LOGS-TAIL-009` | b | low | Poll failure yields '[stream error]' with no logger call (desktop-main/src/services/LogsService.ts:772-773) |
+| `APP-LOGS-GROUP-007` | closed | - | Fixed (was): union and picker array declared by hand. The union derives from the frozen `LAMBDA_FUNCTION_KEYS` tuple |
+| `APP-LOGS-SNAP-005` | closed | - | Fixed (was): the game snapshot had no `notFound` hook. It returns the informational no-log-group line |
+| `APP-LOGS-SNAP-006` | closed | - | Fixed (was): snapshot and paging built `eventId` differently. Both use `synthesizeEventId` |
+| `APP-LOGS-PAGE-008` | closed | - | Fixed (was): four identical catches re-logged at error. One `withPlainError` helper rethrows without logging |
+| `APP-LOGS-TAIL-005` | closed | - | Fixed (was): the Lambda tail replayed the retained group. It starts 30 s before the tail began (`LOG_TAIL_LOOKBACK_MS`) |
+| `APP-LOGS-TAIL-007` | closed | - | Fixed (was): no `abortSignal` and a plain `setTimeout`. The SDK call takes the signal and the sleep is `sleepInterruptible` |
+| `APP-LOGS-TAIL-009` | closed | - | Fixed (was): a poll failure was not logged. It logs `warn` with functionKey, log group, normalized message |
 | `APP-LOGS-TAIL-011` | b | low | streamLogs yields chunk.message only (desktop-main/src/services/LogsService.ts:206-207); LogChunk = string (desktop-preload/src/hyveon-api.ts:157); UI does not render timestamps today |
 | `APP-LOGS-ENGINE-016` | b | low | loadNewer never reads page.hasMore (web/src/hooks/use-log-tail.hook.ts:478-502) and handleScroll re-fires getNewer on every bottom scroll while historical (:533-535), so the tail cannot report that no newer history remains. A separate atNewest-style flag (cf. atOldest :206,:412) meets the spec without touching hasNewer / Jump to latest (:110,:616) |
 | `APP-LOGS-ENGINE-017` | b | low | ageLabel = formatAge(now - oldest.receivedAt) (web/src/hooks/use-log-tail.hook.ts:370-371) though snapshot lines carry timestamp |

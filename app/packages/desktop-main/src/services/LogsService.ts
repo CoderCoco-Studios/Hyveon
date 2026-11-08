@@ -6,7 +6,7 @@ import {
   GetLogEventsCommand,
 } from '@aws-sdk/client-cloudwatch-logs';
 import type { CloudProvider, LambdaFunctionKey, LogChunk } from '@hyveon/shared';
-import { DEPLOYMENT_CONFIG_DEFAULTS, errMessage } from '@hyveon/shared';
+import { DEPLOYMENT_CONFIG_DEFAULTS, LOG_TAIL_LOOKBACK_MS, errMessage, noLogGroupMessage, sleepInterruptible } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
@@ -132,7 +132,19 @@ interface AccumulatedEvent {
  */
 function syntheticLine(message: string): LogEventLine {
   const timestamp = Date.now();
-  return { message, timestamp, eventId: `${timestamp}:${message}` };
+  return { message, timestamp, eventId: synthesizeEventId(timestamp, message) };
+}
+
+/**
+ * Synthesizes the `${timestamp}:${message}` event identity every snapshot, paging, and tail path shares, treating a
+ * missing message as the empty string so the same event always yields the same id.
+ *
+ * @param timestamp - CloudWatch event timestamp, epoch ms.
+ * @param message - The event's message, when CloudWatch provided one.
+ * @returns The synthesized identity.
+ */
+function synthesizeEventId(timestamp: number | undefined, message: string | undefined): string {
+  return `${timestamp}:${message ?? ''}`;
 }
 
 /**
@@ -221,9 +233,8 @@ export class LogsService {
    * `kind: 'paging'` matches {@link getOlderLogs}'s throw contract: any error is normalized
    * via {@link errMessage}, logged via `hooks.logFailure`, and rethrown as a plain `Error`.
    * `hooks.notFound`, when given, intercepts a `ResourceNotFoundException` ahead of either
-   * branch — only the three Lambda-log methods pass one (only Lambda log groups can be
-   * unprovisioned) and it does its own logging plus return-or-throw, since that differs by
-   * `kind` too.
+   * branch — every snapshot and paging method passes one; it does its own
+   * logging plus return-or-throw, since that differs by `kind` too.
    *
    * @param entity - `label` identifies the game/Lambda function for the "no log streams
    *   found" message; `resolve` returns the log group `fn` should operate against.
@@ -264,7 +275,7 @@ export class LogsService {
     }
   }
 
-  // @spec APP-LOGS-GROUP-001, APP-LOGS-SNAP-001, APP-LOGS-SNAP-002, APP-LOGS-SNAP-004
+  // @spec APP-LOGS-GROUP-001, APP-LOGS-SNAP-001, APP-LOGS-SNAP-002, APP-LOGS-SNAP-004, APP-LOGS-SNAP-005, APP-LOGS-SNAP-006
   /**
    * Return up to `limit` recent lines (each carrying its own CloudWatch
    * timestamp) from the most recently written log stream in
@@ -285,6 +296,10 @@ export class LogsService {
         logDebug: (logGroup) => logger.debug('LogsService.getRecentLogs: fetching recent logs', { game, limit, logGroup }),
         logFailure: (message, logGroup) => logger.error('LogsService.getRecentLogs: failed to fetch logs', { game, logGroup, error: message }),
         recentFallback: (message) => ({ lines: [syntheticLine(message)] }),
+        notFound: (logGroup) => {
+          logger.warn('LogsService.getRecentLogs: log group does not exist yet', { game, logGroup });
+          return { lines: [syntheticLine(noLogGroupMessage(game))] };
+        },
       },
     );
   }
@@ -325,11 +340,11 @@ export class LogsService {
     );
     const lines: LogEventLine[] = (events.events ?? [])
       .filter((e): e is typeof e & { timestamp: number } => e.timestamp !== undefined)
-      .map((e) => ({ message: e.message ?? '', timestamp: e.timestamp, eventId: `${e.timestamp}:${e.message ?? ''}` }));
+      .map((e) => ({ message: e.message ?? '', timestamp: e.timestamp, eventId: synthesizeEventId(e.timestamp, e.message) }));
     return { lines };
   }
 
-  // @spec APP-LOGS-GROUP-001, APP-LOGS-PAGE-006
+  // @spec APP-LOGS-GROUP-001, APP-LOGS-PAGE-006, APP-LOGS-PAGE-007
   /**
    * Returns up to `limit` CloudWatch events strictly older than
    * `beforeTimestamp`, paging backward across every log stream in
@@ -360,11 +375,15 @@ export class LogsService {
       {
         logDebug: (logGroup) => logger.debug('LogsService.getOlderLogs: fetching older logs', { game, beforeTimestamp, limit, logGroup }),
         logFailure: (message, logGroup) => logger.warn('LogsService.getOlderLogs: failed to fetch older logs', { game, beforeTimestamp, logGroup, error: message }),
+        notFound: (logGroup) => {
+          logger.warn('LogsService.getOlderLogs: log group does not exist yet', { game, logGroup });
+          throw new Error(noLogGroupMessage(game));
+        },
       },
     );
   }
 
-  // @spec APP-LOGS-GROUP-001, APP-LOGS-PAGE-006
+  // @spec APP-LOGS-GROUP-001, APP-LOGS-PAGE-006, APP-LOGS-PAGE-007
   /**
    * Returns up to `limit` CloudWatch events strictly newer than
    * `afterTimestamp`, paging forward across every log stream in
@@ -399,6 +418,10 @@ export class LogsService {
       {
         logDebug: (logGroup) => logger.debug('LogsService.getNewerLogs: fetching newer logs', { game, afterTimestamp, limit, logGroup }),
         logFailure: (message, logGroup) => logger.warn('LogsService.getNewerLogs: failed to fetch newer logs', { game, afterTimestamp, logGroup, error: message }),
+        notFound: (logGroup) => {
+          logger.warn('LogsService.getNewerLogs: log group does not exist yet', { game, logGroup });
+          throw new Error(noLogGroupMessage(game));
+        },
       },
     );
   }
@@ -521,7 +544,7 @@ export class LogsService {
         // FilterLogEventsCommand's FilteredLogEvent) — synthesize one from
         // timestamp+message, matching this file's existing dedup fallback
         // (see streamLambdaLogs/fetchRange's `event.eventId ?? ...` pattern).
-        const eventId = `${e.timestamp}:${e.message}`;
+        const eventId = synthesizeEventId(e.timestamp, e.message);
         if (direction === 'newer') {
           const remainingExcluded = excludedCounts.get(eventId) ?? 0;
           if (remainingExcluded > 0) {
@@ -639,7 +662,7 @@ export class LogsService {
         recentFallback: (message) => ({ lines: [syntheticLine(message)] }),
         notFound: (logGroup) => {
           logger.warn('LogsService.getRecentLambdaLogs: log group does not exist yet', { functionKey, logGroup });
-          return { lines: [syntheticLine(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`)] };
+          return { lines: [syntheticLine(noLogGroupMessage(functionKey))] };
         },
       },
     );
@@ -668,7 +691,7 @@ export class LogsService {
         logFailure: (message, logGroup) => logger.warn('LogsService.getOlderLambdaLogs: failed to fetch older logs', { functionKey, beforeTimestamp, logGroup, error: message }),
         notFound: (logGroup) => {
           logger.warn('LogsService.getOlderLambdaLogs: log group does not exist yet', { functionKey, logGroup });
-          throw new Error(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`);
+          throw new Error(noLogGroupMessage(functionKey));
         },
       },
     );
@@ -705,17 +728,21 @@ export class LogsService {
         logFailure: (message, logGroup) => logger.warn('LogsService.getNewerLambdaLogs: failed to fetch newer logs', { functionKey, afterTimestamp, logGroup, error: message }),
         notFound: (logGroup) => {
           logger.warn('LogsService.getNewerLambdaLogs: log group does not exist yet', { functionKey, logGroup });
-          throw new Error(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`);
+          throw new Error(noLogGroupMessage(functionKey));
         },
       },
     );
   }
 
-  // @spec APP-LOGS-TAIL-003, APP-LOGS-TAIL-004, APP-LOGS-TAIL-006, APP-LOGS-TAIL-008, APP-LOGS-TAIL-010
+  // @spec APP-LOGS-TAIL-003, APP-LOGS-TAIL-004, APP-LOGS-TAIL-006, APP-LOGS-TAIL-008, APP-LOGS-TAIL-010, APP-LOGS-TAIL-005, APP-LOGS-TAIL-007, APP-LOGS-TAIL-009
   /**
    * Async generator that yields new log lines as they arrive for the resolved
    * Lambda log group. Polls `FilterLogEvents` every `pollInterval` ms,
-   * de-duplicating by `eventId` and exiting cleanly when `signal` is aborted —
+   * starting {@link LOG_TAIL_LOOKBACK_MS} before the tail began (CloudWatch filters on the event timestamp, so
+   * events that were stamped just before the tail started but ingested after the snapshot still arrive; the
+   * overlap is bounded, so retained history is not replayed), de-duplicating by `eventId` (ids older than the
+   * advancing `startTime` are pruned, since CloudWatch can no longer return them) and exiting cleanly when `signal` is aborted (which also cancels the in-flight
+   * `FilterLogEvents` call and the inter-poll sleep) —
    * the same poll-loop shape `AwsCloudProvider.streamWorkloadLogs` uses for
    * game logs (see design.md D1 for why this duplicates rather than shares
    * that implementation). A poll failure yields a `[stream error]`-prefixed
@@ -741,39 +768,48 @@ export class LogsService {
   ): AsyncGenerator<string> {
     const logGroup = await this.resolveLambdaLogGroup(functionKey);
     logger.debug('LogsService.streamLambdaLogs: starting log stream', { functionKey, logGroup, pollInterval });
-    const seen = new Set<string>();
-    let startTime: number | undefined;
+    const seen = new Map<string, number>();
+    let startTime = Date.now() - LOG_TAIL_LOOKBACK_MS;
     while (!signal.aborted) {
       try {
+        const pollStart = startTime;
         let nextToken: string | undefined;
         do {
           const result = await this.getClient().send(
-            new FilterLogEventsCommand({ logGroupName: logGroup, startTime, nextToken }),
+            new FilterLogEventsCommand({ logGroupName: logGroup, startTime: pollStart, nextToken }),
+            { abortSignal: signal },
           );
           for (const event of result.events ?? []) {
-            const id = event.eventId ?? `${event.timestamp}:${event.message}`;
+            const id = event.eventId ?? synthesizeEventId(event.timestamp, event.message);
             if (seen.has(id)) continue;
-            seen.add(id);
+            seen.set(id, event.timestamp ?? Date.now());
             if (event.timestamp !== undefined) {
-              startTime = startTime === undefined ? event.timestamp : Math.max(startTime, event.timestamp);
+              startTime = Math.max(startTime, event.timestamp);
             }
             if (signal.aborted) return;
             yield event.message ?? '';
           }
           nextToken = result.nextToken;
         } while (nextToken && !signal.aborted);
+        for (const [id, timestamp] of seen) {
+          if (timestamp < startTime) seen.delete(id);
+        }
       } catch (err) {
         if (signal.aborted) return;
         if (err instanceof Error && err.name === 'ResourceNotFoundException') {
           logger.warn('LogsService.streamLambdaLogs: log group does not exist yet, stopping poll', { functionKey, logGroup });
-          yield `No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`;
+          yield noLogGroupMessage(functionKey);
           return;
         }
         const message = errMessage(err);
+        logger.warn('LogsService.streamLambdaLogs: poll failed', { functionKey, logGroup, error: message });
         yield `[stream error] ${message}`;
       }
-      if (signal.aborted) return;
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      try {
+        await sleepInterruptible(pollInterval, signal);
+      } catch {
+        return;
+      }
     }
   }
 }

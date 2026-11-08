@@ -29,15 +29,17 @@ Opening the page does two things: it fetches a snapshot of the most recent
 lines from the newest log stream, then it opens a live tail that polls
 CloudWatch every two seconds for anything new.
 
-The live tail starts from the moment you subscribe, so it only shows lines
-produced from then on. Everything before that comes from the snapshot.
+The live tail starts 30 seconds before the moment you subscribe, so a line that
+was stamped just before you opened the page but reached CloudWatch after the
+snapshot still appears; lines it already showed are not repeated. Older history
+comes from the snapshot.
 
 If infrastructure has not been deployed, the live tail fails immediately and
 the error banner reads `Stream ended with error: Infrastructure is not
 deployed. Run Apply on the IaC page first.` If the game has never run (the log
 group exists but has no streams yet), the snapshot comes back as a single
 line reading `No log streams found for minecraft.` — rendered as an ordinary
-log line, not as an error.
+log line, not as an error. If the log group itself does not exist yet, the snapshot is likewise a single informational line, `No log group for minecraft yet — it hasn't been provisioned or hasn't logged anything.` Scrolling back through history on a game with no log group shows the same message, and the live tail shows it once and then keeps checking with a growing delay (up to 30 seconds) until the group appears.
 
 ## Choosing a game
 
@@ -213,7 +215,7 @@ What's different is where the logs come from and how you pick a target:
 - Instead of a game combobox, a row of 5 buttons picks the function: `watchdog`, `health-check`, `dns-updater`, `interactions`, `followup`. `watchdog` is selected by default. Unlike the game-logs page, this page doesn't opt into the shared `LogTailView`'s mobile filter drawer at all — there is no narrow-window **Filters** button here, and the search box stays visible at every width.
 - Each function's logs come from the CloudWatch log group `/aws/lambda/{projectName}-{functionKey}`, where `projectName` is the operator's configured project name (falling back to `hyveon` if it can't be read). For the default project name, that means log groups like `/aws/lambda/hyveon-watchdog`.
 - As on this page, opening it fetches a snapshot of the most recent lines and then opens a live tail; the Lambda tail polls every two seconds, same as the game-logs tail.
-- `health-check` is conditionally provisioned: its CloudWatch log group only exists once at least one game in the deployment declares a `healthCheck`. Picking it before that's configured shows an informational "no log group yet" message instead of an error, and the live tail stops after that single message rather than polling forever.
+- `health-check` is conditionally provisioned: its CloudWatch log group only exists once at least one game in the deployment declares a `healthCheck`. Picking it before that's configured shows an informational "no log group yet" message instead of an error, and the live tail stops after that single message rather than polling forever. A tail that fails a poll for any other reason shows a `[stream error]` line, logs the failure, and keeps polling. Closing the page or switching function cancels the in-flight CloudWatch call and the wait between polls immediately.
 
 ## What this page is not
 
