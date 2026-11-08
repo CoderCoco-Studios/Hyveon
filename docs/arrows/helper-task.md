@@ -87,64 +87,46 @@ Re-synced after the in-app file browser shipped (PRs #694-#699, #701): one main-
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Folder selection | `HELPER-SELECT-001` to `HELPER-SELECT-007` | 7 | 0 | 0 |
-| Upload into the volume | `HELPER-UPLOAD-001` to `HELPER-UPLOAD-020` (no 007) | 17 | 0 | 2 |
-| Upload helper reach and transport | `HELPER-REACH-001` to `HELPER-REACH-008` | 7 | 0 | 1 |
-| Helper launch and lifetime | `HELPER-LAUNCH-001` to `HELPER-LAUNCH-008` | 6 | 0 | 2 |
+| Upload into the volume | `HELPER-UPLOAD-001` to `HELPER-UPLOAD-020` (no 007) | 19 | 0 | 0 |
+| Upload helper reach and transport | `HELPER-REACH-001` to `HELPER-REACH-008` | 8 | 0 | 0 |
+| Helper launch and lifetime | `HELPER-LAUNCH-001` to `HELPER-LAUNCH-008` | 8 | 0 | 0 |
 | Helper tagging and stray cleanup | `HELPER-STRAY-001` to `HELPER-STRAY-006` | 6 | 0 | 0 |
 | Progress meter | `HELPER-PROG-001` to `HELPER-PROG-006` | 6 | 0 | 0 |
 | Resume and failure handling | `HELPER-RESUME-001` to `HELPER-RESUME-007` | 7 | 0 | 0 |
 | Verification | `HELPER-VERIFY-001` to `HELPER-VERIFY-003` | 3 | 0 | 0 |
 | Overwrite warning | `HELPER-OVER-001` to `HELPER-OVER-008` | 8 | 0 | 0 |
 | Safety limits and state | `HELPER-SAFE-001` to `HELPER-SAFE-006` | 6 | 0 | 0 |
-| IPC contract | `HELPER-IPC-001` to `HELPER-IPC-008` (no 003) | 5 | 0 | 2 |
-| Deploy-time seeding | `HELPER-SEED-001` to `HELPER-SEED-006` | 4 | 0 | 2 |
+| IPC contract | `HELPER-IPC-001` to `HELPER-IPC-008` (no 003) | 7 | 0 | 0 |
+| Deploy-time seeding | `HELPER-SEED-001` to `HELPER-SEED-006` | 6 | 0 | 0 |
 | In-app file browser | `HELPER-FB-001` to `HELPER-FB-042` | 41 | 1 | 0 |
 | Helper session registry | `HELPER-SESS-001` to `HELPER-SESS-008` | 8 | 0 | 0 |
 | Volume layout | `HELPER-LAYOUT-001` to `HELPER-LAYOUT-005` | 5 | 0 | 0 |
-| Upload reservations | `HELPER-RSV-001` to `HELPER-RSV-005` | 4 | 0 | 1 |
+| Upload reservations | `HELPER-RSV-001` to `HELPER-RSV-005` | 5 | 0 | 0 |
 | Page transfers | `HELPER-XFER-001` to `HELPER-XFER-010` | 10 | 0 | 0 |
 | Text editor | `HELPER-EDIT-001` to `HELPER-EDIT-004` | 4 | 0 | 0 |
 | Application quit | `HELPER-QUIT-001` to `HELPER-QUIT-003` | 3 | 0 | 0 |
 
-**Summary:** 157 of 168 active specs implemented; 1 deferred; 10 gaps. Retired IDs (`HELPER-UPLOAD-007`, `HELPER-BROWSE-001` to `-006`, `HELPER-IPC-003`) are listed at the end of the specs file.
+**Summary:** 167 of 168 active specs implemented; 1 deferred; 0 gaps. Retired IDs (`HELPER-UPLOAD-007`, `HELPER-BROWSE-001` to `-006`, `HELPER-IPC-003`) are listed at the end of the specs file.
 
 ## Key Findings
 
-1. **efs-seeder is first-volume-only and conditional.** Each seeder function mounts the first volume's access point (`infra/src/lambdas.ts:720-721`) and receives only `volumes[0].container_path` (`infra/src/escapes.ts:250`); a seed path under any other volume is rejected by `resolveDestination` (`handler.ts:34-38`). The helper now mounts every volume (`helperVolumeLayout.ts:89-102`), so seeds are the only remaining first-volume route. Functions exist only for games that declare `file_seeds` (`lambdas.ts:711`), so a runtime check that expects efs-seeder in every deployment (IAC-PROGRAM-RUNTIME-003) disagrees with the provisioning.
-2. **Auto-stop schedule failure is never surfaced, for any session.** `launchHelper` computes `scheduleWarning` (`FileManagerService.ts:487,498-514`) but `HelperSessionRegistry.launch` copies every other outcome field and drops it (`HelperSessionRegistry.ts:435-443`); `HelperSessionSnapshot` has no field for it (`:26-37`). Before the merge the browse modal at least showed the warning; now a missing scheduler role or failed schedule is log-only, and a session that also outlives the 5 s quit timeout (`helper-quit-hook.ts:12`) has no backstop until the next startup sweep, which skips helpers younger than 15 min (`FolderUploadService.ts:44`). Contrary to `game-volume-folder-upload/spec.md` ("SHALL still be stopped by its auto-stop schedule").
-3. **SG rule leak window in `launchHelper`.** The operator `/32` rule is authorised at `FileManagerService.ts:374`, but `generateEphemeralCert()` (`:393`) and `registerTaskDefinition` (`:403`) run outside any try; only falsy returns reach `cleanupAfterFailure` (`:380-383,448-451,472-475`). A throw skips it, and the registry's `failSession` stops nothing because no `taskArn` was set (`HelperSessionRegistry.ts:544`). The next stop or sweep would revoke it (`FileManagerService.ts:562,646`).
-4. **Folder uploads check the server only once.** `prepare` runs the fail-closed check (`FolderUploadService.ts:290-297`) and then awaits `registry.status` (`:298`) before `execute` adds the `upload:` holder (`:349,355`); nothing re-checks during `uploadAll` (`:367`). A `games.start` landing in that window passes `hasUploadHolders` (`HelperSessionRegistry.ts:380-383`), and Discord `/server-start` never sees the refusal at all (`games.controller.ts:97-99`). File-browser uploads re-check before every file (`transferOps.ts:215-218`); folder uploads do not.
-5. **Folder-upload runs bypass upload reservations.** `UploadReservations` exists so two in-app writers never interleave on a path, because FileBrowser's `overwrite=false` is not atomic (`uploadReservations.ts:6-14`). Only text saves and file-browser uploads reserve (`VolumeFilesService.ts:301`, `transferOps.ts:172`); a folder-upload run writes with `overwrite: true` (`folderUpload/uploadEngine.ts:251`) and reserves nothing, so a text save of the same file during a run can race it.
-6. **Cancel during preflight is a no-op.** `cancel()` consults only `active` (`FolderUploadService.ts:183-187`); a game in `preparing` (`:220-224`) is not in `active` until `:241`, so a cancel in that window returns `{ cancelled: false }` and the run starts anyway. A force-stop's before-stop listener has the same blind spot (`:128-130`).
-7. **Folder-upload errors still cross the bridge as text.** The upload card detects an orphaned helper with `/already open/i` (`folder-upload-card.component.tsx:25,87`) against the string at `FolderUploadService.ts:299`; the meter parses the `'Verification failed: '` prefix (`folder-upload-progress-meter.component.tsx:37`) built at `FolderUploadService.ts:375`; `withStopReason` string-matches `'stopped before it was reachable'` (`HelperSessionRegistry.ts:517`) from `FileManagerService.ts:280`. The new `volumeFiles.*` channels carry a coded `VolumeResult` (`shared/src/volumeFiles/types.ts:61-78`) and `AcquireResult` already has `orphaned` (`HelperSessionRegistry.ts:40`), but `FolderUploadStartResult` forwards neither.
-8. **Credentials and addresses stay in main, structurally.** Snapshots are built field by field and never read `credentials`, `cert` or `operatorIp` (`HelperSessionRegistry.ts:684-697`); the renderer status is re-mapped again and its error text passes through `scrubAddresses` (`VolumeFilesService.ts:38-50`, `volumeFileErrors.ts:75-77`); backend errors carry the helper address only in `cause` (`FileBrowserClient.ts:292`); IPC entry logs whitelist string identifiers (`volume-files.controller.ts:67-75`).
-9. **Fail-closed server guard on every mutation.** `FileOps.assertWritable` uses `EcsService.findRunningTaskOrThrow` and turns any error into `server-check-failed` (`fileOps.ts:112-122`); the page latches the same block from a failed result until a later status reads `stopped` (`use-server-guard.hook.ts:30-47`). The folder-upload card does not: a failed status read leaves the upload button enabled (`folder-upload-card.component.tsx:52-53,62`), and only the main-process refusal stops it.
-10. **`supportsArchive` has two sources of truth.** The snapshot reports `typeof backend.archiveStream === 'function'` (`HelperSessionRegistry.ts:694`) while the download probe checks `backend.supportsArchive` (`transferOps.ts:105`). They agree for `FileBrowserClient` (`:117,248`); a future backend that sets one without the other would show a folder download that then fails.
-11. **Per-game progress snapshots are never cleared.** `latest` is set in `publish` (`FolderUploadService.ts:332`) and never deleted, so `getProgress` returns the last terminal snapshot for the life of the process (`:148-150`) [inferred: intended, so the card can show the last run]. Page-started runs publish to the same map, so the game detail card's meter can show a run started from the file browser page.
-12. **Ownership smell (sweep disagreement, final-clustering §6).** `PublicIpService`, `SchedulerService` and `FileManagerService` are still provided by `AwsModule` (`aws.module.ts:48`) rather than a helper-owned module, although `VolumeFilesModule` now exists (`volume-files.module.ts:6-11`). `use-folder-seed.hook.ts` sits under `components/` not `hooks/`. `VolumeFilesApiModule` exists only to break an import cycle with `FolderUploadModule` (`volume-files-api.module.ts:9-13`).
-13. **Stale comments and error normalisation.** `FileManagerService.ts:39,110-111` still narrate issue numbers (#350, #346); `stop()` returns `String(err)` (`:559`) and lists tasks outside its try (`:542`); `:315` logs the whole `efsAccessPoints` and `efsVolumeAccessPoints` maps. The registry normalises what it catches (`HelperSessionRegistry.ts:602-609`).
-14. **Seeder mode applies only on create.** `writeFileSync(dest, content, { flag: 'w', mode })` (`handler.ts:87`) sets permissions only when the file is created; re-seeding an existing file keeps its old mode. The event shape is not validated before use (`:58`).
-15. **Stray cleanup has no confirmation.** `StrayHelpersButton` stops every unowned helper regardless of age on one click (`stray-helpers-button.component.tsx:19-25`, `minAgeMs: 0` at `FolderUploadService.ts:205`); registry-owned sessions are now excluded (`:204`), so an open browse session survives, but a helper from another app instance on the same account does not.
+1. **efs-seeder is first-volume-only by design, and conditional.** Each seeder function mounts the first volume's access point and receives only `volumes[0].container_path` (`infra/src/lambdas.ts`, `infra/src/escapes.ts`); the shared game-server validator rejects a seed outside that path at save time (`IAC-PROGRAM-SEED-004`), and the handler validates its event and applies each seed's mode on rewrite. Functions exist only for games that declare `file_seeds` (`IAC-PROGRAM-LAMBDA-013`).
+2. **A folder-upload run is guarded for its whole life.** The server is re-checked before each file (throttled, fail-closed, `FolderUploadService.serverGuard`); the run reserves its target paths in the `UploadReservations` instance shared with the file browser; cancel and a force-stop honour a start still in `preparing`; an upload acquires its session with `requireAutoStop`; a launch failure after the operator rule was added revokes it.
+3. **Upload errors that the renderer acts on are coded.** `FolderUploadStartResult` carries `code: 'helper-open'` and a failed snapshot carries `errorCode: 'verification-failed'` with `failedPaths`; `withStopReason` still string-matches `'stopped before it was reachable'` (`HelperSessionRegistry.ts`) from `FileManagerService.ts`.
+4. **A missing auto-stop schedule reaches the operator.** `autoStopWarning` rides the session snapshot and the renderer status, and the session bar shows it as a manual-stop warning; `installHelperQuitHook` still delays quit by at most 5 s, so a session that also misses the backstop is caught only by the next startup sweep, which skips helpers younger than 15 min.
+5. **Credentials and addresses stay in main, structurally.** Snapshots are built field by field and never read `credentials`, `cert` or `operatorIp` (`HelperSessionRegistry.ts:684-697`); the renderer status is re-mapped again and its error text passes through `scrubAddresses` (`VolumeFilesService.ts:38-50`, `volumeFileErrors.ts:75-77`); backend errors carry the helper address only in `cause` (`FileBrowserClient.ts:292`); IPC entry logs whitelist string identifiers (`volume-files.controller.ts:67-75`).
+6. **Fail-closed server guard on every mutation.** `FileOps.assertWritable` uses `EcsService.findRunningTaskOrThrow` and turns any error into `server-check-failed` (`fileOps.ts:112-122`); the page latches the same block from a failed result until a later status reads `stopped` (`use-server-guard.hook.ts:30-47`). The folder-upload card does not: a failed status read leaves the upload button enabled (`folder-upload-card.component.tsx:52-53,62`), and only the main-process refusal stops it.
+7. **`supportsArchive` has two sources of truth.** The snapshot reports `typeof backend.archiveStream === 'function'` (`HelperSessionRegistry.ts:694`) while the download probe checks `backend.supportsArchive` (`transferOps.ts:105`). They agree for `FileBrowserClient` (`:117,248`); a future backend that sets one without the other would show a folder download that then fails.
+8. **Per-game progress snapshots are never cleared.** `latest` is set in `publish` (`FolderUploadService.ts:332`) and never deleted, so `getProgress` returns the last terminal snapshot for the life of the process (`:148-150`) [inferred: intended, so the card can show the last run]. Page-started runs publish to the same map, so the game detail card's meter can show a run started from the file browser page.
+9. **Stray cleanup has no confirmation.** `StrayHelpersButton` stops every unowned helper regardless of age on one click (`stray-helpers-button.component.tsx:19-25`, `minAgeMs: 0` at `FolderUploadService.ts:205`); registry-owned sessions are now excluded (`:204`), so an open browse session survives, but a helper from another app instance on the same account does not.
+10. **Ownership smell (sweep disagreement, final-clustering §6).** `PublicIpService`, `SchedulerService` and `FileManagerService` are still provided by `AwsModule` (`aws.module.ts:48`) rather than a helper-owned module, although `VolumeFilesModule` now exists (`volume-files.module.ts:6-11`). `use-folder-seed.hook.ts` sits under `components/` not `hooks/`. `VolumeFilesApiModule` exists only to break an import cycle with `FolderUploadModule` (`volume-files-api.module.ts:9-13`).
 
 ## Work Required
 
-Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/helper-task/helper-task-specs.md`; items with no matching gap spec carry none.
-
-### Must Fix
-1. Carry `scheduleWarning` onto the session snapshot and show it on the page and upload card, or fail an upload whose session has no auto-stop (finding 2). (specs: `HELPER-LAUNCH-005`, `HELPER-LAUNCH-006`)
-2. Close the SG-rule leak window in `launchHelper` (finding 3). (specs: `HELPER-REACH-007`)
-3. Re-check the server during folder-upload runs, or hold the session before the preflight server check (finding 4). (specs: `HELPER-UPLOAD-018`)
-
-### Should Fix
-4. Reserve folder-upload targets in `UploadReservations` (finding 5). (specs: `HELPER-RSV-005`)
-5. Honour cancel and force-stop during preflight (finding 6). (specs: `HELPER-UPLOAD-013`)
-6. Return a structured code on `FolderUploadStartResult` and failure snapshots instead of matching message text (finding 7). (specs: `HELPER-IPC-004`)
-7. Reconcile IAC-PROGRAM-RUNTIME-003 with the conditional efs-seeder, and decide whether seeds may target non-first volumes now that the helper mounts all of them (finding 1).
-8. Normalise `FileManagerService.stop` errors per `logging.md`, stop logging whole access-point maps, and drop issue-number history from comments (finding 13). (specs: `HELPER-IPC-005`)
+Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/helper-task/helper-task-specs.md`; none remain open. Items with no matching gap spec carry none.
 
 ### Nice to Have
-9. Treat a failed server status read as busy on the folder-upload card, matching the page's guard (finding 9).
-10. Derive `supportsArchive` from one place (finding 10).
-11. Move `PublicIpService`/`SchedulerService`/`FileManagerService` into `VolumeFilesModule`; move `use-folder-seed.hook.ts` to `hooks/` (finding 12).
-12. Apply seed `mode` on overwrite (`chmodSync`) and validate the seeder event (finding 14). (specs: `HELPER-SEED-005`, `HELPER-SEED-006`)
-13. Confirm before operator-requested stray cleanup (finding 15).
+1. Treat a failed server status read as busy on the folder-upload card, matching the page's guard (finding 6).
+2. Derive `supportsArchive` from one place (finding 7).
+3. Move `PublicIpService`/`SchedulerService`/`FileManagerService` into `VolumeFilesModule`; move `use-folder-seed.hook.ts` to `hooks/` (finding 10).
+4. Confirm before operator-requested stray cleanup (finding 9).

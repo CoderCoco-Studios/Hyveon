@@ -62,7 +62,7 @@ Ranked by consequence to an operator. Several rank entries group specs that desc
 | 9 | update-dns can orphan or delete the wrong record | `RT-TASK-DNS-009` (CLOSED), `RT-TASK-DNS-010`, `RT-TASK-NOTIFY-005` (CLOSED) | After a `dnsTtl` change the STOPPED DELETE fails and the A record dangles; a late STOPPED for an old task deletes a live task's record; a task that dies before RUNNING leaves its Discord message stuck on "starting". | DELETE sends current `DNS_TTL` (`app/packages/lambda/update-dns/src/handler.ts:162`), failure swallowed (`:170-172`); no IP ownership check (`:144-149,240-243`). |
 | 10 | ~~Watchdog aborts its run when one `StopTask` fails~~ (resolved: `StopTask` is now caught per task) | `RT-WATCHDOG-STOP-004` | A persistently failing `StopTask` for one idle task throws out of the handler, so every task evaluated after it in that run is never checked or stopped and keeps billing; the failure recurs on each scheduled run. | `StopTask` awaited with no `try`/`catch` inside the per-task loop (`app/packages/lambda/watchdog/src/handler.ts:267-273`). Of the med gaps this one has the largest cost consequence, which is why it ranks here. |
 
-Next in line (all **med**): helper upload not re-checking for a server start mid-write and the unused auto-stop warning (`HELPER-UPLOAD-018`, `HELPER-LAUNCH-005`, `HELPER-LAUNCH-006`); the Lambda live tail replaying the whole retained log history on open, about 50k lines observed, which reads as the Lambda firing several times a second but is noise with no data or cost effect (`APP-LOGS-TAIL-005`); a failed save leaving a changed health-check secret live, and cross-game checks run against an empty list after a failed read (`GAME-WRITE-004` and `GAME-WRITE-006`, both CLOSED); seeds under any volume but the first failing the apply (`IAC-PROGRAM-SEED-004`); no cancel channel or quit-time abort for IaC runs (`IAC-ENGINE-LIFE-006`, `-007`, `-009`, `IAC-RUN-DSTR-011`).
+Next in line (all **med**): helper upload not re-checking for a server start mid-write and the unused auto-stop warning (`HELPER-UPLOAD-018`, `HELPER-LAUNCH-005`, `HELPER-LAUNCH-006`, all CLOSED); the Lambda live tail replaying the whole retained log history on open, about 50k lines observed, which reads as the Lambda firing several times a second but is noise with no data or cost effect (`APP-LOGS-TAIL-005`); a failed save leaving a changed health-check secret live, and cross-game checks run against an empty list after a failed read (`GAME-WRITE-004` and `GAME-WRITE-006`, both CLOSED); seeds under any volume but the first failing the apply (`IAC-PROGRAM-SEED-004`, CLOSED by rejecting such seeds in the validator); no cancel channel or quit-time abort for IaC runs (`IAC-ENGINE-LIFE-006`, `-007`, `-009`, `IAC-RUN-DSTR-011`).
 
 ### Palworld ICMP (`add-icmp-ingress`)
 
@@ -150,7 +150,6 @@ Specs: `docs/intent/iac/program/program-specs.md` · Arrow doc: `docs/arrows/iac
 | `IAC-PROGRAM-SECRET-005` | c | - | secrets.test.ts:159 only asserts ignoreChanges:['secretString']; a real write-redeploy-assert test needs a live-AWS harness that doesn't exist; ignoreChanges semantics are Pulumi's own |
 | `IAC-PROGRAM-DNS-004` | b | low | Only ecs.ts:178 and lambdas.ts:406 strip dots; route53.ts:67 gets trimmed-not-stripped name; domainName output echoes raw config.hostedZoneName (program.ts:521). Trailing dot is DNS-valid, so mostly cosmetic |
 | `IAC-PROGRAM-SEED-003` | b | low | triggers hash only file_seeds (infra/src/escapes.ts:261); container_path only in input (:262); Invocation defaults to CREATE_ONLY (no lifecycleScope set), so an input-only change does not re-invoke |
-| `IAC-PROGRAM-SEED-004` | b | med | Seeder mounts volumes[0] only (lambdas.ts:738-739, escapes.ts:255); seed under any other volume makes the seeder throw (lambda/efs-seeder/src/handler.ts:35-37), failing apply; no validator catches it first |
 | `IAC-PROGRAM-RUNTIME-003` | d | - | Runtime is nodejs24.x (lambdas.ts:59); the only failing part is the health-check init failure, which is exactly LAMBDA-011, so this duplicates it and closes when LAMBDA-011 does |
 | `IAC-PROGRAM-RUNTIME-006` | b | low | buildLambda.mjs:13,16-17 still use cwd-relative 'dist'/'src/handler.ts' and :23 sourcemap:true; works under npm workspace scripts (cwd = package dir); build hygiene only |
 
@@ -363,15 +362,4 @@ Specs: `docs/intent/discord-bot/discord-bot-specs.md` · Arrow doc: `docs/arrows
 
 Specs: `docs/intent/helper-task/helper-task-specs.md` · Arrow doc: `docs/arrows/helper-task.md`
 
-| Spec | Class | Impact | Evidence |
-|---|---|---|---|
-| `HELPER-UPLOAD-013` | c | low | Real (FolderUploadService.ts:189-193 cancel checks only active; preparing :231-255) but renderer exposes no cancel until a run snapshot exists (folder-upload-card.component.tsx:119,161) |
-| `HELPER-UPLOAD-018` | b | med | Server checked once in prepare (FolderUploadService.ts:303-308); execute/uploadAll :357-380 never re-check; Discord /server-start can start mid-write |
-| `HELPER-REACH-007` | b | low | Narrower than noted: registerTaskDefinition returns null and is cleaned (FileManagerService.ts:455-457); only generateEphemeralCert :400 (in-process) can throw after ingress :381 |
-| `HELPER-LAUNCH-005` | b | med | scheduleWarning returned at FileManagerService.ts:494; only consumer path volumeFiles/HelperSessionRegistry.ts:442 ignores it; upload proceeds with no auto-stop |
-| `HELPER-LAUNCH-006` | b | med | grep finds no consumer of scheduleWarning in desktop-main or web; HelperSessionSnapshot (volumeFiles/HelperSessionRegistry.ts:26) has no field; browse helper may run indefinitely |
-| `HELPER-IPC-004` | b | low | FolderUploadStartResult is {started:false;error:string} (shared/src/folderUpload/types.ts:120); renderer regex /already open/i card:25 and VERIFICATION_PREFIX meter:37 |
-| `HELPER-IPC-005` | b | low | FileManagerService.ts:569 returns { message: String(err) } in stop() |
-| `HELPER-SEED-005` | b | low | lambda/efs-seeder/src/handler.ts:89 writeFileSync mode applies only on create; no chmodSync on overwrite |
-| `HELPER-SEED-006` | c | low | Event built by infra program only; missing seeds/container_path already throw TypeError before any write (handler.ts:62, :29); game is log-only |
-| `HELPER-RSV-005` | b | low | folderUpload/uploadEngine.ts:256 overwrite:true with no UploadReservations; reservations used only in volumeFiles/VolumeFilesService.ts and transferOps.ts |
+All ten rows are CLOSED: every `helper-task` gap spec is flipped `[x]`.
