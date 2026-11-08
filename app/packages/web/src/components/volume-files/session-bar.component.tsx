@@ -48,11 +48,14 @@ function secondsBetween(fromMs: number, toMs: number): number {
 }
 
 // @spec HELPER-FB-020, HELPER-FB-023
-/** Elapsed time and auto-stop countdown for a running session, with the warning once the countdown is short. */
+/**
+ * Elapsed time and auto-stop countdown for a running session, with the warning once the countdown is short.
+ * A session whose auto-stop failed to schedule shows neither: its `autoStopAt` is not a real deadline.
+ */
 function SessionClock({ status, onAutoStopDue }: { status: VolumeSessionStatus; onAutoStopDue?: () => void }) {
   const now = useNowTick(1000);
   const startedAt = status.startedAt ? Date.parse(status.startedAt) : null;
-  const autoStopAt = status.autoStopAt ? Date.parse(status.autoStopAt) : null;
+  const autoStopAt = status.autoStopAt && !status.autoStopWarning ? Date.parse(status.autoStopAt) : null;
   const remainingMs = autoStopAt === null ? null : Math.max(0, autoStopAt - now);
   const due = remainingMs === 0;
   // Read through a ref so a new callback identity never re-fires the zero-crossing effect.
