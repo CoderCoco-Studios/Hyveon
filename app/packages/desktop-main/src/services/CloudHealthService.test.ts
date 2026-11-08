@@ -8,9 +8,10 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('fs', () => ({ writeFileSync: vi.fn() }));
+vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()), writeFileSync: vi.fn() }));
 
 import { writeFileSync } from 'fs';
+import { logger } from '../logger.js';
 import { CloudHealthService } from './CloudHealthService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
@@ -137,6 +138,23 @@ describe('ECS service-linked role fix', () => {
     );
   });
 
+  // @spec APP-WIZARD-HEALTH-008
+  it('should flag the policy as stack-managed only when the active credential source is the guided profile', async () => {
+    const err = Object.assign(new Error('not authorized'), { name: 'AccessDeniedException' });
+    iamMock.on(CreateServiceLinkedRoleCommand).rejects(err);
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+    const guidedStore = {
+      get: vi.fn().mockImplementation((key: string) => (key === 'aws' ? { profile: 'hyveon-guided', region: 'us-east-1' } : undefined)),
+      getPastedCredentials: vi.fn().mockReturnValue({ accessKeyId: 'AKID', secretAccessKey: 'SECRET' }),
+    } as Partial<ElectronStoreService> as ElectronStoreService;
+
+    const guided = await new CloudHealthService(guidedStore, makeConfig(), makeDeploymentConfig()).getChecks()[0]!.fix();
+    const profile = await new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig()).getChecks()[0]!.fix();
+
+    expect(guided.policyManagedByStack).toBe(true);
+    expect(profile.policyManagedByStack).toBe(false);
+  });
+
   it('should omit the console URL when the account ID cannot be resolved', async () => {
     const err = Object.assign(new Error('not authorized'), { name: 'AccessDeniedException' });
     iamMock.on(CreateServiceLinkedRoleCommand).rejects(err);
@@ -169,6 +187,29 @@ describe('CloudHealthService.writePolicyToDisk', () => {
 
     expect(result).toEqual({ path: '/tmp/hyveon-deploy-all-policy.json' });
     expect(mockWrite).toHaveBeenCalledWith('/tmp/hyveon-deploy-all-policy.json', '{"Version":"2012-10-17"}');
+  });
+});
+
+describe('CloudHealthService.writePolicyToDisk failure', () => {
+  // @spec APP-WIZARD-HEALTH-011
+  it('should log and throw a plain Error when the write fails', () => {
+    const service = new TestableCloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
+    vi.spyOn(service, 'getPolicyDownloadPath').mockReturnValue('/ro/hyveon-deploy-all-policy.json');
+    mockWrite.mockImplementationOnce(() => {
+      throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES', path: '/ro/x' });
+    });
+
+    let thrown: unknown;
+    try {
+      service.writePolicyToDisk('{}');
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain('EACCES');
+    expect(Object.keys(thrown as Error)).toEqual([]);
+    expect(vi.mocked(logger.error)).toHaveBeenCalled();
   });
 });
 

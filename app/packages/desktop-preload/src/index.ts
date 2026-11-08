@@ -38,6 +38,7 @@ export type {
   ChangeSummary,
   OpType,
   AwsProfileSummary,
+  AwsKeyRotateResult,
   IamCheckResult,
   IamCheckOrigin,
   WizardState,

@@ -6,7 +6,7 @@ vi.mock('../logger.js', () => ({ logger: loggerMock }));
 
 import { WizardController } from './wizard.controller.js';
 import type { AwsProfileService, AwsProfileSummary } from '../services/AwsProfileService.js';
-import { SafeStorageUnavailableError } from '../services/AwsProfileService.js';
+import { SafeStorageUnavailableError, UnsupportedCredentialSourceError } from '../services/AwsProfileService.js';
 import type { ElectronStoreService } from '../services/ElectronStoreService.js';
 import type { BootstrapService, BootstrapResult } from '../services/BootstrapService.js';
 import type { IamCheckService, IamCheckResult } from '../services/IamCheckService.js';
@@ -24,6 +24,7 @@ function makeAwsProfiles(profiles: AwsProfileSummary[] = SAMPLE_PROFILES): AwsPr
   return {
     listProfiles: vi.fn().mockResolvedValue(profiles),
     savePastedCredentials: vi.fn().mockReturnValue({ profileName: 'hyveon-pasted' }),
+    rotateActiveCredentials: vi.fn().mockResolvedValue({ status: 'complete' }),
   } as Partial<AwsProfileService> as AwsProfileService;
 }
 
@@ -127,6 +128,7 @@ describe('WizardController', () => {
       expectChannels(WizardController.prototype, [
         ['listAwsProfiles', 'wizard.aws.listProfiles'],
         ['saveCredentials', 'wizard.aws.saveCredentials'],
+        ['rotateAwsKey', 'wizard.aws.rotateKey'],
         ['getState', 'wizard.state.get'],
         ['saveState', 'wizard.state.save'],
         ['bootstrapStateBucket', 'wizard.bootstrap.stateBucket'],
@@ -547,6 +549,7 @@ describe('WizardController', () => {
   });
 
   describe('bootstrapRunsTable', () => {
+    // @spec APP-WIZARD-BOOT-012
     it('should delegate to BootstrapService.ensureRunsTable with the default project-prefixed table name', async () => {
       const bootstrap = makeBootstrap({ status: 'created' });
 
@@ -709,6 +712,64 @@ describe('WizardController', () => {
       vi.mocked(guidedIam.rotate).mockRejectedValue(new Error('LimitExceeded'));
 
       await expect(makeController({ guidedIam }).rotateGuidedIamKey(ROTATION_INPUT)).rejects.toThrow('LimitExceeded');
+    });
+  });
+
+  describe('rotateAwsKey', () => {
+    // @spec APP-WIZARD-ROTKEY-005
+    it('should delegate to AwsProfileService.rotateActiveCredentials and return its modeled result', async () => {
+      const awsProfiles = makeAwsProfiles();
+      vi.mocked(awsProfiles.rotateActiveCredentials).mockResolvedValue({ status: 'delete-failed', consoleUrl: 'https://x' });
+
+      const result = await makeController({ awsProfiles }).rotateAwsKey();
+
+      expect(result).toEqual({ status: 'delete-failed', consoleUrl: 'https://x' });
+    });
+
+    // @spec APP-WIZARD-ROTKEY-005
+    it('should return keychain-unavailable instead of rejecting when the keychain is unavailable', async () => {
+      const awsProfiles = makeAwsProfiles();
+      vi.mocked(awsProfiles.rotateActiveCredentials).mockRejectedValue(new SafeStorageUnavailableError());
+
+      await expect(makeController({ awsProfiles }).rotateAwsKey()).resolves.toEqual({ status: 'keychain-unavailable' });
+    });
+
+    // @spec APP-WIZARD-ROTKEY-005
+    it('should return a modeled unsupported result for a ~/.aws profile source', async () => {
+      const awsProfiles = makeAwsProfiles();
+      vi.mocked(awsProfiles.rotateActiveCredentials).mockRejectedValue(new UnsupportedCredentialSourceError('profile'));
+
+      const result = await makeController({ awsProfiles }).rotateAwsKey();
+
+      expect(result).toMatchObject({ status: 'unsupported' });
+    });
+
+    // @spec APP-WIZARD-ROTKEY-005
+    it('should log and return a plain failed message for an unexpected AWS error, never the raw error', async () => {
+      const awsProfiles = makeAwsProfiles();
+      vi.mocked(awsProfiles.rotateActiveCredentials).mockRejectedValue(
+        Object.assign(new Error('LimitExceeded: 2 keys'), { $metadata: { requestId: 'r' } }),
+      );
+
+      const result = await makeController({ awsProfiles }).rotateAwsKey();
+
+      expect(result).toEqual({ status: 'failed', message: 'LimitExceeded: 2 keys' });
+      expect(loggerMock.error).toHaveBeenCalled();
+    });
+
+    // @spec APP-WIZARD-ROTKEY-005
+    it('should share one in-flight rotation between concurrent calls so only one key is minted', async () => {
+      const awsProfiles = makeAwsProfiles();
+      let release!: (r: { status: 'complete' }) => void;
+      vi.mocked(awsProfiles.rotateActiveCredentials).mockReturnValue(new Promise((resolve) => (release = resolve)));
+      const controller = makeController({ awsProfiles });
+
+      const first = controller.rotateAwsKey();
+      const second = controller.rotateAwsKey();
+      release({ status: 'complete' });
+
+      await expect(Promise.all([first, second])).resolves.toEqual([{ status: 'complete' }, { status: 'complete' }]);
+      expect(awsProfiles.rotateActiveCredentials).toHaveBeenCalledTimes(1);
     });
   });
 

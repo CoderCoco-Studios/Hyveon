@@ -200,8 +200,8 @@ export class AwsProfileService {
   /**
    * Rotates the access key pair behind whatever credential source is
    * currently active — a general-purpose "rotate whatever is currently
-   * active" capability (e.g. a future Settings "rotate key" affordance; out
-   * of scope here, just the service method). Replaces the key material
+   * active" capability, reached from Settings through
+   * `WizardController.rotateAwsKey`. Replaces the key material
    * behind a source that is *already* the active one, in place, under the
    * same profile name — no separate "activate" write is needed.
    *

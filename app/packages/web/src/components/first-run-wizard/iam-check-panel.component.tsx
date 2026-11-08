@@ -16,7 +16,7 @@ export interface IamCheckPanelProps {
   onRun: () => void;
 }
 
-// @spec APP-WIZARD-IAMCHK-002, APP-WIZARD-IAMCHK-003, APP-WIZARD-IAMCHK-004
+// @spec APP-WIZARD-IAMCHK-002, APP-WIZARD-IAMCHK-003, APP-WIZARD-IAMCHK-004, APP-WIZARD-IAMCHK-009
 /**
  * IAM permission dry-run panel: a run/re-run button plus one of four mutually exclusive result states — an
  * outright IPC-level `error`, `passed`, `missing` (with the required policy JSON and a clipboard-copy affordance),
@@ -52,7 +52,9 @@ export function IamCheckPanel({ iamCheck, checking, error, onRun }: IamCheckPane
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-sm text-[var(--color-amber)]">
             <AlertTriangle className="size-4" />
-            Some permissions are missing. Paste the policy below into your IAM user&apos;s inline policy.
+            {iamCheck.blocking
+              ? 'The deploy policy provisioned for Hyveon is missing permissions that must be fixed before you can continue. Update it through your CloudFormation stack with the policy below, then re-check.'
+              : 'Some permissions are missing. Paste the policy below into your IAM user\'s inline policy.'}
           </div>
           <div className="relative">
             <pre className="max-h-64 overflow-auto rounded-[var(--radius-md)] bg-[var(--color-surface-2)] p-3 text-xs">

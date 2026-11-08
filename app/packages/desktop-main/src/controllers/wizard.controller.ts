@@ -1,9 +1,11 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { DEPLOYMENT_CONFIG_DEFAULTS, resolveRunsTableName } from '@hyveon/shared';
+import { DEPLOYMENT_CONFIG_DEFAULTS, errMessage, resolveRunsTableName } from '@hyveon/shared';
 import {
   AwsProfileService,
   SafeStorageUnavailableError,
+  UnsupportedCredentialSourceError,
+  type AwsProfileRotationResult,
   type AwsProfileSummary,
   type SavePastedCredentialsInput,
 } from '../services/AwsProfileService.js';
@@ -39,6 +41,15 @@ export interface BootstrapConfigurationBucketInput {
 export interface BootstrapDeploymentConfigInput {
   bucketName: string;
 }
+
+/**
+ * Outcome of {@link WizardController.rotateAwsKey}: {@link AwsProfileRotationResult} plus the modeled refusals, so the
+ * IPC call never rejects.
+ */
+export type AwsKeyRotateResult =
+  | AwsProfileRotationResult
+  | { status: 'keychain-unavailable' }
+  | { status: 'unsupported' | 'failed'; message: string };
 
 /**
  * Outcome of {@link WizardController.rotateGuidedIamKey}: {@link RotationResult} plus the modeled refusal for an
@@ -136,6 +147,9 @@ export interface SaveWizardStateInput {
  */
 @Controller()
 export class WizardController {
+  /** The rotation currently running, shared by concurrent {@link rotateAwsKey} calls. */
+  private rotationInFlight: Promise<AwsKeyRotateResult> | undefined;
+
   constructor(
     private readonly awsProfiles: AwsProfileService,
     private readonly store: ElectronStoreService,
@@ -247,6 +261,40 @@ export class WizardController {
     return this.awsProfiles.savePastedCredentials(body);
   }
 
+  // @spec APP-WIZARD-ROTKEY-005
+  /**
+   * Rotates the active pasted or guided access key in place (see {@link AwsProfileService.rotateActiveCredentials}).
+   * Concurrent calls share one in-flight rotation, so a double click cannot mint two keys against IAM's
+   * two-keys-per-user limit. Never rejects: a refusal or AWS failure comes back as a modeled result.
+   */
+  @MessagePattern('wizard.aws.rotateKey')
+  rotateAwsKey(): Promise<AwsKeyRotateResult> {
+    logger.debug('WizardController: wizard.aws.rotateKey invoked');
+    this.rotationInFlight ??= this.runKeyRotation().finally(() => {
+      this.rotationInFlight = undefined;
+    });
+    return this.rotationInFlight;
+  }
+
+  /** Runs one rotation and maps every thrown failure to a plain modeled result, never an SDK error object. */
+  private async runKeyRotation(): Promise<AwsKeyRotateResult> {
+    try {
+      return await this.awsProfiles.rotateActiveCredentials();
+    } catch (err) {
+      if (err instanceof SafeStorageUnavailableError) {
+        logger.warn('WizardController: key rotation refused, OS keychain unavailable');
+        return { status: 'keychain-unavailable' };
+      }
+      const message = errMessage(err);
+      if (err instanceof UnsupportedCredentialSourceError) {
+        logger.warn('WizardController: key rotation refused, unsupported credential source', { message });
+        return { status: 'unsupported', message };
+      }
+      logger.error('WizardController: key rotation failed', { message });
+      return { status: 'failed', message };
+    }
+  }
+
   /**
    * Idempotently creates/ensures the Pulumi S3 state bucket (versioning +
    * default encryption). See `BootstrapService.ensureStateBucket` for the
@@ -317,6 +365,7 @@ export class WizardController {
    * identical resolution `@hyveon/infra`'s stack-output computation and
    * `RunRecordService`'s pre-apply fallback apply.
    */
+  // @spec APP-WIZARD-BOOT-012
   @MessagePattern('wizard.bootstrap.runsTable')
   async bootstrapRunsTable(): Promise<BootstrapResult> {
     logger.debug('WizardController: wizard.bootstrap.runsTable invoked');

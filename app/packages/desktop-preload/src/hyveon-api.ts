@@ -780,6 +780,8 @@ export interface CloudHealthFixResult {
    * `cloudHealth.openPolicyConsole`.
    */
   policyConsoleUrl?: string;
+  /** Present when `outcome` is `'needsPolicyUpdate'` — `true` when the policy lives in the guided CloudFormation stack and must be updated there. */
+  policyManagedByStack?: boolean;
   /** Present when `outcome` is `'failed'` — an actionable, human-readable message. */
   message?: string;
 }
@@ -1395,6 +1397,23 @@ export interface RevokeBootstrapKeyResult {
   message?: string;
 }
 
+/**
+ * Outcome of {@link HyveonWizardApi.rotateAwsKey}. Mirrors `AwsKeyRotateResult` in `wizard.controller.ts` — keep in sync.
+ */
+export type AwsKeyRotateResult =
+  /** The new key is stored and active and the old key has been revoked. */
+  | { status: 'complete' }
+  /** The new key failed verification; the previous key is still stored and active. */
+  | { status: 'verification-failed'; error: string }
+  /** The new key is active, but the old key could not be deleted — revoke it manually via `consoleUrl`. */
+  | { status: 'delete-failed'; consoleUrl: string }
+  /** The OS keychain is unavailable, so rotation was refused before any key was minted. */
+  | { status: 'keychain-unavailable' }
+  /** The active credential source is a `~/.aws` profile or unset, which the app does not rotate. */
+  | { status: 'unsupported'; message: string }
+  /** An unexpected AWS or store failure. */
+  | { status: 'failed'; message: string };
+
 // @spec APP-WIZARD-BOOT-015, APP-WIZARD-CREDS-003
 /** First-run wizard endpoints. */
 export interface HyveonWizardApi {
@@ -1405,6 +1424,8 @@ export interface HyveonWizardApi {
    * Only the resolved profile name comes back — never the values passed in.
    */
   saveCredentials: (input: SavePastedCredentialsInput) => Promise<{ profileName: string }>;
+  /** Rotates the active pasted or guided access key in place; every outcome comes back as a modeled result. */
+  rotateAwsKey: () => Promise<AwsKeyRotateResult>;
   /** Whether the first-run wizard has completed — used to gate the app router. */
   getState: () => Promise<WizardState>;
   /**

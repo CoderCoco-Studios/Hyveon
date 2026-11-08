@@ -65,6 +65,7 @@ import type {
   VolumeTransferProgress,
 } from '@hyveon/shared/volumeFiles';
 import type {
+  AwsKeyRotateResult,
   CloudHealthCheckStatus,
   CloudHealthCheckSummary,
   CloudHealthFixOutcome,
@@ -74,6 +75,7 @@ import type {
 } from '@hyveon/desktop-preload';
 
 export type {
+  AwsKeyRotateResult,
   ExportDiagnosticsBundleResult,
   GameServerHealthCheckAuth,
   GameServerHealthCheckAuthWriteInput,
@@ -325,6 +327,8 @@ export const api = {
 
   audit: async (opts?: { limit?: number; before?: string }): Promise<AuditPageResult> =>
     hyveon().audit.list(opts),
+
+  rotateAwsKey: async (): Promise<AwsKeyRotateResult> => hyveon().wizard.rotateAwsKey(),
 
   cloudHealthList: async (): Promise<CloudHealthCheckSummary[]> => hyveon().cloudHealth.list(),
   cloudHealthFix: async (id: string): Promise<CloudHealthFixResult> => hyveon().cloudHealth.fix(id),

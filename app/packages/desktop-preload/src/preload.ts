@@ -118,6 +118,7 @@ import type {
   BootstrapKeyIntakeResult,
   RotationInput,
   RotationResult,
+  AwsKeyRotateResult,
   RevokeBootstrapKeyInput,
   RevokeBootstrapKeyResult,
   RendererLogEntry,
@@ -567,6 +568,7 @@ const api: HyveonApi = {
     listAwsProfiles: () => invoke<AwsProfileSummary[]>('wizard.aws.listProfiles'),
     saveCredentials: (input: SavePastedCredentialsInput) =>
       invoke<{ profileName: string }>('wizard.aws.saveCredentials', input),
+    rotateAwsKey: () => invoke<AwsKeyRotateResult>('wizard.aws.rotateKey'),
     getState: () => invoke<WizardState>('wizard.state.get'),
     saveState: (input: SaveWizardStateInput) => invoke<WizardState>('wizard.state.save', input),
     bootstrapStateBucket: (input: BootstrapStateBucketInput) =>

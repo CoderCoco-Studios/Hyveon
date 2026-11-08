@@ -2,6 +2,7 @@ import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { CloudHealthService, type CloudHealthCheckStatus, type CloudHealthFixResult } from '../services/CloudHealthService.js';
 import type { OpenConsoleResult } from '../services/GuidedIamService.js';
+import { errMessage } from '@hyveon/shared';
 import { logger } from '../logger.js';
 
 /** One row's worth of data for the Settings page's Cloud Health checklist. */
@@ -22,15 +23,24 @@ export interface CloudHealthCheckSummary {
 export class CloudHealthController {
   constructor(private readonly cloudHealth: CloudHealthService) {}
 
-  // @spec APP-WIZARD-HEALTH-001
-  /** Returns a status summary for every registered Cloud Health check. */
+  // @spec APP-WIZARD-HEALTH-001, APP-WIZARD-HEALTH-011
+  /**
+   * Returns a status summary for every registered Cloud Health check. A check that throws is reported as an
+   * `error` row with its message rather than failing the whole list.
+   */
   @MessagePattern('cloudHealth.list')
   async list(): Promise<CloudHealthCheckSummary[]> {
     logger.debug('CloudHealthController: cloudHealth.list invoked');
     return Promise.all(
-      this.cloudHealth.getChecks().map(async (check) => {
-        const result = await check.check();
-        return { id: check.id, label: check.label, ...result };
+      this.cloudHealth.getChecks().map(async (check): Promise<CloudHealthCheckSummary> => {
+        try {
+          const result = await check.check();
+          return { id: check.id, label: check.label, ...result };
+        } catch (err) {
+          const message = errMessage(err);
+          logger.warn('CloudHealthController.list: check threw', { id: check.id, error: message });
+          return { id: check.id, label: check.label, status: 'error', message };
+        }
       }),
     );
   }

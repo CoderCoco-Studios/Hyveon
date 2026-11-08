@@ -56,8 +56,10 @@ export interface UseBootstrapResourcesResult {
   setNames: (names: Record<BootstrapResourceKey, string>) => void;
   /** Runs the bootstrap IPC calls concurrently. See {@link runBootstrap}. */
   runBootstrap: () => Promise<void>;
-  /** Runs the best-effort IAM permission dry-run. Never blocks wizard progression. */
+  /** Runs the IAM permission dry-run; only a `blocking` result (missing permissions on the guided key) gates {@link complete}. */
   runIamCheck: () => Promise<void>;
+  /** Discards the latest IAM dry-run result, e.g. when the operator switches away from the credential source it checked. */
+  clearIamCheck: () => void;
 }
 
 // @spec APP-WIZARD-BOOT-013
@@ -222,7 +224,8 @@ export function useBootstrapResources(): UseBootstrapResourcesResult {
     setBootstrapping(false);
   }
 
-  /** Runs the best-effort IAM permission dry-run. Never blocks wizard progression. */
+  // @spec APP-WIZARD-IAMCHK-008, APP-WIZARD-IAMCHK-009
+  /** Runs the IAM permission dry-run. Only a `blocking` result (see {@link IamCheckResult.blocking}) gates progression. */
   async function runIamCheck() {
     if (!window.hyveon) {
       setIamError(BRIDGE_UNAVAILABLE);
@@ -246,7 +249,8 @@ export function useBootstrapResources(): UseBootstrapResourcesResult {
   const complete =
     (['stateBucket', 'configurationBucket'] as BootstrapResourceKey[]).every((resource) => isResourceDone(statuses[resource])) &&
     isResourceDone(runsTableStatus) &&
-    isResourceDone(deploymentConfigStatus);
+    isResourceDone(deploymentConfigStatus) &&
+    !iamCheck?.blocking;
 
   return {
     names,
@@ -261,5 +265,6 @@ export function useBootstrapResources(): UseBootstrapResourcesResult {
     setNames,
     runBootstrap,
     runIamCheck,
+    clearIamCheck: () => setIamCheck(null),
   };
 }

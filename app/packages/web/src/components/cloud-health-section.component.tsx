@@ -23,9 +23,10 @@ function HealthBadge({ status }: { status: CloudHealthCheckSummary['status'] }) 
   }
 }
 
-// @spec APP-WIZARD-HEALTH-007
+// @spec APP-WIZARD-HEALTH-007, APP-WIZARD-HEALTH-008
 /**
- * Remediation panel shown when a Cloud Health fix reports `outcome: 'needsPolicyUpdate'`.
+ * Remediation panel shown when a Cloud Health fix reports `outcome: 'needsPolicyUpdate'`. Guided installs own the
+ * policy through a CloudFormation stack, so their copy points there; other installs edit it in the IAM console.
  *
  * @remarks
  * Owns the console-open and download flows for the required IAM policy JSON — split out of
@@ -35,7 +36,15 @@ function HealthBadge({ status }: { status: CloudHealthCheckSummary['status'] }) 
  * @param policyJson - the required `HyveonDeployAll` policy JSON to display, copy, and download.
  * @param policyConsoleUrl - the IAM console URL to open, or `undefined` if the fix result didn't include one.
  */
-function PolicyUpdatePanel({ policyJson, policyConsoleUrl }: { policyJson: string; policyConsoleUrl?: string }) {
+function PolicyUpdatePanel({
+  policyJson,
+  policyConsoleUrl,
+  managedByStack,
+}: {
+  policyJson: string;
+  policyConsoleUrl?: string;
+  managedByStack?: boolean;
+}) {
   const [openingConsole, setOpeningConsole] = useState(false);
   const [consoleOpened, setConsoleOpened] = useState(false);
   // Fallback URL to display as plain text when the browser couldn't be
@@ -80,8 +89,10 @@ function PolicyUpdatePanel({ policyJson, policyConsoleUrl }: { policyJson: strin
   return (
     <div className="space-y-2">
       <p className="text-xs text-[var(--color-amber)]">
-        Your <code>HyveonDeployAll</code> policy needs updating. Open it in the IAM console and paste in the JSON
-        below (Edit policy → JSON), or download it for use with the AWS CLI — then click Fix again.
+        Your <code>HyveonDeployAll</code> policy needs updating.{' '}
+        {managedByStack
+          ? 'Update it through your CloudFormation stack (Update stack, with the policy document below) so the stack stays in sync, or download the JSON — then click Fix again.'
+          : 'Open it in the IAM console and paste in the JSON below (Edit policy → JSON), or download it for use with the AWS CLI — then click Fix again.'}
       </p>
       <div className="relative">
         <pre className="max-h-64 overflow-auto rounded-[var(--radius-md)] bg-[var(--color-surface-2)] p-3 text-xs">
@@ -203,7 +214,11 @@ function HealthRow({ check, onFixed }: { check: CloudHealthCheckSummary; onFixed
       {fixError && <p className="text-xs text-[var(--color-red)]">Unable to reach the app: {fixError}</p>}
       {fixResult?.outcome === 'failed' && <p className="text-xs text-[var(--color-red)]">{fixResult.message}</p>}
       {fixResult?.outcome === 'needsPolicyUpdate' && fixResult.policyJson && (
-        <PolicyUpdatePanel policyJson={fixResult.policyJson} policyConsoleUrl={fixResult.policyConsoleUrl} />
+        <PolicyUpdatePanel
+          policyJson={fixResult.policyJson}
+          policyConsoleUrl={fixResult.policyConsoleUrl}
+          managedByStack={fixResult.policyManagedByStack}
+        />
       )}
     </div>
   );

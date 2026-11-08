@@ -64,35 +64,32 @@ export class SafeStorageService {
     }
   }
 
-  // @spec APP-WIZARD-CREDS-005
+  // @spec APP-WIZARD-CREDS-005, APP-WIZARD-CUSTODY-007
   /**
    * Decrypt a base64-encoded ciphertext produced by {@link encrypt} back to
    * its original plaintext using Electron's `safeStorage.decryptString()`.
    *
    * Outside an Electron process the input is returned unchanged (on the
    * assumption it was stored as plaintext by the degraded `encrypt()` path).
-   *
-   * @remarks
-   * The caller must ensure that `isAvailable()` returns the same value at
-   * both write time (`encrypt`) and read time (`decrypt`). A ciphertext blob
-   * written when the OS keychain was available cannot be safely round-tripped
-   * if `isAvailable()` later returns `false` (e.g. keychain locked between
-   * writes and reads within the same Electron process, or data shared across
-   * Electron and non-Electron contexts). In that scenario `decrypt()` returns
-   * the raw base64 blob unchanged — treat the output as untrusted.
+   * Inside Electron with the OS keychain unavailable it throws, because the
+   * stored value is most likely ciphertext and returning it would hand base64
+   * noise to callers as a secret.
    *
    * @param ciphertext - Base64-encoded encrypted string, or raw plaintext when
-   *   {@link encrypt} produced it while `isAvailable()` was `false` — not
-   *   only outside Electron, but also inside Electron with a locked or
-   *   otherwise unavailable OS keychain.
-   * @returns Decrypted plaintext, or the original `ciphertext` when decryption
-   *   is unavailable.
+   *   {@link encrypt} produced it outside an Electron process.
+   * @returns Decrypted plaintext, or the original `ciphertext` outside Electron.
+   * @throws Error if the keychain is unavailable inside Electron, or native decryption fails.
    */
   decrypt(ciphertext: string): string {
-    const available = this.isAvailable();
+    const electron = this.readIsElectron();
+    const available = electron && this.readIsAvailable();
     logger.debug('SafeStorageService.decrypt: decrypting value', { available });
-    if (!available) {
+    if (!electron) {
       return ciphertext;
+    }
+    if (!available) {
+      logger.warn('SafeStorageService.decrypt: OS keychain unavailable — refusing to return the stored value');
+      throw new Error('Cannot decrypt the stored value: the OS keychain (safeStorage) is unavailable.');
     }
     const buf = Buffer.from(ciphertext, 'base64');
     try {

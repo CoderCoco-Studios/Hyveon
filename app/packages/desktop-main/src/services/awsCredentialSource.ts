@@ -27,11 +27,8 @@ export type AwsClientCredentials = StaticAwsCredentials | ReturnType<typeof from
  * up the stack that classifies failures by `instanceof` (see
  * `PulumiService.classifyGetOrCreateStackFailure`) has no way to tell it
  * apart from a genuine mid-operation Pulumi engine failure — this wraps it in
- * a typed class so callers CAN, and never has to also cover
- * `SafeStorageService.decrypt`'s OTHER failure mode (a merely-unavailable
- * keychain, which decrypts to garbage silently rather than throwing — see
- * that method's own remarks) since that path never reaches this catch at
- * all.
+ * a typed class so callers CAN. An unavailable keychain also makes
+ * `SafeStorageService.decrypt` throw, so it surfaces here too.
  */
 export class AwsPastedCredentialDecryptError extends Error {
   constructor(

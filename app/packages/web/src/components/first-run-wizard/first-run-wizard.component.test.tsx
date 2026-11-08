@@ -838,6 +838,49 @@ describe('FirstRunWizard', () => {
     });
   });
 
+  describe('guided IAM check after provisioning', () => {
+    const BLOCKING_RESULT = {
+      status: 'missing',
+      origin: 'guided',
+      blocking: true,
+      policyJson: '{"Statement":[{"Action":["ec2:RunInstances"]}]}',
+    };
+
+    /** Completes guided provisioning (stub), moves past the credentials summary and runs bootstrap successfully. */
+    async function advanceToBootstrapAfterGuided(): Promise<void> {
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
+      await advanceToSatisfiedGuidedCredentialsSummary();
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByLabelText('State bucket name');
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+    }
+
+    // @spec APP-WIZARD-IAMCHK-008
+    it('should run the IAM check automatically when guided provisioning completes', async () => {
+      hyveonMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'passed', origin: 'guided', blocking: false });
+      await advanceToSatisfiedGuidedCredentialsSummary();
+
+      await waitFor(() => expect(hyveonMock.wizard.simulateIamPermissions).toHaveBeenCalledTimes(1));
+    });
+
+    // @spec APP-WIZARD-IAMCHK-009
+    it('should block Next past bootstrap while the guided check is missing, and unblock after a passing re-run', async () => {
+      hyveonMock.wizard.simulateIamPermissions.mockResolvedValue(BLOCKING_RESULT);
+      await advanceToBootstrapAfterGuided();
+
+      expect(await screen.findByText(/ec2:RunInstances/)).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole('button', { name: /re-run bootstrap/i })).toBeEnabled());
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+      expect(screen.getByText(/must be fixed before you can continue/i)).toBeInTheDocument();
+
+      hyveonMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'passed', origin: 'guided', blocking: false });
+      await userEvent.click(screen.getByRole('button', { name: /re-check permissions/i }));
+
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+    });
+  });
+
   describe('reconfigure mode — guided-iam pre-completion', () => {
     // @spec APP-WIZARD-RECONF-004
     it('should NOT pre-complete guided-iam without evidence of guided provisioning', async () => {

@@ -42,6 +42,22 @@ describe('CloudHealthController.list', () => {
   });
 });
 
+describe('CloudHealthController.list isolation', () => {
+  // @spec APP-WIZARD-HEALTH-011
+  it('should still return the other checks when one check throws', async () => {
+    const ok: CloudHealthCheck = { id: 'a', label: 'A', check: vi.fn().mockResolvedValue({ status: 'ok' }), fix: vi.fn() };
+    const bad: CloudHealthCheck = { id: 'b', label: 'B', check: vi.fn().mockRejectedValue(new Error('boom')), fix: vi.fn() };
+    const controller = new CloudHealthController(makeService([bad, ok]));
+
+    const result = await controller.list();
+
+    expect(result).toEqual([
+      { id: 'b', label: 'B', status: 'error', message: 'boom' },
+      { id: 'a', label: 'A', status: 'ok' },
+    ]);
+  });
+});
+
 describe('CloudHealthController.fix', () => {
   it('should call fix() on the matching check', async () => {
     const check: CloudHealthCheck = {
