@@ -14,6 +14,7 @@ const apiMock = vi.hoisted(() => ({
   diagnosticsLogPath: vi.fn(),
   cloudHealthList: vi.fn(),
   cloudHealthFix: vi.fn(),
+  canRotateAwsKey: () => Promise.resolve(true),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 vi.mock('../components/DiagnosticsPanel.js', () => ({

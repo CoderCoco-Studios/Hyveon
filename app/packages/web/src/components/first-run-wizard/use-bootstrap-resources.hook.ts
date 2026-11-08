@@ -211,7 +211,7 @@ export function useBootstrapResources(): UseBootstrapResourcesResult {
 
     const runsTableCall = (async () => {
       try {
-        const result = await window.hyveon!.wizard.bootstrapRunsTable();
+        const result = await window.hyveon!.wizard.bootstrapRunsTable({ configurationBucket: names.configurationBucket });
         setRunsTableStatus(result.status as BootstrapResourceState);
         setRunsTableMessage(result.message);
       } catch (err) {

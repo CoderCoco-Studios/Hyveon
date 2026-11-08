@@ -264,6 +264,19 @@ export function resolveRunsTableName(projectName: string, runsTableNameOverride:
   return runsTableNameOverride !== '' ? runsTableNameOverride : `${projectName}-runs`;
 }
 
+/**
+ * Resolves the effective runs table name from a serialized {@link DeploymentConfig} document: its `projectName`
+ * (default when absent) and raw `runsTableName` override, through {@link resolveRunsTableName}.
+ *
+ * @param json - The configuration document's JSON text.
+ * @returns The resolved table name.
+ * @throws SyntaxError if `json` is not valid JSON.
+ */
+export function runsTableNameFromConfigJson(json: string): string {
+  const parsed = JSON.parse(json) as Partial<DeploymentConfig>;
+  return resolveRunsTableName(parsed.projectName ?? DEPLOYMENT_CONFIG_DEFAULTS.projectName, parsed.runsTableName ?? '');
+}
+
 // @spec CONFIG-MODEL-008
 /**
  * Pre-apply fallback for the runs table's name: reads the persisted
@@ -293,8 +306,7 @@ export async function resolvePreApplyRunsTableName(remoteFileStore: RemoteFileSt
   try {
     const obj = await remoteFileStore.get(CONFIGURATION_OBJECT_KEY);
     if (!obj) return undefined;
-    const parsed = JSON.parse(new TextDecoder().decode(obj.body)) as Partial<DeploymentConfig>;
-    return resolveRunsTableName(parsed.projectName ?? DEPLOYMENT_CONFIG_DEFAULTS.projectName, parsed.runsTableName ?? '');
+    return runsTableNameFromConfigJson(new TextDecoder().decode(obj.body));
   } catch {
     return undefined;
   }

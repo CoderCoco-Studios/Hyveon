@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { errMessage } from '@hyveon/shared';
 import { api, type AwsKeyRotateResult } from '../api.service.js';
@@ -12,6 +12,8 @@ function refusalMessage(result: AwsKeyRotateResult): string | null {
   switch (result.status) {
     case 'keychain-unavailable':
       return 'The OS keychain is unavailable, so the key was not rotated. Unlock the keychain and try again.';
+    case 'busy':
+      return 'A Pulumi operation is running. Wait for it to finish, then rotate the key.';
     case 'unsupported':
     case 'failed':
       return result.message;
@@ -26,12 +28,25 @@ function refusalMessage(result: AwsKeyRotateResult): string | null {
  * stores it, then revokes the old one. Later AWS calls and Pulumi operations resolve the stored key on every call, so
  * they pick up the new key without a restart.
  *
- * @returns the row with its Rotate key button and the latest outcome.
+ * @returns the row with its Rotate key button and the latest outcome, or nothing for a `~/.aws`-profile install.
  */
 export function RotateAccessKeyRow() {
   const [rotating, setRotating] = useState(false);
   const [result, setResult] = useState<AwsKeyRotateResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rotatable, setRotatable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .canRotateAwsKey()
+      .then((can) => !cancelled && setRotatable(can))
+      // Unknown source: show the row; the controller still refuses an unsupported one.
+      .catch(() => !cancelled && setRotatable(true));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /** Runs one rotation and records its outcome; the controller de-duplicates concurrent calls. */
   async function handleRotate() {
@@ -48,6 +63,8 @@ export function RotateAccessKeyRow() {
   }
 
   const refusal = result ? refusalMessage(result) : null;
+
+  if (rotatable !== true) return null;
 
   return (
     <div className="space-y-2">

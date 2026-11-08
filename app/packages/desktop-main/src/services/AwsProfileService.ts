@@ -11,7 +11,7 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 import { verifyAccessKeyWithRetry } from './verifyAccessKeyWithRetry.js';
 import { sleep } from './sleep.js';
-import { errMessage } from '@hyveon/shared';
+import { errMessage, type KeyRotationOutcome } from '@hyveon/shared';
 
 /**
  * Summary of a single AWS CLI profile discovered in `~/.aws/credentials` or
@@ -74,36 +74,6 @@ export class UnsupportedCredentialSourceError extends Error {
     this.name = 'UnsupportedCredentialSourceError';
   }
 }
-
-/**
- * Outcome of {@link AwsProfileService.rotateActiveCredentials}, modeled as a
- * discriminated union rather than throwing for its two expected failure
- * branches — both `verification-failed` and `delete-failed` are recoverable
- * states the caller needs to render distinctly, not exceptional control
- * flow. Named distinctly from `GuidedIamService`'s exported `RotationResult`
- * to avoid a name collision should a caller ever import both rotation
- * methods in the same file; the two types otherwise share the same shape by
- * design — see {@link AwsProfileService.rotateActiveCredentials}'s doc
- * comment for how the two *methods* differ despite the shared shape.
- */
-export type AwsProfileRotationResult =
-  /** The new key pair is stored/active and the old key has been revoked. */
-  | { status: 'complete' }
-  /**
-   * `sts:GetCallerIdentity` failed for the newly minted key on every retry
-   * attempt (see {@link VERIFY_ACCESS_KEY_RETRY_DELAYS_MS}). The stored
-   * credentials were never overwritten — the previously active key remains
-   * stored and in the keychain. See
-   * {@link AwsProfileService.rotateActiveCredentials}'s doc comment for the
-   * orphan-cleanup this branch performs before returning.
-   */
-  | { status: 'verification-failed'; error: string }
-  /**
-   * `iam:DeleteAccessKey` failed for the old key. The new key pair IS
-   * already stored/active — app functionality is fine going forward — but
-   * the old key is still live and must be revoked manually via `consoleUrl`.
-   */
-  | { status: 'delete-failed'; consoleUrl: string };
 
 /**
  * Discovers AWS CLI profiles for the first-run wizard's credentials step.
@@ -249,12 +219,12 @@ export class AwsProfileService {
    *   are truthy-checked, since an empty string is as unusable as `undefined`)
    *   — or if `iam:CreateAccessKey` (step 2) succeeds but its response is
    *   missing `AccessKeyId`/`SecretAccessKey` — neither is a modeled
-   *   {@link AwsProfileRotationResult} branch; nothing has been overwritten
+   *   {@link KeyRotationOutcome} branch; nothing has been overwritten
    *   in either case.
    * @throws Raw, unmodeled AWS SDK errors from `iam:CreateAccessKey` (step
    *   2) itself propagate straight to the caller, which must catch it.
    */
-  async rotateActiveCredentials(): Promise<AwsProfileRotationResult> {
+  async rotateActiveCredentials(): Promise<KeyRotationOutcome> {
     logger.debug('AwsProfileService.rotateActiveCredentials: starting active credential rotation');
     if (!this.safeStorage.isAvailable()) {
       throw new SafeStorageUnavailableError();

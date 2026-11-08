@@ -8,6 +8,8 @@ type Assert<T extends true> = T;
 
 /** One assertion per shared shape; each fails `typecheck:tests` if the preload type stops being the shared type. */
 export type SharedTypeContract = [
+  Assert<Equal<Preload.AwsKeyRotateResult, Shared.AwsKeyRotateResult>>,
+  Assert<Equal<Preload.GuidedIamRotateResult, Shared.GuidedIamRotateResult>>,
   Assert<Equal<Preload.GameServerPort, Shared.GameServerPort>>,
   Assert<Equal<Preload.GameServer, Shared.GameServer>>,
   Assert<Equal<Preload.GameStatus, Shared.GameStatus>>,

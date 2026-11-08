@@ -5,6 +5,7 @@ import {
   S3Client,
   CreateBucketCommand,
   HeadBucketCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
@@ -443,6 +444,44 @@ describe('BootstrapService', () => {
    * for the genuine end-to-end proof that a seeded document really does let
    * `updateTopLevelSettings`/`addGameServer` succeed afterward.
    */
+  describe('resolveExistingRunsTableName', () => {
+    /** Resolves `GetObject` with `json` as the config document body. */
+    function stubConfigBody(json: string): void {
+      s3Mock.on(GetObjectCommand).resolves({ Body: { transformToString: async () => json } as never });
+    }
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should resolve the runs table name from the existing document projectName', async () => {
+      stubConfigBody(JSON.stringify({ projectName: 'acme', runsTableName: '' }));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBe('acme-runs');
+      expect(s3Mock.commandCalls(GetObjectCommand)[0]!.args[0].input).toEqual({
+        Bucket: 'cfg',
+        Key: CONFIGURATION_OBJECT_KEY,
+      });
+    });
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should honour an explicit runsTableName override in the existing document', async () => {
+      stubConfigBody(JSON.stringify({ projectName: 'acme', runsTableName: 'custom-runs' }));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBe('custom-runs');
+    });
+
+    // @spec APP-WIZARD-BOOT-012
+    it('should resolve undefined when the document does not exist, cannot be read, or is malformed', async () => {
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+      s3Mock.on(GetObjectCommand).rejects(awsError('NoSuchKey'));
+      await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBeUndefined();
+
+      s3Mock.reset();
+      stubConfigBody('not json');
+      await expect(service.resolveExistingRunsTableName('cfg')).resolves.toBeUndefined();
+    });
+  });
+
   describe('ensureDeploymentConfig', () => {
     // @spec APP-WIZARD-BOOT-010
     it('should seed a minimal valid deployment-config document when none exists yet', async () => {

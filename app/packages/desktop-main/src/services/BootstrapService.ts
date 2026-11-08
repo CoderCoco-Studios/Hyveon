@@ -3,6 +3,7 @@ import {
   S3Client,
   CreateBucketCommand,
   HeadBucketCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
@@ -22,7 +23,12 @@ import {
   waitUntilTableExists,
 } from '@aws-sdk/client-dynamodb';
 import { fromIni } from '@aws-sdk/credential-providers';
-import { CONFIGURATION_OBJECT_KEY, errMessage, withDeploymentConfigDefaults } from '@hyveon/shared';
+import {
+  CONFIGURATION_OBJECT_KEY,
+  errMessage,
+  runsTableNameFromConfigJson,
+  withDeploymentConfigDefaults,
+} from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
@@ -345,6 +351,33 @@ export class BootstrapService {
         error: errMessage(err),
       });
       return { status: 'failed', message: errMessage(err) };
+    }
+  }
+
+  // @spec APP-WIZARD-BOOT-012
+  /**
+   * Resolves the runs table name an already-seeded configuration document implies (its `projectName` and
+   * `runsTableName` override), so a re-run of the bootstrap step targets the same table the stack already uses.
+   * Never throws: an absent bucket or object, an unreadable or malformed document, or missing credentials all
+   * resolve `undefined`, which the caller treats as "use the default name" (the state of a fresh install).
+   *
+   * @param bucketName - The configuration bucket to read from.
+   * @returns The resolved table name, or `undefined` when no usable document exists.
+   */
+  async resolveExistingRunsTableName(bucketName: string): Promise<string | undefined> {
+    logger.debug('BootstrapService.resolveExistingRunsTableName: reading the existing document', { bucketName });
+    try {
+      const response = await this.createS3Client().send(
+        new GetObjectCommand({ Bucket: bucketName, Key: CONFIGURATION_OBJECT_KEY }),
+      );
+      const json = await response.Body?.transformToString();
+      return json ? runsTableNameFromConfigJson(json) : undefined;
+    } catch (err) {
+      logger.debug('BootstrapService.resolveExistingRunsTableName: no usable document', {
+        bucketName,
+        error: errMessage(err),
+      });
+      return undefined;
     }
   }
 

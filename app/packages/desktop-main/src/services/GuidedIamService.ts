@@ -5,13 +5,17 @@ import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { IAMClient, CreateAccessKeyCommand, DeleteAccessKeyCommand } from '@aws-sdk/client-iam';
-import { errMessage, generateHyveonDeployAllPolicy, generateHyveonSelfRotatePolicy } from '@hyveon/shared';
+import {
+  errMessage,
+  generateHyveonDeployAllPolicy,
+  generateHyveonSelfRotatePolicy,
+  type KeyRotationOutcome,
+} from '@hyveon/shared';
 import { resolveCloudFormationTemplatePath } from '../cloudformationTemplate.js';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { readIsPackaged as sharedReadIsPackaged } from './electronRuntime.js';
-import { SafeStorageService } from './SafeStorageService.js';
-import { SafeStorageUnavailableError } from './AwsProfileService.js';
+import { SafeStorageService, SafeStorageUnavailableError } from './SafeStorageService.js';
 import { resolveAwsCredentialSource, type AwsCredentialSource } from './awsCredentialSource.js';
 import { verifyAccessKeyWithRetry } from './verifyAccessKeyWithRetry.js';
 import { sleep } from './sleep.js';
@@ -114,36 +118,6 @@ export interface RotationInput {
   /** Region to build every AWS client used during rotation against. */
   region: string;
 }
-
-/**
- * Outcome of {@link GuidedIamService.rotate}, modeled as a discriminated
- * union rather than throwing for its two failure branches — both
- * `verification-failed` and `delete-failed` are expected, recoverable states
- * the caller needs to render distinctly, not exceptional control flow. See
- * {@link GuidedIamService.rotate}'s doc comment for exactly which store state
- * each branch leaves behind.
- */
-export type RotationResult =
-  /** The new key pair is active and the bootstrap key has been revoked. */
-  | { status: 'complete' }
-  /**
-   * `sts:GetCallerIdentity` failed for the newly minted key on every retry
-   * attempt (see {@link VERIFY_ACCESS_KEY_RETRY_DELAYS_MS}). Nothing became
-   * active (`ElectronStoreService.set('aws', ...)` was never called) and the
-   * bootstrap key was never deleted. {@link GuidedIamService.rotate} also
-   * attempts to delete the orphaned new key (using the still-valid bootstrap
-   * key) before returning this branch, so that a caller-driven retry — which
-   * re-runs from step 1 — doesn't collide with IAM's 2-access-key-per-user
-   * limit. That cleanup delete is itself best-effort: see `rotate()`'s doc
-   * comment for what happens if it also fails.
-   */
-  | { status: 'verification-failed'; error: string }
-  /**
-   * `iam:DeleteAccessKey` failed for the bootstrap key. The new key pair IS
-   * already active — app functionality is fine going forward — but the
-   * bootstrap key is still live and must be revoked manually via `consoleUrl`.
-   */
-  | { status: 'delete-failed'; consoleUrl: string };
 
 /** Input to {@link GuidedIamService.revokeBootstrapKey}. */
 export interface RevokeBootstrapKeyInput {
@@ -430,7 +404,7 @@ export class GuidedIamService {
    * @throws `Error` if `iam:CreateAccessKey` (step 1) succeeds but its
    *   response is missing `AccessKeyId`/`SecretAccessKey` — an
    *   unrecoverable, unexpected-shape response rather than a modeled
-   *   `RotationResult` branch; nothing has been staged or activated yet.
+   *   `KeyRotationOutcome` branch; nothing has been staged or activated yet.
    * @throws Raw, unmodeled AWS SDK errors from `iam:CreateAccessKey` (step
    *   1) itself — e.g. `LimitExceededException` if the account already has
    *   2 access keys, a realistic scenario after a prior `delete-failed`
@@ -441,7 +415,7 @@ export class GuidedIamService {
    *   caught here at all and propagates straight to the caller, which must
    *   catch it.
    */
-  async rotate(input: RotationInput): Promise<RotationResult> {
+  async rotate(input: RotationInput): Promise<KeyRotationOutcome> {
     logger.debug('GuidedIamService.rotate: starting bootstrap key rotation', { region: input.region });
     assertInstallRegionUnlocked(this.store, input.region);
     if (!this.safeStorage.isAvailable()) {

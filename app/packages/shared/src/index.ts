@@ -3,6 +3,7 @@ export * from './errors.js';
 export * from './pulumiVersion.js';
 export * from './iamPolicy.js';
 export * from './wizardSteps.js';
+export * from './keyRotation.js';
 export * from './addGameWizardSteps.js';
 export * from './gameServerConfig.js';
 export * from './healthCheckBudget.js';
