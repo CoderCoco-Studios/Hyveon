@@ -370,7 +370,9 @@ export class DeploymentConfigService {
     try {
       return await this.loadAndCacheGameServers(this.cacheGeneration);
     } catch (err) {
-      if (!(err instanceof ConfigurationNotConfiguredError)) {
+      if (err instanceof ConfigurationObjectMissingError) {
+        logger.warn('Deployment config object missing (strict read)', { err: errMessage(err) });
+      } else if (!(err instanceof ConfigurationNotConfiguredError)) {
         logger.error('Failed to load deployment config gameServers (strict read)', { err: errMessage(err) });
       }
       throw err;

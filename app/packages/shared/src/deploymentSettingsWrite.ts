@@ -217,9 +217,8 @@ export type DeploymentSettingsGetResult =
   | DeploymentSettingsFailure;
 
 /**
- * Successful write — the freshly-written settings (re-read post-write, so
- * every value reflects exactly what's now persisted, including any field
- * the caller's `patch` omitted) plus the write's new `etag`/`versionId` for
+ * Successful write — the settings the write produced (every value, including
+ * any field the caller's `patch` omitted) plus the write's new `etag`/`versionId` for
  * a subsequent edit's `expectedVersionId`.
  */
 export interface DeploymentSettingsWriteSuccess {
@@ -256,6 +255,7 @@ export type DeploymentSettingsWriteResult =
   | DeploymentSettingsConflict
   | DeploymentSettingsValidationFailure
   | DeploymentSettingsSetupIncomplete
+  | DeploymentSettingsNotFound
   | DeploymentSettingsFailure;
 
 /**

@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { TopLevelDeploymentSettings, UpdateDeploymentSettingsPayload } from '@hyveon/shared';
 import { OptimisticLockError } from '@hyveon/shared';
 import { IacSettingsController } from './iac-settings.controller.js';
@@ -63,6 +63,10 @@ function makeDeploymentConfig(): DeploymentConfigService {
 }
 
 describe('IacSettingsController', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   describe('@MessagePattern channel names', () => {
     // @spec APP-UPDATE-IPC-001
     it('should register every channel', () => {
@@ -152,39 +156,35 @@ describe('IacSettingsController', () => {
       expect(deploymentConfig.updateTopLevelSettings).toHaveBeenCalledWith({ dnsTtl: 60 }, 'etag-1');
     });
 
-    // @spec CONFIG-SET-005
-    it('should return ok: true with the re-read settings and the write result etag/versionId on success', async () => {
+    // @spec CONFIG-SET-005, CONFIG-SET-006
+    it('should return ok: true with the settings the write produced and its etag/versionId, without re-reading', async () => {
       const deploymentConfig = makeDeploymentConfig();
-      vi.mocked(deploymentConfig.getTopLevelSettings).mockResolvedValue({
-        settings: { ...SETTINGS, dnsTtl: 60 },
+      const written = { ...SETTINGS, dnsTtl: 60 };
+      vi.mocked(deploymentConfig.updateTopLevelSettings).mockResolvedValue({
         etag: 'etag-2',
+        versionId: 'v-2',
+        settings: written,
+      });
+      // A concurrent writer's newer version must never be paired with this write's etag.
+      vi.mocked(deploymentConfig.getTopLevelSettings).mockResolvedValue({
+        settings: { ...SETTINGS, dnsTtl: 999 },
+        etag: 'etag-3',
       });
 
       const result = await new IacSettingsController(deploymentConfig).update(PAYLOAD);
 
-      expect(result).toEqual({
-        ok: true,
-        settings: { ...SETTINGS, dnsTtl: 60 },
-        etag: 'etag-2',
-        versionId: 'v-2',
-      });
+      expect(result).toEqual({ ok: true, settings: written, etag: 'etag-2', versionId: 'v-2' });
+      expect(deploymentConfig.getTopLevelSettings).not.toHaveBeenCalled();
     });
 
-    it('should re-read the settings AFTER the write so the returned settings reflect the persisted document', async () => {
+    // @spec CONFIG-SET-003
+    it('should return code: "not_found" when deployment-config.json does not exist', async () => {
       const deploymentConfig = makeDeploymentConfig();
-      const calls: string[] = [];
-      vi.mocked(deploymentConfig.updateTopLevelSettings).mockImplementation(async () => {
-        calls.push('update');
-        return { etag: 'etag-2', versionId: 'v-2' };
-      });
-      vi.mocked(deploymentConfig.getTopLevelSettings).mockImplementation(async () => {
-        calls.push('get');
-        return { settings: SETTINGS, etag: 'etag-2' };
-      });
+      vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValue(new ConfigurationObjectMissingError('deployment-config.json', 'cfg-bucket'));
 
-      await new IacSettingsController(deploymentConfig).update(PAYLOAD);
+      const result = await new IacSettingsController(deploymentConfig).update(PAYLOAD);
 
-      expect(calls).toEqual(['update', 'get']);
+      expect(result).toEqual({ ok: false, code: 'not_found', message: expect.any(String) });
     });
 
     // @spec CONFIG-SET-004
@@ -245,21 +245,6 @@ describe('IacSettingsController', () => {
           { path: 'projectName', message: expect.stringMatching(/hyveon-runs.*other-runs/) },
           { path: 'runsTableName', message: expect.stringMatching(/hyveon-runs.*other-runs/) },
         ],
-      });
-    });
-
-    // @spec CONFIG-SET-006
-    it('should still report success for the write when the follow-up settings read fails', async () => {
-      const deploymentConfig = makeDeploymentConfig();
-      vi.mocked(deploymentConfig.getTopLevelSettings).mockRejectedValue(new Error('read failed'));
-
-      const result = await new IacSettingsController(deploymentConfig).update(PAYLOAD);
-
-      expect(result).toEqual({
-        ok: true,
-        settings: SETTINGS,
-        etag: 'etag-2',
-        versionId: 'v-2',
       });
     });
 

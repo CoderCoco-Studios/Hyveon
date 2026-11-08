@@ -185,8 +185,8 @@ Because `getGameServers` resolves `[]` on any read failure, a transient S3 or pa
 4. ✅ The configuration `RemoteFileStore` reads `deployment-config.json` from the wizard region through `ConfigService.getRegion()`, like every other desktop store; `awsRegion` in the document is not a region anything reads from, and Settings cannot edit it (`IAC-ENGINE-REGION-002`, `CONFIG-FORM-007`, `CONFIG-SET-012`; `docs/high-level-design.md`, decision 10).
 5. ✅ Drift reads the declared config through the rejecting `getGameServersStrict`, so an unreadable config fails instead of reporting every deployed game as `pending_delete` (`CONFIG-DRIFT-007`).
 6. ✅ `restoreRawConfig` is conditional on the head etag the rollback preview returned (`CONFIG-RESTORE-004`).
-7. ✅ `iac.settings.get` returns `not_found` for a configured bucket with no object, and `AwsRemoteFileStore.get` rejects an ETag-less or body-less response rather than reporting "not found" (`CONFIG-SET-003`, `CONFIG-STORE-007`).
-8. ✅ `iac.settings.update` reports success with the written settings when only the follow-up read fails (`CONFIG-SET-006`).
+7. ✅ `iac.settings.get` and `iac.settings.update` return `not_found` for a configured bucket with no object, and `AwsRemoteFileStore.get` rejects an ETag-less or body-less response rather than reporting "not found" (`CONFIG-SET-003`, `CONFIG-STORE-007`).
+8. ✅ `iac.settings.update` returns the settings its own write produced and never re-reads (`CONFIG-SET-006`).
 9. ✅ The pending-changes banner states that drift covers only image, CPU, memory, ports and volumes (`CONFIG-DRIFT-008`).
 10. ✅ The rollback diff's field list is a `Record` keyed by every top-level field, so a missing field is a compile error (`CONFIG-RBDIFF-002`).
 11. ✅ Every `iac.settings` branch logs, with the error's `.message` only (`CONFIG-SET-009`).

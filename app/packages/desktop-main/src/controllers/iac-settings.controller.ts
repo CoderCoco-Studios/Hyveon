@@ -161,9 +161,8 @@ export class IacSettingsController implements OnModuleInit {
   /**
    * Validates `payload.patch` via {@link validateDeploymentSettingsPatch}
    * and, if it passes, delegates to
-   * `DeploymentConfigService.updateTopLevelSettings()`, re-reading afterward
-   * so a successful result reflects exactly what's now persisted; if that re-read fails after the write succeeded,
-   * the written settings are reported instead, since the write itself did not fail.
+   * `DeploymentConfigService.updateTopLevelSettings()`, returning the settings that write produced together with its
+   * etag; it never re-reads, since a re-read could pair a concurrent writer's newer version with this write's etag.
    *
    * The validation call lives INSIDE the `try` block rather than before it:
    * `payload`/`payload.patch` may be absent or wrong-shaped (nothing
@@ -183,16 +182,7 @@ export class IacSettingsController implements OnModuleInit {
       }
 
       const write = await this.deploymentConfig.updateTopLevelSettings(payload.patch, payload.expectedVersionId);
-      const settings = await this.deploymentConfig.getTopLevelSettings().then(
-        (read) => read.settings,
-        (readErr: unknown) => {
-          logger.warn('Deployment settings re-read after write failed — reporting the written settings', {
-            err: errMessage(readErr),
-          });
-          return write.settings;
-        },
-      );
-      return { ok: true, settings, etag: write.etag, versionId: write.versionId };
+      return { ok: true, settings: write.settings, etag: write.etag, versionId: write.versionId };
     } catch (err) {
       if (err instanceof RunsTableRenameError) {
         logger.warn('Deployment settings write rejected — would rename the already-bootstrapped runs table', {
@@ -221,6 +211,10 @@ export class IacSettingsController implements OnModuleInit {
       if (err instanceof ConfigurationNotConfiguredError) {
         logger.warn('Deployment settings write rejected — no configuration bucket configured', { err: err.message });
         return { ok: false, code: 'setup_incomplete', message: err.message };
+      }
+      if (err instanceof ConfigurationObjectMissingError) {
+        logger.warn('Deployment settings write found no deployment-config.json', { err: err.message });
+        return { ok: false, code: 'not_found', message: err.message };
       }
       logger.error('Failed to write deployment settings', { err: errMessage(err) });
       return { ok: false, code: 'error', message: 'An unexpected error occurred while writing deployment settings.' };
