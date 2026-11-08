@@ -293,6 +293,50 @@ describe('InteractionsLambda: APPLICATION_COMMAND dispatch', () => {
     expect(payload.interactionToken).toBe('tok-1');
   });
 
+  // @spec DISCORD-CMD-009
+  describe('followup invoke latency budget', () => {
+    beforeEach(() => {
+      vi.useRealTimers();
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      vi.setSystemTime(NOW_SECONDS * 1000);
+    });
+
+    it.each([
+      ['server-start', 'palworld'],
+      ['server-list', undefined],
+    ])('should answer %s with an ephemeral retry message once the invoke exceeds the bound', async (name, game) => {
+      lambdaMock.on(InvokeCommand).callsFake(() => new Promise(() => undefined));
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const pending = handler(commandEvent({ name, userId: 'U1', game }));
+      await vi.advanceTimersByTimeAsync(2_000);
+      const res = await pending;
+
+      const body = parsed(res).body as { type: number; data: { content: string; flags: number } };
+      expect(body.type).toBe(4);
+      expect(body.data.flags).toBe(64);
+      expect(body.data.content).toMatch(/try again/i);
+    });
+
+    it('should answer with the retry message, without throwing, when the invoke is rejected', async () => {
+      lambdaMock.on(InvokeCommand).rejects(new Error('AccessDenied arn:aws:lambda:x'));
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await handler(commandEvent({ name: 'server-start', userId: 'U1', game: 'palworld' }));
+
+      const body = parsed(res).body as { type: number; data: { content: string } };
+      expect(body.type).toBe(4);
+      expect(body.data.content).not.toContain('arn:aws');
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('tok-1');
+    });
+
+    it('should defer normally when the invoke resolves inside the bound', async () => {
+      lambdaMock.on(InvokeCommand).resolves({});
+      const res = await handler(commandEvent({ name: 'server-start', userId: 'U1', game: 'palworld' }));
+      expect((parsed(res).body as { type: number }).type).toBe(5);
+    });
+  });
+
   // @spec DISCORD-CMD-006
   it('should reject server-start without a game option', async () => {
     const res = await handler(commandEvent({ name: 'server-start', userId: 'U1' }));

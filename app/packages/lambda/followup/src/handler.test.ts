@@ -120,7 +120,9 @@ describe('FollowupLambda: start', () => {
 
     expect(putPendingMock).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toMatch(/Failed to start|capacity/);
+    const content = JSON.parse(fetchMock.mock.calls[0]![1].body).content;
+    expect(content).toBe('❌ Could not start palworld. Check server logs.');
+    expect(content).not.toContain('capacity');
   });
 
   // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
@@ -156,7 +158,7 @@ describe('FollowupLambda: start', () => {
     await handler(baseEvent('start', 'palworld'));
 
     expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
-    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toMatch(/Exception starting palworld/);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toBe('❌ Could not start palworld. Check server logs.');
   });
 
   // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
@@ -166,7 +168,7 @@ describe('FollowupLambda: start', () => {
     await handler(baseEvent('start', 'palworld'));
 
     expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
-    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toMatch(/Exception starting palworld/);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toBe('❌ Could not start palworld. Check server logs.');
   });
 
   // @spec DISCORD-RUN-001
@@ -285,6 +287,39 @@ describe('FollowupLambda: list', () => {
 });
 
 describe('FollowupLambda: failure handling', () => {
+  // @spec DISCORD-RUN-012
+  it('should reply with a fixed message and log only the normalised error when RunTask throws', async () => {
+    const arn = 'arn:aws:iam::123456789012:role/secret-role';
+    ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
+    ecsMock.on(RunTaskCommand).rejects(new Error(`AccessDenied for ${arn}`));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await handler(baseEvent('start', 'palworld'));
+
+    const content = JSON.parse(fetchMock.mock.calls[0]![1].body).content;
+    expect(content).toBe('❌ Could not start palworld. Check server logs.');
+    expect(content).not.toContain(arn);
+    expect(JSON.stringify(errorSpy.mock.calls)).toContain(arn);
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('tok1');
+  });
+
+  // @spec DISCORD-RUN-012
+  it('should reply with a fixed message and not leak the SDK text when StopTask throws', async () => {
+    const taskArn = 'arn:task-running';
+    ecsMock
+      .on(ListTasksCommand)
+      .resolves({ taskArns: [taskArn] })
+      .on(DescribeTasksCommand)
+      .resolves({ tasks: [{ taskArn, lastStatus: 'RUNNING' }] });
+    ecsMock.on(StopTaskCommand).rejects(new Error('not authorized on arn:aws:ecs:cluster/x'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await handler(baseEvent('stop', 'palworld'));
+
+    const content = JSON.parse(fetchMock.mock.calls[0]![1].body).content;
+    expect(content).toBe('❌ Could not stop palworld. Check server logs.');
+  });
+
   // @spec DISCORD-RUN-010
   it('should still PATCH an error reply when the effective-config read throws', async () => {
     getEffectiveDiscordConfigMock.mockRejectedValue(new Error('dynamo down'));

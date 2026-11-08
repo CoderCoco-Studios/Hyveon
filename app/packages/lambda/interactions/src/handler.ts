@@ -11,15 +11,17 @@
  *    no ECS calls — must fit in the 3-second budget).
  *  - For APPLICATION_COMMAND, check `canRun()` against the config in DynamoDB
  *    and respond with a deferred ack (type 5). The actual ECS RunTask/StopTask
- *    work is kicked off by async-invoking FollowupLambda so Discord gets its
- *    reply inside the 3-second budget regardless of AWS latency.
+ *    work is kicked off by async-invoking FollowupLambda. The two AWS calls on
+ *    the ack path (the config read and that invoke) are small and the invoke is
+ *    bounded to 2 seconds; on a timeout the user gets an ephemeral retry notice
+ *    instead of a silent "interaction failed".
  */
 import { verifyAsync } from '@noble/ed25519';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 // @spec DISCORD-SVC-002
 // `canRun` is the single shared copy; never inline or fork it.
-import { canRun, gameNamesFromEnv, getEffectiveDiscordConfig, getPublicKey, requireEnv } from '@hyveon/shared';
+import { canRun, errMessage, gameNamesFromEnv, getEffectiveDiscordConfig, getPublicKey, requireEnv } from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig } from '@hyveon/shared';
 
 /** Discord interaction types we care about. Full list in discord-api-types. */
@@ -183,7 +185,7 @@ async function handleAutocomplete(
   });
 }
 
-// @spec DISCORD-CMD-003, DISCORD-CMD-004, DISCORD-CMD-005, DISCORD-CMD-006, DISCORD-CMD-007, DISCORD-CMD-008
+// @spec DISCORD-CMD-003, DISCORD-CMD-004, DISCORD-CMD-005, DISCORD-CMD-006, DISCORD-CMD-007, DISCORD-CMD-008, DISCORD-CMD-009
 async function handleApplicationCommand(
   interaction: Interaction,
   cfg: DiscordConfig,
@@ -202,7 +204,7 @@ async function handleApplicationCommand(
   const game = extractGameOption(interaction.data);
 
   if (name === 'server-list') {
-    await invokeFollowup({
+    return deferToFollowup({
       kind: 'list',
       applicationId: interaction.application_id,
       interactionToken: interaction.token,
@@ -210,11 +212,10 @@ async function handleApplicationCommand(
       guildId,
       roleIds,
     });
-    return ephemeralMessage('', true);
   }
 
   if (name === 'server-status' && !game) {
-    await invokeFollowup({
+    return deferToFollowup({
       kind: 'list',
       applicationId: interaction.application_id,
       interactionToken: interaction.token,
@@ -222,7 +223,6 @@ async function handleApplicationCommand(
       guildId,
       roleIds,
     });
-    return ephemeralMessage('', true);
   }
 
   if (!game) return ephemeralMessage('Game is required.');
@@ -231,7 +231,7 @@ async function handleApplicationCommand(
     return ephemeralMessage(`You don't have permission to ${action} **${game}**.`);
   }
 
-  await invokeFollowup({
+  return deferToFollowup({
     kind: action,
     applicationId: interaction.application_id,
     interactionToken: interaction.token,
@@ -240,7 +240,6 @@ async function handleApplicationCommand(
     roleIds,
     game,
   });
-  return ephemeralMessage('', true);
 }
 
 interface FollowupPayload {
@@ -253,15 +252,56 @@ interface FollowupPayload {
   game?: string;
 }
 
-async function invokeFollowup(payload: FollowupPayload): Promise<void> {
+/** Upper bound, in milliseconds, on the followup `Invoke` call so the ack still lands inside Discord's 3-second budget. */
+const FOLLOWUP_INVOKE_TIMEOUT_MS = 2_000;
+
+/**
+ * Async-invokes the followup Lambda, giving up after {@link FOLLOWUP_INVOKE_TIMEOUT_MS}.
+ *
+ * @remarks
+ * The invoke is awaited because Lambda freezes the execution environment once the handler returns. A timeout
+ * or rejection is logged with identifiers only (the payload carries the 15-minute interaction token).
+ *
+ * @param payload - The followup job.
+ * @returns `true` when the invoke was accepted in time, otherwise `false`.
+ */
+async function invokeFollowup(payload: FollowupPayload): Promise<boolean> {
   const fnName = requireEnv('FOLLOWUP_LAMBDA_NAME');
-  await getLambdaClient().send(
-    new InvokeCommand({
-      FunctionName: fnName,
-      InvocationType: 'Event',
-      Payload: Buffer.from(JSON.stringify(payload)),
-    }),
-  );
+  const controller = new AbortController();
+  const timedOut = new Promise<never>((_, reject) => {
+    controller.signal.addEventListener('abort', () => reject(new Error('followup invoke timed out')));
+  });
+  const timer = setTimeout(() => controller.abort(), FOLLOWUP_INVOKE_TIMEOUT_MS);
+  try {
+    await Promise.race([
+      getLambdaClient().send(
+        new InvokeCommand({
+          FunctionName: fnName,
+          InvocationType: 'Event',
+          Payload: Buffer.from(JSON.stringify(payload)),
+        }),
+        { abortSignal: controller.signal },
+      ),
+      timedOut,
+    ]);
+    return true;
+  } catch (err) {
+    console.error('Followup invoke failed', {
+      error: errMessage(err),
+      kind: payload.kind,
+      game: payload.game,
+      guildId: payload.guildId,
+    });
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Hands the job to the followup Lambda and returns the deferred ack, or an ephemeral retry notice when the hand-off fails. */
+async function deferToFollowup(payload: FollowupPayload): Promise<APIGatewayProxyResultV2> {
+  if (await invokeFollowup(payload)) return ephemeralMessage('', true);
+  return ephemeralMessage('Could not start that command right now. Please try again.');
 }
 
 /** Maximum age or lead, in seconds, of a signed interaction timestamp relative to the Lambda clock. */
