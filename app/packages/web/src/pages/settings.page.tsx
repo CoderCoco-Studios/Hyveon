@@ -129,6 +129,11 @@ function manualCheckLabel(state: ManualCheckState, appVersion: string | null): s
 // @spec APP-UPDATE-UI-001, APP-UPDATE-UI-002, APP-UPDATE-UI-003, APP-UPDATE-UI-004, APP-UPDATE-UI-005
 // @spec APP-UPDATE-UI-006, APP-UPDATE-UI-007, APP-UPDATE-UI-008, APP-UPDATE-UI-009
 // @spec APP-SHELL-SET-001, APP-SHELL-SET-002
+/** The shared bridge-unavailable message when the IPC bridge is missing; otherwise the generic update-service failure. */
+function updateFailureMessage(err: unknown): string {
+  return err instanceof Error && err.message === BRIDGE_UNAVAILABLE ? BRIDGE_UNAVAILABLE : 'Unable to reach the update service.';
+}
+
 /**
  * Settings route (`/settings`) — watchdog config + the deployment-settings
  * form (`DeploymentSettingsForm`) for every top-level `DeploymentConfig`
@@ -211,9 +216,7 @@ export function SettingsPage() {
     const check = settings ? settings.autoUpdateCheck() : Promise.reject(new Error(BRIDGE_UNAVAILABLE));
     check
       .then((result) => setManualCheck({ status: 'done', result }))
-      .catch(() =>
-        setManualCheck({ status: 'done', result: { ok: false, message: 'Unable to reach the update service.' } }),
-      );
+      .catch((err) => setManualCheck({ status: 'done', result: { ok: false, message: updateFailureMessage(err) } }));
   }
 
   /**
@@ -243,8 +246,8 @@ export function SettingsPage() {
       if (!settings) throw new Error(BRIDGE_UNAVAILABLE);
       const result = await settings.autoUpdateInstall();
       if (!result.ok) setManualCheck({ status: 'download-failed', version, message: result.message });
-    } catch {
-      setManualCheck({ status: 'download-failed', version, message: 'Unable to reach the update service.' });
+    } catch (err) {
+      setManualCheck({ status: 'download-failed', version, message: updateFailureMessage(err) });
     }
   }
 

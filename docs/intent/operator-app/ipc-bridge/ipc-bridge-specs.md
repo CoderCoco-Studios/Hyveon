@@ -70,8 +70,8 @@ EARS requirements for prefix `APP-IPC`; design in `docs/intent/operator-app/ipc-
 
 - [x] **APP-IPC-CONTRACT-001**: `@hyveon/desktop-preload`'s `hyveon-api.ts` shall define the full renderer-facing bridge contract (`HyveonApi`, `HyveonTestApi`, `HyveonStreamHandle` and every namespace's payload and result types), re-exported type-only from `src/index.ts`. (observed)
 - [x] **APP-IPC-CONTRACT-002**: Each IPC controller's unit tests shall assert, via `expectChannels` reading the `microservices:pattern` reflect-metadata, that each `@MessagePattern` method is registered under the exact channel string the preload calls. (observed)
-- [x] **APP-IPC-CONTRACT-003**: Where `@hyveon/shared` defines a type that crosses the preload bridge (such as `GameServerPort`, `GameServer` or the redacted Discord config), the preload contract shall use that shared type, or extend it with the bridge-only fields, rather than a hand-mirrored copy, so bridge types cannot drift from what main returns. (observed)
-- [x] **APP-IPC-CONTRACT-004**: The renderer shall report a missing `window.hyveon` bridge with one shared message string, whether the caller is `api.service.ts` or a direct `window.hyveon` caller. (observed)
+- [x] **APP-IPC-CONTRACT-003**: Where `@hyveon/shared` defines a type that crosses the preload bridge (the game server, game write, drift, audit, run-history, Discord admin and status shapes, and the redacted Discord config), the preload contract shall re-export that shared type, or extend it with the bridge-only fields, rather than declare a hand-mirrored copy, and a type-level equality test shall fail typecheck if a re-exported preload type stops equalling its shared type. Types defined only in `@hyveon/desktop-main` (such as `GameWizardDraft`) are outside this requirement because the preload cannot import them. (observed)
+- [x] **APP-IPC-CONTRACT-004**: The renderer shall report a missing `window.hyveon` bridge with one shared message string, whether the caller is `api.service.ts` or a direct `window.hyveon` caller, including the Settings page's manual update check and install. (observed)
 
 ## Secrets (SEC)
 

@@ -5,7 +5,7 @@ The typed, secret-free channel between the window and the back end: the `window.
 ## Status
 
 **MAPPED** — mapped 2026-10-30 (SHA `5c55a380`), gap specs closed since.
-Working transport with one generic bridge plus nine self-bridged streaming channels that share one error-normalisation helper; error text, stream ordering and the shared-type contract for game ports, games and the redacted Discord config are specified and tested. Remaining hand-mirrored preload types are tracked in the design doc's deferred questions.
+Working transport with one generic bridge plus nine self-bridged streaming channels that share one error-normalisation helper; error text, stream ordering and the shared-type contract is specified and type-checked for every shape `@hyveon/shared` defines. The preload types defined only in `@hyveon/desktop-main` remain hand-mirrored and are tracked in the design doc's deferred questions.
 
 ## References
 
@@ -81,7 +81,7 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 1. `preload.ts`: builds the `HyveonApi` object literal (`preload.ts:419-652`) over a mock-aware `invoke` (`preload.ts:192-202`) and exposes it with `contextBridge.exposeInMainWorld('hyveon', …)` (`preload.ts:686`); attaches `__test.mock/clearMocks/reset` only when `HYVEON_TEST_MODE=1` (`preload.ts:659-684`).
 2. `stream-bridge.ts`: `createBufferedStream` (`stream-bridge.ts:91`), the shared generator factory for the two stream styles: per-call channels with a `.cancel` message (`logs.stream`, `logs.lambda.stream`) and fixed shared side channels filtered by `streamId` (`iac.stack.initialize`, `iac.runs.logs`, `iac.settings.autoUpdate.download`).
 3. `bridgeStream` / `openBufferedStream` (`preload.ts:369-392`): wrap each internal generator in a plain `HyveonStreamHandle` (`next`, `cancel`, `[Symbol.asyncIterator]`) so it survives the clone boundary.
-4. `hyveon-api.ts`: the full hand-written IPC contract (`HyveonApi`, `HyveonTestApi`, ~2,700 lines, 142 "Mirrors / keep in sync" markers) plus `GUIDED_PROFILE_NAME` (`hyveon-api.ts:2107`).
+4. `hyveon-api.ts`: the full hand-written IPC contract (`HyveonApi`, `HyveonTestApi`, ~2,170 lines, 49 "Mirrors / keep in sync" markers, all for main-only types) plus `GUIDED_PROFILE_NAME`.
 5. `index.ts`: type-only barrel and the single `declare global { interface Window { hyveon?: HyveonApi } }` (`index.ts:58-62`); `app/packages/web/src/globals.d.ts:10` pulls it in by side-effect import.
 6. `ipc-main-bridge.ts`: `BridgedElectronIPCTransport` (`:49`) exposes Nest's protected handler map; `registerIpcMainBridges` (`:124`) puts every pattern not in `SELF_BRIDGED_PATTERNS` (`:27-37`) onto `ipcMain.handle`, unwraps Observable rejections, and rethrows `new Error(message)` (`:138-155`).
 7. `rpc-error-message.filter.ts`: global `@Catch()` filter (`:25`) that replaces Nest's "Internal server error" with `ipcErrorMessage(exception)`; registered at `main.ts:49`.
@@ -116,7 +116,7 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 3. **Shared side-channel streams are not cancelled from the renderer, by design**: abandoning `iac.stack.initialize`, `iac.runs.logs` or `iac.settings.autoUpdate.download` stops only the local drain loop; provisioning and the download run to completion and the run-output tail ends with the run.
 4. **Per-call streams cannot lose early events**: `LogsController.openStream` starts its loop on a later macrotask than the ack.
 5. **Streaming is tested without a mock**: `ipc-stream-roundtrip.test.ts` drives the real preload bridge against the real `LogsController` over a structured-cloning in-process bus. The Playwright `streaming-handle-roundtrip.spec.ts` still registers a mock for every case and proves only that the handle survives `contextBridge`.
-6. **Contract drift is partly closed**: `GameServerPort`, `GameServer` and `RedactedDiscordConfig` come from `@hyveon/shared` (the Discord config adds the bridge-only `interactionsEndpointUrl`). `GameWizardDraft` and the other "Mirrors X" declarations in `hyveon-api.ts` remain hand-mirrored. The preload `LogChunk` (a line) is a different type from the shared `LogChunk` and is not a mirror.
+6. **Contract drift is closed for shared types**: every preload type with a `@hyveon/shared` counterpart (game server and write shapes, drift, audit, run history, `GameStatus`, `StartResult`, Discord admins and permissions, `RedactedDiscordConfig` plus the bridge-only `interactionsEndpointUrl`) is re-exported, and `shared-types.test.ts` fails `typecheck:tests` if one stops equalling its shared type. The preload tests are excluded from the build but typechecked by `tsconfig.test.json`, wired into `app:typecheck`. `GameWizardDraft`, the `Iac*` acks and payloads, the log pages and the wizard service types are defined only in `@hyveon/desktop-main` and remain hand-mirrored. The preload `LogChunk` (a line) is a different type from the shared `LogChunk` and is not a mirror.
 7. **Two IPC facades in the renderer**: `api.service.ts` wraps nine namespaces; about 26 non-test renderer files reach `window.hyveon` directly. Both report a missing bridge with the single `BRIDGE_UNAVAILABLE` string.
 8. **One preload test-mock registry**: the per-channel `mockRegistry` behind `window.hyveon.__test`; the unused namespace registry is gone, and the preload build excludes `*.test.ts`.
 9. **`SELF_BRIDGED_PATTERNS` is a hand-synced list**: it must match each controller's registration. `ipc-main-bridge.test.ts` skips-tests every entry by iterating the set.
@@ -129,7 +129,7 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 
 No open gap specs. Items without a spec:
 
-1. Derive the remaining hand-mirrored preload types from shared types where a shared type exists (`GameWizardDraft` and the other "Mirrors X" declarations).
+1. Move the main-only types (`GameWizardDraft`, the `Iac*` acks and payloads, log pages, wizard service types) into `@hyveon/shared` so the preload can derive them.
 2. Decide whether direct `window.hyveon` callers should move behind `api.service.ts`.
 3. Sweep the stale doc comments in finding 10.
 4. Remove the chromium-tier `window.hyveon` shim and its guards once those specs move to the electron project.

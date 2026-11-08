@@ -125,12 +125,12 @@ Only the per-call style tears the main-side source down on abandon.
 
 ## Contract and Types
 
-`hyveon-api.ts` (2,698 lines) is the full hand-written contract: `HyveonApi` (`:2651`), `HyveonTestApi` (`:2608`), `HyveonStreamHandle` (`:186`) and the payload/result types of every namespace.
+`hyveon-api.ts` (about 2,170 lines) is the full renderer-facing contract: `HyveonApi`, `HyveonTestApi`, `HyveonStreamHandle` and the payload/result types of every namespace.
 `index.ts` re-exports those types and `GUIDED_PROFILE_NAME`, and is the single declaration of `Window.hyveon?: HyveonApi` (`index.ts:1-62`), satisfying APP-IPC-NAME-005.
 The global is optional because the bridge is absent in a plain browser (`web/src/globals.d.ts:1-9`).
 
-Where `@hyveon/shared` defines a type that crosses the bridge, the contract uses it rather than a copy: `GameServerPort` and `GameServer` are re-exported from `@hyveon/shared`, and `RedactedDiscordConfig` is the shared redacted shape intersected with the bridge-only `interactionsEndpointUrl` that the Discord controller reads from stack outputs; the renderer's `DiscordConfigRedacted` is an alias of it.
-Types with no shared counterpart (the add-game wizard draft mirrors `ElectronStoreService`'s, which the preload cannot import) remain hand-mirrored with a "keep in sync" note.
+Where `@hyveon/shared` defines a type that crosses the bridge, the contract re-exports it rather than copying it: the game server, game write, drift, audit, run-history and Discord admin shapes and `GameStatus`/`StartResult` come from `@hyveon/shared` unchanged (`shared-types.test.ts` asserts each equality at typecheck time, run by `typecheck:tests` through `tsconfig.test.json`, because the build config excludes tests), and `RedactedDiscordConfig` is the shared redacted shape intersected with the bridge-only `interactionsEndpointUrl` that the Discord controller reads from stack outputs; the renderer's `DiscordConfigRedacted` is an alias of it.
+Types defined only in `@hyveon/desktop-main` (the add-game wizard draft mirrors `ElectronStoreService`'s, the `Iac*` acks and payloads mirror the controllers', the log pages mirror `LogsService`'s, the wizard types mirror the services') remain hand-mirrored with a "keep in sync" note, because the preload cannot import main-process modules.
 The preload's `LogChunk` (a streamed log line, `string`) is unrelated to the shared `LogChunk` (`{ message, timestamp }`, the cloud provider's stream element), which main flattens to a line before it crosses the bridge.
 Nothing type-checks the preload contract against controller return types; the channel string is the only checked link (`message-pattern.test-utils.ts`).
 
@@ -190,7 +190,7 @@ The unmocked electron roundtrip in Playwright remains `env.get` (`electron-ipc-r
 
 ### Deferred
 
-1. Should the remaining hand-mirrored preload types (the add-game wizard draft, which drifts from the shared `GameServer` by lacking `webPort` and `command`, and the other "Mirrors X" declarations in `hyveon-api.ts`) be derived from shared types, and `GameWizardDraft`'s drift that `api.service.ts` casts around be fixed with them?
+1. Should the types that exist only in `@hyveon/desktop-main` (the add-game wizard draft, which drifts from the shared `GameServer` by lacking `webPort` and `command`, the controller acks and the service result types) move into `@hyveon/shared` so the preload can derive them, and `GameWizardDraft`'s drift that `api.service.ts` casts around be fixed with them?
 2. Should all renderer callers move behind `api.service.ts`, now that the bridge-unavailable wording is one string?
 3. Should `findSecretFields` also run against every IPC result in one generic test (for example over the integration harness), rather than only the volume-files results it guards today (`volume-files.controller.test.ts`, `VolumeFilesService.test.ts`)? Its IPv4 and `cert` patterns would also flag legitimate values such as a game's public IP, so a generic use needs an allowlist.
 4. Fix the remaining stale doc comments: `preload.ts` "three generators" and `openBufferedStream`'s `@param` list, the `@hyveon/desktop-preload/hyveon-api` import path in `hyveon-api.ts` that the `exports` map does not provide, a preload invoke timeout that `electron-ipc-roundtrip.spec.ts` cites but does not exist, and "tfstate" wording in `hyveon-api.ts`.

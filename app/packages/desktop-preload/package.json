@@ -15,6 +15,7 @@
   },
   "scripts": {
     "build": "tsc -b",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {

@@ -287,8 +287,8 @@ Specs: `docs/intent/operator-app/ipc-bridge/ipc-bridge-specs.md` · Arrow doc: `
 | `APP-IPC-STREAM-009` | closed | - | Spec narrowed: shared side-channel work deliberately runs to completion; a test asserts the preload sends no message on cancel |
 | `APP-IPC-STREAM-011` | closed | - | Fixed (was): every streaming spec registered a mock. `ipc-stream-roundtrip.test.ts` drives the real preload and controller over a structured-cloning bus |
 | `APP-IPC-STREAM-013` | closed | - | Fixed (was): the loop could send before the ack. `openStream` now starts on a later macrotask |
-| `APP-IPC-CONTRACT-003` | closed | - | Fixed (was): preload re-declared `GameServerPort`, `GameServer` and the redacted Discord config. They now come from `@hyveon/shared`; `LogChunk` dropped from the spec (a different type) |
-| `APP-IPC-CONTRACT-004` | closed | - | Fixed (was): three wordings. `api.service.ts` and `settings.page.tsx` now use `BRIDGE_UNAVAILABLE` |
+| `APP-IPC-CONTRACT-003` | closed | - | Fixed (was): preload re-declared shared types. Every type with a `@hyveon/shared` counterpart is re-exported and equality-tested in `shared-types.test.ts` (typechecked via `tsconfig.test.json`); the spec is scoped to shared-defined types, and the main-only mirrors (`GameWizardDraft`, `Iac*`, log pages, wizard types) are tracked as an unspecced work item in the arrow doc |
+| `APP-IPC-CONTRACT-004` | closed | - | Fixed (was): three wordings. `api.service.ts` and `settings.page.tsx` now use `BRIDGE_UNAVAILABLE`; Settings' manual check and install show it when the bridge is absent (jsdom test), and a rejection from a present bridge keeps "Unable to reach the update service." |
 | `APP-IPC-SEAM-006` | closed | - | Fixed (was): second mock registry. `test-mock-registry.ts` and its export deleted |
 | `APP-IPC-SEAM-007` | closed | - | Fixed (was): preload build emitted tests. `tsconfig.json` excludes `src/**/*.test.ts` |
 
