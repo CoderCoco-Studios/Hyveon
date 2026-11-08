@@ -3673,7 +3673,9 @@ export class PulumiService {
    *
    * @remarks
    * A stack with no outputs yet (a first-ever apply) has no deployed secrets, so the state source is empty and the
-   * configuration still applies. The set iterates longest-first so a shorter value that prefixes a longer one cannot
+   * configuration still applies. The Pulumi CLI prints `{}` for such a stack, but if `outputs()` throws, the stack
+   * is still treated as stateless when its update history reads back empty; a throw on a stack that has history, or
+   * a history that cannot be read, fails the operation. The set iterates longest-first so a shorter value that prefixes a longer one cannot
    * leave the longer value's suffix exposed.
    * @param stack - The stack the operation is about to run against.
    * @param deploymentConfig - The configuration the operation was built from; when omitted (destroy) the stored
@@ -3682,7 +3684,18 @@ export class PulumiService {
    * @throws Error when the stack state cannot be read, so the operation fails before any engine output exists.
    */
   private async loadRedactionSet(stack: Stack, deploymentConfig?: DeploymentConfig): Promise<Set<string>> {
-    const outputs = await stack.outputs();
+    let outputs: OutputMap;
+    try {
+      outputs = await stack.outputs();
+    } catch (err) {
+      if (!(await PulumiService.stackHasNoUpdates(stack))) {
+        throw err;
+      }
+      logger.warn('PulumiService: stack outputs unreadable but the stack has no update history, treating state as empty', {
+        error: errMessage(err),
+      });
+      outputs = {};
+    }
     const values = PulumiService.redactionValuesFromGameServers(outputs?.['appliedGameServers']?.value);
     if (deploymentConfig) {
       PulumiService.redactionValuesFromGameServers(deploymentConfig.gameServers).forEach((value) => values.add(value));
@@ -3700,6 +3713,20 @@ export class PulumiService {
       }
     }
     return new Set([...values].sort((a, b) => b.length - a.length));
+  }
+
+  /**
+   * Reports whether the stack has never completed or attempted an update, so its state is known to be empty.
+   *
+   * @param stack - The stack to inspect.
+   * @returns `true` only when `stack.history()` resolves to no entries; `false` when it has entries or cannot be read.
+   */
+  private static async stackHasNoUpdates(stack: Stack): Promise<boolean> {
+    try {
+      return (await stack.history(1)).length === 0;
+    } catch {
+      return false;
+    }
   }
 
   // @spec GAME-HTTPS-010

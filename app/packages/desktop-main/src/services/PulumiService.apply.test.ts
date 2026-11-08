@@ -876,12 +876,39 @@ describe('PulumiService.apply state-derived redaction', () => {
   // @spec IAC-ENGINE-REDACT-004
   it('should fail closed, never calling stack.up(), when the stack state cannot be read', async () => {
     const upImpl = vi.fn();
-    const workspace = makeWorkspace(upImpl, { outputs: vi.fn().mockRejectedValue(new Error('backend unreachable')) });
+    const workspace = makeWorkspace(upImpl, {
+      outputs: vi.fn().mockRejectedValue(new Error('backend unreachable')),
+      history: vi.fn().mockResolvedValue([makeUpdateSummary()]),
+    });
     const service = makeService({ workspace });
 
     await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toBeInstanceOf(PulumiUpError);
 
     expect(upImpl).not.toHaveBeenCalled();
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should fail closed when outputs() throws and the update history cannot be read either', async () => {
+    const upImpl = vi.fn();
+    const workspace = makeWorkspace(upImpl, {
+      outputs: vi.fn().mockRejectedValue(new Error('backend unreachable')),
+      history: vi.fn().mockRejectedValue(new Error('backend unreachable')),
+    });
+    const service = makeService({ workspace });
+
+    await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toBeInstanceOf(PulumiUpError);
+
+    expect(upImpl).not.toHaveBeenCalled();
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should apply on a fresh stack whose outputs() throws and which has no update history (first-ever apply)', async () => {
+    const workspace = makeWorkspace(makeHappyPathUp(), { outputs: vi.fn().mockRejectedValue(new Error('no stack outputs')) });
+    const service = makeService({ workspace });
+
+    const { result } = await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+
+    expect(result).toBeDefined();
   });
 
   // @spec IAC-ENGINE-REDACT-004

@@ -684,12 +684,43 @@ describe('PulumiService.preview state-derived redaction', () => {
   // @spec IAC-ENGINE-REDACT-004
   it('should fail closed, never calling stack.preview(), when the stack state cannot be read', async () => {
     const previewImpl = vi.fn();
-    const workspace = makeWorkspace(previewImpl, [], vi.fn().mockRejectedValue(new Error('backend unreachable')));
+    const workspace = makeWorkspace(previewImpl, [makeUpdateSummary()], vi.fn().mockRejectedValue(new Error('backend unreachable')));
     const service = makeService({ workspace });
 
     await expect(collectPreviewChunks(service.preview())).rejects.toThrow('backend unreachable');
 
     expect(previewImpl).not.toHaveBeenCalled();
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should fail closed when outputs() throws and the update history cannot be read either', async () => {
+    const previewImpl = vi.fn();
+    const workspace = makeWorkspace(previewImpl, [], vi.fn().mockRejectedValue(new Error('backend unreachable')));
+    const history = vi.fn().mockRejectedValue(new Error('backend unreachable'));
+    workspace.getOrCreateStack.mockResolvedValue({ preview: previewImpl, history, outputs: vi.fn().mockRejectedValue(new Error('backend unreachable')) });
+    const service = makeService({ workspace });
+
+    await expect(collectPreviewChunks(service.preview())).rejects.toThrow('backend unreachable');
+
+    expect(previewImpl).not.toHaveBeenCalled();
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should treat a fresh stack whose outputs() throws as having no state and still redact configuration values', async () => {
+    const outputs = vi.fn().mockRejectedValue(new Error('no stack outputs'));
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.('RCON_PASSWORD=sup3rSecretValue\n');
+        return { stdout: '', stderr: '', changeSummary: { create: 1 } };
+      },
+      [],
+      outputs,
+    );
+    const service = makeService({ workspace, remoteFileStore: configHolding('sup3rSecretValue') });
+
+    const { chunks } = await collectPreviewChunks(service.preview());
+
+    expect(chunks.map((chunk) => chunk.line)).toEqual(['RCON_PASSWORD=***REDACTED***']);
   });
 
   // @spec IAC-ENGINE-REDACT-005

@@ -1327,7 +1327,10 @@ describe('PulumiService.destroy environment redaction', () => {
 
   it('should fail closed, never calling stack.destroy(), when the stack state cannot be read', async () => {
     const destroyImpl = vi.fn();
-    const workspace = makeWorkspace(destroyImpl, { outputs: vi.fn().mockRejectedValue(new Error('backend unreachable')) });
+    const workspace = makeWorkspace(destroyImpl, {
+      outputs: vi.fn().mockRejectedValue(new Error('backend unreachable')),
+      history: vi.fn().mockResolvedValue([makeUpdateSummary()]),
+    });
     const runRecordPersister = makeRunRecordPersister();
     const service = makeService({ workspace, runRecordPersister });
 
