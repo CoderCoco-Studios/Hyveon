@@ -838,9 +838,6 @@ describe('GamesWriteService', () => {
     // @spec GAME-WRITE-004
     it('should delete the orphaned secret only after the config write of an auth clear succeeds', async () => {
       const { service, deploymentConfig } = makeService({ existingGameServers: [ownedBefore('basic')] });
-      vi.mocked(deleteHealthCheckAuthSecret).mockImplementation(async () => {
-        expect(deploymentConfig.updateGameServer).toHaveBeenCalled();
-      });
 
       const result = await service.updateGame({
         name: 'minecraft',
@@ -848,6 +845,35 @@ describe('GamesWriteService', () => {
       });
 
       expect(result.ok).toBe(true);
+      expect(deleteHealthCheckAuthSecret).toHaveBeenCalledWith('minecraft');
+      expect(vi.mocked(deleteHealthCheckAuthSecret).mock.invocationCallOrder[0]).toBeGreaterThan(
+        vi.mocked(deploymentConfig.updateGameServer).mock.invocationCallOrder[0],
+      );
+    });
+
+    // @spec GAME-WRITE-004
+    it('should still return the modeled failure and log when the rollback itself throws', async () => {
+      vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue(ARN);
+      vi.mocked(deleteHealthCheckAuthSecret).mockRejectedValue(new Error('rollback denied'));
+      const { service, deploymentConfig } = makeService();
+      vi.mocked(deploymentConfig.addGameServer).mockRejectedValue(new OptimisticLockError('a', 'b'));
+      vi.mocked(logger.error).mockClear();
+
+      const result = await service.createGame({ name: 'minecraft', config: makeConfig({ healthCheck: makeHealthCheck(basicWrite) }) });
+
+      expect(result).toMatchObject({ ok: false, code: 'conflict' });
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('roll back'), expect.objectContaining({ error: 'rollback denied' }));
+    });
+
+    // @spec GAME-WRITE-004
+    it('should roll back the secret when the post-upsert validation fails', async () => {
+      vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue('not-a-secret-arn');
+      const { service, deploymentConfig } = makeService();
+
+      const result = await service.createGame({ name: 'minecraft', config: makeConfig({ healthCheck: makeHealthCheck(basicWrite) }) });
+
+      expect(result).toMatchObject({ ok: false, code: 'validation' });
+      expect(deploymentConfig.addGameServer).not.toHaveBeenCalled();
       expect(deleteHealthCheckAuthSecret).toHaveBeenCalledWith('minecraft');
     });
 
@@ -875,6 +901,77 @@ describe('GamesWriteService', () => {
       expect(result).toMatchObject({ ok: false, code: 'error' });
       expect(upsertHealthCheckAuthSecret).not.toHaveBeenCalled();
       expect(deploymentConfig.updateGameServer).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('concurrent writes', () => {
+    const ARN = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-minecraft-healthcheck-auth-AbCdEf';
+    const basicWrite = { auth: { type: 'basic', username: 'admin', password: 'hunter2' } } as const;
+
+    /** A promise whose resolution the test controls. */
+    function deferred<T = void>(): { promise: Promise<T>; resolve: (v: T) => void } {
+      let resolve!: (v: T) => void;
+      const promise = new Promise<T>((r) => { resolve = r; });
+      return { promise, resolve };
+    }
+
+    // @spec GAME-WRITE-014
+    it("should not start a second create until the first has committed, so a losing create cannot roll back the winner's secret", async () => {
+      vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue(ARN);
+      const { service, deploymentConfig } = makeService();
+      const gate = deferred<{ etag: string }>();
+      const committed: GameServer[] = [];
+      vi.mocked(deploymentConfig.getGameServersStrict).mockImplementation(async () => [...committed]);
+      vi.mocked(deploymentConfig.addGameServer).mockImplementationOnce(async (name) => {
+        const result = await gate.promise;
+        committed.push(makeExistingGame({ name }));
+        return result;
+      });
+      const config = makeConfig({ healthCheck: makeHealthCheck(basicWrite) });
+
+      const first = service.createGame({ name: 'minecraft', config });
+      const second = service.createGame({ name: 'minecraft', config });
+      await vi.waitFor(() => expect(deploymentConfig.addGameServer).toHaveBeenCalledTimes(1));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(upsertHealthCheckAuthSecret).toHaveBeenCalledTimes(1);
+      expect(deploymentConfig.getGameServersStrict).toHaveBeenCalledTimes(1);
+
+      gate.resolve({ etag: 'e' });
+      await first;
+      await second;
+
+      expect(upsertHealthCheckAuthSecret).toHaveBeenCalledTimes(1);
+      expect(deleteHealthCheckAuthSecret).not.toHaveBeenCalled();
+    });
+
+    // @spec GAME-WRITE-014
+    it('should run two updates of one game strictly in order, each reading siblings after the previous write', async () => {
+      const { service, deploymentConfig } = makeService({ existingGameServers: [makeExistingGame({ name: 'minecraft' })] });
+      const gate = deferred<{ etag: string }>();
+      vi.mocked(deploymentConfig.updateGameServer).mockReturnValueOnce(gate.promise);
+
+      const first = service.updateGame({ name: 'minecraft', config: buildConfig() });
+      const second = service.updateGame({ name: 'minecraft', config: buildConfig() });
+      await vi.waitFor(() => expect(deploymentConfig.updateGameServer).toHaveBeenCalledTimes(1));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(deploymentConfig.getGameServersStrict).toHaveBeenCalledTimes(1);
+
+      gate.resolve({ etag: 'e' });
+      await Promise.all([first, second]);
+
+      expect(deploymentConfig.updateGameServer).toHaveBeenCalledTimes(2);
+    });
+
+    // @spec GAME-WRITE-014
+    it('should keep serving later writes after an earlier write rejects', async () => {
+      const { service, deploymentConfig } = makeService();
+      vi.mocked(deploymentConfig.getGameServersStrict).mockRejectedValueOnce(new Error('S3 down'));
+
+      const first = await service.deleteGame({ name: 'a' });
+      await service.deleteGame({ name: 'b' });
+
+      expect(first).toMatchObject({ ok: false });
+      expect(deploymentConfig.removeGameServer).toHaveBeenCalledTimes(1);
     });
   });
 

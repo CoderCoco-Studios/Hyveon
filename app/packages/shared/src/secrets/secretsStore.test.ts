@@ -226,6 +226,20 @@ describe('readHealthCheckAuthSecret', () => {
     await expect(readHealthCheckAuthSecret('palworld')).resolves.toBeNull();
   });
 
+  it('should return null when the secret is pending deletion', async () => {
+    secrets.on(GetSecretValueCommand).rejects(new InvalidRequestException({ message: 'scheduled for deletion', $metadata: {} }));
+    secrets.on(DescribeSecretCommand).resolves({ DeletedDate: new Date() });
+
+    await expect(readHealthCheckAuthSecret('palworld')).resolves.toBeNull();
+  });
+
+  it('should rethrow an InvalidRequestException that is not about pending deletion', async () => {
+    secrets.on(GetSecretValueCommand).rejects(new InvalidRequestException({ message: 'other', $metadata: {} }));
+    secrets.on(DescribeSecretCommand).resolves({});
+
+    await expect(readHealthCheckAuthSecret('palworld')).rejects.toThrow('other');
+  });
+
   it('should rethrow any other failure', async () => {
     secrets.on(GetSecretValueCommand).rejects(new Error('AccessDenied'));
 

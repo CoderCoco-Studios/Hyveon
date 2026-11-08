@@ -105,6 +105,9 @@ function ConfigTableCard<T>({ title, columns, rows, rowKey }: ConfigTableCardPro
  * successful save (`onSaved`) replaces the in-memory merged games list with
  * the server's fresh response and switches back to the read-only view, so
  * the edited fields are visible immediately without a full refetch.
+ *
+ * A failed games-list load renders a load-error banner in place of any of those states; the banner has no retry, the
+ * operator reloads the route.
  */
 export function GameDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -120,7 +123,7 @@ export function GameDetailPage() {
         if (!cancelled) setGames(res.games);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Failed to load games.');
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
       });
     return () => {
       cancelled = true;

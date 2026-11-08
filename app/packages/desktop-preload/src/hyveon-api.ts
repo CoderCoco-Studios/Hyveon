@@ -47,6 +47,7 @@ import type {
   DeleteGamePayload,
   GameWizardDraft,
   StoredGameWizardDraft,
+  StoredResolvedGameWizardDraft,
   GameStatus,
   LambdaFunctionKey,
   ManualUpdateCheckResult,
@@ -138,6 +139,7 @@ export type {
   DeleteGamePayload,
   GameWizardDraft,
   StoredGameWizardDraft,
+  StoredResolvedGameWizardDraft,
   GameStatus,
   LambdaFunctionKey,
   ManualUpdateCheckResult,
@@ -1007,7 +1009,7 @@ export interface HyveonGamesApi {
      * response is sent — those values never cross the IPC boundary, and the
      * operator re-enters them on resume.
      */
-    get: () => Promise<StoredGameWizardDraft | null>;
+    get: () => Promise<StoredResolvedGameWizardDraft | null>;
     /** Saves the current draft and step index. */
     save: (payload: { draft: GameWizardDraft; stepIndex: number }) => Promise<void>;
     /**

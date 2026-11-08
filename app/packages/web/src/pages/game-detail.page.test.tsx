@@ -324,6 +324,14 @@ describe('GameDetailPage', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent('IPC unavailable');
       expect(screen.queryByText(/no game named/i)).toBeNull();
     });
+
+    it('should show a stringified message when the load rejects with a non-Error value', async () => {
+      apiMock.games.mockRejectedValue('boom');
+
+      renderDetailPage('minecraft');
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('boom');
+    });
   });
 
   describe('an unknown :name param', () => {

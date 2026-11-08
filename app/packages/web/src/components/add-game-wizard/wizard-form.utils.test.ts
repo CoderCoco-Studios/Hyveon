@@ -339,6 +339,14 @@ describe('webPort draft conversion', () => {
   });
 });
 
+describe('draftFromGameServer port protocol', () => {
+  it('should lowercase a stored upper-case protocol so it matches the select options', () => {
+    const game = makeExistingGame({ ports: [{ container: 25565, protocol: 'TCP' as 'tcp' }] });
+
+    expect(draftFromGameServer(game).ports[0]?.protocol).toBe('tcp');
+  });
+});
+
 describe('validateStorageStep', () => {
   it('should flag an empty volumes array (volumes-min-1 rule)', () => {
     const issues = validateStorageStep(makeValidDraft({ volumes: [] }), []);

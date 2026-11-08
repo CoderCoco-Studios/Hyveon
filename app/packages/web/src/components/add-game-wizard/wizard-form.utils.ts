@@ -21,7 +21,7 @@ import {
   GAME_NAME_PATTERN_DESCRIPTION,
   type GameServerValidationIssue,
 } from '@hyveon/shared/gameServerValidator';
-import { ADD_GAME_WIZARD_STEPS, type AddGameWizardStep } from '@hyveon/shared';
+import { ADD_GAME_WIZARD_STEPS, type AddGameWizardStep, type ResolvedGameWizardDraft } from '@hyveon/shared';
 import type {
   CreateGamePayload,
   GameServer,
@@ -62,67 +62,30 @@ export type WizardMode = 'create' | 'edit';
 /** Placeholder name used to validate a draft before the operator has typed one, so the port-collision self-exclusion check never accidentally matches a real existing game. */
 const DRAFT_NAME_PLACEHOLDER = '__draft__';
 
-/** Draft form of a single `GameServerPort` row. `container` is `null` until the operator fills in the field, so an empty row can be told apart from a mistyped one. `visibility` is always a concrete `'public'`/`'internal'` value in the draft (never `undefined`) — a form control needs something to bind to; `draftToPayload` collapses `'public'` back to an omitted field on submit. */
-export interface WizardDraftPort {
-  container: number | null;
-  protocol: string;
-  visibility: 'public' | 'internal';
-}
+/**
+ * In-progress state of the add-game wizard across all six steps: the shared {@link ResolvedGameWizardDraft}, whose
+ * field names mirror `GameServer` (snake_case) so it converts directly into a proposed entry for
+ * {@link validateGameServer}. `container`/`port`/`cpu` are `null` until the operator fills them in, `visibility` is
+ * always concrete (`draftToPayload` collapses `'public'` to an omitted field), and `username`/`password`/`token` are
+ * write-only: blank on a resumed or edit-mode draft, with `healthCheck.secretSet` the only signal that a credential
+ * exists.
+ */
+export type WizardDraft = ResolvedGameWizardDraft;
+
+/** Draft form of a single `GameServerPort` row. */
+export type WizardDraftPort = WizardDraft['ports'][number];
 
 /** Draft form of a single `GameServerVolume` row. */
-export interface WizardDraftVolume {
-  name: string;
-  container_path: string;
-}
+export type WizardDraftVolume = WizardDraft['volumes'][number];
 
 /** Draft form of a single `GameServerFileSeed` row. Empty strings mean "not set" and are stripped before validation/submit. */
-export interface WizardDraftFileSeed {
-  path: string;
-  content: string;
-  content_base64: string;
-  mode: string;
-}
+export type WizardDraftFileSeed = WizardDraft['file_seeds'][number];
 
 /** Draft form of a single `GameServerEnvironmentVariable` row. */
-export interface WizardDraftEnvironmentVariable {
-  name: string;
-  value: string;
-}
+export type WizardDraftEnvironmentVariable = WizardDraft['environment'][number];
 
-/**
- * Draft form of the optional `healthCheck` declaration. `enabled` toggles
- * whether the game gets a `healthCheck` at all; every other field is only
- * meaningful when it's `true`. `authType` drives which credential fields are
- * shown/submitted: `'none'` (no credential), `'raw'` (operator-supplied
- * ARN, unchanged from before this field existed), `'basic'`
- * (username+password), `'bearer'` (token). For `'basic'`/`'bearer'`,
- * `username`/`password`/`token` are write-only — always blank on a resumed
- * or edit-mode draft; `secretSet` (from the redacted read-side shape) is
- * the only signal that a credential is already configured, regardless of
- * type. See {@link healthCheckFromDraft}'s doc for exactly how these fields
- * convert into the submitted `auth` write-input (including when a blank
- * `'none'` selection submits `null` vs. `undefined`).
- * `value` stores the declared comparison value as free text; it is parsed
- * to a JSON scalar (number/boolean/null/string) on submit, and is unused
- * (and not submitted) when `operator` is `"exists"`.
- */
-export interface WizardDraftHealthCheck {
-  enabled: boolean;
-  scheme: string;
-  port: number | null;
-  path: string;
-  method: string;
-  timeoutMs: number | null;
-  jsonPath: string;
-  operator: string;
-  value: string;
-  authType: 'none' | 'raw' | 'basic' | 'bearer';
-  secretArn: string;
-  username: string;
-  password: string;
-  token: string;
-  secretSet: boolean;
-}
+/** Draft form of the optional `healthCheck` declaration; every field but `enabled` is meaningful only when it is `true`. */
+export type WizardDraftHealthCheck = WizardDraft['healthCheck'];
 
 /** Blank {@link WizardDraftHealthCheck}, used both for a brand-new draft and for a declared game with no `healthCheck`. */
 function emptyHealthCheckDraft(): WizardDraftHealthCheck {
@@ -145,33 +108,6 @@ function emptyHealthCheckDraft(): WizardDraftHealthCheck {
   };
 }
 
-/**
- * In-progress state of the add-game wizard, covering every field across all
- * six steps. Field names mirror `GameServer` (snake_case) since the draft
- * is converted directly into a proposed entry for {@link validateGameServer}.
- */
-export interface WizardDraft {
-  name: string;
-  image: string;
-  connect_message: string;
-  cpu: number | null;
-  memory: number | null;
-  ports: WizardDraftPort[];
-  volumes: WizardDraftVolume[];
-  file_seeds: WizardDraftFileSeed[];
-  environment: WizardDraftEnvironmentVariable[];
-  /** Container start command (Docker `CMD`) argument list. Required when any `environment` value uses `${hyveon.network.public-ipv4}`. */
-  command: string[];
-  /**
-   * Hostname pinned for Node.js games; `undefined` (or absent, as on a draft autosaved before this field existed)
-   * means the "Pin hostname" switch is off, `''` means on but not yet filled in.
-   */
-  pinnedHostname?: string | undefined;
-  https: boolean;
-  /** Port the game's web server listens on (the Caddy upstream); `null` until entered. Meaningful only while `https` is on — {@link draftToPayload} and {@link toProposedEntry} drop it otherwise. */
-  webPort: number | null;
-  healthCheck: WizardDraftHealthCheck;
-}
 
 /** Default Fargate cpu units (1 vCPU) a new draft starts with so the Resources step shows a cost estimate immediately. */
 export const DEFAULT_WIZARD_CPU = 1024;
@@ -229,7 +165,7 @@ export function draftFromGameServer(game: RedactedGameServer): WizardDraft {
     memory: game.memory,
     ports: game.ports.map((port) => ({
       container: port.container,
-      protocol: port.protocol,
+      protocol: port.protocol.toLowerCase(),
       visibility: port.visibility === 'internal' ? 'internal' : 'public',
     })),
     volumes: game.volumes.map((volume) => ({ name: volume.name, container_path: volume.container_path })),

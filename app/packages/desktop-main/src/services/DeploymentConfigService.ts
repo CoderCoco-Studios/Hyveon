@@ -322,7 +322,7 @@ export class DeploymentConfigService {
         // doesn't read as a genuine incident.
         logger.warn('No configuration bucket configured — returning empty gameServers list', {});
       } else {
-        logger.error('Failed to load deployment config gameServers — returning empty list', { err });
+        logger.error('Failed to load deployment config gameServers — returning empty list', { err: errMessage(err) });
       }
       if (generation === this.cacheGeneration) {
         this.cache = { value: [], cachedAt: this.now(), failed: true };
@@ -360,7 +360,7 @@ export class DeploymentConfigService {
       return await this.loadAndCacheGameServers(this.cacheGeneration);
     } catch (err) {
       if (!(err instanceof ConfigurationNotConfiguredError)) {
-        logger.error('Failed to load deployment config gameServers for a write', { err: errMessage(err) });
+        logger.error('Failed to load deployment config gameServers (strict read)', { err: errMessage(err) });
       }
       throw err;
     }

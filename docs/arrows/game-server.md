@@ -16,7 +16,7 @@ Shared model, validator and write path are implemented and tested; every active 
 - `docs/intent/game-server/game-server-design.md`
 
 ### EARS
-- `docs/intent/game-server/game-server-specs.md` (135 specs)
+- `docs/intent/game-server/game-server-specs.md` (136 specs)
 
 ### Tests
 - `app/packages/desktop-main/src/controllers/games.controller.test.ts`
@@ -117,12 +117,12 @@ Shared model, validator and write path are implemented and tested; every active 
 | HTTPS | `GAME-HTTPS-001` to `GAME-HTTPS-017` | 17 | 0 | 0 |
 | Ports, Visibility and ICMP | `GAME-PORT-001` to `GAME-PORT-015` | 15 | 0 | 0 |
 | Pinned Hostname | `GAME-HOST-001` to `GAME-HOST-016` | 16 | 0 | 0 |
-| Write Path | `GAME-WRITE-001` to `GAME-WRITE-013` | 13 | 0 | 0 |
+| Write Path | `GAME-WRITE-001` to `GAME-WRITE-014` | 14 | 0 | 0 |
 | IPC Surface and Games Pages | `GAME-IPC-001` to `GAME-IPC-010` | 10 | 0 | 0 |
 | Add-Game Wizard Flow | `GAME-WIZ-001` to `GAME-WIZ-006` | 6 | 0 | 0 |
 | Draft Persistence | `GAME-DRAFT-001` to `GAME-DRAFT-013` | 13 | 0 | 0 |
 
-**Summary:** 135 of 135 active specs implemented; 0 deferred; 0 gaps.
+**Summary:** 136 of 136 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 

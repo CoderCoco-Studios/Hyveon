@@ -84,7 +84,7 @@ These pairs describe one behaviour from two leaves. Keep one ID as the owner and
 ## Decisions for the owner
 
 - **Refactor wishes written as EARS (class d).** `RT-TASK-STATUS-008`, `RT-TASK-COST-010`, `RT-TASK-COST-012`, `GAME-IPC-005`, `DISCORD-SVC-005`, `IAC-RUN-APPR-006`, `IAC-RUN-DSTR-014`, `IAC-RUN-IPC-008`, `APP-UPDATE-IPC-009`, `APP-UPDATE-PKG-004`, `APP-UPDATE-PKG-005`, `APP-DIAG-LOG-008`, `APP-LOGS-GROUP-007`, `APP-IPC-CONTRACT-004`, `APP-IPC-SEAM-006`, `APP-SHELL-UI-005`, `APP-SHELL-UI-006` and `RT-HEALTH-PROV-005` describe deduplication, dead-code removal, conventions or test style with no runtime effect. Move each to its LLD's Work Required list, or keep them as EARS if the project wants structural requirements tracked as specs.
-- **Spec conflicts with the design.** `CONFIG-RESTORE-004` contradicts the deployment-config LLD's Decisions table (unconditional restore; open question 2). `GAME-VALID-010` and `GAME-VALID-011` (CLOSED) overlapped (reject anything but exact lowercase vs treat case-insensitively or normalise on read); merge them into one reconciled spec, as `docs/arrows/game-server.md:176` already pairs them.
+- **Spec conflicts with the design.** `CONFIG-RESTORE-004` contradicts the deployment-config LLD's Decisions table (unconditional restore; open question 2).
 - **Policy calls blocking a gap.** `IAC-ENGINE-LOCK-010` (the spec and `docs/arrows/iac/engine.md:155` Must Fix 3 want lock classification on the stack-init `refresh`, but the `PulumiService.initializeStack` TSDoc at `PulumiService.ts:1097-1103` deliberately declines it because the wizard Retry is simpler; `docs/intent/iac/engine/engine-design.md:151` open question 3 is unresolved), `APP-SHELL-GATE-006` (should the setup gate fail open when setup state is unreadable), `APP-WIZARD-ROTKEY-005` (wire `rotateActiveCredentials` or drop it), `APP-IPC-STREAM-009` and `IAC-RUN-LOCK-010` wait on decisions recorded in their arrow docs.
 - **Contested classification.** `APP-DIAG-AUDIT-004` is class c here, but a (implemented), c (defer) and d (spec stale) are each defensible. The spec's behaviour holds today through the upstream never-reject contract (`PulumiService.getStackOutputs`, `PulumiService.ts:972-1023`; `ConfigService.ts:153-167` still rethrows defensively), so the gap is only the unguarded read at `AuditService.ts:91`. The owner picks the class.
 
@@ -320,21 +320,7 @@ Specs: `docs/intent/operator-app/ipc-bridge/ipc-bridge-specs.md` · Arrow doc: `
 
 Specs: `docs/intent/game-server/game-server-specs.md` · Arrow doc: `docs/arrows/game-server.md`
 
-| Spec | Class | Impact | Evidence |
-|---|---|---|---|
-| `GAME-VALID-010` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-VALID-011` (CLOSED) | d | - | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-TOKEN-008` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-HOST-016` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-WRITE-004` (CLOSED) | b | med | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-WRITE-005` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-WRITE-006` (CLOSED) | b | med | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-WRITE-010` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-WRITE-012` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-IPC-005` (CLOSED) | d | - | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-IPC-007` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-WIZ-005` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
-| `GAME-DRAFT-008` (CLOSED) | b | low | Closed: implemented or reconciled in the game-server gap pass. |
+All specs in this segment are closed.
 
 ### `deployment-config`
 

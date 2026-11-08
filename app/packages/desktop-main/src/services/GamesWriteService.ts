@@ -87,6 +87,8 @@ const AUDIT_ACTION_BY_WRITE_ACTION: Record<GameWriteAction, AuditAction> = {
  */
 @Injectable()
 export class GamesWriteService {
+  private writeChain: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly config: ConfigService,
     private readonly deploymentConfig: DeploymentConfigService,
@@ -133,6 +135,11 @@ export class GamesWriteService {
    *    setup wizard instead of a generic failure message.
    */
   async createGame(payload: CreateGamePayload): Promise<GameWriteResult> {
+    return this.exclusive(() => this.createGameLocked(payload));
+  }
+
+  /** createGame body, run under the write lock. */
+  private async createGameLocked(payload: CreateGamePayload): Promise<GameWriteResult> {
     logger.debug('GamesWriteService.createGame: creating game server entry', { game: payload.name });
     const authIssues = validateHealthCheckAuthInput(payload.config.healthCheck?.auth);
     if (authIssues.length > 0) {
@@ -227,6 +234,11 @@ export class GamesWriteService {
    *    setup wizard instead of a generic failure message.
    */
   async updateGame(payload: UpdateGamePayload): Promise<GameWriteResult> {
+    return this.exclusive(() => this.updateGameLocked(payload));
+  }
+
+  /** updateGame body, run under the write lock. */
+  private async updateGameLocked(payload: UpdateGamePayload): Promise<GameWriteResult> {
     logger.debug('GamesWriteService.updateGame: updating game server entry', { game: payload.name });
     const siblings = await this.readSiblings();
     if (!Array.isArray(siblings)) {
@@ -304,6 +316,11 @@ export class GamesWriteService {
    *    setup wizard instead of a generic failure message.
    */
   async deleteGame(payload: DeleteGamePayload): Promise<GameWriteResult> {
+    return this.exclusive(() => this.deleteGameLocked(payload));
+  }
+
+  /** deleteGame body, run under the write lock. */
+  private async deleteGameLocked(payload: DeleteGamePayload): Promise<GameWriteResult> {
     logger.debug('GamesWriteService.deleteGame: deleting game server entry', { game: payload.name });
     const siblings = await this.readSiblings();
     if (!Array.isArray(siblings)) {
@@ -332,6 +349,21 @@ export class GamesWriteService {
     }
 
     return this.successResult('delete', payload.name, undefined, { before, after: null, versionId: write.versionId });
+  }
+
+
+  // @spec GAME-WRITE-014
+  /**
+   * Serializes a write so the sibling read, secret upsert, config write and commit/rollback of one write never
+   * interleave with another's. The desktop app is a single process, so an in-process chain is sufficient.
+   *
+   * @param fn - The write to run once every earlier write has settled.
+   * @returns Whatever `fn` resolves to.
+   */
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.writeChain.then(fn, fn);
+    this.writeChain = run.then(() => undefined, () => undefined);
+    return run;
   }
 
   // @spec GAME-WRITE-006

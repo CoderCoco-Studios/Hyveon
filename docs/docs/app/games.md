@@ -145,6 +145,8 @@ authoritative health check) still can. Note that this is VPC-wide
 reachability, not scoped to any one caller — see
 [Infra program reference](/components/infra) for the security-group detail.
 
+A port's `protocol` must be exactly `tcp`, `udp` or `icmp`. A hand-edited `deployment-config.json` entry with any other value (including upper-case `TCP`) is rejected with an issue on that port's protocol; the wizard and edit form show an existing upper-case value as its lower-case equivalent.
+
 #### ICMP entries (ping reachability)
 
 Selecting `ICMP` for a row relabels the numeric field **ICMP type** instead of **Container port**, prefills it with `8` if it's still blank, and shows a hint underneath: *"8 = echo request (ping)"*. An ICMP row never becomes an ECS port mapping — it only opens an ICMP ingress rule on the security group, for the type you declared (`0`–`255`; `8` is a standard ping). This is for a game whose community or server-browser tooling pings the server to check it's alive (Palworld's server browser is the reference case): declaring `{ "container": 8, "protocol": "icmp" }` opens ICMP echo without exposing or mapping any container port for it. The numeric field enforces the same `0`–`255` range as any other ICMP type — entering an out-of-range value blocks the step with `ICMP type must be an integer between 0 and 255`.
@@ -243,8 +245,11 @@ always deletes its app-owned secret, if any.
 
 If the save fails after a Basic or Bearer credential was written (a stale
 version, a missing game, or an S3 error), the app restores the secret's
-previous value, or deletes a secret that save created, so a failed save never
-leaves the live health-check credentials changed. If the secret itself cannot
+previous value, or deletes a secret that save created, so a failed save
+normally leaves the live health-check credentials as they were. The rollback is
+best-effort: if it fails, the failure is logged and you still see the original
+save error. Saves run one at a time, so two concurrent saves cannot undo each
+other's credential. If the secret itself cannot
 be written, the save fails with a `Failed to save the health-check credential`
 error and nothing is written to the configuration.
 
@@ -521,7 +526,7 @@ AWS resources.
 If you navigate to a name that exists in neither place you get
 `No game named "foo" was found.`
 
-If the games list itself cannot be loaded, the page shows `Failed to load games: <error>` instead of that message.
+If the games list itself cannot be loaded, the page shows `Failed to load games: <error>` instead of that message. The banner has no retry button; reopen the page to try again.
 
 ## Files
 

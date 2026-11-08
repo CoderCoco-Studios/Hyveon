@@ -180,7 +180,7 @@ export async function upsertHealthCheckAuthSecret(gameId: string, value: string)
  * save can restore it. Never logged by callers.
  *
  * @param gameId - The `game_servers` map key whose credential secret to read.
- * @returns The secret string, or `null` when the secret does not exist or has no string value.
+ * @returns The secret string, or `null` when the secret does not exist, is pending deletion, or has no string value.
  */
 export async function readHealthCheckAuthSecret(gameId: string): Promise<string | null> {
   try {
@@ -188,6 +188,7 @@ export async function readHealthCheckAuthSecret(gameId: string): Promise<string 
     return resp.SecretString ?? null;
   } catch (err) {
     if (err instanceof ResourceNotFoundException) return null;
+    if (await isPendingDeletionError(err, healthCheckAuthSecretName(gameId))) return null;
     throw err;
   }
 }
