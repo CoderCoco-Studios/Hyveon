@@ -918,12 +918,10 @@ describe('FirstRunWizard', () => {
       await userEvent.type(stateBucketInput, 'new-tfstate-name');
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
       await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+      hyveonMock.wizard.saveState.mockClear();
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
 
       await screen.findByRole('button', { name: /finish setup/i });
-      hyveonMock.wizard.saveState.mockClear();
-
-      await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
 
       await waitFor(() => expect(hyveonMock.wizard.saveState).toHaveBeenCalledTimes(1));
       expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({
@@ -959,7 +957,6 @@ describe('FirstRunWizard', () => {
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
 
       await screen.findByRole('button', { name: /finish setup/i });
-      hyveonMock.wizard.saveState.mockClear();
       await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
 
       await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalled());
@@ -1002,7 +999,7 @@ describe('FirstRunWizard', () => {
       const onCancel = vi.fn();
       await pasteKeysInReconfigure(onCancel);
 
-      expect(await screen.findByText(/saved when you finish/i)).toBeInTheDocument();
+      expect(await screen.findByText(/saved when you continue/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
       expect(hyveonMock.wizard.saveCredentials).not.toHaveBeenCalled();
 
@@ -1014,16 +1011,15 @@ describe('FirstRunWizard', () => {
     });
 
     // @spec APP-WIZARD-RECONF-007
-    it('should save the staged pasted credentials and commit their profile at Finish', async () => {
+    it('should save the staged pasted credentials and commit their profile before stack-init runs, so it resolves the new key', async () => {
       await pasteKeysInReconfigure();
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByText(/bootstrap aws resources is already configured/i);
+      expect(hyveonMock.wizard.saveCredentials).not.toHaveBeenCalled();
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByRole('button', { name: /finish setup/i });
+      await waitFor(() => expect(hyveonMock.iac.stack.initialize).toHaveBeenCalled());
 
-      await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
-
-      await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalled());
       expect(hyveonMock.wizard.saveCredentials).toHaveBeenCalledTimes(1);
       expect(hyveonMock.wizard.saveCredentials).toHaveBeenCalledWith({
         accessKeyId: 'AKID',
@@ -1033,6 +1029,64 @@ describe('FirstRunWizard', () => {
       expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({
         aws: { profile: 'hyveon-pasted', region: 'us-west-2' },
       });
+      const saveCredentialsOrder = hyveonMock.wizard.saveCredentials.mock.invocationCallOrder[0]!;
+      const saveStateOrder = hyveonMock.wizard.saveState.mock.invocationCallOrder[0]!;
+      const initializeOrder = hyveonMock.iac.stack.initialize.mock.invocationCallOrder[0]!;
+      expect(saveCredentialsOrder).toBeLessThan(initializeOrder);
+      expect(saveStateOrder).toBeLessThan(initializeOrder);
+    });
+
+    // @spec APP-WIZARD-RECONF-007
+    it('should stay on the bootstrap step with the error and never start stack-init when the staged paste cannot be saved', async () => {
+      await pasteKeysInReconfigure();
+      hyveonMock.wizard.saveCredentials.mockRejectedValue(new Error('keychain unavailable'));
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/bootstrap aws resources is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+      expect(await screen.findByText(/keychain unavailable/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /finish setup/i })).not.toBeInTheDocument();
+      expect(hyveonMock.iac.stack.initialize).not.toHaveBeenCalled();
+    });
+
+    // @spec APP-WIZARD-RECONF-007
+    it('should not stage or enable Next for a blank or whitespace-only key pair', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: 'default', region: 'us-east-1' },
+      });
+      render(<FirstRunWizard mode="reconfigure" onCancel={vi.fn()} />);
+      await screen.findByText(/choose your cloud is already configured/i);
+      await waitFor(() => expect(hyveonMock.wizard.getState).toHaveBeenCalled());
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText('guided-iam-step-stub');
+      await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
+      await screen.findByText(/aws credentials is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      await userEvent.click(await screen.findByRole('button', { name: /paste keys instead/i }));
+      await userEvent.type(screen.getByLabelText('Access key ID'), '   ');
+      await userEvent.type(screen.getByLabelText('Secret access key'), '   ');
+      await userEvent.type(screen.getByLabelText('Region'), 'us-west-2');
+      await userEvent.click(screen.getByRole('button', { name: /save credentials/i }));
+
+      expect(screen.queryByText(/saved when you continue/i)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+    });
+
+    // @spec APP-WIZARD-RECONF-008
+    it('should confirm before leaving once the staged answers were committed on entering stack-init', async () => {
+      const onCancel = vi.fn();
+      await pasteKeysInReconfigure(onCancel);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/bootstrap aws resources is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByRole('button', { name: /finish setup/i });
+
+      await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+      expect(await screen.findByText(/remain in place and were not undone/i)).toBeInTheDocument();
+      expect(onCancel).not.toHaveBeenCalled();
     });
   });
 

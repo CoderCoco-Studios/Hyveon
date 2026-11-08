@@ -26,6 +26,7 @@ import { WizardStepSidebar } from './wizard-step-sidebar.component.js';
 import { useBootstrapResources } from './use-bootstrap-resources.hook.js';
 import { useWizardProgress } from './use-wizard-progress.hook.js';
 import { useReconfigureAnswers, isGuidedProfile } from './use-reconfigure-answers.hook.js';
+import { useReconfigureCancel } from './use-reconfigure-cancel.hook.js';
 import { useAwsCredentialsForm } from './use-aws-credentials-form.hook.js';
 import { STEP_LABELS, WIZARD_STEPS, formatDeployPrincipal, type WizardStep } from './wizard.utils.js';
 import type { WizardDeployPrincipal } from '@hyveon/desktop-preload';
@@ -44,16 +45,17 @@ export interface FirstRunWizardProps {
    * `pick-cloud`/`credentials`/`bootstrap` as completed with a per-step Edit
    * affordance, and buffers *edited* answers locally — a single
    * `wizard.state.save` call, containing only the steps actually opened via
-   * Edit, commits right before `wizard.complete` runs. A step left collapsed
-   * is never included in that call, so Cancel never has anything to undo for
-   * it. `guided-iam` is pre-marked too, but conditionally, not unconditionally
+   * Edit, commits when the operator enters the stack-init step (stack-init
+   * resolves credentials from the store, so the answers must be there first).
+   * A step left collapsed is never included in that call, so Cancel never has
+   * anything to undo for it. `guided-iam` is pre-marked too, but conditionally, not unconditionally
    * like its three siblings above: only when `wizard.state.get()`'s
    * `aws?.profile` is the exact guided-provisioning profile name (see
    * `isGuidedProfile` below) — a manually picked profile or pasted key never
    * pre-completes it, and it renders as a live step in that case. This covers
    * the durable answer data only, not every side effect: the credentials
-   * step's "paste keys instead" form is staged in memory and saved only at
-   * Finish, so Cancel leaves the store untouched. The bootstrap step's "Run
+   * step's "paste keys instead" form is staged in memory and saved when the
+   * operator enters stack-init, so an earlier Cancel leaves the store untouched. The bootstrap step's "Run
    * bootstrap"/"Check permissions" buttons and guided rotation perform real
    * AWS calls the moment they're clicked (same as `'first-run'`); Cancel
    * doesn't undo those, and asks for confirmation that says so once any has
@@ -126,18 +128,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     })();
   }, [refreshGuidedCredentials]);
 
-  /** True once guided rotation completed this session, an AWS-side change Cancel cannot undo. */
-  const [guidedRotated, setGuidedRotated] = useState(false);
-  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
-  const awsChanged = guidedRotated || Object.values(bootstrap.statuses).some((status) => status !== 'pending');
-
-  // @spec APP-WIZARD-RECONF-008
-  /** Reconfigure's Cancel: leaves at once when nothing reached AWS, otherwise confirms first and states what stays. */
-  function handleCancel() {
-    if (awsChanged) setCancelConfirmOpen(true);
-    else onCancel?.();
-  }
-
+  const cancel = useReconfigureCancel({ onCancel, bootstrapStatuses: bootstrap.statuses });
   const step = steps[stepIndex];
 
   const { completedSteps, startEdit, commitReconfigureAnswers } = useReconfigureAnswers({
@@ -149,9 +140,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     setResourceNames: bootstrap.setNames,
   });
 
-  function handleFinished() {
-    onComplete?.();
-  }
+  const handleFinished = () => onComplete?.();
 
   // @spec APP-WIZARD-RESET-001
   /**
@@ -207,7 +196,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * persisted since.
    */
   async function handleGuidedIamComplete() {
-    setGuidedRotated(true);
+    cancel.markGuidedRotated();
     clearGuidedIamProgress();
     await refreshGuidedCredentials();
     void goNext();
@@ -322,8 +311,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * has no failure UI — the resource-creation calls it feeds are what
    * actually gate progression). In `'reconfigure'` mode these answers are
    * buffered in local state instead — see {@link commitReconfigureAnswers},
-   * called once from the stack-init step's Finish button — so a mid-flow
-   * Cancel never has anything to undo.
+   * called once when advancing into `stack-init` — so a mid-flow Cancel never
+   * has anything to undo; a commit failure keeps the operator on the step.
    */
   async function goNext() {
     if (mode === 'first-run' && step === 'pick-cloud') {
@@ -351,6 +340,19 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       // depends on the save succeeding, so a failure here doesn't block
       // progression the way the pick-cloud/credentials saves above do.
       window.hyveon.wizard.saveState({ bootstrap: bootstrap.names }).catch(() => {});
+    }
+    if (mode === 'reconfigure' && steps[stepIndex + 1] === 'stack-init') {
+      setSaving(true);
+      setSaveError(null);
+      try {
+        await commitReconfigureAnswers();
+        cancel.markCommitted();
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : 'Failed to save your changes.');
+        return;
+      } finally {
+        setSaving(false);
+      }
     }
     setStepIndex((index) => Math.min(index + 1, steps.length - 1));
   }
@@ -454,11 +456,9 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
             onRunIamCheck={bootstrap.runIamCheck}
           />
         </WizardStepPanel>
+        {step === 'bootstrap' && <InlineAlert message={saveError} />}
         {step === 'stack-init' && (
-          <StackInitializationStep
-            onFinished={handleFinished}
-            onBeforeFinish={mode === 'reconfigure' ? commitReconfigureAnswers : undefined}
-          />
+          <StackInitializationStep onFinished={handleFinished} />
         )}
 
         <div className="flex justify-between">
@@ -467,7 +467,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
               Back
             </Button>
             {mode === 'reconfigure' && onCancel && (
-              <Button type="button" variant="ghost" onClick={handleCancel}>
+              <Button type="button" variant="ghost" onClick={cancel.handleCancel}>
                 Cancel
               </Button>
             )}
@@ -490,8 +490,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
         </div>
         </div>
         <ReconfigureCancelDialog
-          open={cancelConfirmOpen}
-          onOpenChange={setCancelConfirmOpen}
+          open={cancel.cancelConfirmOpen}
+          onOpenChange={cancel.setCancelConfirmOpen}
           onConfirm={() => onCancel?.()}
         />
         <ConfirmDialog

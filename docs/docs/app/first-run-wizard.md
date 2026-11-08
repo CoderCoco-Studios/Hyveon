@@ -167,7 +167,7 @@ its normal form entirely and shows a resolved summary instead:
 
 > ✓ `<iam-user>` (account `<account-id>`) · `<region>`
 
-The IAM user and account ID are read from the bootstrap key you pasted, so a
+The IAM user and account ID are read from the rotated key when guided setup activates it, so a
 custom `UserName` stack parameter shows up here. When the identity was not
 recorded the summary falls back to "AWS account (guided setup)".
 
@@ -415,7 +415,7 @@ collapsed all the way through.
 (There is no way to re-collapse a step once
 expanded — press **Cancel** and start again if you change your mind.)
 
-If you open **Edit** on the credentials step of a guided install and choose nothing, Finish setup leaves your guided credential as it is.
+If you open **Edit** on the credentials step of a guided install and choose nothing, continuing to step 5 leaves your guided credential as it is.
 
 **Provision AWS access starts collapsed only conditionally.** Unlike its
 three siblings above, this step is pre-marked completed only when your
@@ -435,18 +435,21 @@ final step itself needs none of this prefilled state (it resolves its own
 state bucket/region internally, the same way it does on first run) — the
 prefill only feeds the earlier steps' summaries and editable forms.
 
-**All edits are buffered into a single save on Finish.** Advancing between
-steps persists nothing. Only when you press **Finish setup** are your changes
-written, and only for the steps you actually expanded — a step left collapsed
+**All edits are buffered into a single save when you enter step 5.** Advancing
+between earlier steps persists nothing. Only when you continue from Bootstrap
+AWS resources to Finish setup (which needs your new credentials already saved)
+are your changes written, and only for the steps you actually expanded — a step left collapsed
 is omitted entirely rather than re-submitted with possibly-stale local values.
 There is also a **Cancel** button next to Back, which discards the whole
-session.
+session; once your changes were written on entering step 5, **Cancel** asks you
+to confirm first.
 
 In Reconfigure, **Save credentials** on the paste form does not write anything
 yet: your keys are held in memory (the form shows "Credentials staged") and are
-saved to the keychain only when you press **Finish setup**. Cancelling
-therefore leaves your stored credentials exactly as they were. A keychain
-refusal consequently appears at Finish rather than on **Save credentials**.
+saved to the keychain only when you continue to step 5. Cancelling before then
+leaves your stored credentials exactly as they were. A keychain refusal
+consequently appears when you continue to step 5 rather than on **Save
+credentials**. A key pair with a blank field is refused and is not staged.
 
 One thing Cancel cannot undo: the **Bootstrap AWS resources** button performs
 real work the moment you click it, exactly as in the first-run flow, and if you

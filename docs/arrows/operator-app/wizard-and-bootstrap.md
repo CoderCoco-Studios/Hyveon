@@ -96,6 +96,7 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 - `app/packages/web/src/components/first-run-wizard/guided-iam-delete-failed-screen.component.tsx`
 - `app/packages/web/src/components/first-run-wizard/guided-iam-keychain-unavailable-screen.component.tsx`
 - `app/packages/web/src/components/first-run-wizard/reconfigure-cancel-dialog.component.tsx`
+- `app/packages/web/src/components/first-run-wizard/use-reconfigure-cancel.hook.ts`
 - `app/packages/web/src/components/first-run-wizard/use-guided-iam.hook.ts`
 - `app/packages/web/src/components/first-run-wizard/credentials-step.component.tsx`
 - `app/packages/web/src/components/first-run-wizard/use-aws-credentials-form.hook.ts`

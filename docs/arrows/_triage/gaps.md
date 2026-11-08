@@ -181,12 +181,12 @@ Specs: `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
 | `APP-WIZARD-GATE-003` | closed | - | Fixed (was): `readState` fell back to `isTestMode()`. The handler returns `false` when unset; the e2e bypass is a default `wizard.state.get` mock in the preload test seam |
-| `APP-WIZARD-RECONF-007` | closed | - | Fixed (was): paste submit wrote `creds.aws.hyveon-pasted` immediately. Reconfigure stages the keys in memory and saves them at Finish |
+| `APP-WIZARD-RECONF-007` | closed | - | Fixed (was): paste submit wrote `creds.aws.hyveon-pasted` immediately. Reconfigure stages the keys in memory and saves them when the operator enters the stack-init step, before it runs |
 | `APP-WIZARD-RECONF-008` | closed | - | Fixed (was): no "AWS changes remain" copy. Cancel confirms and says so once rotation or any bootstrap resource ran |
 | `APP-WIZARD-RECONF-009` (CLOSED) | b | high | use-reconfigure-answers.hook.ts:226-228 sends toStatePayload() for any opened credentials step; guided prefill leaves form empty (:151-152), so {profile:'',region:undefined} merges at wizard.controller.ts:206-207. Code reading, not reproduced |
 | `APP-WIZARD-GSTEP-006` | closed | - | Fixed (was): both sub-states resumed on the template or region screen. `awaiting-key-intake` resumes on intake |
-| `APP-WIZARD-TMPL-009` | closed | - | Fixed (was): no principal recorded. Intake records the IAM user name from the caller ARN as `deployPrincipal` |
-| `APP-WIZARD-INTAKE-002` | closed | - | Fixed (was): `accountId` discarded. Intake records it as `deployPrincipal.accountId` |
+| `APP-WIZARD-TMPL-009` | closed | - | Fixed (was): no principal recorded. Rotation records the IAM user name from the verified caller ARN as `deployPrincipal` |
+| `APP-WIZARD-INTAKE-002` | closed | - | Fixed (was): `accountId` discarded. Rotation records it as `deployPrincipal.accountId` |
 | `APP-WIZARD-ROTATE-008` (CLOSED) | b | med | GuidedIamService.ts:441-445 overwrites creds.aws.hyveon-guided before verify; :485 deletes it on verify failure while aws.profile still names it, losing the working key on a Reconfigure re-run |
 | `APP-WIZARD-KEYCH-002` | closed | - | Fixed (was): keychain refusal landed on the verification-failed screen. `rotate` returns `keychain-unavailable` and the step offers the manual paths |
 | `APP-WIZARD-REGLOCK-001` (CLOSED) | b | high | wizard.controller.ts:205-207 merges any aws.region; GuidedIamService.ts:498 stores input.region; no bootstrap-completed check anywhere (no region-lock code in web/src or desktop-main/src) |

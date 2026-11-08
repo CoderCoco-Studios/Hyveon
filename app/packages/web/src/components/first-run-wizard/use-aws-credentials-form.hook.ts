@@ -45,7 +45,7 @@ export interface UseAwsCredentialsFormResult {
   pasteError: string | null;
   /**
    * Reconfigure mode only: true once the operator submitted the paste form but nothing was written yet — the keys
-   * are held in this hook's state and saved by {@link UseAwsCredentialsFormResult.flushStagedPaste} at Finish.
+   * are held in this hook's state and saved by {@link UseAwsCredentialsFormResult.flushStagedPaste} on entering stack-init.
    */
   pasteStaged: boolean;
   /** Set once the paste flow has successfully saved — the profile name it saved under. */
@@ -82,7 +82,7 @@ export interface UseAwsCredentialsFormResult {
  * @remarks
  * In `'reconfigure'` mode the paste form stages its keys in memory instead of saving on submit, because a save
  * overwrites `creds.aws.<profile>` and a Cancel must leave the stored configuration as it was; the save happens in
- * {@link UseAwsCredentialsFormResult.flushStagedPaste} when the operator finishes.
+ * {@link UseAwsCredentialsFormResult.flushStagedPaste} when the operator enters stack-init.
  *
  * @param mode - The wizard mode; `'first-run'` (default) saves pasted keys immediately.
  */
@@ -141,6 +141,10 @@ export function useAwsCredentialsForm(mode: 'first-run' | 'reconfigure' = 'first
   /** Runs the safeStorage paste-flow immediately (not deferred to Next), per the credentials-step spec; stages it instead in reconfigure mode. */
   async function submitPaste() {
     if (mode === 'reconfigure') {
+      if (pasteAccessKeyId.trim() === '' || pasteSecretAccessKey.trim() === '') {
+        setPasteError('Enter both the access key ID and the secret access key.');
+        return;
+      }
       setPasteError(null);
       setPasteStaged(true);
       return;

@@ -206,15 +206,15 @@ export function useReconfigureAnswers({
   // @spec APP-WIZARD-RECONF-006, APP-WIZARD-RECONF-007, APP-WIZARD-RECONF-009
   /**
    * Commits whichever answers were actually opened via Edit in one
-   * `wizard.state.save` call, passed to `StackInitializationStep` as
-   * `onBeforeFinish` so it runs right before `wizard.complete` on the
-   * Finish click. A step left collapsed (never opened) is omitted from the
+   * `wizard.state.save` call, run by the shell when the operator enters the
+   * stack-init step: stack-init resolves credentials from the store, so the
+   * answers (and a staged paste) must be there before it starts. A step left collapsed (never opened) is omitted from the
    * payload entirely, not sent with its current — possibly still-default,
    * possibly prefill-failed-and-empty — local state: `saveState` only
    * touches the fields it's given, so this is what actually makes "Cancel
    * never has anything to undo" and "editing one field preserves the rest"
    * true, rather than merely re-submitting a (hopefully unchanged) copy of
-   * everything on every Finish.
+   * everything on every commit.
    */
   async function commitReconfigureAnswers() {
     if (!window.hyveon) {

@@ -196,27 +196,6 @@ describe('StackInitializationStep', () => {
     expect(onFinished).toHaveBeenCalledTimes(1);
   });
 
-  it('should await onBeforeFinish before calling wizard.complete', async () => {
-    hyveonMock.iac.stack.initialize.mockImplementation(toStreamHandleMock(successfulRun));
-    hyveonMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
-    const calls: string[] = [];
-    const onBeforeFinish = vi.fn().mockImplementation(async () => {
-      calls.push('before-finish');
-    });
-    hyveonMock.wizard.complete.mockImplementation(async () => {
-      calls.push('complete');
-      return { wizardCompleted: true };
-    });
-
-    render(<StackInitializationStep onFinished={vi.fn()} onBeforeFinish={onBeforeFinish} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /finish setup/i })).toBeEnabled());
-
-    await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
-
-    await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalledTimes(1));
-    expect(calls).toEqual(['before-finish', 'complete']);
-  });
-
   it('should show an error and not call onFinished when wizard.complete fails', async () => {
     hyveonMock.iac.stack.initialize.mockImplementation(toStreamHandleMock(successfulRun));
     hyveonMock.wizard.complete.mockRejectedValue(new Error('disk full'));

@@ -37,16 +37,6 @@ const PHASE_LABELS: Record<StackInitPhase, string> = {
 export interface StackInitializationStepProps {
   /** Invoked once stack initialization succeeds and `wizard.complete` has been persisted. */
   onFinished: () => void;
-  /**
-   * Awaited before `wizard.complete` runs, on the same "Finish" click. Used
-   * by Settings' Reconfigure flow to commit its buffered
-   * `wizard.state.save` call in one shot rather than persisting each step as
-   * the operator advances — a rejection here surfaces via the same
-   * `finishError` path as a `wizard.complete` failure, and `wizard.complete`
-   * is never called if it rejects. Omitted (and skipped) during the regular
-   * first-run flow, which already persists `pick-cloud`/`credentials` as it goes.
-   */
-  onBeforeFinish?: () => Promise<void>;
 }
 
 /**
@@ -70,7 +60,7 @@ function pendingPhases(): Record<StackInitPhase, StackInitPhaseState> {
  * completes successfully; a failed phase shows an inline error plus a Retry
  * button.
  */
-export function StackInitializationStep({ onFinished, onBeforeFinish }: StackInitializationStepProps) {
+export function StackInitializationStep({ onFinished }: StackInitializationStepProps) {
   const [attempt, setAttempt] = useState(0);
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
@@ -176,7 +166,6 @@ export function StackInitializationStep({ onFinished, onBeforeFinish }: StackIni
     setFinishing(true);
     setFinishError(null);
     try {
-      await onBeforeFinish?.();
       await window.hyveon.wizard.complete();
       onFinished();
     } catch (err) {

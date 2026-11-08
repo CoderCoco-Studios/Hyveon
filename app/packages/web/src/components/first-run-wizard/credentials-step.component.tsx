@@ -41,7 +41,7 @@ export interface CredentialsStepProps {
   pasteError: string | null;
   /** Set once the paste flow has successfully saved — the profile name it saved under. */
   pastedProfileName: string | null;
-  /** Reconfigure mode: the paste form was submitted but its keys are only staged in memory until Finish. */
+  /** Reconfigure mode: the paste form was submitted but its keys are only staged in memory until the operator enters stack-init. */
   pasteStaged?: boolean;
 
   /**
@@ -228,7 +228,7 @@ export function CredentialsStep({
           {pasteStaged && (
             <p className="flex items-center gap-1 text-sm text-[var(--color-green)]">
               <CheckCircle2 className="size-4" />
-              Credentials staged — they are saved when you finish.
+              Credentials staged — they are saved when you continue to stack initialization.
             </p>
           )}
 
