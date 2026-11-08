@@ -162,8 +162,8 @@ export class PulumiServiceStub {
   }
 
   /** @see PulumiService.computeRollbackDiff — resolves "no diff available"; no `script*` setter yet. */
-  async computeRollbackDiff(): Promise<DeploymentConfigDiff | undefined> {
-    return undefined;
+  async computeRollbackDiff(): Promise<{ diff?: DeploymentConfigDiff; headEtag?: string }> {
+    return {};
   }
 
   /** @see PulumiService.clearStaleLock — resolves immediately ("cleared successfully"); no `script*` setter yet. */

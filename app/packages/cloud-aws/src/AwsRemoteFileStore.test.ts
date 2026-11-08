@@ -100,18 +100,20 @@ describe('AwsRemoteFileStore', () => {
       await expect(store.get('foo.txt')).rejects.toThrow('network down');
     });
 
-    it('should return undefined when the response has no Body', async () => {
+    // @spec CONFIG-STORE-007
+    it('should reject rather than report not-found when the response has no Body', async () => {
       s3Mock.on(GetObjectCommand).resolves({ ETag: '"abc123"' });
 
       const store = makeStore();
-      await expect(store.get('foo.txt')).resolves.toBeUndefined();
+      await expect(store.get('foo.txt')).rejects.toThrow(/no body/i);
     });
 
-    it('should return undefined when the response has no ETag', async () => {
+    // @spec CONFIG-STORE-007
+    it('should reject rather than report not-found when the response has no ETag', async () => {
       s3Mock.on(GetObjectCommand).resolves({ Body: fakeBody(new Uint8Array([9])) as never });
 
       const store = makeStore();
-      await expect(store.get('foo.txt')).resolves.toBeUndefined();
+      await expect(store.get('foo.txt')).rejects.toThrow(/no etag/i);
     });
   });
 

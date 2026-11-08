@@ -343,6 +343,7 @@ export function useDeploymentSettings(): UseDeploymentSettingsResult {
           );
           break;
         case 'setup_incomplete':
+        case 'not_found':
         case 'error':
           setSubmitError(result.message);
           break;

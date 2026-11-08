@@ -42,6 +42,7 @@ describe('RollbackAction', () => {
       resolved: true,
       versionId: 'v-prior',
       lastModified: '2026-07-18T00:00:00.000Z',
+      headEtag: 'etag-head',
     });
     hyveonMock.iac.rollback.confirm.mockResolvedValue({ confirmed: true, versionId: 'v-new-head' });
     const onRolledBack = vi.fn();
@@ -57,11 +58,72 @@ describe('RollbackAction', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
+  // @spec CONFIG-RESTORE-004
+  it('should pass the resolved headEtag to confirm', async () => {
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
+      resolved: true,
+      versionId: 'v-prior',
+      lastModified: '2026-07-18T00:00:00.000Z',
+      headEtag: 'etag-head',
+    });
+    hyveonMock.iac.rollback.confirm.mockResolvedValue({ confirmed: true, versionId: 'v-new-head' });
+    render(<RollbackAction applyRunId="apply-1" onRolledBack={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rollback' }));
+    await screen.findByRole('alertdialog');
+    await userEvent.click(screen.getByRole('button', { name: 'Roll back' }));
+
+    await waitFor(() =>
+      expect(hyveonMock.iac.rollback.confirm).toHaveBeenCalledWith({ applyRunId: 'apply-1', headEtag: 'etag-head' }),
+    );
+  });
+
+  // @spec CONFIG-RESTORE-004
+  it('should close the dialog and show the retry message when confirm reports the configuration changed', async () => {
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
+      resolved: true,
+      versionId: 'v-prior',
+      lastModified: '2026-07-18T00:00:00.000Z',
+      headEtag: 'etag-head',
+    });
+    hyveonMock.iac.rollback.confirm.mockResolvedValue({
+      confirmed: false,
+      error: 'Configuration changed while restoring: review and retry the rollback',
+    });
+    render(<RollbackAction applyRunId="apply-1" onRolledBack={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rollback' }));
+    await screen.findByRole('alertdialog');
+    await userEvent.click(screen.getByRole('button', { name: 'Roll back' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/review and retry the rollback/);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  // @spec CONFIG-RESTORE-005
+  it('should show the target but disable confirming when the preview returned no headEtag', async () => {
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
+      resolved: true,
+      versionId: 'v-prior',
+      lastModified: '2026-07-18T00:00:00.000Z',
+    });
+    render(<RollbackAction applyRunId="apply-1" onRolledBack={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rollback' }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent('This restores configuration version v-prior');
+    expect(dialog).toHaveTextContent(/click Rollback again to retry/);
+    expect(screen.getByRole('button', { name: 'Roll back' })).toBeDisabled();
+    expect(hyveonMock.iac.rollback.confirm).not.toHaveBeenCalled();
+  });
+
   it('should surface a confirm failure inline and never call onRolledBack', async () => {
     hyveonMock.iac.rollback.resolve.mockResolvedValue({
       resolved: true,
       versionId: 'v-prior',
       lastModified: '2026-07-18T00:00:00.000Z',
+      headEtag: 'etag-head',
     });
     hyveonMock.iac.rollback.confirm.mockResolvedValue({
       confirmed: false,

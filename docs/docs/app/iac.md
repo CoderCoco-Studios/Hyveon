@@ -364,7 +364,7 @@ version has aged out of S3).
 
 **Step 2 — Confirm.** A dialog appears naming the target version and asking
 you to confirm restoring it as the new head, then queuing a plan against it.
-The current head is not deleted — history is append-only. There is no
+The current head is not deleted — history is append-only. The restore is conditional on the head the preview read, so if the configuration was edited while the dialog was open the restore fails with `Configuration changed while restoring: review and retry the rollback` instead of overwriting that edit; press **Rollback** again to re-preview against the current head. If the preview could not read the current configuration, the dialog still names the target version but its **Roll back** button stays disabled; close it and press **Rollback** again to retry. There is no
 type-to-confirm here; **Roll back** is enabled immediately.
 
 **Rollback is append-only.** The historic configuration content is written

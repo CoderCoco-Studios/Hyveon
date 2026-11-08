@@ -74,6 +74,16 @@ describe('PendingChangesBanner', () => {
     expect(banner).toHaveTextContent('2 to update');
   });
 
+  // @spec CONFIG-DRIFT-008
+  it('should state that drift covers only image, CPU, memory, ports and volumes', async () => {
+    apiMock.drift.mockResolvedValue(mixedReport());
+
+    renderBanner();
+
+    const banner = await screen.findByRole('status');
+    expect(banner).toHaveTextContent('Only image, CPU, memory, ports and volumes changes are detected');
+  });
+
   // @spec CONFIG-BANNER-005
   it('should hide the banner after it is dismissed', async () => {
     apiMock.drift.mockResolvedValue(mixedReport());

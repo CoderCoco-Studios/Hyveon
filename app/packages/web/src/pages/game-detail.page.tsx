@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { FolderOpen, Pencil } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { api, type GameListEntry, type GameWriteSuccess } from '../api.service.js';
 import { GameStatusBadges } from '../components/game-status-badges.component.js';
 import { FolderUploadCard } from '../components/folder-upload/folder-upload-card.component.js';
@@ -12,6 +13,11 @@ import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { Button } from '@/components/ui/button.component';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.component';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.component';
+
+/** Scope of the pending-changes banner, shown where edits to fields outside it happen. */
+const DRIFT_SCOPE_NOTE =
+  'Only image, CPU, memory, ports and volumes changes appear as pending changes. Edits to environment, command, HTTPS, ' +
+  'health check or pinned hostname still apply on the next apply.';
 
 /** A single labeled field in the "Container" overview grid. */
 function Field({ label, value }: { label: string; value: string }) {
@@ -133,10 +139,11 @@ export function GameDetailPage() {
   const entry = games?.find((g) => g.name === name);
   const config = entry?.config;
 
-  /** Applies a successful `EditGameForm` save and returns to the read-only view. */
+  /** Applies a successful `EditGameForm` save, states the drift scope, and returns to the read-only view. */
   function handleSaved(result: GameWriteSuccess) {
     setGames(result.games);
     setEditing(false);
+    toast.success('Game saved', { description: DRIFT_SCOPE_NOTE });
   }
 
   return (

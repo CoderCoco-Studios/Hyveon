@@ -148,6 +148,17 @@ export class ConfigurationNotConfiguredError extends Error {
 }
 
 /**
+ * Thrown by {@link DeploymentConfigService}'s reads when the configuration bucket is configured but holds no
+ * `deployment-config.json`, so callers can tell "not yet written" from an I/O failure.
+ */
+export class ConfigurationObjectMissingError extends Error {
+  constructor(key: string, bucket: string) {
+    super(`Deployment config object "${key}" not found in S3 bucket "${bucket}".`);
+    this.name = 'ConfigurationObjectMissingError';
+  }
+}
+
+/**
  * Thrown by {@link DeploymentConfigService.updateTopLevelSettings} when a proposed
  * patch would change the deployment's EFFECTIVE (resolved) run-history table
  * name — i.e. `projectName` and/or `runsTableName` shift such that
@@ -359,7 +370,9 @@ export class DeploymentConfigService {
     try {
       return await this.loadAndCacheGameServers(this.cacheGeneration);
     } catch (err) {
-      if (!(err instanceof ConfigurationNotConfiguredError)) {
+      if (err instanceof ConfigurationObjectMissingError) {
+        logger.warn('Deployment config object missing (strict read)', { err: errMessage(err) });
+      } else if (!(err instanceof ConfigurationNotConfiguredError)) {
         logger.error('Failed to load deployment config gameServers (strict read)', { err: errMessage(err) });
       }
       throw err;
@@ -387,17 +400,18 @@ export class DeploymentConfigService {
     return this.fetchRawConfig();
   }
 
-  // @spec CONFIG-RESTORE-001, CONFIG-RESTORE-002, CONFIG-RESTORE-003, CONFIG-WRITE-006
+  // @spec CONFIG-RESTORE-001, CONFIG-RESTORE-002, CONFIG-RESTORE-003, CONFIG-RESTORE-004, CONFIG-WRITE-006
   /**
    * Restores `rawConfig` as the config source's new head version verbatim —
    * used by the rollback flow to write a prior version's exact bytes
    * back as a fresh S3 version (history is append-only; this never deletes
    * or reverts an existing version) rather than applying a
    * `gameServers`-specific mutation like {@link addGameServer}/
-   * {@link updateGameServer}/{@link removeGameServer} do. Always an
-   * unconditional write (no `expectedVersionId` guard) — rollback is
-   * explicitly restoring known historic content, not editing the current
-   * head against an expected prior state. Invalidates the in-memory
+   * {@link updateGameServer}/{@link removeGameServer} do. The put is
+   * conditional on `expectedEtag` (the head etag the operator saw when the rollback was previewed) so an edit
+   * made after the preview (a game edit does not take the run lock) fails with {@link OptimisticLockError}
+   * instead of being overwritten; without `expectedEtag` it falls back to the etag of the head it just read for
+   * the rename guard, which only protects the read-to-put window. Invalidates the in-memory
    * {@link getGameServers} cache afterward so the next read reflects the
    * restored content, mirroring {@link writeConfig}.
    *
@@ -408,19 +422,21 @@ export class DeploymentConfigService {
    * never created for this install.
    *
    * @param rawConfig - The exact historic config content to restore.
+   * @param expectedEtag - The head etag the caller previewed; the put is conditional on it.
    * @returns The write's `{ etag, versionId }` — see {@link putRawConfig}.
    * @throws {@link ConfigurationNotConfiguredError} when no configuration
    *   bucket is configured.
    * @throws {@link RunsTableRenameError} when the restored document resolves
    *   to a different runs-table name than the current document.
+   * @throws {@link OptimisticLockError} when the head changed since `expectedEtag` was read, or between the read and the put.
    */
-  async restoreRawConfig(rawConfig: string): Promise<{ etag: string; versionId?: string }> {
-    const { config: currentRaw } = await this.fetchRawConfig();
+  async restoreRawConfig(rawConfig: string, expectedEtag?: string): Promise<{ etag: string; versionId?: string }> {
+    const { config: currentRaw, etag: currentEtag } = await this.fetchRawConfig();
     const { gameServers: _currentGameServers, ...currentSettings } = this.parseConfigContents(currentRaw);
     const restoredSettings = this.parseConfigContents(rawConfig);
     this.assertRunsTableNameStable(currentSettings, restoredSettings);
 
-    const result = await this.putRawConfig(rawConfig);
+    const result = await this.putRawConfig(rawConfig, expectedEtag ?? currentEtag);
     this.invalidateCache();
     return result;
   }
@@ -485,17 +501,23 @@ export class DeploymentConfigService {
    *   form) always supplies it — see {@link getTopLevelSettings}'s doc
    *   comment — omission is only supported for parity with
    *   {@link addGameServer}/{@link updateGameServer}'s own convention.
-   * @returns The written object's new `etag` plus an optional `versionId`
-   *   when the underlying store supports object versioning — see
-   *   {@link writeConfig}/{@link putRawConfig}.
+   * @returns The written object's new `etag`, an optional `versionId` when the underlying store supports object
+   *   versioning (see {@link writeConfig}/{@link putRawConfig}), and the `settings` exactly as written, so a caller
+   *   whose follow-up read fails can still report what was persisted.
    * @throws {@link ConfigurationNotConfiguredError} when no configuration
    *   bucket is configured.
    */
   async updateTopLevelSettings(
     patch: Partial<Omit<DeploymentConfig, 'gameServers'>>,
     expectedVersionId?: string,
-  ): Promise<{ etag: string; versionId?: string }> {
-    return this.writeConfig(expectedVersionId, (raw) => this.applyTopLevelSettingsPatch(raw, patch));
+  ): Promise<{ etag: string; versionId?: string; settings: Omit<DeploymentConfig, 'gameServers'> }> {
+    let written = '';
+    const result = await this.writeConfig(expectedVersionId, (raw) => {
+      written = this.applyTopLevelSettingsPatch(raw, patch);
+      return written;
+    });
+    const { gameServers: _gameServers, ...settings } = withDeploymentConfigDefaults(this.parseConfigContents(written));
+    return { ...result, settings };
   }
 
   // @spec GAME-VALID-007
@@ -611,7 +633,7 @@ export class DeploymentConfigService {
 
     const obj = await this.remoteFileStore.get(CONFIGURATION_OBJECT_KEY);
     if (!obj) {
-      throw new Error(`Deployment config object "${CONFIGURATION_OBJECT_KEY}" not found in S3 bucket "${bucket}".`);
+      throw new ConfigurationObjectMissingError(CONFIGURATION_OBJECT_KEY, bucket);
     }
     return { config: new TextDecoder().decode(obj.body), etag: obj.etag };
   }

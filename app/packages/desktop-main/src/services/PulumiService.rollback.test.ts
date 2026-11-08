@@ -374,8 +374,9 @@ describe('PulumiService.computeRollbackDiff', () => {
     });
     const service = makeService({ remoteFileStore });
 
-    const diff = await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID);
+    const { diff, headEtag } = await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID);
 
+    expect(headEtag).toBe('e');
     expect(diff).toEqual({
       changedFields: ['dnsTtl'],
       gameServers: { added: ['palworld'], removed: ['minecraft'], changed: [] },
@@ -398,7 +399,7 @@ describe('PulumiService.computeRollbackDiff', () => {
     });
     const service = makeService({ remoteFileStore });
 
-    const diff = await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID);
+    const { diff } = await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID);
 
     expect(diff?.gameServers.changed).toEqual([]);
   });
@@ -409,7 +410,7 @@ describe('PulumiService.computeRollbackDiff', () => {
     });
     const service = makeService({ remoteFileStore });
 
-    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+    expect((await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).diff).toBeUndefined();
   });
 
   it('should return undefined without throwing when the current head is missing', async () => {
@@ -419,7 +420,7 @@ describe('PulumiService.computeRollbackDiff', () => {
     });
     const service = makeService({ remoteFileStore });
 
-    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+    expect((await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).diff).toBeUndefined();
   });
 
   it('should return undefined without throwing when the target version JSON is malformed', async () => {
@@ -428,7 +429,7 @@ describe('PulumiService.computeRollbackDiff', () => {
     });
     const service = makeService({ remoteFileStore });
 
-    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+    expect((await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).diff).toBeUndefined();
   });
 
   it('should return undefined without throwing when a fetch rejects', async () => {
@@ -437,7 +438,7 @@ describe('PulumiService.computeRollbackDiff', () => {
     });
     const service = makeService({ remoteFileStore });
 
-    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+    expect((await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).diff).toBeUndefined();
   });
 
   it('should report zero changes when the target and current configs are structurally identical', async () => {
@@ -447,7 +448,7 @@ describe('PulumiService.computeRollbackDiff', () => {
     });
     const service = makeService({ remoteFileStore });
 
-    const diff = await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID);
+    const { diff } = await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID);
 
     expect(diff).toEqual({ changedFields: [], gameServers: { added: [], removed: [], changed: [] } });
   });
@@ -455,6 +456,15 @@ describe('PulumiService.computeRollbackDiff', () => {
 
 // @spec IAC-RUN-RBK-005
 describe('PulumiService.confirmRollback happy path', () => {
+  it('should pass the previewed head etag through to restoreRawConfig as the expected etag', async () => {
+    const { remoteFileStore, deploymentConfigRestorer } = makeConfigStores();
+    const service = makeService({ remoteFileStore, deploymentConfigRestorer, runRecordPersister: makeRunRecordPersister() });
+
+    await collectRollbackChunks(service.confirmRollback(APPLY_RUN_ID, undefined, undefined, 'etag-previewed'));
+
+    expect(deploymentConfigRestorer.restoreRawConfig).toHaveBeenCalledWith(HISTORIC_RAW_CONFIG, 'etag-previewed');
+  });
+
   it('should restore the historic bytes byte-for-byte and queue a plan tagged rolledBackFrom', async () => {
     const runRecordPersister = makeRunRecordPersister();
     // Coupled pair (see makeConfigStores' doc comment) — this test drives
@@ -466,7 +476,7 @@ describe('PulumiService.confirmRollback happy path', () => {
 
     const { result } = await collectRollbackChunks(service.confirmRollback(APPLY_RUN_ID));
 
-    expect(deploymentConfigRestorer.restoreRawConfig).toHaveBeenCalledWith(HISTORIC_RAW_CONFIG);
+    expect(deploymentConfigRestorer.restoreRawConfig).toHaveBeenCalledWith(HISTORIC_RAW_CONFIG, undefined);
     expect(result).toBeDefined();
     expect(result?.runId).toBe('rollback-run-1');
 
@@ -618,7 +628,7 @@ describe('PulumiService.confirmRollback: compensating semantics when the plan fa
 
     // The restore write itself DID happen — this is what makes the failure
     // an orphan rather than a clean pre-write rejection.
-    expect(deploymentConfigRestorer.restoreRawConfig).toHaveBeenCalledWith(HISTORIC_RAW_CONFIG);
+    expect(deploymentConfigRestorer.restoreRawConfig).toHaveBeenCalledWith(HISTORIC_RAW_CONFIG, undefined);
 
     // The lock must still have been released despite the failure — proven by
     // a follow-up preview() reaching stack.preview() at all (and failing for

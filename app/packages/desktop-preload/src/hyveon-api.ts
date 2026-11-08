@@ -740,6 +740,8 @@ export interface IacRollbackResolveAck {
   versionId?: string;
   lastModified?: string;
   diff?: DeploymentConfigDiff;
+  /** Etag of the configuration head read at preview time; pass it back to `confirm` so the restore is conditional on it. */
+  headEtag?: string;
   error?: string;
 }
 
@@ -2080,10 +2082,11 @@ export interface HyveonIacRollbackApi {
   /**
    * Confirms a previewed rollback of `opts.applyRunId`, by invoking the
    * `iac.rollback.confirm` IPC channel — restores the historic configuration
-   * content as a new head version. `confirmed: false` means no write was
-   * attempted — `error` describes why.
+   * content as a new head version, conditional on `opts.headEtag` (from {@link resolve}): an edit made after the
+   * preview fails with a "review and retry" message instead of being reverted. `confirmed: false` means no write
+   * was attempted — `error` describes why.
    */
-  confirm: (opts: { applyRunId: string }) => Promise<IacRollbackConfirmAck>;
+  confirm: (opts: { applyRunId: string; headEtag?: string }) => Promise<IacRollbackConfirmAck>;
 }
 
 /**
@@ -2099,7 +2102,8 @@ export interface HyveonIacSettingsApi {
    * Reads the current top-level settings plus the etag to round-trip as
    * {@link update}'s `expectedVersionId`, by invoking the `iac.settings.get`
    * IPC channel. `ok: false` covers an unconfigured configuration bucket
-   * (`code: 'setup_incomplete'`) or an unexpected read failure
+   * (`code: 'setup_incomplete'`), a missing configuration object
+   * (`code: 'not_found'`) or an unexpected read failure
    * (`code: 'error'`) — see {@link DeploymentSettingsGetResult}.
    */
   get: () => Promise<DeploymentSettingsGetResult>;
@@ -2112,7 +2116,8 @@ export interface HyveonIacSettingsApi {
    * `'validation'` (client should re-render the same fields with the
    * reported issues), `'conflict'` (surface a "changed elsewhere — reload
    * and try again" message, mirroring the game-form's own optimistic-lock
-   * UX), `'setup_incomplete'`, or the catch-all `'error'` — see
+   * UX), `'setup_incomplete'`, `'not_found'` (no `deployment-config.json` in the
+   * configuration bucket), or the catch-all `'error'` — see
    * {@link DeploymentSettingsWriteResult}.
    */
   update: (payload: UpdateDeploymentSettingsPayload) => Promise<DeploymentSettingsWriteResult>;

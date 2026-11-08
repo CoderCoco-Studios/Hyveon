@@ -255,6 +255,7 @@ describe('IacHistoryPage', () => {
         resolved: true,
         versionId: 'v-prior',
         lastModified: '2026-07-18T00:00:00.000Z',
+        headEtag: 'etag-head',
       });
       hyveonMock.iac.rollback.confirm.mockResolvedValue({ confirmed: true, versionId: 'v-new-head' });
       renderPage(<IacHistoryPage />);
@@ -263,7 +264,7 @@ describe('IacHistoryPage', () => {
       await screen.findByRole('alertdialog');
       await userEvent.click(screen.getByRole('button', { name: 'Roll back' }));
 
-      expect(hyveonMock.iac.rollback.confirm).toHaveBeenCalledWith({ applyRunId: 'apply-1' });
+      expect(hyveonMock.iac.rollback.confirm).toHaveBeenCalledWith({ applyRunId: 'apply-1', headEtag: 'etag-head' });
       await waitFor(() =>
         expect(navigateMock).toHaveBeenCalledWith('/iac', {
           state: { configVersionId: 'v-new-head', rolledBackFrom: 'apply-1' },

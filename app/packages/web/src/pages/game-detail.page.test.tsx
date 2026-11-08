@@ -253,6 +253,28 @@ describe('GameDetailPage', () => {
       expect(screen.queryByLabelText('Image')).toBeNull();
     });
 
+    // @spec CONFIG-DRIFT-008
+    it('should tell the operator after a save that edits to other fields do not show as pending changes', async () => {
+      const user = userEvent.setup();
+      apiMock.updateGame.mockResolvedValue({ ok: true, games: [DECLARED_GAME, GHOST_GAME] });
+      renderDetailPage('minecraft');
+      await screen.findByRole('heading', { name: 'Container' });
+
+      await user.click(screen.getByRole('button', { name: 'Edit' }));
+      await user.click(await screen.findByRole('button', { name: 'Save changes' }));
+
+      await waitFor(() =>
+        expect(toastMock.success).toHaveBeenCalledWith(
+          'Game saved',
+          expect.objectContaining({
+            description: expect.stringMatching(
+              /Only image, CPU, memory, ports and volumes changes appear as pending changes.*environment, command, HTTPS, health check or pinned hostname.*next apply/,
+            ),
+          }),
+        ),
+      );
+    });
+
     it('should expose the Remove confirmation dialog', async () => {
       const user = userEvent.setup();
       renderDetailPage('minecraft');

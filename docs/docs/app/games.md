@@ -497,7 +497,7 @@ The header carries the game name, a **Files** link to the [in-app file browser](
 **Edit** and **Remove game** buttons. Clicking **Edit** swaps both buttons
 out for a single **Cancel** button for the duration of the edit; **Cancel**
 discards the in-progress edit and swaps **Edit**/**Remove game** back in,
-without prompting for confirmation. Below that:
+without prompting for confirmation. A successful save returns to the read-only view and shows a **Game saved** toast that repeats the pending-changes scope: only image, CPU, memory, ports and volumes changes appear as pending changes, while edits to environment, command, HTTPS, health check or pinned hostname still apply on the next apply. Below that:
 
 | Card | Contents | Shown |
 |---|---|---|

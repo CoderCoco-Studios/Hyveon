@@ -45,7 +45,12 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
-import { DeploymentConfigService, ConfigurationNotConfiguredError, GameServerEntryError } from './DeploymentConfigService.js';
+import {
+  DeploymentConfigService,
+  ConfigurationNotConfiguredError,
+  ConfigurationObjectMissingError,
+  GameServerEntryError,
+} from './DeploymentConfigService.js';
 import type { ConfigService } from './ConfigService.js';
 import { logger } from '../logger.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
@@ -511,6 +516,18 @@ describe('DeploymentConfigService', () => {
       const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
 
       await expect(service.getGameServersStrict()).rejects.toBeInstanceOf(ConfigurationNotConfiguredError);
+    });
+
+    it('should log a missing configuration object at warn, not error, so a pre-seed banner poll does not spam errors', async () => {
+      remoteFileStore.get.mockResolvedValue(undefined);
+      vi.mocked(logger.error).mockClear();
+      vi.mocked(logger.warn).mockClear();
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
+
+      await expect(service.getGameServersStrict()).rejects.toBeInstanceOf(ConfigurationObjectMissingError);
+
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalled();
     });
 
     it('should not serve a negatively cached lenient failure as an empty list', async () => {

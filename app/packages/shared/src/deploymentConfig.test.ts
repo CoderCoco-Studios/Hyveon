@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEPLOYMENT_CONFIG_DEFAULTS,
+  DEPLOYMENT_CONFIG_SCALAR_FIELD_FLAGS,
   withDeploymentConfigDefaults,
   diffDeploymentConfig,
   type DeploymentConfig,
@@ -315,6 +316,28 @@ describe('diffDeploymentConfig', () => {
     const current: DeploymentConfig = { ...FULL_CONFIG, gameServers: { g: { ...game, cpu: game.cpu * 2 } } };
 
     expect(diffDeploymentConfig(previous, current).gameServers.changed).toEqual(['g']);
+  });
+
+  // @spec CONFIG-RBDIFF-002
+  it('should keep the diff field table exactly as wide as the top-level fields of DeploymentConfig', () => {
+    type WidenedFields = Omit<DeploymentConfig, 'gameServers'> & { brandNewField: string };
+    // @ts-expect-error a table that lacks a field the config gained must not satisfy the widened field set
+    const widened: Record<keyof WidenedFields, true> = DEPLOYMENT_CONFIG_SCALAR_FIELD_FLAGS;
+    const exact: Record<keyof Omit<DeploymentConfig, 'gameServers'>, true> = DEPLOYMENT_CONFIG_SCALAR_FIELD_FLAGS;
+
+    expect(widened).toBe(exact);
+  });
+
+  // @spec CONFIG-RBDIFF-002
+  it('should include every top-level field of DeploymentConfig except gameServers in the comparison', () => {
+    const topLevelKeys = Object.keys(FULL_CONFIG).filter((k) => k !== 'gameServers') as (keyof DeploymentConfig)[];
+    const changed = Object.fromEntries(
+      topLevelKeys.map((k) => [k, typeof FULL_CONFIG[k] === 'number' ? 999 : Array.isArray(FULL_CONFIG[k]) ? ['x'] : 'changed']),
+    );
+
+    const diff = diffDeploymentConfig(FULL_CONFIG, { ...FULL_CONFIG, ...changed } as DeploymentConfig);
+
+    expect([...diff.changedFields].sort()).toEqual([...topLevelKeys].sort());
   });
 
   it('should report every top-level scalar and array field as changed when every one differs', () => {

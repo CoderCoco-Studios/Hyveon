@@ -395,23 +395,31 @@ export interface DeploymentConfigDiff {
  * side is missing a field the other has (e.g. an older historic version
  * predating a field that was added later), and so its order never depends on
  * which of the two arguments happens to declare its keys first.
+ *
+ * Built from a `Record` keyed by every {@link DeploymentConfigScalarField}, so adding a field to
+ * {@link DeploymentConfig} without listing it here is a compile error rather than a silent omission.
  */
-const DEPLOYMENT_CONFIG_SCALAR_FIELDS: DeploymentConfigScalarField[] = [
-  'projectName',
-  'awsRegion',
-  'vpcCidr',
-  'hostedZoneName',
-  'dnsTtl',
-  'watchdogIntervalMinutes',
-  'watchdogIdleChecks',
-  'watchdogMinBytesPerSecond',
-  'baseAllowedGuilds',
-  'baseAdminUserIds',
-  'baseAdminRoleIds',
-  'discordApplicationId',
-  'auditTableName',
-  'runsTableName',
-];
+export const DEPLOYMENT_CONFIG_SCALAR_FIELD_FLAGS = {
+  projectName: true,
+  awsRegion: true,
+  vpcCidr: true,
+  hostedZoneName: true,
+  dnsTtl: true,
+  watchdogIntervalMinutes: true,
+  watchdogIdleChecks: true,
+  watchdogMinBytesPerSecond: true,
+  baseAllowedGuilds: true,
+  baseAdminUserIds: true,
+  baseAdminRoleIds: true,
+  discordApplicationId: true,
+  auditTableName: true,
+  runsTableName: true,
+} satisfies Record<DeploymentConfigScalarField, true>;
+
+/** The ordered field list {@link diffDeploymentConfig} walks, derived from {@link DEPLOYMENT_CONFIG_SCALAR_FIELD_FLAGS}. */
+const DEPLOYMENT_CONFIG_SCALAR_FIELDS = Object.keys(
+  DEPLOYMENT_CONFIG_SCALAR_FIELD_FLAGS,
+) as DeploymentConfigScalarField[];
 
 /**
  * Serialises `value` to JSON with object keys sorted at every depth, so two structurally equal
@@ -440,7 +448,7 @@ function valuesDiffer(a: unknown, b: unknown): boolean {
   return canonicalJson(a) !== canonicalJson(b);
 }
 
-// @spec CONFIG-RBDIFF-001
+// @spec CONFIG-RBDIFF-001, CONFIG-RBDIFF-002
 /**
  * Compares two parsed {@link DeploymentConfig} objects and returns a
  * structural summary of how they differ, for the `iac-rollback` confirmation

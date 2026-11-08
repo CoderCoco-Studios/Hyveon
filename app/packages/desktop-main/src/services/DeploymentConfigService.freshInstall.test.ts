@@ -32,7 +32,7 @@ import { mockClient } from 'aws-sdk-client-mock';
 import { S3Client, GetObjectCommand, HeadObjectCommand, NoSuchKey, PutObjectCommand } from '@aws-sdk/client-s3';
 import { AwsRemoteFileStore } from '@hyveon/cloud-aws';
 import { BootstrapService } from './BootstrapService.js';
-import { DeploymentConfigService } from './DeploymentConfigService.js';
+import { ConfigurationObjectMissingError, DeploymentConfigService } from './DeploymentConfigService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
@@ -102,7 +102,7 @@ describe('fresh-install config seed (final-review round 2, finding 1)', () => {
     // 1. Seed absent — reproduces the bug's precondition for real, not by
     // assumption: every write path calls fetchRawConfig() first, and it
     // rejects when the object genuinely doesn't exist.
-    await expect(deploymentConfig.getRawConfig()).rejects.toThrow(/not found/i);
+    await expect(deploymentConfig.getRawConfig()).rejects.toBeInstanceOf(ConfigurationObjectMissingError);
 
     // 2. The fix: BootstrapService seeds the initial document into the SAME
     // bucket DeploymentConfigService reads/writes, via the SAME mocked S3Client.

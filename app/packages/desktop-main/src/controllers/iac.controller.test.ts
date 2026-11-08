@@ -21,7 +21,7 @@ import {
   RunRecordTableNotConfiguredError,
   type RunRecordService,
 } from '../services/RunRecordService.js';
-import { RunLockHeldError, type DeploymentConfigDiff, type RunLock } from '@hyveon/shared';
+import { OptimisticLockError, RunLockHeldError, type DeploymentConfigDiff, type RunLock } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
@@ -117,7 +117,7 @@ function buildRunRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunReco
  * `preview`/`apply`/`destroy`/`confirmRollback` are empty async generators
  * that yield nothing and return `undefined`; `mintDestroyConfirmationToken`
  * and `mintLockClearConfirmationToken` return fixed tokens; `resolveRollbackTarget` resolves a fixed prior
- * version; `computeRollbackDiff` resolves `undefined` (mirrors its
+ * version; `computeRollbackDiff` resolves `{}` (mirrors its
  * documented "no diff available" default); `readRunRecord`
  * returns `null` (no persisted record) unless a test overrides it;
  * `getStackOutputs` resolves `null`; `clearStaleLock` resolves
@@ -138,7 +138,7 @@ function makePulumi(): PulumiService {
       versionId: 'config-v-prior',
       lastModified: new Date('2026-07-20T00:00:00.000Z'),
     }),
-    computeRollbackDiff: vi.fn().mockResolvedValue(undefined),
+    computeRollbackDiff: vi.fn().mockResolvedValue({}),
     readRunRecord: vi.fn().mockReturnValue(null),
     getStackOutputs: vi.fn().mockResolvedValue(null),
     clearStaleLock: vi.fn().mockResolvedValue(undefined),
@@ -1571,7 +1571,7 @@ describe('IacController', () => {
         changedFields: ['dnsTtl'],
         gameServers: { added: ['valheim'], removed: [], changed: [] },
       };
-      vi.mocked(pulumi.computeRollbackDiff).mockResolvedValue(diff);
+      vi.mocked(pulumi.computeRollbackDiff).mockResolvedValue({ diff, headEtag: 'etag-head' });
 
       const result = await new IacController(pulumi).resolveRollback({
         applyRunId: 'apply-run-1',
@@ -1583,12 +1583,24 @@ describe('IacController', () => {
         versionId: 'config-v-prior',
         lastModified: '2026-07-20T00:00:00.000Z',
         diff,
+        headEtag: 'etag-head',
       });
     });
 
-    it('should omit diff (never fail the whole resolution) when computeRollbackDiff resolves undefined', async () => {
+    // @spec CONFIG-RESTORE-004
+    it('should return headEtag even when no diff could be computed', async () => {
       const pulumi = makePulumi();
-      vi.mocked(pulumi.computeRollbackDiff).mockResolvedValue(undefined);
+      vi.mocked(pulumi.computeRollbackDiff).mockResolvedValue({ headEtag: 'etag-head' });
+
+      const result = await new IacController(pulumi).resolveRollback({ applyRunId: 'apply-run-1' });
+
+      expect(result.headEtag).toBe('etag-head');
+      expect(result.diff).toBeUndefined();
+    });
+
+    it('should omit diff (never fail the whole resolution) when computeRollbackDiff resolves no diff', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.computeRollbackDiff).mockResolvedValue({});
 
       const result = await new IacController(pulumi).resolveRollback({
         applyRunId: 'apply-run-1',
@@ -1646,7 +1658,7 @@ describe('IacController', () => {
       vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord());
       const { ctx, sender } = makeCtx();
 
-      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result).toEqual({ confirmed: true, versionId: 'config-v-new-head' });
       const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.rollback.confirm.chunk');
@@ -1654,6 +1666,53 @@ describe('IacController', () => {
         ['iac.rollback.confirm.chunk', { applyRunId: 'apply-run-1', chunk: chunks[0] }],
         ['iac.rollback.confirm.chunk', { applyRunId: 'apply-run-1', chunk: chunks[1] }],
       ]);
+    });
+
+    // @spec CONFIG-RESTORE-004
+    it('should forward the previewed headEtag to PulumiService.confirmRollback as the expected head etag', async () => {
+      const pulumi = makePulumi();
+      const { ctx } = makeCtx();
+
+      await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
+
+      expect(pulumi.confirmRollback).toHaveBeenCalledWith('apply-run-1', expect.any(AbortSignal), undefined, 'etag-head');
+    });
+
+    // @spec CONFIG-RESTORE-005
+    it('should refuse to confirm without a previewed headEtag and never start the restore', async () => {
+      const pulumi = makePulumi();
+      const { ctx } = makeCtx();
+
+      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+
+      expect(result).toEqual({
+        confirmed: false,
+        error: 'The rollback preview could not read the current configuration: re-open the rollback to retry',
+      });
+      expect(pulumi.confirmRollback).not.toHaveBeenCalled();
+    });
+
+    // @spec CONFIG-RESTORE-004
+    it('should map an OptimisticLockError to a retry message and record no audit entry', async () => {
+      const pulumi = makePulumi();
+      // eslint-disable-next-line require-yield -- generator throws before yielding
+      async function* conflicts(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult> {
+        throw new OptimisticLockError('etag-head', 'etag-newer');
+      }
+      vi.mocked(pulumi.confirmRollback).mockImplementation(conflicts);
+      const { audit, record } = makeAudit();
+      const { ctx } = makeCtx();
+
+      const result = await new IacController(pulumi, audit).confirmRollback(
+        { applyRunId: 'apply-run-1', headEtag: 'etag-head' },
+        ctx,
+      );
+
+      expect(result).toEqual({
+        confirmed: false,
+        error: 'Configuration changed while restoring: review and retry the rollback',
+      });
+      expect(record).not.toHaveBeenCalled();
     });
 
     it('should call PulumiService.readRunRecord with the settled result\'s runId to recover the restored version id', async () => {
@@ -1668,7 +1727,7 @@ describe('IacController', () => {
       );
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(pulumi.readRunRecord).toHaveBeenCalledWith('rollback-plan-run-42');
       expect(result).toEqual({ confirmed: true, versionId: 'config-v-recovered' });
@@ -1690,7 +1749,7 @@ describe('IacController', () => {
       vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord());
       const { ctx } = makeCtx();
 
-      const ackPromise = new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const ackPromise = new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
@@ -1716,7 +1775,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(record).toHaveBeenCalledTimes(1);
       const recordedEntry = record.mock.calls[0]?.[0] as RecordAuditEntryParams;
@@ -1732,7 +1791,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result).toEqual({ confirmed: false, error: error.message });
       expect(record).not.toHaveBeenCalled();
@@ -1751,7 +1810,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result.confirmed).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -1770,7 +1829,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result.confirmed).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -1788,7 +1847,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result.confirmed).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -1804,7 +1863,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(record).not.toHaveBeenCalled();
     });
@@ -1829,7 +1888,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result).toEqual({
         confirmed: false,
