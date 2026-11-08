@@ -18,7 +18,12 @@ import { OptimisticLockError, errMessage, validateDeploymentSettingsPatch } from
 import { logger } from '../logger.js';
 import { readAppVersion } from '../app-version.js';
 import { checkForUpdatesNow, downloadUpdateNow, installDownloadedUpdate } from '../updater.js';
-import { ConfigurationNotConfiguredError, RunsTableRenameError, DeploymentConfigService } from '../services/DeploymentConfigService.js';
+import {
+  ConfigurationNotConfiguredError,
+  ConfigurationObjectMissingError,
+  RunsTableRenameError,
+  DeploymentConfigService,
+} from '../services/DeploymentConfigService.js';
 // Deliberately a value import, not `import type` — Nest's constructor-parameter
 // DI resolves `engine`'s token off `design:paramtypes` metadata, which
 // `emitDecoratorMetadata` can only populate from a real (value) import; an
@@ -125,7 +130,7 @@ export class IacSettingsController implements OnModuleInit {
     );
   }
 
-  // @spec CONFIG-SET-001, CONFIG-SET-002, CONFIG-SET-010, CONFIG-FORM-007
+  // @spec CONFIG-SET-001, CONFIG-SET-002, CONFIG-SET-003, CONFIG-SET-009, CONFIG-SET-010, CONFIG-FORM-007
   /**
    * Returns the current top-level deployment settings plus the etag to
    * round-trip as {@link update}'s `expectedVersionId` — see
@@ -143,17 +148,22 @@ export class IacSettingsController implements OnModuleInit {
         logger.warn('Deployment settings read rejected — no configuration bucket configured', { err: err.message });
         return { ok: false, code: 'setup_incomplete', message: err.message };
       }
-      logger.error('Failed to read deployment settings', { err });
+      if (err instanceof ConfigurationObjectMissingError) {
+        logger.warn('Deployment settings read found no deployment-config.json', { err: err.message });
+        return { ok: false, code: 'not_found', message: err.message };
+      }
+      logger.error('Failed to read deployment settings', { err: errMessage(err) });
       return { ok: false, code: 'error', message: 'An unexpected error occurred while reading deployment settings.' };
     }
   }
 
-  // @spec CONFIG-SET-002, CONFIG-SET-004, CONFIG-SET-005, CONFIG-SET-007, CONFIG-SET-008, CONFIG-SET-010
+  // @spec CONFIG-SET-002, CONFIG-SET-004, CONFIG-SET-005, CONFIG-SET-006, CONFIG-SET-007, CONFIG-SET-008, CONFIG-SET-009, CONFIG-SET-010
   /**
    * Validates `payload.patch` via {@link validateDeploymentSettingsPatch}
    * and, if it passes, delegates to
    * `DeploymentConfigService.updateTopLevelSettings()`, re-reading afterward
-   * so a successful result reflects exactly what's now persisted.
+   * so a successful result reflects exactly what's now persisted; if that re-read fails after the write succeeded,
+   * the written settings are reported instead, since the write itself did not fail.
    *
    * The validation call lives INSIDE the `try` block rather than before it:
    * `payload`/`payload.patch` may be absent or wrong-shaped (nothing
@@ -173,7 +183,15 @@ export class IacSettingsController implements OnModuleInit {
       }
 
       const write = await this.deploymentConfig.updateTopLevelSettings(payload.patch, payload.expectedVersionId);
-      const { settings } = await this.deploymentConfig.getTopLevelSettings();
+      const settings = await this.deploymentConfig.getTopLevelSettings().then(
+        (read) => read.settings,
+        (readErr: unknown) => {
+          logger.warn('Deployment settings re-read after write failed — reporting the written settings', {
+            err: errMessage(readErr),
+          });
+          return write.settings;
+        },
+      );
       return { ok: true, settings, etag: write.etag, versionId: write.versionId };
     } catch (err) {
       if (err instanceof RunsTableRenameError) {
@@ -188,6 +206,10 @@ export class IacSettingsController implements OnModuleInit {
         };
       }
       if (err instanceof OptimisticLockError) {
+        logger.warn('Deployment settings write rejected — etag conflict', {
+          expectedVersionId: err.expectedEtag,
+          currentVersionId: err.currentEtag,
+        });
         return {
           ok: false,
           code: 'conflict',
@@ -200,7 +222,7 @@ export class IacSettingsController implements OnModuleInit {
         logger.warn('Deployment settings write rejected — no configuration bucket configured', { err: err.message });
         return { ok: false, code: 'setup_incomplete', message: err.message };
       }
-      logger.error('Failed to write deployment settings', { err });
+      logger.error('Failed to write deployment settings', { err: errMessage(err) });
       return { ok: false, code: 'error', message: 'An unexpected error occurred while writing deployment settings.' };
     }
   }

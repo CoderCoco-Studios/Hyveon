@@ -317,6 +317,18 @@ describe('diffDeploymentConfig', () => {
     expect(diffDeploymentConfig(previous, current).gameServers.changed).toEqual(['g']);
   });
 
+  // @spec CONFIG-RBDIFF-002
+  it('should include every top-level field of DeploymentConfig except gameServers in the comparison', () => {
+    const topLevelKeys = Object.keys(FULL_CONFIG).filter((k) => k !== 'gameServers') as (keyof DeploymentConfig)[];
+    const changed = Object.fromEntries(
+      topLevelKeys.map((k) => [k, typeof FULL_CONFIG[k] === 'number' ? 999 : Array.isArray(FULL_CONFIG[k]) ? ['x'] : 'changed']),
+    );
+
+    const diff = diffDeploymentConfig(FULL_CONFIG, { ...FULL_CONFIG, ...changed } as DeploymentConfig);
+
+    expect([...diff.changedFields].sort()).toEqual([...topLevelKeys].sort());
+  });
+
   it('should report every top-level scalar and array field as changed when every one differs', () => {
     const previous = FULL_CONFIG;
     const current: DeploymentConfig = {

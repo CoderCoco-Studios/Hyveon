@@ -92,11 +92,14 @@ export class AwsRemoteFileStore implements RemoteFileStore {
     return this.getCachedClient({ region, credentials: config?.credentials, credentialsSignature: config?.credentialsSignature });
   }
 
-  // @spec CONFIG-STORE-006
+  // @spec CONFIG-STORE-006, CONFIG-STORE-007
   /**
    * Retrieves the current version of a file by path.
    *
    * @param path - The store-relative path of the file to retrieve.
+   * @returns The body and etag, or `undefined` only when the object does not exist.
+   * @throws Error when the object exists but the response carries no body or no ETag, so a caller never mistakes
+   *   an unreadable object for an absent one and overwrites it.
    */
   async get(path: string): Promise<{ body: Uint8Array; etag: string } | undefined> {
     try {
@@ -104,7 +107,8 @@ export class AwsRemoteFileStore implements RemoteFileStore {
         new GetObjectCommand({ Bucket: this.getBucketName(), Key: path }),
       );
       const body = await resp.Body?.transformToByteArray();
-      if (!body || !resp.ETag) return undefined;
+      if (!body) throw new Error(`S3 GetObject for path "${path}" returned no body.`);
+      if (!resp.ETag) throw new Error(`S3 GetObject for path "${path}" returned no ETag.`);
       return { body, etag: unquoteEtag(resp.ETag) };
     } catch (err) {
       if (err instanceof NoSuchKey) return undefined;

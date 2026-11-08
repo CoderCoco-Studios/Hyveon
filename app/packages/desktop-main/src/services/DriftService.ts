@@ -190,7 +190,7 @@ export class DriftService {
     private readonly config: ConfigService,
   ) {}
 
-  // @spec CONFIG-DRIFT-001, CONFIG-DRIFT-009
+  // @spec CONFIG-DRIFT-001, CONFIG-DRIFT-007, CONFIG-DRIFT-009
   /**
    * Returns the current {@link DriftReport} — see {@link computeDrift} for
    * the classification rules. Invalidates only the `DeploymentConfigService` cache
@@ -205,12 +205,16 @@ export class DriftService {
    * passphrase-but-no-real-stack edge case ever misfires (see
    * `PulumiService.getStackOutputs`'s doc comment). The stack-outputs cache
    * is invalidated on write instead, not on every read here.
+   *
+   * Reads the declared games through the rejecting {@link DeploymentConfigService.getGameServersStrict}, so an
+   * unreadable config fails the call instead of reading as "no games declared" and reporting every deployed game
+   * as `pending_delete`.
    */
   async getDrift(): Promise<DriftReport> {
     logger.debug('DriftService.getDrift: computing deployment drift');
     try {
       this.deploymentConfig.invalidateCache();
-      const declared = await this.deploymentConfig.getGameServers();
+      const declared = await this.deploymentConfig.getGameServersStrict();
       const stackOutputs = await this.config.getStackOutputs();
       return computeDriftFromOutputs(declared, stackOutputs);
     } catch (err) {

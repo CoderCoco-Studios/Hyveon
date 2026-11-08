@@ -195,6 +195,13 @@ export interface DeploymentSettingsSetupIncomplete {
   message: string;
 }
 
+/** The configuration bucket is set up but `deployment-config.json` does not exist in it. */
+export interface DeploymentSettingsNotFound {
+  ok: false;
+  code: 'not_found';
+  message: string;
+}
+
 /** Catch-all failure for errors that aren't validation/conflict/setup-incomplete (e.g. an unexpected S3 error or malformed config JSON). */
 export interface DeploymentSettingsFailure {
   ok: false;
@@ -206,6 +213,7 @@ export interface DeploymentSettingsFailure {
 export type DeploymentSettingsGetResult =
   | DeploymentSettingsGetSuccess
   | DeploymentSettingsSetupIncomplete
+  | DeploymentSettingsNotFound
   | DeploymentSettingsFailure;
 
 /**

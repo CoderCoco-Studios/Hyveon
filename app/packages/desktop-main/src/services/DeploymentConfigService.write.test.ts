@@ -486,7 +486,7 @@ describe('DeploymentConfigService write path', () => {
 
   describe('restoreRawConfig (rollback flow, #112)', () => {
     // @spec CONFIG-RESTORE-001, CONFIG-RESTORE-002
-    it('should write the supplied config unconditionally (no ifMatch) and return the store put() result', async () => {
+    it('should write the supplied config conditioned on the head etag it read and return the store put() result', async () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValueOnce({ etag: 'etag-restored', versionId: 'v-restored' });
 
@@ -499,8 +499,26 @@ describe('DeploymentConfigService write path', () => {
       expect(remoteFileStore.put).toHaveBeenCalledWith(
         'deployment-config.json',
         new TextEncoder().encode(FIXTURE_JSON),
-        undefined,
+        { ifMatch: 'etag-1' },
       );
+    });
+
+    // @spec CONFIG-RESTORE-004
+    it('should fail with OptimisticLockError rather than overwrite a config that changed after the head read', async () => {
+      stubCurrentConfig(remoteFileStore);
+      // The stored head moves to etag-2 after the read: a put conditioned on the stale etag-1 is rejected,
+      // an unconditional one would silently overwrite.
+      remoteFileStore.put.mockImplementation(async (_key: string, _body: Uint8Array, opts?: { ifMatch?: string }) => {
+        if (opts?.ifMatch !== undefined && opts.ifMatch !== 'etag-2') {
+          throw new RemoteFileConflictError('deployment-config.json', 'Conflicting write detected.', opts?.ifMatch);
+        }
+        return { etag: 'etag-3' };
+      });
+      remoteFileStore.get.mockResolvedValueOnce({ body: new TextEncoder().encode(FIXTURE_JSON), etag: 'etag-1' });
+
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
+
+      await expect(service.restoreRawConfig(FIXTURE_JSON)).rejects.toThrow(OptimisticLockError);
     });
 
     // @spec CONFIG-WRITE-006
@@ -746,7 +764,12 @@ describe('DeploymentConfigService write path', () => {
 
       const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.updateTopLevelSettings({ dnsTtl: 60, awsRegion: 'eu-west-1' });
-      expect(result).toEqual({ etag: 'etag-2', versionId: undefined });
+      expect(result).toEqual({
+        etag: 'etag-2',
+        versionId: undefined,
+        settings: expect.objectContaining({ dnsTtl: 60, awsRegion: 'eu-west-1' }),
+      });
+      expect(result).not.toHaveProperty('settings.gameServers');
 
       expect(remoteFileStore.put).toHaveBeenCalledTimes(1);
       const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
@@ -899,6 +922,7 @@ describe('DeploymentConfigService write path', () => {
         await expect(service.updateTopLevelSettings({ runsTableName: 'hyveon-runs' })).resolves.toEqual({
           etag: 'etag-2',
           versionId: undefined,
+          settings: expect.any(Object),
         });
       });
 
@@ -910,6 +934,7 @@ describe('DeploymentConfigService write path', () => {
         await expect(service.updateTopLevelSettings({ dnsTtl: 60 })).resolves.toEqual({
           etag: 'etag-2',
           versionId: undefined,
+          settings: expect.any(Object),
         });
       });
     });

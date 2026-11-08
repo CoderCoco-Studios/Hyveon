@@ -3,11 +3,16 @@ import { describe, it, expect, vi } from 'vitest';
 import type { TopLevelDeploymentSettings, UpdateDeploymentSettingsPayload } from '@hyveon/shared';
 import { OptimisticLockError } from '@hyveon/shared';
 import { IacSettingsController } from './iac-settings.controller.js';
-import { ConfigurationNotConfiguredError, RunsTableRenameError } from '../services/DeploymentConfigService.js';
+import {
+  ConfigurationNotConfiguredError,
+  ConfigurationObjectMissingError,
+  RunsTableRenameError,
+} from '../services/DeploymentConfigService.js';
 import type { DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import type { PulumiEngineService } from '../services/PulumiEngineService.js';
 import type { ConfigService } from '../services/ConfigService.js';
 import type { ElectronStoreService } from '../services/ElectronStoreService.js';
+import { logger } from '../logger.js';
 import { deploymentConfigStub } from '../testing/deployment-config.fixture.js';
 import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
@@ -52,7 +57,7 @@ function makeDeploymentConfig(): DeploymentConfigService {
     {},
     {
       getTopLevelSettings: vi.fn().mockResolvedValue({ settings: SETTINGS, etag: 'etag-1' }),
-      updateTopLevelSettings: vi.fn().mockResolvedValue({ etag: 'etag-2', versionId: 'v-2' }),
+      updateTopLevelSettings: vi.fn().mockResolvedValue({ etag: 'etag-2', versionId: 'v-2', settings: SETTINGS }),
     },
   );
 }
@@ -97,6 +102,29 @@ describe('IacSettingsController', () => {
       const result = await new IacSettingsController(deploymentConfig).get();
 
       expect(result).toEqual({ ok: false, code: 'setup_incomplete', message: expect.any(String) });
+    });
+
+    // @spec CONFIG-SET-003
+    it('should return code: "not_found" when the bucket is configured but deployment-config.json is absent', async () => {
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.getTopLevelSettings).mockRejectedValue(
+        new ConfigurationObjectMissingError('deployment-config.json', 'my-bucket'),
+      );
+
+      const result = await new IacSettingsController(deploymentConfig).get();
+
+      expect(result).toEqual({ ok: false, code: 'not_found', message: expect.stringContaining('not found') });
+    });
+
+    // @spec CONFIG-SET-009
+    it('should log only the error message, never the raw error object, on an unexpected read failure', async () => {
+      const deploymentConfig = makeDeploymentConfig();
+      const boom = new Error('S3 unreachable');
+      vi.mocked(deploymentConfig.getTopLevelSettings).mockRejectedValue(boom);
+
+      await new IacSettingsController(deploymentConfig).get();
+
+      expect(logger.error).toHaveBeenCalledWith('Failed to read deployment settings', { err: 'S3 unreachable' });
     });
 
     // @spec CONFIG-SET-010
@@ -217,6 +245,40 @@ describe('IacSettingsController', () => {
           { path: 'projectName', message: expect.stringMatching(/hyveon-runs.*other-runs/) },
           { path: 'runsTableName', message: expect.stringMatching(/hyveon-runs.*other-runs/) },
         ],
+      });
+    });
+
+    // @spec CONFIG-SET-006
+    it('should still report success for the write when the follow-up settings read fails', async () => {
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.getTopLevelSettings).mockRejectedValue(new Error('read failed'));
+
+      const result = await new IacSettingsController(deploymentConfig).update(PAYLOAD);
+
+      expect(result).toEqual({
+        ok: true,
+        settings: SETTINGS,
+        etag: 'etag-2',
+        versionId: 'v-2',
+      });
+    });
+
+    // @spec CONFIG-SET-009
+    it('should log a warning on a write conflict and log only .message on an unexpected failure', async () => {
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValueOnce(
+        new OptimisticLockError('etag-1', 'etag-current'),
+      );
+      await new IacSettingsController(deploymentConfig).update(PAYLOAD);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Deployment settings write rejected — etag conflict',
+        expect.objectContaining({ expectedVersionId: 'etag-1', currentVersionId: 'etag-current' }),
+      );
+
+      vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValueOnce(new Error('malformed config JSON'));
+      await new IacSettingsController(deploymentConfig).update(PAYLOAD);
+      expect(logger.error).toHaveBeenCalledWith('Failed to write deployment settings', {
+        err: 'malformed config JSON',
       });
     });
 

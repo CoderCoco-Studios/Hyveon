@@ -60,7 +60,7 @@ function signatureFor(entries: DriftEntry[]): string {
     .join('|');
 }
 
-// @spec CONFIG-BANNER-001, CONFIG-BANNER-002, CONFIG-BANNER-003, CONFIG-BANNER-004, CONFIG-BANNER-005
+// @spec CONFIG-BANNER-001, CONFIG-BANNER-002, CONFIG-BANNER-003, CONFIG-BANNER-004, CONFIG-BANNER-005, CONFIG-DRIFT-008
 /**
  * Persistent dashboard banner — "Configuration changed, n changes pending —
  * run plan and apply on the Infrastructure page to deploy". Polls
@@ -156,7 +156,10 @@ export function PendingChangesBanner() {
           </Link>{' '}
           page to deploy
           {' '}
-          ({counts.pending_create} to create, {counts.pending_delete} to delete, {counts.config_drift} to update)
+          ({counts.pending_create} to create, {counts.pending_delete} to delete, {counts.config_drift} to update).
+          {' '}
+          Only image, CPU, memory, ports and volumes changes are detected; edits to other game fields still apply on the
+          next apply.
         </span>
       </div>
 

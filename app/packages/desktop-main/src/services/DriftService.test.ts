@@ -322,13 +322,13 @@ describe('DriftService', () => {
       });
     });
 
-    // @spec CONFIG-DRIFT-009
-    it('should log a warning and rethrow with just the message when getGameServers fails', async () => {
+    // @spec CONFIG-DRIFT-007, CONFIG-DRIFT-009
+    it('should log a warning and rethrow with just the message when the declared config cannot be read', async () => {
       vi.mocked(logger.warn).mockClear();
-      const deploymentConfig = {
-        invalidateCache: vi.fn(),
-        getGameServers: vi.fn().mockRejectedValue(new Error('S3 access denied')),
-      } as Partial<DeploymentConfigService> as DeploymentConfigService;
+      const deploymentConfig = deploymentConfigStub(
+        { declared: [] },
+        { getGameServersStrict: vi.fn().mockRejectedValue(new Error('S3 access denied')) },
+      );
 
       await expect(new DriftService(deploymentConfig, makeConfig()).getDrift()).rejects.toThrow(
         'S3 access denied',
