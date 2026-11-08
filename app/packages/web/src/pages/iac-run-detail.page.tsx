@@ -12,16 +12,8 @@ import { PageHeader } from '../components/page-header.component.js';
 import { formatTimestamp } from '../lib/format.utils.js';
 import { ChangeSummaryStatus } from '../components/change-summary-status.component.js';
 
-/**
- * Number of the most recent run records searched for a `runId` match on
- * this page's direct-navigation/refresh path (see {@link useHistoryRecord}).
- * Mirrors the history list page's own client-side-kind-filter trade-off:
- * run volume at this project's scale is expected to stay well under this
- * ceiling, so a single page covers it without a dedicated get-by-id API.
- */
-const LOOKUP_PAGE_SIZE = 200;
-
-/** Resolves the {@link RunHistoryRecord} for `runId` by searching the most recent page of `hyveon.iac.runs.list`. */
+// @spec IAC-RUN-DETL-004
+/** Resolves the {@link RunHistoryRecord} for `runId` by id through `hyveon.iac.runs.record`, however old the run is. */
 function useHistoryRecord(runId: string | undefined): {
   record: RunHistoryRecord | null | undefined;
   loading: boolean;
@@ -47,10 +39,10 @@ function useHistoryRecord(runId: string | undefined): {
     if (!runId || !window.hyveon) return;
     let cancelled = false;
     window.hyveon.iac.runs
-      .list({ limit: LOOKUP_PAGE_SIZE })
-      .then((page) => {
+      .record(runId)
+      .then((result) => {
         if (cancelled) return;
-        setResolved({ runId, record: page.records.find((r) => r.runId === runId) ?? null });
+        setResolved({ runId, record: result.found ? result.record : null });
       })
       .catch(() => {
         if (!cancelled) setResolved({ runId, record: null });

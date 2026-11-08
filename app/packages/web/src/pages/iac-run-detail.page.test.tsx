@@ -12,7 +12,7 @@ vi.mock('../api.service.js', () => ({ api: apiMock }));
 const hyveonMock = {
   iac: {
     runs: {
-      list: vi.fn(),
+      record: vi.fn(),
       streamLogs: vi.fn(),
       logUrl: vi.fn(),
     },
@@ -63,7 +63,7 @@ describe('IacRunDetailPage', () => {
   beforeEach(() => {
     apiMock.status.mockResolvedValue([]);
     apiMock.costsEstimate.mockResolvedValue({ games: {}, totalPerHourIfAllOn: 0 });
-    hyveonMock.iac.runs.list.mockReset();
+    hyveonMock.iac.runs.record.mockReset();
     hyveonMock.iac.runs.streamLogs.mockReset();
     hyveonMock.iac.runs.logUrl.mockReset();
     hyveonMock.iac.runs.streamLogs.mockImplementation(
@@ -79,8 +79,17 @@ describe('IacRunDetailPage', () => {
     } as Response);
   });
 
+  // @spec IAC-RUN-DETL-004
+  it('should look the record up by runId through iac.runs.record, not by scanning the newest list page', async () => {
+    hyveonMock.iac.runs.record.mockResolvedValue({ found: true, record: makeRecord({ runId: 'run-ancient' }) });
+    renderDetailPage('run-ancient');
+
+    expect(await screen.findByText('apply')).toBeInTheDocument();
+    expect(hyveonMock.iac.runs.record).toHaveBeenCalledWith('run-ancient');
+  });
+
   it('should show a not-found message when no record matches the runId', async () => {
-    hyveonMock.iac.runs.list.mockResolvedValue({ records: [] });
+    hyveonMock.iac.runs.record.mockResolvedValue({ found: false });
     renderDetailPage('run-missing');
 
     expect(await screen.findByText(/No run history record was found for "run-missing"\./)).toBeInTheDocument();
@@ -88,8 +97,9 @@ describe('IacRunDetailPage', () => {
 
   // @spec IAC-RUN-DETL-001
   it('should render the record status, kind, and approver once resolved', async () => {
-    hyveonMock.iac.runs.list.mockResolvedValue({
-      records: [makeRecord({ approvedBy: 'alice', approvedAt: '2026-07-17T00:02:00.000Z' })],
+    hyveonMock.iac.runs.record.mockResolvedValue({
+      found: true,
+      record: makeRecord({ approvedBy: 'alice', approvedAt: '2026-07-17T00:02:00.000Z' }),
     });
     renderDetailPage('run-1');
 
@@ -101,7 +111,7 @@ describe('IacRunDetailPage', () => {
 
   // @spec IAC-RUN-DETL-002
   it('should replay the log via streamLogs when local run artifacts exist', async () => {
-    hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord()] });
+    hyveonMock.iac.runs.record.mockResolvedValue({ found: true, record: makeRecord() });
     hyveonMock.iac.runs.streamLogs.mockImplementation(
       toStreamHandleMock(async function* () {
         yield { stream: 'stdout', line: 'replayed line' };
@@ -115,8 +125,9 @@ describe('IacRunDetailPage', () => {
 
   // @spec IAC-RUN-DETL-002
   it('should fall back to the inline log when streamLogs yields nothing', async () => {
-    hyveonMock.iac.runs.list.mockResolvedValue({
-      records: [makeRecord({ logInline: 'inline log text' })],
+    hyveonMock.iac.runs.record.mockResolvedValue({
+      found: true,
+      record: makeRecord({ logInline: 'inline log text' }),
     });
     renderDetailPage('run-1');
 
@@ -126,8 +137,9 @@ describe('IacRunDetailPage', () => {
 
   // @spec IAC-RUN-DETL-002
   it('should fall back to streamLogs throwing, then a presigned URL fetch when logS3Key is set', async () => {
-    hyveonMock.iac.runs.list.mockResolvedValue({
-      records: [makeRecord({ logS3Key: 'runs/run-1.log' })],
+    hyveonMock.iac.runs.record.mockResolvedValue({
+      found: true,
+      record: makeRecord({ logS3Key: 'runs/run-1.log' }),
     });
     hyveonMock.iac.runs.streamLogs.mockImplementation(
       // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate missing local run artifacts
@@ -144,8 +156,9 @@ describe('IacRunDetailPage', () => {
   });
 
   it('should treat a non-ok presigned URL fetch as no log available rather than rendering the error body', async () => {
-    hyveonMock.iac.runs.list.mockResolvedValue({
-      records: [makeRecord({ logS3Key: 'runs/run-1.log' })],
+    hyveonMock.iac.runs.record.mockResolvedValue({
+      found: true,
+      record: makeRecord({ logS3Key: 'runs/run-1.log' }),
     });
     hyveonMock.iac.runs.streamLogs.mockImplementation(
       // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate missing local run artifacts
@@ -168,7 +181,7 @@ describe('IacRunDetailPage', () => {
 
   // @spec IAC-RUN-DETL-003
   it('should not render any approve/apply controls for a terminal run', async () => {
-    hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
+    hyveonMock.iac.runs.record.mockResolvedValue({ found: true, record: makeRecord({ logInline: 'log' }) });
     renderDetailPage('run-1');
 
     await screen.findByText('log');
@@ -177,8 +190,9 @@ describe('IacRunDetailPage', () => {
   });
 
   it('should link to the rolled-back apply run when the record carries rolledBackFrom', async () => {
-    hyveonMock.iac.runs.list.mockResolvedValue({
-      records: [makeRecord({ kind: 'plan', logInline: 'log', rolledBackFrom: 'apply-1' })],
+    hyveonMock.iac.runs.record.mockResolvedValue({
+      found: true,
+      record: makeRecord({ kind: 'plan', logInline: 'log', rolledBackFrom: 'apply-1' }),
     });
     renderDetailPage('run-1');
 
@@ -187,7 +201,7 @@ describe('IacRunDetailPage', () => {
   });
 
   it('should not render a rollback tag when the record has no rolledBackFrom', async () => {
-    hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
+    hyveonMock.iac.runs.record.mockResolvedValue({ found: true, record: makeRecord({ logInline: 'log' }) });
     renderDetailPage('run-1');
 
     await screen.findByText('log');
@@ -196,8 +210,9 @@ describe('IacRunDetailPage', () => {
 
   describe('change summary', () => {
     it('should render grouped change badges when the record has a populated changeSummary', async () => {
-      hyveonMock.iac.runs.list.mockResolvedValue({
-        records: [makeRecord({ logInline: 'log', changeSummary: { create: 3, update: 1 } })],
+      hyveonMock.iac.runs.record.mockResolvedValue({
+        found: true,
+        record: makeRecord({ logInline: 'log', changeSummary: { create: 3, update: 1 } }),
       });
       renderDetailPage('run-1');
 
@@ -207,15 +222,16 @@ describe('IacRunDetailPage', () => {
 
     // @spec IAC-RUN-PLAN-008
     it('should render "Change summary unavailable" when the record has no changeSummary', async () => {
-      hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
+      hyveonMock.iac.runs.record.mockResolvedValue({ found: true, record: makeRecord({ logInline: 'log' }) });
       renderDetailPage('run-1');
 
       expect(await screen.findByText('Change summary unavailable')).toBeInTheDocument();
     });
 
     it('should render a distinct "no changes" state when the record\'s changeSummary reports only unchanged resources', async () => {
-      hyveonMock.iac.runs.list.mockResolvedValue({
-        records: [makeRecord({ logInline: 'log', changeSummary: { same: 5 } })],
+      hyveonMock.iac.runs.record.mockResolvedValue({
+        found: true,
+        record: makeRecord({ logInline: 'log', changeSummary: { same: 5 } }),
       });
       renderDetailPage('run-1');
 
@@ -225,8 +241,9 @@ describe('IacRunDetailPage', () => {
 
     // @spec IAC-RUN-PART-005
     it('should render a partial badge when the record has partialApply true', async () => {
-      hyveonMock.iac.runs.list.mockResolvedValue({
-        records: [makeRecord({ logInline: 'log', partialApply: true })],
+      hyveonMock.iac.runs.record.mockResolvedValue({
+        found: true,
+        record: makeRecord({ logInline: 'log', partialApply: true }),
       });
       renderDetailPage('run-1');
 
@@ -234,7 +251,7 @@ describe('IacRunDetailPage', () => {
     });
 
     it('should not render a partial badge when the record has no partialApply', async () => {
-      hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
+      hyveonMock.iac.runs.record.mockResolvedValue({ found: true, record: makeRecord({ logInline: 'log' }) });
       renderDetailPage('run-1');
 
       await screen.findByText('log');

@@ -86,6 +86,7 @@ import type {
   IacRunChunk,
   IacRunsGetResult,
   IacRunsListOpts,
+  IacRunsRecordResult,
   IacRunsLockClearAck,
   IacRunsLockClearPayload,
   IacRunsLockMintAck,
@@ -623,6 +624,7 @@ const api: HyveonApi = {
       get: (runId: string) => invoke<IacRunsGetResult>('iac.runs.get', { runId }),
       streamLogs: openIacRunLogsStream,
       list: (opts?: IacRunsListOpts) => invoke<RunHistoryPageResult>('iac.runs.list', opts),
+      record: (runId: string) => invoke<IacRunsRecordResult>('iac.runs.record', { runId }),
       logUrl: (logKey: string, expiresInSeconds?: number) =>
         invoke<{ url: string }>('iac.runs.logUrl', { logKey, expiresInSeconds }).then((r) => r.url),
       lock: {
