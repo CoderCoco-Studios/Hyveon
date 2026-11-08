@@ -19,7 +19,7 @@ Impact applies to class **b** (and is noted on a few **c** items): **high** = op
 
 ## Summary
 
-No `[ ]` spec is implemented-but-unmarked: every gap note still describes the current code. 132 are real gaps (7 since closed: `IAC-RUN-HIST-004`, `DISCORD-RUN-010`, `DISCORD-RUN-011`, `DISCORD-RUN-014`, `APP-WIZARD-RECONF-009`, `APP-WIZARD-ROTATE-008`, `RT-TASK-LAUNCH-010`), 28 should be deferred and 26 need their spec text fixed.
+No `[ ]` spec is implemented-but-unmarked: every gap note still describes the current code. 132 are real gaps (8 since closed: `DISCORD-AUTH-007`, `IAC-RUN-HIST-004`, `DISCORD-RUN-010`, `DISCORD-RUN-011`, `DISCORD-RUN-014`, `APP-WIZARD-RECONF-009`, `APP-WIZARD-ROTATE-008`, `RT-TASK-LAUNCH-010`), 28 should be deferred and 26 need their spec text fixed.
 
 The 6 remaining high-impact specs reduce to 4 root causes: one single-spec one (`APP-DIAG-SCRUB-003`), the health-check Lambda environment (`RT-HEALTH-PROV-003`, `IAC-PROGRAM-LAMBDA-011`), and the health-check Lambda network path (`RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-012`). The install-region set of five (`IAC-ENGINE-REGION-001`, `CONFIG-SET-012`, `CONFIG-FORM-003`, `CONFIG-FORM-007`, `APP-WIZARD-REGLOCK-001`) has since closed. The Reconfigure credential set (`APP-WIZARD-RECONF-009`, `APP-WIZARD-ROTATE-008`) has also closed, as has the start race (`RT-TASK-LAUNCH-010`).
 
@@ -361,7 +361,7 @@ Specs: `docs/intent/discord-bot/discord-bot-specs.md` · Arrow doc: `docs/arrows
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
 | `DISCORD-SVC-005` | d | - | Dedupe/refactor wish (Should Fix 6): endpoint URL works; duplicate outputs infra/src/program.ts:530-531, two receivers still exist. Belongs in LLD Work Required not EARS |
-| `DISCORD-AUTH-007` | c | low | Not implemented (lambda/interactions/src/handler.ts:278-289 signature only); Discord does not require it, replay needs captured TLS traffic; defence-in-depth |
+| `DISCORD-AUTH-007` | closed | - | Fixed (was): lambda/interactions/src/handler.ts checked only the signature; a captured request was replayable. Now rejects a verified timestamp more than 30s from the Lambda clock |
 | `DISCORD-CMD-009` | b | med | lambda/interactions/src/handler.ts:256-264 awaits an InvocationType Event invoke with no bound (called at :205,:217,:234), so slow Lambda API latency can exceed Discord's 3s budget. Bounding the invoke with an abort/timeout meets the budget, at the cost of a dropped followup (the command stays on "thinking") when the bound fires; the invoke must still be awaited because Lambda freezes after return |
 | `DISCORD-RUN-010` | closed | - | Fixed (was): lambda/followup/src/handler.ts:249 config read outside try; throw leaves interaction stuck on thinking (async retries re-run). PATCH-fail part (:281) cannot itself reply |
 | `DISCORD-RUN-011` | closed | - | Fixed (was): lambda/followup/src/handler.ts:277 console.error logs whole event incl interactionToken (valid 15 min) to CloudWatch |
