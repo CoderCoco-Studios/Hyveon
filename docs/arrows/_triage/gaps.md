@@ -265,14 +265,14 @@ Specs: `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md` · Arrow 
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `APP-SHELL-BOOT-008` | b | med | Still console.error only (app/packages/desktop-main/src/electron-entry.ts:51,204,229,250); no logger import in file, so packaged start-up failures leave no log line |
-| `APP-SHELL-CHROME-014` | d | - | Skip link sets WebkitAppRegion no-drag unconditionally (web/src/components/app-layout.component.tsx:52) but no-drag is inert outside Electron; no observable behaviour to require |
-| `APP-SHELL-GATE-006` | c | med | getState() rejection silently mapped to wizardCompleted=true with no operator signal (app/packages/web/src/app.component.tsx:53-55); class c because the first-run gate's failure policy is an open decision (arrow Must Fix 2) and the spec is conditional on fail-open staying. Buildable as written under the current fail-open behaviour if the owner confirms it |
-| `APP-SHELL-NAV-009` | b | low | Sidebar and drawer still read 'Game Servers' (web/src/components/app-layout.component.tsx:82,113) vs top bar 'Hyveon' (app-topbar.component.tsx:115) |
-| `APP-SHELL-TOP-002` | b | low | api.env() rejection -> console.error and pill falls back to 'local' (web/src/components/app-layout.component.tsx:30,33-35) |
-| `APP-SHELL-UI-004` | b | low | index.css @theme (web/src/index.css:5-44) lacks accent/background/muted; hover:bg-accent at window-chrome.component.tsx:97,105, app-layout:119, topbar:110; bg-muted topbar:61 |
-| `APP-SHELL-UI-005` | d | - | hover:text-red-400 hover:bg-red-500/10 still at web/src/components/window-chrome.component.tsx:117; token-convention rule, visually ~identical to --color-red #f87171, not behaviour |
-| `APP-SHELL-UI-006` | d | - | DESIGN.md:23 still #8b90a5 vs index.css:21 #9398ad and omits --color-card; doc-sync item, not a behavioural requirement |
+| `APP-SHELL-BOOT-008` | closed | - | Fixed (was): start-up and window failures used `console.error`. `logStartupFailure` routes them through winston with `ipcErrorMessage` |
+| `APP-SHELL-CHROME-014` | closed | - | Fixed (was): skip link set `WebkitAppRegion` unconditionally. It now uses `useAppRegionStyle`, and a test scans every element outside Electron |
+| `APP-SHELL-GATE-006` | closed | - | Fixed (was): rejection swallowed silently. Fail-open stays; a persistent error toast tells the operator setup state could not be read |
+| `APP-SHELL-NAV-009` | closed | - | Fixed (was): sidebar and drawer read "Game Servers". One `BrandMark` component reads "Hyveon" |
+| `APP-SHELL-TOP-002` | closed | - | Fixed (was): failed env call read `local`. The pill now reads `env unavailable` in the error style |
+| `APP-SHELL-UI-004` | closed | - | Fixed (was): no accent/background/muted tokens. Declared in `@theme`; `design-tokens.test.ts` scans the chrome files |
+| `APP-SHELL-UI-005` | closed | - | Fixed (was): raw Tailwind reds on the close button. Now `hover:text-red hover:bg-red/10` |
+| `APP-SHELL-UI-006` | closed | - | Fixed (was): `DESIGN.md` drifted from `index.css`. Table synced; a test compares the two |
 
 ### `ipc-bridge`
 

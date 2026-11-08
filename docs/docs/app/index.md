@@ -30,6 +30,8 @@ the entire window with the first-run wizard — there is no dashboard, no
 sidebar, and no way to skip ahead. This is deliberate: nothing else in the app
 works until Pulumi has a state backend to talk to.
 
+If the app cannot read your setup state (an internal call fails), it opens the dashboard anyway so a working install is never locked out, and shows a persistent error notice saying setup state could not be read. Check the logs if setup looks incomplete.
+
 ### 2. Complete the wizard
 
 Five steps: choose your cloud (AWS is the only option today), provision AWS

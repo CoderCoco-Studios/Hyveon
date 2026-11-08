@@ -33,6 +33,8 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 - `app/packages/web/e2e/specs/settings.spec.ts`
 - `app/packages/web/src/app.component.test.tsx`
 - `app/packages/web/src/components/app-layout.component.test.tsx`
+- `app/packages/web/src/components/window-chrome.component.test.tsx`
+- `app/packages/web/src/design-tokens.test.ts`
 - `app/packages/web/src/components/confirm-dialog.component.test.tsx`
 - `app/packages/web/src/components/ui/form-field.component.test.tsx`
 - `app/packages/web/src/components/ui/native-select.component.test.tsx`
@@ -102,35 +104,35 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
-| Process Start and Composition Root | `APP-SHELL-BOOT-001` to `APP-SHELL-BOOT-016` | 15 | 0 | 1 |
+| Process Start and Composition Root | `APP-SHELL-BOOT-001` to `APP-SHELL-BOOT-016` | 16 | 0 | 0 |
 | Cloud Provider Bindings | `APP-SHELL-BIND-001` to `APP-SHELL-BIND-004` | 4 | 0 | 0 |
-| Window Chrome | `APP-SHELL-CHROME-001` to `APP-SHELL-CHROME-014` | 12 | 1 | 1 |
+| Window Chrome | `APP-SHELL-CHROME-001` to `APP-SHELL-CHROME-014` | 13 | 1 | 0 |
 | Window-Control IPC | `APP-SHELL-WINIPC-001` to `APP-SHELL-WINIPC-013` | 13 | 0 | 0 |
 | App Icon | `APP-SHELL-ICON-001` to `APP-SHELL-ICON-005` | 5 | 0 | 0 |
-| First-Run Gate | `APP-SHELL-GATE-001` to `APP-SHELL-GATE-006` | 5 | 0 | 1 |
-| Routing and Navigation | `APP-SHELL-NAV-001` to `APP-SHELL-NAV-009` | 8 | 0 | 1 |
-| Top Bar | `APP-SHELL-TOP-001` to `APP-SHELL-TOP-004` | 3 | 0 | 1 |
+| First-Run Gate | `APP-SHELL-GATE-001` to `APP-SHELL-GATE-006` | 6 | 0 | 0 |
+| Routing and Navigation | `APP-SHELL-NAV-001` to `APP-SHELL-NAV-009` | 9 | 0 | 0 |
+| Top Bar | `APP-SHELL-TOP-001` to `APP-SHELL-TOP-004` | 4 | 0 | 0 |
 | Polling Heartbeat | `APP-SHELL-POLL-001` to `APP-SHELL-POLL-009` | 9 | 0 | 0 |
 | Settings Host Page | `APP-SHELL-SET-001` to `APP-SHELL-SET-003` | 3 | 0 | 0 |
-| UI Integrity and Design Tokens | `APP-SHELL-UI-001` to `APP-SHELL-UI-007` | 4 | 0 | 3 |
+| UI Integrity and Design Tokens | `APP-SHELL-UI-001` to `APP-SHELL-UI-007` | 7 | 0 | 0 |
 
-**Summary:** 81 of 89 active specs implemented; 1 deferred; 8 gaps.
+**Summary:** 89 of 90 active specs implemented; 1 deferred; 0 gaps.
 
 ## Key Findings
 
-1. **First-run gate fails open by design**: `app.component.tsx:40-54` renders the dashboard (wizard skipped) when `window.hyveon.wizard` is missing or `getState()` rejects. The doc comment at `:22-26` states this is intentional ("must never lock an otherwise-working install out"). Sweep-3 files it as a bug; the code shows it is a deliberate trade-off that also hides a real IPC failure from a fresh install. Needs an explicit decision in EARS.
+1. **First-run gate fails open by design**: `app.component.tsx` renders the dashboard (wizard skipped) when `window.hyveon.wizard` is missing or `getState()` rejects, so a failed IPC call never locks a working install out. A rejection now also raises a persistent error toast (`APP-SHELL-GATE-006`); a missing bridge stays silent because it is the expected e2e stub case.
 2. **Sidebar covers the route table**: all 9 top-level routes in `app.component.tsx:98-110` have a nav entry in `app-nav.component.tsx:21-59`; `/iac/history`, `/iac/history/:runId` `/games/:name` and `/games/:name/files` are detail routes. The `desktop-only-operator-surface` sidebar requirement holds. The `CostsPage.ts` TODO claiming Costs is absent from the sidebar is stale (§6 disagreement, owned by `task-and-dns`).
 3. **Dashboard active check is exact-match in effect**: `app-nav.component.tsx:90` tests `startsWith('//')`, which never matches, so Dashboard is active only on `/`. The behaviour is correct; the expression is misleading, and `:87-113` index `monitoringItems[0]`/`[1]` by position.
 4. **Title-bar colours and geometry are hard-coded twice**: `electron-entry.ts:113` hard-codes `#1a1d2e`/`#e1e4ed`/`56`; `index.css:11-17` declares `--color-card` specifically to keep `bg-card` equal to that literal. `electron-entry.ts:60-70` bakes the 768 px breakpoint and the 240 px sidebar width (`w-60`) into traffic-light positions. Any theme or layout change must edit both packages.
-5. **Undeclared Tailwind tokens render nothing**: `index.css` `@theme` declares no `--color-accent`, `--color-background` or `--color-muted`, yet `hover:bg-accent` (`window-chrome.component.tsx:94,102`, `app-layout.component.tsx:118`, `app-topbar.component.tsx:107`, `app-nav.component.tsx:147`), `bg-background` (`app-layout.component.tsx:40`) and `bg-muted` (`app-topbar.component.tsx:59`) are used. Only the legacy `:root --accent` exists (`index.css:54`). Hover fills and the LIVE pill background are therefore absent. `window-chrome.component.tsx:114` uses raw Tailwind reds instead of `--color-red`.
-6. **`DESIGN.md` has drifted from `index.css`**: `DESIGN.md` lists `--color-muted-foreground` as `#8b90a5`; `index.css` sets `#9398ad`. `DESIGN.md` also omits `--color-card`.
-7. **Two drag-region mechanisms**: `app-layout.component.tsx:51,71-75` writes `WebkitAppRegion` inline while `app-topbar` uses `useAppRegionStyle` (`use-app-region-style.hook.ts:16-18`), which is named as a hook but calls no React hook. The brand block markup is duplicated (`app-layout.component.tsx:77-82` and `:108-113`), and the sidebar brand reads "Game Servers" while the top bar `h1` reads "Hyveon" (`app-topbar.component.tsx:112`).
-8. **Env pill failure is silent**: `app-layout.component.tsx:29` sends an `api.env()` rejection to `console.error` and the pill falls back to `local` (`:32-34`), indistinguishable from a real local environment.
+5. **Shell colour tokens resolve**: `index.css` `@theme` declares `--color-background`, `--color-muted` and `--color-accent` beside `--color-card`, and the close button uses `--color-red`; `design-tokens.test.ts` fails when a chrome file uses a semantic colour utility with no declared token (`APP-SHELL-UI-004`, `APP-SHELL-UI-005`).
+6. **`DESIGN.md` mirrors `index.css`**: the colour table lists the same tokens and values, and `design-tokens.test.ts` compares them (`APP-SHELL-UI-006`).
+7. **Drag-region mechanisms**: the skip link and the top bar use `useAppRegionStyle`; `window-chrome.component.tsx` and the macOS sidebar brand block still write `WebkitAppRegion` inline, and the helper is named as a hook but calls no React hook (`use-app-region-style.hook.ts`). The brand block is one `BrandMark` component reading "Hyveon" everywhere.
+8. **Env pill failure is visible**: an `api.env()` rejection renders `env unavailable` in the error style with the message as tooltip, distinct from the in-flight and genuine `local` text (`APP-SHELL-TOP-002`).
 9. **Polling registry quirks**: same-name `register()` silently replaces the prior poller (`polling-provider.component.tsx:154-157`); the `usePollingState` doc says the slice carries `tick` but the field is `now` (`:256` vs `:60`). `polling-indicator.component.tsx:96-102` has its own relative-time formatter, separate from `use-log-tail.hook.ts` (sweep-1 `[unverified]` on that second copy's rounding).
 10. **Stale comments in the composition root**: `app.module.ts:51-53` says `PulumiEngineModule` has "no controller of their own yet", but `iac-settings.controller.ts:210` serves `iac.settings.engineVersion` from `PulumiEngineService`. The module doc list at `:43-46` omits `FolderUploadModule`, `NativeDialogModule`, `VolumeFilesModule` and `VolumeFilesApiModule` (imported at `:78-81`). `window-chrome.component.tsx:7` cites a design decision "(D2)" from a document that no longer exists.
 11. **Secrets-store binding resolves credentials twice and one resolver is untested**: credentials are resolved twice per secrets-store call (`:199-200`). `resolveDiscordConfigStoreConfig` has no test in `cloud-provider.module.test.ts` (verified: no reference).
 12. **Pre-apply run lock fallback is store-side only**: `cloud-provider.module.ts:174-175` lets `AwsRunRecordStore` resolve the runs table before the first apply; whether `RunService` actually takes the lock pre-apply is the `iac/run` open question (§6), cited here.
-13. **Main-process errors bypass winston**: `electron-entry.ts:49,199,222,243` use `console.error`, so window-open, renderer-load, updater-init and Nest-bootstrap failures never reach the log file that `.claude/rules/logging.md` treats as the only record. `main.ts:25` uses a top-level `await import('electron')`.
+13. **Main-process errors reach winston**: `electron-entry.ts` reports external-link, renderer-load, updater-init and Nest-bootstrap failures through `logStartupFailure` (`APP-SHELL-BOOT-008`). `main.ts:25` uses a top-level `await import('electron')`.
 14. **Stale e2e rationale**: `electron-clean-quit.spec.ts:11-14` says `@cdktf/hcl2json` and `@pulumi/pulumi` are "both" marked external; `electron.vite.config.ts:42` and `verify-main-bundle-externals.mjs` describe hcl2json as retired.
 15. **Dead and duplicated primitives**: `app/packages/web/src/components/ui/dropdown-menu.component.tsx` has no importer (verified). `button.component.tsx:13-14` and `:25-26` define identical `destructive` and `stop` variants. Sweep-2 notes the input class string copied into `native-select` and `textarea` `[unverified]`. `electron-entry.test.ts` mocks `setWindowOpenHandler` and `openExternal` but no test asserts the external-link redirect or the `zoom-changed` re-position.
 
@@ -141,19 +143,15 @@ Note: the inventory digest lists "`electron-entry.ts:94` Linux no native chrome 
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-1. Declare the missing `--color-accent`, `--color-background` and `--color-muted` tokens (or replace the classes) so hover states and the LIVE pill render (finding 5). (specs: `APP-SHELL-UI-004`)
-2. Decide and record the first-run gate's failure policy; if fail-open stays, surface the IPC failure to the operator instead of silently skipping setup (finding 1). (specs: `APP-SHELL-GATE-006`)
+None open.
 
 ### Should Fix
-4. Route main-process `console.error` calls through the winston logger (finding 13). (specs: `APP-SHELL-BOOT-008`)
-5. Derive the Windows overlay colours and traffic-light geometry from one shared source, or add a test pinning them to `index.css` (finding 4).
-6. Reconcile `DESIGN.md` with `index.css` (finding 6). (specs: `APP-SHELL-UI-006`)
-7. Fix stale comments in `app.module.ts`, `polling-provider.component.tsx:256`, `window-chrome.component.tsx:7`, `electron-clean-quit.spec.ts:11-14` (findings 9, 10, 14).
-8. Add tests for `resolveDiscordConfigStoreConfig`, the external-link opener and the zoom re-position (findings 11, 15).
-9. Show env-pill fetch failure distinctly from `local` (finding 8). (specs: `APP-SHELL-TOP-002`)
+1. Derive the Windows overlay colours and traffic-light geometry from one shared source, or add a test pinning them to `index.css` (finding 4).
+2. Fix stale comments in `app.module.ts`, `polling-provider.component.tsx:256`, `electron-clean-quit.spec.ts:11-14` (findings 9, 10, 14).
+3. Add tests for `resolveDiscordConfigStoreConfig` and the zoom re-position (findings 11, 15).
 
 ### Nice to Have
-10. Collapse the two drag-region mechanisms; rename `useAppRegionStyle` to a plain function; extract the brand block and settle the "Game Servers" vs "Hyveon" label (finding 7). (specs: `APP-SHELL-NAV-009`)
+10. Collapse the remaining inline drag-region styles into `useAppRegionStyle` and rename it to a plain function (finding 7).
 11. Remove `dropdown-menu.component.tsx`; merge `stop` into `destructive` (finding 15).
 12. Replace positional `monitoringItems[n]` and the `startsWith('//')` check in `app-nav` (finding 3).
 13. Warn or throw on duplicate poller names (finding 9).

@@ -11,7 +11,7 @@ EARS requirements for prefix `APP-SHELL`; design and rationale live in `docs/int
 - [x] **APP-SHELL-BOOT-005**: When Electron reports ready, the desktop app shall bootstrap the Nest IPC microservice, register the global RPC error filter before `listen()`, and only then create and attach the main window (`electron-entry.ts:210-228`, `main.ts:43-56`). (observed)
 - [x] **APP-SHELL-BOOT-006**: If the Nest IPC bootstrap rejects, then the desktop app shall quit rather than open a window with no back end (`electron-entry.ts:242-245`). (observed)
 - [x] **APP-SHELL-BOOT-007**: If the main window's renderer fails to load (dev server URL or packaged `out/renderer/index.html`), then the desktop app shall quit (`electron-entry.ts:193-201`). (observed)
-- [ ] **APP-SHELL-BOOT-008**: If a main-process start-up or window step fails (external-link open, renderer load, updater init, Nest bootstrap), then the desktop app shall record the failure in the winston log file, not only on `console.error`. (observed; gap: `electron-entry.ts:49,199,222,243`)
+- [x] **APP-SHELL-BOOT-008**: If a main-process start-up or window step fails (external-link open, renderer load, updater init, Nest bootstrap), then the desktop app shall record the failure in the winston log file (`electron-entry.ts` `logStartupFailure`). (observed)
 - [x] **APP-SHELL-BOOT-009**: The main `BrowserWindow` shall be created with `contextIsolation: true`, `sandbox: true` and the preload bundle at `out/preload/preload.cjs` (`electron-entry.ts:175-184`). (observed)
 - [x] **APP-SHELL-BOOT-010**: When renderer content in the main window requests a new window (a `target="_blank"` link or `window.open`), the desktop app shall deny the new Electron window and open the URL in the operator's default OS browser (`electron-entry.ts:46-53`). (observed)
 - [x] **APP-SHELL-BOOT-011**: When the macOS dock icon re-activates the app with no windows open, the desktop app shall create a new main window and re-attach it to `WindowService` (`electron-entry.ts:236-240`). (observed)
@@ -43,7 +43,7 @@ EARS requirements for prefix `APP-SHELL`; design and rationale live in `docs/int
 - [x] **APP-SHELL-CHROME-011**: While the Linux window controls are mounted, the maximize button shall show Restore when the window is maximized and Maximize otherwise, seeded from `window.isMaximized()` and updated by `window.maximizedChange` pushes, with a live push taking precedence over a seed that resolves later (`window-chrome.component.tsx:59-84,101-108`). (observed)
 - [D] **APP-SHELL-CHROME-012**: Where Electron's native `titleBarOverlay` is adopted for Linux, the Linux window shall use the native overlay buttons instead of app-drawn window controls. (observed: Linux uses app-drawn controls for implementation simplicity; migrating to the native overlay is deferred)
 - [x] **APP-SHELL-CHROME-013**: While the renderer runs outside Electron (no `window.hyveon.window` bridge, e.g. the chromium e2e tier), the top header shall render no drag-region style, no traffic-light or overlay spacer and no window-control buttons (`use-app-region-style.hook.ts:17`, `window-chrome.component.tsx:19,39,86`).
-- [ ] **APP-SHELL-CHROME-014**: While the renderer runs outside Electron, the app layout shall apply no `-webkit-app-region` style to any element. (observed; gap: the skip-to-content link sets `WebkitAppRegion: 'no-drag'` without checking for the bridge, `app-layout.component.tsx:51`)
+- [x] **APP-SHELL-CHROME-014**: While the renderer runs outside Electron, the app layout shall apply no `-webkit-app-region` style to any element, including the skip-to-content link (`app-layout.component.tsx`, via `useAppRegionStyle`).
 
 ## Window-Control IPC
 
@@ -76,7 +76,7 @@ EARS requirements for prefix `APP-SHELL`; design and rationale live in `docs/int
 - [x] **APP-SHELL-GATE-003**: When the first-run wizard reports completion, the renderer shall switch to the routed shell without re-reading wizard state (`app.component.tsx:82-89`). (observed)
 - [x] **APP-SHELL-GATE-004**: If the renderer has no `window.hyveon.wizard` bridge (e.g. the chromium e2e stub bridge), then the renderer shall skip the first-run wizard and render the routed shell on first paint (`app.component.tsx:40-42`). (observed; documented as deliberate at `:22-26`)
 - [x] **APP-SHELL-GATE-005**: If `wizard.getState()` rejects, then the renderer shall skip the first-run wizard and render the routed shell, so a failed IPC call never locks a working install out of its dashboard (`app.component.tsx:52-54`). (observed; documented as deliberate at `:22-26`)
-- [ ] **APP-SHELL-GATE-006**: If `wizard.getState()` rejects and the renderer falls open to the routed shell, then the renderer shall tell the operator that setup state could not be read. (observed; gap: the rejection is swallowed with no operator-visible signal, `app.component.tsx:52-54`)
+- [x] **APP-SHELL-GATE-006**: If `wizard.getState()` rejects and the renderer falls open to the routed shell, then the renderer shall tell the operator that setup state could not be read, through a persistent error toast (`app.component.tsx`, `useWizardGate`).
 
 ## Routing and Navigation
 
@@ -88,12 +88,12 @@ EARS requirements for prefix `APP-SHELL`; design and rationale live in `docs/int
 - [x] **APP-SHELL-NAV-006**: The sidebar shall mark the Dashboard entry active only on `/`, each Logs child active only on its exact path, and every other top-level entry active on its path or any sub-path (`app-nav.component.tsx:90,102,110`). (observed)
 - [x] **APP-SHELL-NAV-007**: While the window is at least 768 px wide, the shell shall show a 240 px sidebar; below that it shall hide the sidebar and offer an off-canvas drawer opened from the header's hamburger button (`app-layout.component.tsx:57,98-125`, `app-topbar.component.tsx:100-110`). (observed)
 - [x] **APP-SHELL-NAV-008**: When the route changes while the mobile drawer is open, the shell shall close the drawer (`app-layout.component.tsx:21-26`). (observed)
-- [ ] **APP-SHELL-NAV-009**: The sidebar brand block, the mobile drawer header and the top bar heading shall all show the product name "Hyveon". (observed; gap: sidebar and drawer read "Game Servers", `app-layout.component.tsx:81,112`, while the top bar reads "Hyveon", `app-topbar.component.tsx:112`)
+- [x] **APP-SHELL-NAV-009**: The sidebar brand block, the mobile drawer header and the top bar heading shall all show the product name "Hyveon" (`BrandMark` in `app-layout.component.tsx`, `app-topbar.component.tsx`).
 
 ## Top Bar
 
 - [x] **APP-SHELL-TOP-001**: The top bar shall show an env pill reading `"<environment> · <region>"` from the `env` IPC call (`app-layout.component.tsx:28-34`, `app-topbar.component.tsx:113-115`). (observed)
-- [ ] **APP-SHELL-TOP-002**: If the `env` IPC call fails, then the top bar's env pill shall show a failure state distinct from a genuine `local` environment. (observed; gap: the rejection goes to `console.error` and the pill reads `local`, `app-layout.component.tsx:29,32-34`)
+- [x] **APP-SHELL-TOP-002**: If the `env` IPC call fails, then the top bar's env pill shall read `env unavailable` in the error style, with the failure message as its tooltip, rather than `local` (`app-layout.component.tsx`, `app-topbar.component.tsx`).
 - [x] **APP-SHELL-TOP-003**: When the operator clicks the top bar's Refresh-all button, the shell shall run every registered poller, spinning the icon while any poller is in flight, and the button shall be disabled while no poller is registered (`app-topbar.component.tsx:13-32`). (observed)
 - [x] **APP-SHELL-TOP-004**: The top bar's LIVE indicator shall pulse cyan while any poller has a fresh success, dim when every registered poller is stale, and read "Connecting" otherwise (`app-topbar.component.tsx:39-67`). (observed)
 
@@ -122,7 +122,7 @@ The "placeholder statistics removed" behaviour concerns the game card and is car
 - [x] **APP-SHELL-UI-001**: When the sidebar renders, it shall contain no entry for a screen that does not exist and no permanently disabled entry (`app-nav.component.tsx:20-59`).
 - [x] **APP-SHELL-UI-002**: When the top bar renders, it shall contain no search input (`app-topbar.component.tsx:80-137`).
 - [x] **APP-SHELL-UI-003**: The top bar's avatar placeholder shall be decorative only (`aria-hidden`, no handler, not focusable), never an actionable control (`app-topbar.component.tsx:122-129`). (observed)
-- [ ] **APP-SHELL-UI-004**: Every Tailwind colour utility used by the shell chrome (sidebar, drawer, top bar, window controls) shall resolve to a token declared in `index.css`'s `@theme`, so hover fills and the LIVE pill background render. (observed; gap: no `--color-accent`, `--color-background` or `--color-muted` in `index.css:5-44`, yet `hover:bg-accent` at `window-chrome.component.tsx:94,102`, `app-layout.component.tsx:118`, `app-topbar.component.tsx:107`, `bg-background` at `app-layout.component.tsx:40`, `bg-muted` at `app-topbar.component.tsx:59`)
-- [ ] **APP-SHELL-UI-005**: The Linux window close button's hover colours shall use the `--color-red` token rather than raw Tailwind palette colours. (observed; gap: `hover:text-red-400 hover:bg-red-500/10` at `window-chrome.component.tsx:114`)
-- [ ] **APP-SHELL-UI-006**: The token table in `app/packages/web/DESIGN.md` shall list the same tokens and values as `index.css`'s `@theme`. (observed; gap: `DESIGN.md:23` gives `--color-muted-foreground` as `#8b90a5` vs `#9398ad` at `index.css:21`, and `DESIGN.md` omits `--color-card`)
+- [x] **APP-SHELL-UI-004**: Every Tailwind colour utility used by the shell chrome (sidebar, drawer, top bar, window controls) shall resolve to a token declared in `index.css`'s `@theme`, so hover fills and the LIVE pill background render (`design-tokens.test.ts` scans the chrome files).
+- [x] **APP-SHELL-UI-005**: The Linux window close button's hover colours shall use the `--color-red` token (`hover:text-red hover:bg-red/10`) rather than raw Tailwind palette colours (`window-chrome.component.tsx`).
+- [x] **APP-SHELL-UI-006**: The token table in `app/packages/web/DESIGN.md` shall list the same colour tokens and values as `index.css`'s `@theme` (`design-tokens.test.ts` compares them).
 - [x] **APP-SHELL-UI-007**: Where a caller passes `confirmDisabledReason` to the shared `ConfirmDialog`, the dialog shall disable its confirm button and show that reason as the button's title. (observed: `confirm-dialog.component.tsx:34-35,78,116`)
