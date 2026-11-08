@@ -800,6 +800,27 @@ describe('PulumiService.apply environment redaction', () => {
 
     expect(chunks).toEqual([{ stream: 'stdout', line: 'token=***REDACTED***' }]);
   });
+
+  // @spec IAC-ENGINE-REDACT-001
+  it('should redact environment values from a failed apply error message and the logged error', async () => {
+    const workspace = makeWorkspace(async () => {
+      throw new Error(`CommandError: code 255\nstdout: RCON_PASSWORD=${SECRET_VALUE}`);
+    });
+    const service = makeService({ workspace, remoteFileStore: makeRemoteFileStoreWithSecretEnv() });
+
+    let caught: unknown;
+    try {
+      await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(PulumiUpError);
+    expect((caught as Error).message).not.toContain(SECRET_VALUE);
+    expect((caught as Error).message).toContain('CommandError');
+    expect((caught as { cause?: unknown }).cause).toBeUndefined();
+    expect(JSON.stringify(loggerMock.error.mock.calls)).not.toContain(SECRET_VALUE);
+  });
 });
 
 // @spec IAC-RUN-PART-001

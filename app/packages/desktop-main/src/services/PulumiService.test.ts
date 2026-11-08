@@ -335,37 +335,33 @@ describe('PulumiService.getStackOutputs', () => {
 });
 
 describe('PulumiService error classes', () => {
-  it('should construct PulumiPreviewError carrying cause and a descriptive message', () => {
-    const cause = new Error('preview command failed');
-    const err = new PulumiPreviewError(cause);
+  it('should construct PulumiPreviewError from an already-redacted message and retain no raw cause', () => {
+    const err = new PulumiPreviewError('preview command failed');
     expect(err.name).toBe('PulumiPreviewError');
-    expect(err.cause).toBe(cause);
+    expect(err.cause).toBeUndefined();
     expect(err.message).toContain('preview command failed');
   });
 
-  it('should construct PulumiUpError carrying cause and a descriptive message', () => {
-    const cause = new Error('up command failed');
-    const err = new PulumiUpError(cause);
+  it('should construct PulumiUpError from an already-redacted message and retain no raw cause', () => {
+    const err = new PulumiUpError('up command failed');
     expect(err.name).toBe('PulumiUpError');
-    expect(err.cause).toBe(cause);
+    expect(err.cause).toBeUndefined();
     expect(err.message).toContain('up command failed');
   });
 
-  it('should construct PulumiDestroyError carrying cause and a descriptive message', () => {
-    const cause = new Error('destroy command failed');
-    const err = new PulumiDestroyError(cause);
+  it('should construct PulumiDestroyError from an already-redacted message and retain no raw cause', () => {
+    const err = new PulumiDestroyError('destroy command failed');
     expect(err.name).toBe('PulumiDestroyError');
-    expect(err.cause).toBe(cause);
+    expect(err.cause).toBeUndefined();
     expect(err.message).toContain('destroy command failed');
   });
 
-  it('should construct PulumiPartialApplyError carrying completedSteps and cause', () => {
-    const cause = new Error('divergence mid-apply');
+  it('should construct PulumiPartialApplyError carrying completedSteps and no raw cause', () => {
     const steps = [{ urn: 'urn:pulumi:...::aws:ecs/cluster:Cluster::main', type: 'aws:ecs/cluster:Cluster', op: 'create' as const }];
-    const err = new PulumiPartialApplyError(steps, cause);
+    const err = new PulumiPartialApplyError(steps, 'divergence mid-apply');
     expect(err.name).toBe('PulumiPartialApplyError');
     expect(err.completedSteps).toEqual(steps);
-    expect(err.cause).toBe(cause);
+    expect(err.cause).toBeUndefined();
     expect(err.message).toContain('1 resource step(s)');
   });
 

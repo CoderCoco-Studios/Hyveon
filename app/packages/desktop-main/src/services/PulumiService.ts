@@ -30,6 +30,7 @@ import type {
   ChangeSummary,
   DeploymentConfig,
   DeploymentConfigDiff,
+  GameServerConfig,
   OpType,
   RemoteFileStore,
   RunKind,
@@ -1492,11 +1493,25 @@ export class PulumiService {
    *   redact.
    */
   private static buildEnvironmentRedactionSet(deploymentConfig: DeploymentConfig): Set<string> {
+    return PulumiService.redactionValuesFromGameServers(deploymentConfig.gameServers);
+  }
+
+  /**
+   * Collects the redactable environment values out of a `gameServers` map, whether it came from the stored
+   * configuration or from the `appliedGameServers` stack output.
+   *
+   * @param gameServers - A `gameServers`-shaped map; `undefined` or non-object input yields an empty set.
+   * @returns The set of distinct, sufficiently long environment values.
+   */
+  private static redactionValuesFromGameServers(
+    gameServers: Record<string, Pick<GameServerConfig, 'environment'>> | undefined,
+  ): Set<string> {
+    if (!gameServers || typeof gameServers !== 'object') return new Set();
     return new Set(
-      Object.values(deploymentConfig.gameServers)
-        .flatMap((game) => game.environment ?? [])
+      Object.values(gameServers)
+        .flatMap((game) => game?.environment ?? [])
         .map((entry) => entry.value)
-        .filter((value) => value.length >= MIN_REDACTABLE_ENV_VALUE_LENGTH),
+        .filter((value) => typeof value === 'string' && value.length >= MIN_REDACTABLE_ENV_VALUE_LENGTH),
     );
   }
 
@@ -1529,6 +1544,19 @@ export class PulumiService {
       redacted = redacted.split(value).join(ENV_REDACTION_PLACEHOLDER);
     }
     return redacted;
+  }
+
+  // @spec IAC-ENGINE-REDACT-001, IAC-ENGINE-REDACT-002
+  /**
+   * Renders an engine failure as text with every redacted value scrubbed. The Automation API's `CommandError` embeds
+   * the command's raw stdout and stderr in its message, so the raw error must never reach a log line or an IPC reply.
+   *
+   * @param cause - The error the engine call threw.
+   * @param redactedValues - The operation's redaction set.
+   * @returns The scrubbed message.
+   */
+  private static redactedErrorMessage(cause: unknown, redactedValues: Set<string>): string {
+    return PulumiService.redactEnvironmentValues(errMessage(cause), redactedValues);
   }
 
   // @spec IAC-RUN-GATE-002, IAC-RUN-REC-007, IAC-RUN-LOCK-007
@@ -1876,7 +1904,7 @@ export class PulumiService {
       const outcome: PulumiPreviewOutcome = wasAborted
         ? { kind: 'aborted' }
         : previewError
-          ? { kind: 'failed', error: new PulumiPreviewError(previewError) }
+          ? { kind: 'failed', error: new PulumiPreviewError(PulumiService.redactedErrorMessage(previewError, redactedEnvironmentValues)) }
           : planHashError
             ? { kind: 'failed', error: planHashError }
             : {
@@ -2421,6 +2449,7 @@ export class PulumiService {
       // above the outer `try` (see there for why) — only `upError` is local
       // to this inner try/catch.
       let upError: unknown;
+      let errorRedactionSet = new Set<string>();
 
       try {
         const obj = await this.getRemoteFileStore().get(key);
@@ -2429,6 +2458,7 @@ export class PulumiService {
         }
         const deploymentConfig = PulumiService.parseConfigurationObject(obj.body);
         const redactedEnvironmentValues = PulumiService.buildEnvironmentRedactionSet(deploymentConfig);
+        errorRedactionSet = redactedEnvironmentValues;
 
         const stateBucket = this.store.get('bootstrap')?.stateBucket;
         const stateBucketRegion = this.store.get('aws')?.region;
@@ -2587,8 +2617,8 @@ export class PulumiService {
           ? upError instanceof PulumiUnrecognizedLockError
             ? { kind: 'failed', error: upError, partialApply: false }
             : completedSteps.length > 0
-              ? { kind: 'failed', error: new PulumiPartialApplyError(completedSteps, upError), partialApply: true }
-              : { kind: 'failed', error: new PulumiUpError(upError), partialApply: false }
+              ? { kind: 'failed', error: new PulumiPartialApplyError(completedSteps, PulumiService.redactedErrorMessage(upError, errorRedactionSet)), partialApply: true }
+              : { kind: 'failed', error: new PulumiUpError(PulumiService.redactedErrorMessage(upError, errorRedactionSet)), partialApply: false }
           : { kind: 'success', result: { runId, changeSummary: capturedChangeSummary } };
 
       if (outcome.kind === 'failed') {
@@ -2968,10 +2998,10 @@ export class PulumiService {
    * deployment configuration object. That's operationally important:
    * `destroy` can tear down a stack even when the current configuration
    * object is missing, malformed, or describes a different layout than
-   * what's actually deployed. The object is read best-effort only to build
-   * the environment-value redaction set (see
-   * {@link loadEnvironmentRedactionSetBestEffort}); an unreadable one means
-   * nothing is redacted, not that the destroy fails.
+   * what's actually deployed. The redaction set comes from the stack state
+   * (see {@link loadDestroyRedactionSet}), with the configuration object as
+   * an additional best-effort source; an unreadable state fails the destroy
+   * before the engine runs, an unreadable configuration does not.
    *
    * `changeSummary` is captured from `onEvent`'s `summaryEvent` exactly like
    * `apply` (not `preview`), never read off `DestroyResult.summary`
@@ -3171,6 +3201,7 @@ export class PulumiService {
       startedAt = new Date().toISOString();
 
       let destroyError: unknown;
+      let errorRedactionSet = new Set<string>();
       try {
         const stack = await this.workspace.getOrCreateStack({
           // See this method's TSDoc, "No-op inline program": the program never depends on the configuration object.
@@ -3189,7 +3220,8 @@ export class PulumiService {
           wake?.();
           wake = null;
         };
-        const redactedEnvironmentValues = await this.loadEnvironmentRedactionSetBestEffort();
+        const redactedEnvironmentValues = await this.loadDestroyRedactionSet(stack);
+        errorRedactionSet = redactedEnvironmentValues;
         const push = (chunk: PulumiRunChunk): void => {
           queue.push({ ...chunk, line: PulumiService.redactEnvironmentValues(chunk.line, redactedEnvironmentValues) });
           notify();
@@ -3318,7 +3350,7 @@ export class PulumiService {
               error:
                 destroyError instanceof PulumiUnrecognizedLockError
                   ? destroyError
-                  : new PulumiDestroyError(destroyError),
+                  : new PulumiDestroyError(PulumiService.redactedErrorMessage(destroyError, errorRedactionSet)),
             }
           : { kind: 'success', result: { runId, changeSummary: capturedChangeSummary } };
 
@@ -3548,23 +3580,31 @@ export class PulumiService {
 
   // @spec IAC-ENGINE-REDACT-002
   /**
-   * Reads the stored deployment configuration only to collect the game-server environment values to scrub from
-   * streamed engine output. Destroy never depends on that object, so an unreadable or malformed one yields an empty
-   * set (logged) and the destroy still runs.
+   * Builds the set of game-server environment values to scrub from a destroy's output and error text. The primary
+   * source is the stack state (`appliedGameServers`), because `pulumi destroy` prints the outputs it deletes and the
+   * state is what is actually deployed; the stored configuration is added as a second source and never required.
    *
-   * @returns The redaction set, or an empty set when the configuration cannot be read.
+   * @param stack - The stack about to be destroyed.
+   * @returns The redaction set.
+   * @throws Error when the stack state cannot be read, so the destroy fails before any engine output exists.
    */
-  private async loadEnvironmentRedactionSetBestEffort(): Promise<Set<string>> {
+  private async loadDestroyRedactionSet(stack: Stack): Promise<Set<string>> {
+    const outputs = await stack.outputs();
+    const applied = outputs['appliedGameServers']?.value as Record<string, GameServerConfig> | undefined;
+    const values = PulumiService.redactionValuesFromGameServers(applied);
     try {
       const obj = await this.getRemoteFileStore().get(CONFIGURATION_OBJECT_KEY);
-      if (!obj) return new Set();
-      return PulumiService.buildEnvironmentRedactionSet(PulumiService.parseConfigurationObject(obj.body));
+      if (obj) {
+        for (const value of PulumiService.buildEnvironmentRedactionSet(PulumiService.parseConfigurationObject(obj.body))) {
+          values.add(value);
+        }
+      }
     } catch (err) {
-      logger.warn('PulumiService: could not read the deployment configuration to build the output redaction set', {
-        error: errMessage(err),
+      logger.warn('PulumiService: could not read the deployment configuration to extend the output redaction set', {
+        error: err instanceof SyntaxError ? 'configuration object is not valid JSON' : errMessage(err),
       });
-      return new Set();
     }
+    return values;
   }
 
   // @spec GAME-HTTPS-010
@@ -4691,8 +4731,9 @@ export class PulumiStackInitializationError extends Error {
  * of an `exitCode`.
  */
 export class PulumiPreviewError extends Error {
-  constructor(public readonly cause: unknown) {
-    super(`pulumi preview failed: ${errMessage(cause)}`);
+  /** @param redactedMessage - The engine failure's text with environment values already scrubbed; the raw error is never retained. */
+  constructor(redactedMessage: string) {
+    super(`pulumi preview failed: ${redactedMessage}`);
     this.name = 'PulumiPreviewError';
   }
 }
@@ -4706,8 +4747,9 @@ export class PulumiPreviewError extends Error {
  * through applying resources rather than before any resource was touched.
  */
 export class PulumiUpError extends Error {
-  constructor(public readonly cause: unknown) {
-    super(`pulumi up failed: ${errMessage(cause)}`);
+  /** @param redactedMessage - The engine failure's text with environment values already scrubbed; the raw error is never retained. */
+  constructor(redactedMessage: string) {
+    super(`pulumi up failed: ${redactedMessage}`);
     this.name = 'PulumiUpError';
   }
 }
@@ -4719,8 +4761,9 @@ export class PulumiUpError extends Error {
  * `exitCode`.
  */
 export class PulumiDestroyError extends Error {
-  constructor(public readonly cause: unknown) {
-    super(`pulumi destroy failed: ${errMessage(cause)}`);
+  /** @param redactedMessage - The engine failure's text with environment values already scrubbed; the raw error is never retained. */
+  constructor(redactedMessage: string) {
+    super(`pulumi destroy failed: ${redactedMessage}`);
     this.name = 'PulumiDestroyError';
   }
 }
@@ -4787,11 +4830,11 @@ export interface PulumiPartialApplyStep {
 export class PulumiPartialApplyError extends Error {
   constructor(
     public readonly completedSteps: PulumiPartialApplyStep[],
-    public readonly cause: unknown,
+    redactedMessage: string,
   ) {
     super(
       `pulumi up failed partway through (${completedSteps.length} resource step(s) already applied): ` +
-        `${errMessage(cause)}`,
+        `${redactedMessage}`,
     );
     this.name = 'PulumiPartialApplyError';
   }

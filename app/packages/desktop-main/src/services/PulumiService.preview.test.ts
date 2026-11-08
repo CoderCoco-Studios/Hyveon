@@ -511,6 +511,27 @@ describe('PulumiService.preview environment redaction', () => {
     expect(chunks.some((chunk) => chunk.line.includes(SECRET_VALUE))).toBe(false);
   });
 
+  // @spec IAC-ENGINE-REDACT-001
+  it('should redact environment values from a failed preview error message and the logged error', async () => {
+    const workspace = makeWorkspace(async () => {
+      throw new Error(`CommandError: code 255\nstderr: RCON_PASSWORD=${SECRET_VALUE}`);
+    });
+    const service = makeService({ workspace, remoteFileStore: makeRemoteFileStoreWithSecretEnv() });
+
+    let caught: unknown;
+    try {
+      await collectPreviewChunks(service.preview());
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(PulumiPreviewError);
+    expect((caught as Error).message).not.toContain(SECRET_VALUE);
+    expect((caught as Error).message).toContain('CommandError');
+    expect((caught as { cause?: unknown }).cause).toBeUndefined();
+    expect(JSON.stringify(loggerMock.error.mock.calls)).not.toContain(SECRET_VALUE);
+  });
+
   it('should redact the same environment value from the persisted pulumi.log transcript', async () => {
     const remoteFileStore = makeRemoteFileStoreWithSecretEnv();
     const workspace = makeWorkspace(async (opts) => {

@@ -188,14 +188,21 @@ function makeUpdateSummary(overrides: Partial<UpdateSummary> = {}): UpdateSummar
  */
 function makeWorkspace(
   destroyImpl: FakeStackDestroy,
-  extra: { cancel?: ReturnType<typeof vi.fn>; info?: ReturnType<typeof vi.fn>; history?: ReturnType<typeof vi.fn> } = {},
+  extra: {
+    cancel?: ReturnType<typeof vi.fn>;
+    info?: ReturnType<typeof vi.fn>;
+    history?: ReturnType<typeof vi.fn>;
+    outputs?: ReturnType<typeof vi.fn>;
+  } = {},
 ): PulumiWorkspaceService & { getOrCreateStack: ReturnType<typeof vi.fn> } {
   const destroyMock = vi.fn().mockImplementation(destroyImpl);
   const cancelMock = extra.cancel ?? vi.fn().mockResolvedValue(undefined);
   const infoMock = extra.info ?? vi.fn().mockResolvedValue(makeUpdateSummary());
   const historyMock = extra.history ?? vi.fn().mockResolvedValue([]);
+  const outputsMock = extra.outputs ?? vi.fn().mockResolvedValue({});
   const getOrCreateStack = vi.fn().mockResolvedValue({
     destroy: destroyMock,
+    outputs: outputsMock,
     cancel: cancelMock,
     info: infoMock,
     history: historyMock,
@@ -255,6 +262,7 @@ beforeEach(() => {
   writeFileSyncMock.mockReset();
   readFileSyncMock.mockReset();
   loggerMock.warn.mockReset();
+  loggerMock.error.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -598,7 +606,7 @@ describe('PulumiService.destroy gate ordering and reservations', () => {
     const destroyMock = vi.fn();
     const getOrCreateStack = vi
       .fn()
-      .mockResolvedValue({ preview: previewMock, destroy: destroyMock, cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
+      .mockResolvedValue({ preview: previewMock, destroy: destroyMock, outputs: vi.fn().mockResolvedValue({}), cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
 
     const store = new ElectronStoreService(new SafeStorageService());
@@ -1050,7 +1058,7 @@ describe('PulumiService.destroy abort handling', () => {
     });
     const getOrCreateStack = vi
       .fn()
-      .mockResolvedValue({ destroy: destroyMock, cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
+      .mockResolvedValue({ destroy: destroyMock, outputs: vi.fn().mockResolvedValue({}), cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
     const service = makeService({ workspace });
     const token = service.mintDestroyConfirmationToken();
@@ -1090,7 +1098,7 @@ describe('PulumiService.destroy abort handling', () => {
     });
     const getOrCreateStack = vi
       .fn()
-      .mockResolvedValue({ destroy: destroyMock, cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
+      .mockResolvedValue({ destroy: destroyMock, outputs: vi.fn().mockResolvedValue({}), cancel: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
     const service = makeService({ workspace });
     const token = service.mintDestroyConfirmationToken();
@@ -1200,13 +1208,98 @@ describe('PulumiService.destroy environment redaction', () => {
     expect(chunks.some((chunk) => chunk.line.includes(SECRET_VALUE))).toBe(false);
   });
 
-  it('should still destroy, without redaction, when the configuration object cannot be read', async () => {
-    const service = makeService({ workspace: makeLeakyWorkspace() });
+  /** An `OutputMap` whose `appliedGameServers` holds `value` as a game-server environment value. */
+  function outputsHolding(value: string) {
+    return {
+      appliedGameServers: {
+        value: { minecraft: { environment: [{ name: 'RCON_PASSWORD', value }] } },
+        secret: false,
+      },
+    };
+  }
+
+  it('should redact a value held only in the stack state when the configuration object cannot be read', async () => {
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.(`deleting RCON_PASSWORD=${SECRET_VALUE}\n`);
+        return { stdout: '', stderr: '', summary: makeUpdateSummary() };
+      },
+      { outputs: vi.fn().mockResolvedValue(outputsHolding(SECRET_VALUE)) },
+    );
+    const service = makeService({ workspace });
 
     const { chunks, result } = await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken()));
 
     expect(result).toBeDefined();
-    expect(chunks.length).toBe(2);
+    expect(chunks.length).toBe(1);
+    expect(chunks[0]?.line).not.toContain(SECRET_VALUE);
+  });
+
+  it('should redact the value the stack state holds even when the stored configuration now holds a different one', async () => {
+    const DEPLOYED_VALUE = 'deployedPassw0rd';
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.(`deleting RCON_PASSWORD=${DEPLOYED_VALUE}\n`);
+        opts.onOutput?.(`stale RCON_PASSWORD=${SECRET_VALUE}\n`);
+        return { stdout: '', stderr: '', summary: makeUpdateSummary() };
+      },
+      { outputs: vi.fn().mockResolvedValue(outputsHolding(DEPLOYED_VALUE)) },
+    );
+    const service = makeService({ workspace, remoteFileStore: makeRemoteFileStoreWithSecretEnv() });
+
+    const { chunks } = await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken()));
+
+    const streamed = chunks.map((chunk) => chunk.line).join('\n');
+    expect(streamed).not.toContain(DEPLOYED_VALUE);
+    expect(streamed).not.toContain(SECRET_VALUE);
+  });
+
+  it('should fail closed, never calling stack.destroy(), when the stack state cannot be read', async () => {
+    const destroyImpl = vi.fn();
+    const workspace = makeWorkspace(destroyImpl, { outputs: vi.fn().mockRejectedValue(new Error('backend unreachable')) });
+    const runRecordPersister = makeRunRecordPersister();
+    const service = makeService({ workspace, runRecordPersister });
+
+    await expect(
+      collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken())),
+    ).rejects.toBeInstanceOf(PulumiDestroyError);
+
+    expect(destroyImpl).not.toHaveBeenCalled();
+    expect(runRecordPersister.persist).toHaveBeenCalledWith(expect.objectContaining({ exitCode: 1 }), expect.any(String));
+  });
+
+  it('should not echo configuration bytes into the log when the configuration object is not valid JSON', async () => {
+    const remoteFileStore = {
+      get: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(`${SECRET_VALUE} not json`), etag: 'e' }),
+    } as Partial<RemoteFileStore> as RemoteFileStore;
+    const service = makeService({ workspace: makeLeakyWorkspace(), remoteFileStore });
+
+    await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken()));
+
+    expect(JSON.stringify(loggerMock.warn.mock.calls)).not.toContain(SECRET_VALUE.slice(0, 6));
+  });
+
+  it('should redact environment values from a failed destroy error message, the cause, and the logged error', async () => {
+    const workspace = makeWorkspace(
+      async () => {
+        throw new Error(`CommandError: code 255\nstdout: deleting RCON_PASSWORD=${SECRET_VALUE}`);
+      },
+      { outputs: vi.fn().mockResolvedValue(outputsHolding(SECRET_VALUE)) },
+    );
+    const service = makeService({ workspace });
+
+    let caught: unknown;
+    try {
+      await collectDestroyChunks(service.destroy(service.mintDestroyConfirmationToken()));
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(PulumiDestroyError);
+    expect((caught as Error).message).not.toContain(SECRET_VALUE);
+    expect((caught as Error).message).toContain('CommandError');
+    expect((caught as { cause?: unknown }).cause).toBeUndefined();
+    expect(JSON.stringify(loggerMock.error.mock.calls)).not.toContain(SECRET_VALUE);
   });
 });
 
