@@ -216,8 +216,8 @@ export interface GameLogs {
   lines: LogEventLine[];
 }
 
-/** A single chunk of streamed log text delivered over IPC. */
-export type LogChunk = string;
+/** A single streamed log line delivered over IPC — the same shape a snapshot or paged line carries, so live lines order and de-duplicate against history. */
+export type LogChunk = LogEventLine;
 
 /**
  * ContextBridge-safe async-iterable handle for a streaming IPC channel

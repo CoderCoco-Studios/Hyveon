@@ -26,7 +26,9 @@ Both log pages (`/logs` for game servers, `/logs/infrastructure` for Lambdas) sh
 - `app/packages/web/e2e/specs/logs.spec.ts`
 - `app/packages/web/src/components/game-combobox.component.test.tsx`
 - `app/packages/web/src/components/jump-to-latest-button.component.test.tsx`
+- `app/packages/web/src/components/live-badge.component.test.tsx`
 - `app/packages/web/src/components/log-line-display.component.test.tsx`
+- `app/packages/web/src/components/log-tail-view.component.test.tsx`
 - `app/packages/web/src/hooks/use-log-tail.hook.test.ts`
 - `app/packages/web/src/lib/ansi.utils.test.ts`
 - `app/packages/web/src/pages/infrastructure-logs.page.test.tsx`
@@ -48,6 +50,7 @@ Both log pages (`/logs` for game servers, `/logs/infrastructure` for Lambdas) sh
 - `app/packages/web/src/components/log-tail-view.component.tsx`
 - `app/packages/web/src/components/log-line-display.component.tsx`
 - `app/packages/web/src/components/live-badge.component.tsx`
+- `app/packages/web/src/hooks/use-media-query.hook.ts`
 - `app/packages/web/src/components/jump-to-latest-button.component.tsx`
 - `app/packages/web/src/components/game-combobox.component.tsx`
 - `app/packages/web/src/lib/ansi.utils.ts`
@@ -89,14 +92,14 @@ Both log pages (`/logs` for game servers, `/logs/infrastructure` for Lambdas) sh
 | Log group resolution | `APP-LOGS-GROUP-001` to `APP-LOGS-GROUP-007` | 7 | 0 | 0 |
 | Recent snapshot | `APP-LOGS-SNAP-001` to `APP-LOGS-SNAP-006` | 6 | 0 | 0 |
 | Historical paging | `APP-LOGS-PAGE-001` to `APP-LOGS-PAGE-008` | 8 | 0 | 0 |
-| Live tail | `APP-LOGS-TAIL-001` to `APP-LOGS-TAIL-012` | 11 | 0 | 1 |
+| Live tail | `APP-LOGS-TAIL-001` to `APP-LOGS-TAIL-012` | 12 | 0 | 0 |
 | IPC surface | `APP-LOGS-IPC-001` to `APP-LOGS-IPC-008` | 8 | 0 | 0 |
-| Renderer tail engine | `APP-LOGS-ENGINE-001` to `APP-LOGS-ENGINE-017` | 15 | 0 | 2 |
-| Log pages and view | `APP-LOGS-UI-001` to `APP-LOGS-UI-009` | 7 | 0 | 2 |
-| Line rendering | `APP-LOGS-RENDER-001` to `APP-LOGS-RENDER-003` | 2 | 0 | 1 |
+| Renderer tail engine | `APP-LOGS-ENGINE-001` to `APP-LOGS-ENGINE-017` | 17 | 0 | 0 |
+| Log pages and view | `APP-LOGS-UI-001` to `APP-LOGS-UI-009` | 9 | 0 | 0 |
+| Line rendering | `APP-LOGS-RENDER-001` to `APP-LOGS-RENDER-003` | 3 | 0 | 0 |
 | Sidebar navigation | `APP-LOGS-NAV-001` to `APP-LOGS-NAV-003` | 3 | 0 | 0 |
 
-**Summary:** 67 of 73 active specs implemented; 0 deferred; 6 gaps.
+**Summary:** 73 of 73 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 
@@ -105,16 +108,13 @@ Both log pages (`/logs` for game servers, `/logs/infrastructure` for Lambdas) sh
 3. **Recent snapshot reads only the single newest stream**: `getRecentFromLogGroup` uses `DescribeLogStreams limit: 1` (`LogsService.ts:304-315`), matching APP-LOGS-SNAP-001. For `https` games the Caddy sidecar writes to the same `/ecs/{game}-server` group under a `caddy` prefix (IAC-PROGRAM-ECS-007), so the snapshot may show only Caddy lines while the live tail interleaves both `[inferred]`.
 4. **Two "no streams" messages, only one recognised**: `getRecentFromLogGroup` throws `No log streams found for {label}.` (`:313`), which `withLogGroup` matches verbatim (`:256`); `fetchAcrossStreams` throws `No log streams found in {logGroup}.` (`:475`), which is not matched (only relevant on the `'paging'` path, where it is rethrown anyway).
 5. **Stale and history-narrating comments in `LogsService`**: `:518` cites a nonexistent `fetchRange`; `:41` ("the bug this replaced"), `:218-219,232-233` ("pre-extraction call sites"), `:298-299` ("pre-dedup"), `:478` ("Bug 1") narrate history; the class TSDoc (`:150-154`) and controller TSDoc (`logs.controller.ts:10-14`) still describe only `/ecs/{game}-server`.
-6. **Live-tailed lines carry no timestamp**: `appendLine` stores only `{ text, receivedAt }` (`use-log-tail.hook.ts:259`); the footer's "oldest {age}" (`log-tail-view.component.tsx:209`) is computed from `receivedAt` (`use-log-tail.hook.ts:367`), i.e. time since fetch, not log age `[inferred UX impact]`. The forward cursor falls back to `liveInterruptedAtRef` for exactly this reason (`:458`).
-7. **Duplicated relative-time formatter**: `formatAge` (`use-log-tail.hook.ts:137-145`) vs `polling-indicator.component.tsx:96-102` `[unverified rounding difference]`; `use-iac-run.hook.ts` `CHUNK_WINDOW_SIZE` mirrors `WINDOW_SIZE` `[unverified]`.
-8. **Index keys on a prepend-heavy list**: `LogLineList` keys rows by array index (`log-line-display.component.tsx:116`) while `loadOlder` prepends (`use-log-tail.hook.ts:412-415`), forcing every row to re-render on backfill.
-9. **Undeclared design token**: `shadow-[var(--shadow-md)]` (`jump-to-latest-button.component.tsx:26`); `--shadow-md` is not declared in `web/src/index.css`.
-10. **Two search inputs in the DOM on mobile**: with `mobileFilters`, the desktop `SearchInput` stays mounted inside `hidden md:contents` while the drawer mounts a second one (`log-tail-view.component.tsx:150-166`).
-11. **Sweep disagreement resolved against the sweep**: the inventory calls the `GameStatusProvider` comment in `infrastructure-logs.page.test.tsx:9-11` wrong; `renderPage` does wrap in `GameStatusProvider` (`web/src/test-utils/render-page.utils.tsx:35`), so the comment is accurate. Also, `LogsPage` uses `window.hyveon.logs` directly (`logs.page.tsx:47`) while loading games through `api.service` (`:54`), one instance of the two-facade split owned by `ipc-bridge`.
+6. **Duplicated relative-time formatter**: `formatAge` (`use-log-tail.hook.ts:137-145`) vs `polling-indicator.component.tsx:96-102` `[unverified rounding difference]`; `use-iac-run.hook.ts` `CHUNK_WINDOW_SIZE` mirrors `WINDOW_SIZE` `[unverified]`.
+7. **Undeclared design token**: `shadow-[var(--shadow-md)]` (`jump-to-latest-button.component.tsx:26`); `--shadow-md` is not declared in `web/src/index.css`.
+8. **Sweep disagreement resolved against the sweep**: the inventory calls the `GameStatusProvider` comment in `infrastructure-logs.page.test.tsx:9-11` wrong; `renderPage` does wrap in `GameStatusProvider` (`web/src/test-utils/render-page.utils.tsx:35`), so the comment is accurate. Also, `LogsPage` uses `window.hyveon.logs` directly (`logs.page.tsx:47`) while loading games through `api.service` (`:54`), one instance of the two-facade split owned by `ipc-bridge`.
 
 ## Work Required
 
-Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/infra-logs/infra-logs-specs.md`; items with no matching gap spec carry none.
+Items carry the spec IDs they relate to, where one exists.
 
 ### Should Fix
 1. Decide whether the game-log snapshot should read across streams (Caddy sidecar) and record the decision in the EARS.
@@ -122,5 +122,5 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/infra-logs
 
 ### Nice to Have
 3. Remove history-narrating and stale comments in `LogsService.ts` and the controller/class TSDoc.
-4. Stable keys in `LogLineList`; declare `--shadow-md` or use an existing token; render one search input on mobile. (specs: `APP-LOGS-RENDER-003`, `APP-LOGS-UI-009`)
-5. Share one relative-time formatter with `polling-indicator`; label the footer age honestly or carry timestamps on live lines. (specs: `APP-LOGS-ENGINE-017`, `APP-LOGS-TAIL-011`)
+4. Declare `--shadow-md` or use an existing token.
+5. Share one relative-time formatter with `polling-indicator`.

@@ -23,23 +23,23 @@ const NEAR_TOP_THRESHOLD_PX = 50;
 /**
  * A single tailed log line, with its receipt timestamp.
  *
- * `timestamp`/`eventId` are present when this line came from a backend page
- * (the initial snapshot, {@link UseLogTailResult.handleScroll}'s
- * `getOlder`/`getNewer` backfill, or {@link UseLogTailResult.jumpToLatest}'s
- * fresh snapshot) — carried straight through from that page's
- * `LogEventLine`. They are absent for a line appended via the live IPC
- * stream (`appendLine`), which only ever receives a raw string with no
- * CloudWatch metadata. `loadOlder`/`loadNewer` read these fields off the
- * current window's actual boundary lines to derive their next paging
- * boundary — see {@link deriveForwardCursor}.
+ * `timestamp`/`eventId` are carried straight through from the backend
+ * `LogEventLine` for every line — a page line (the initial snapshot,
+ * {@link UseLogTailResult.handleScroll}'s `getOlder`/`getNewer` backfill, or
+ * {@link UseLogTailResult.jumpToLatest}'s fresh snapshot) and a live-streamed
+ * chunk alike. `loadOlder`/`loadNewer` read these fields off the current
+ * window's actual boundary lines to derive their next paging boundary — see
+ * {@link deriveForwardCursor}.
  */
 export interface LogLine {
+  /** Client-assigned identity, unique per loaded line and stable while the line stays in the window — the React row key. */
+  id: number;
   text: string;
   receivedAt: number;
-  /** CloudWatch event timestamp, epoch ms — absent for a live-streamed line. */
-  timestamp?: number;
-  /** CloudWatch event identity — absent for a live-streamed line. */
-  eventId?: string;
+  /** CloudWatch event timestamp, epoch ms. */
+  timestamp: number;
+  /** Synthesized CloudWatch event identity shared with the paging calls. */
+  eventId: string;
 }
 
 /**
@@ -108,6 +108,8 @@ export interface UseLogTailResult {
   loadingOlder: boolean;
   /** Equivalent to `mode === 'historical'` — whether a "Jump to latest" control should be shown. */
   hasNewer: boolean;
+  /** `true` once a forward fetch has reported the loaded window reaches the newest stored history — no further `getNewer` call is made until the window moves or {@link jumpToLatest} runs. */
+  atNewest: boolean;
   /** `true` while {@link jumpToLatest}'s fresh re-fetch is in flight. */
   jumpingToLatest: boolean;
   /**
@@ -120,17 +122,23 @@ export interface UseLogTailResult {
   jumpToLatest: () => void;
 }
 
+let nextLogLineId = 0;
+
 /**
- * Maps a backend-returned {@link LogEventLine} to a {@link LogLine},
- * carrying its `timestamp`/`eventId` through and stamping `receivedAt` with
- * the current time (the client receipt time, not a CloudWatch timestamp —
- * see {@link LogLine}'s doc comment for why the two are kept distinct).
+ * Maps a backend-returned {@link LogEventLine} (a page line or a streamed chunk) to a {@link LogLine}, carrying its
+ * `timestamp`/`eventId` through, stamping `receivedAt` with the client receipt time, and assigning a fresh row `id`.
  *
  * @param line - The backend-returned log event line.
  * @returns The equivalent {@link LogLine}.
  */
 function toLogLine(line: LogEventLine): LogLine {
-  return { text: line.message, receivedAt: Date.now(), timestamp: line.timestamp, eventId: line.eventId };
+  return {
+    id: nextLogLineId++,
+    text: line.message,
+    receivedAt: Date.now(),
+    timestamp: line.timestamp,
+    eventId: line.eventId,
+  };
 }
 
 /** Format a millisecond age as a compact "Xs ago" / "Xm ago" / "Xh ago" string. */
@@ -146,6 +154,7 @@ function formatAge(ms: number): string {
 
 // @spec APP-LOGS-ENGINE-001, APP-LOGS-ENGINE-002, APP-LOGS-ENGINE-003, APP-LOGS-ENGINE-004, APP-LOGS-ENGINE-005
 // @spec APP-LOGS-ENGINE-006, APP-LOGS-ENGINE-007, APP-LOGS-ENGINE-008, APP-LOGS-ENGINE-009, APP-LOGS-ENGINE-010
+// @spec APP-LOGS-ENGINE-016, APP-LOGS-ENGINE-017, APP-LOGS-TAIL-011
 // @spec APP-LOGS-ENGINE-011, APP-LOGS-ENGINE-012, APP-LOGS-ENGINE-013, APP-LOGS-ENGINE-014, APP-LOGS-ENGINE-015
 // @spec APP-IPC-STREAM-005
 /**
@@ -205,6 +214,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   const [mode, setMode] = useState<'live' | 'historical'>('live');
   const [atOldest, setAtOldest] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [atNewest, setAtNewest] = useState(false);
   const [jumpingToLatest, setJumpingToLatest] = useState(false);
 
   const boxRef = useRef<HTMLDivElement>(null);
@@ -220,6 +230,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   // after the next render commits.
   const modeRef = useRef<'live' | 'historical'>('live');
   const atOldestRef = useRef(false);
+  const atNewestRef = useRef(false);
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
   /**
@@ -259,8 +270,8 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
    */
   const windowGenerationRef = useRef(0);
 
-  const appendLine = useCallback((text: string) => {
-    const entry: LogLine = { text, receivedAt: Date.now() };
+  const appendLine = useCallback((chunk: LogChunk) => {
+    const entry = toLogLine(chunk);
     if (pausedRef.current || modeRef.current === 'historical') {
       bufferRef.current.push(entry);
       if (bufferRef.current.length > WINDOW_SIZE) {
@@ -311,6 +322,8 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     setMode('live');
     atOldestRef.current = false;
     setAtOldest(false);
+    atNewestRef.current = false;
+    setAtNewest(false);
     loadingOlderRef.current = false;
     setLoadingOlder(false);
     loadingNewerRef.current = false;
@@ -368,7 +381,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   }, [lines, autoscroll, paused, mode]);
 
   const oldest = lines[0];
-  const ageLabel = oldest ? formatAge(now - oldest.receivedAt) : null;
+  const ageLabel = oldest ? formatAge(now - oldest.timestamp) : null;
 
   /**
    * Fetches one older page via `api.getOlder`, entering `'historical'` mode
@@ -413,6 +426,11 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
       } else {
         oldestTimestampRef.current = page.lines[0]?.timestamp ?? before;
         const older: LogLine[] = page.lines.map(toLogLine);
+        // Evicting from the bottom moves the window's newest edge back, so newer history exists again.
+        if (linesRef.current.length + older.length > WINDOW_SIZE) {
+          atNewestRef.current = false;
+          setAtNewest(false);
+        }
         setLines((prev) => {
           const merged = [...older, ...prev];
           return merged.length > WINDOW_SIZE ? merged.slice(0, WINDOW_SIZE) : merged;
@@ -476,7 +494,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
    * flight.
    */
   const loadNewer = useCallback(async () => {
-    if (!target || loadingNewerRef.current) return;
+    if (!target || loadingNewerRef.current || atNewestRef.current) return;
     const generation = windowGenerationRef.current;
     const { after, excludeEventIds } = deriveForwardCursor();
     loadingNewerRef.current = true;
@@ -489,6 +507,10 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
           const merged = [...prev, ...newer];
           return merged.length > WINDOW_SIZE ? merged.slice(-WINDOW_SIZE) : merged;
         });
+      }
+      if (!page.hasMore) {
+        atNewestRef.current = true;
+        setAtNewest(true);
       }
     } catch (err) {
       if (windowGenerationRef.current !== generation) return;
@@ -614,6 +636,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     atOldest,
     loadingOlder,
     hasNewer: mode === 'historical',
+    atNewest,
     jumpingToLatest,
     jumpToLatest,
   };

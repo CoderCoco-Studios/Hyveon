@@ -300,7 +300,9 @@ called out again in the `WindowController` row below.
   reaching for a new AWS SDK client directly — see the [maintainer
   guide](/guides/maintainer#when-you-touch-the-nest-server).
   `LogsService.streamLogs(game, signal)` is an `AsyncGenerator` that polls
-  `FilterLogEvents` every 2 s; `getRecentLogs` remains the snapshot path.
+  `FilterLogEvents` every 2 s and yields each line as a `LogEventLine`
+  (message, CloudWatch timestamp, synthesized event id); `getRecentLogs`
+  remains the snapshot path.
   `streamLambdaLogs(functionKey, signal)` / `getRecentLambdaLogs(functionKey)`
   are the same two shapes against a resolved Lambda log group
   (`/aws/lambda/{projectName}-{functionKey}`), with `projectName` read from

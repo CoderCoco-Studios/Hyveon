@@ -14,7 +14,7 @@ const { loggerMock } = vi.hoisted(() => ({
 }));
 vi.mock('../logger.js', () => ({ logger: loggerMock }));
 
-import { LogsService } from './LogsService.js';
+import { LogsService, type LogEventLine } from './LogsService.js';
 import { createAwsCloudProvider } from './EcsService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
@@ -582,7 +582,7 @@ describe('LogsService.streamLogs', () => {
     const ac = new AbortController();
     ac.abort();
 
-    const lines: string[] = [];
+    const lines: LogEventLine[] = [];
     for await (const line of service.streamLogs('minecraft', ac.signal, 0)) {
       lines.push(line);
     }
@@ -608,8 +608,8 @@ describe('LogsService.streamLogs', () => {
     ac.abort();
     const { done } = await gen.next();
 
-    expect(l1).toBe('line1');
-    expect(l2).toBe('line2');
+    expect(l1).toMatchObject({ message: 'line1', timestamp: 1000 });
+    expect(l2).toMatchObject({ message: 'line2', timestamp: 2000 });
     expect(done).toBe(true);
   });
 
@@ -627,8 +627,8 @@ describe('LogsService.streamLogs', () => {
     ac.abort();
     await gen.return(undefined);
 
-    expect(l1).toBe('first');
-    expect(l2).toBe('second');
+    expect(l1).toMatchObject({ message: 'first', timestamp: 1000 });
+    expect(l2).toMatchObject({ message: 'second', timestamp: 2000 });
   });
 
   // @spec APP-LOGS-TAIL-004
@@ -651,8 +651,8 @@ describe('LogsService.streamLogs', () => {
     ac.abort();
     await gen.return(undefined);
 
-    expect(l1).toBe('line1');
-    expect(l2).toBe('line2');
+    expect(l1).toMatchObject({ message: 'line1', timestamp: 1000 });
+    expect(l2).toMatchObject({ message: 'line2', timestamp: 2000 });
   });
 
   // @spec APP-LOGS-GROUP-001
@@ -687,8 +687,21 @@ describe('LogsService.streamLogs', () => {
     ac.abort();
     await gen.return(undefined);
 
-    expect(errLine).toMatch(/\[stream error\].*throttled/);
-    expect(okLine).toBe('recovered');
+    expect(errLine!.message).toMatch(/\[stream error\].*throttled/);
+    expect(okLine).toMatchObject({ message: 'recovered', timestamp: 1000 });
+  });
+
+  // @spec APP-LOGS-TAIL-011
+  it('should deliver each line with its CloudWatch timestamp and the shared synthesized eventId', async () => {
+    cwMock.on(FilterLogEventsCommand).resolves({
+      events: [{ eventId: 'cw-real-id', timestamp: 1234, message: 'stamped' }],
+    });
+    const ac = new AbortController();
+    const gen = service.streamLogs('minecraft', ac.signal, 0);
+    const { value } = await gen.next();
+    ac.abort();
+    await gen.return(undefined);
+    expect(value).toEqual({ message: 'stamped', timestamp: 1234, eventId: '1234:stamped' });
   });
 
   it('should map a missing event.message to an empty string', async () => {
@@ -703,7 +716,7 @@ describe('LogsService.streamLogs', () => {
     ac.abort();
     await gen.return(undefined);
 
-    expect(line).toBe('');
+    expect(line).toMatchObject({ message: '', timestamp: 1000 });
   });
 });
 
@@ -901,9 +914,34 @@ describe('LogsService.streamLambdaLogs', () => {
     const { value: l2 } = await gen.next();
     ac.abort();
     await gen.return(undefined);
-    expect(l1).toBe('first');
-    expect(l2).toBe('second');
+    expect(l1).toMatchObject({ message: 'first', timestamp: 1000 });
+    expect(l2).toMatchObject({ message: 'second', timestamp: 2000 });
     expect(cwMock.commandCalls(FilterLogEventsCommand)[0]!.args[0].input.logGroupName).toBe('/aws/lambda/hyveon-dns-updater');
+  });
+
+  // @spec APP-LOGS-TAIL-011
+  it('should deliver each line with its CloudWatch timestamp and the shared synthesized eventId', async () => {
+    cwMock.on(FilterLogEventsCommand).resolves({
+      events: [{ eventId: 'cw-real-id', timestamp: 4321, message: 'stamped' }],
+    });
+    const ac = new AbortController();
+    const gen = service.streamLambdaLogs('watchdog', ac.signal, 0);
+    const { value } = await gen.next();
+    ac.abort();
+    await gen.return(undefined);
+    expect(value).toEqual({ message: 'stamped', timestamp: 4321, eventId: '4321:stamped' });
+  });
+
+  // @spec APP-LOGS-TAIL-011
+  it('should stamp synthesized stream-error lines with a timestamp', async () => {
+    cwMock.on(FilterLogEventsCommand).rejects(new Error('throttled'));
+    const ac = new AbortController();
+    const gen = service.streamLambdaLogs('watchdog', ac.signal, 60_000);
+    const { value } = await gen.next();
+    ac.abort();
+    await gen.return(undefined);
+    expect(typeof (value as LogEventLine).timestamp).toBe('number');
+    expect((value as LogEventLine).eventId).toBe(`${(value as LogEventLine).timestamp}:[stream error] throttled`);
   });
 
   // @spec APP-LOGS-TAIL-006
@@ -911,7 +949,7 @@ describe('LogsService.streamLambdaLogs', () => {
     cwMock.on(FilterLogEventsCommand).resolves({ events: [] });
     const ac = new AbortController();
     ac.abort();
-    const lines: string[] = [];
+    const lines: LogEventLine[] = [];
     for await (const line of service.streamLambdaLogs('watchdog', ac.signal, 0)) lines.push(line);
     expect(lines).toEqual([]);
     expect(cwMock.commandCalls(FilterLogEventsCommand)).toHaveLength(0);
@@ -924,11 +962,11 @@ describe('LogsService.streamLambdaLogs', () => {
     });
     cwMock.on(FilterLogEventsCommand).rejects(notFound);
     const ac = new AbortController();
-    const lines: string[] = [];
+    const lines: LogEventLine[] = [];
     for await (const line of service.streamLambdaLogs('health-check', ac.signal, 0)) lines.push(line);
     expect(lines).toHaveLength(1);
-    expect(lines[0]).not.toMatch(/\[stream error\]/);
-    expect(lines[0]).toMatch(/no log group/i);
+    expect(lines[0]!.message).not.toMatch(/\[stream error\]/);
+    expect(lines[0]!.message).toMatch(/no log group/i);
     expect(cwMock.commandCalls(FilterLogEventsCommand)).toHaveLength(1);
   });
 
@@ -1023,7 +1061,7 @@ describe('LogsService.streamLambdaLogs', () => {
     const { value } = await gen.next();
     ac.abort();
     await gen.return(undefined);
-    expect(value).toBe('[stream error] throttled');
+    expect(value).toMatchObject({ message: '[stream error] throttled' });
     expect(loggerMock.warn).toHaveBeenCalledWith('LogsService.streamLambdaLogs: poll failed', {
       functionKey: 'watchdog',
       logGroup: '/aws/lambda/hyveon-watchdog',

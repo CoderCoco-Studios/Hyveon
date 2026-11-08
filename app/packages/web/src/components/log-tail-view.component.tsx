@@ -8,6 +8,7 @@ import { JumpToLatestButton } from './jump-to-latest-button.component.js';
 import { PageHeader } from './page-header.component.js';
 import { LiveBadge } from './live-badge.component.js';
 import { cn } from '../lib/utils.utils.js';
+import { useMediaQuery } from '../hooks/use-media-query.hook.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import type { UseLogTailResult } from '../hooks/use-log-tail.hook.js';
 
@@ -28,9 +29,10 @@ export interface LogTailViewProps {
   /** Extra content rendered as the first item in the controls row, before the search input — e.g. `LogsPage`'s game combobox and mobile "Filters" toggle button. */
   beforeSearch?: ReactNode;
   /**
-   * When `true`, the search input and autoscroll toggle render twice: once
-   * desktop-only (`hidden md:contents`) inline in the controls row, and
-   * once in a collapsible mobile drawer shown while `filtersOpen` is `true`.
+   * When `true`, the search input and autoscroll toggle render in exactly one
+   * place at a time: inline in the controls row on a viewport at or above the
+   * `md` breakpoint, otherwise in a collapsible drawer shown while
+   * `filtersOpen` is `true`.
    * When `false` (the default), they render once, always visible, inline in
    * the controls row — `InfrastructureLogsPage`'s fixed 5-option picker
    * never needs to collapse for space.
@@ -39,6 +41,9 @@ export interface LogTailViewProps {
   /** Whether the mobile filter drawer is open. Only meaningful when `mobileFilters` is `true`; the caller owns this state (e.g. via a toggle button passed as `beforeSearch`). */
   filtersOpen?: boolean;
 }
+
+/** Tailwind's `md` breakpoint — at or above it the filter controls sit inline; below it they collapse into the drawer. */
+const DESKTOP_QUERY = '(min-width: 768px)';
 
 /** Search input paired with its leading icon — the one piece of the controls row duplicated (desktop inline vs. mobile drawer) when `mobileFilters` is set. */
 function SearchInput({
@@ -85,7 +90,7 @@ function AutoscrollToggle({
   );
 }
 
-// @spec APP-LOGS-UI-005, APP-LOGS-UI-006, APP-LOGS-UI-007
+// @spec APP-LOGS-UI-005, APP-LOGS-UI-006, APP-LOGS-UI-007, APP-LOGS-UI-008, APP-LOGS-UI-009
 /**
  * Shared page shell for `/logs` (`LogsPage`) and `/logs/infrastructure`
  * (`InfrastructureLogsPage`) — the header, controls row (search, autoscroll,
@@ -118,11 +123,14 @@ export function LogTailView({
     boxRef,
     handlePauseToggle,
     handleScroll,
+    mode,
     atOldest,
     loadingOlder,
     hasNewer,
     jumpToLatest,
   } = tail;
+
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
 
   const pauseResumeButton = (
     <Button variant={paused ? 'default' : 'secondary'} size="sm" onClick={handlePauseToggle} className="ml-auto">
@@ -136,7 +144,7 @@ export function LogTailView({
       <PageHeader title={title} subtitle={subtitle}>
         <div className="flex items-center gap-3">
           <PollingIndicator />
-          <LiveBadge paused={paused} />
+          <LiveBadge paused={paused} historical={mode === 'historical'} />
         </div>
       </PageHeader>
 
@@ -146,19 +154,20 @@ export function LogTailView({
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
             {beforeSearch}
-            {/* Desktop: inline filter controls — hidden on mobile (hidden md:contents) */}
-            <div className="hidden md:contents">
-              <SearchInput search={search} setSearch={setSearch} full={false} />
-              <AutoscrollToggle autoscroll={autoscroll} setAutoscroll={setAutoscroll} />
-            </div>
+            {isDesktop && (
+              <>
+                <SearchInput search={search} setSearch={setSearch} full={false} />
+                <AutoscrollToggle autoscroll={autoscroll} setAutoscroll={setAutoscroll} />
+              </>
+            )}
             {pauseResumeButton}
           </div>
 
           {/* Mobile collapsible filter drawer */}
-          {filtersOpen && (
+          {!isDesktop && filtersOpen && (
             <div
               id="logs-filters"
-              className="md:hidden flex flex-col gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3"
+              className="flex flex-col gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3"
             >
               <SearchInput search={search} setSearch={setSearch} full />
               <AutoscrollToggle autoscroll={autoscroll} setAutoscroll={setAutoscroll} />
@@ -196,7 +205,7 @@ export function LogTailView({
             'flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]',
             hasNewer && 'pb-12',
           )}
-          lines={lines.map((line) => line.text)}
+          lines={lines}
           search={search}
           emptyMessage={emptyMessage}
         />
@@ -210,7 +219,7 @@ export function LogTailView({
           {ageLabel ? ` · oldest ${ageLabel}` : ''}
         </span>
         <span className="font-[var(--font-mono)]">
-          {paused && bufferedCount > 0 ? `buffered ${bufferedCount}` : ''}
+          {bufferedCount > 0 ? `buffered ${bufferedCount}` : ''}
         </span>
       </div>
     </div>

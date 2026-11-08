@@ -66,11 +66,11 @@ describe('useLogTail', () => {
 
   // @spec APP-LOGS-ENGINE-005, APP-LOGS-ENGINE-006
   it('should buffer incoming lines while paused and flush them into lines on resume', async () => {
-    let push: ((chunk: string) => void) | undefined;
+    let push: ((chunk: LogEventLine) => void) | undefined;
     const api = makeApi({
       stream: vi.fn().mockImplementation(
         toStreamHandleMock(async function* () {
-          yield await new Promise<string>((resolve) => {
+          yield await new Promise<LogEventLine>((resolve) => {
             push = resolve;
           });
         }),
@@ -80,7 +80,7 @@ describe('useLogTail', () => {
     await waitFor(() => expect(api.stream).toHaveBeenCalled());
     act(() => result.current.handlePauseToggle());
     expect(result.current.paused).toBe(true);
-    act(() => push?.('buffered line'));
+    act(() => push?.(line('buffered line', 5000)));
     await waitFor(() => expect(result.current.bufferedCount).toBe(1));
     expect(result.current.lines).toHaveLength(0);
     act(() => result.current.handlePauseToggle());
@@ -227,13 +227,13 @@ describe('useLogTail', () => {
 
     // @spec APP-LOGS-ENGINE-005, APP-LOGS-ENGINE-007
     it('should buffer incoming live lines instead of appending them to lines while in historical mode', async () => {
-      let push: ((chunk: string) => void) | undefined;
+      let push: ((chunk: LogEventLine) => void) | undefined;
       const api = makeApi({
         get: vi.fn().mockResolvedValue({ lines: [line('a', 1000)] }),
         getOlder: vi.fn().mockResolvedValue({ lines: [line('older', 100)], atOldest: false }),
         stream: vi.fn().mockImplementation(
           toStreamHandleMock(async function* () {
-            yield await new Promise<string>((resolve) => {
+            yield await new Promise<LogEventLine>((resolve) => {
               push = resolve;
             });
           }),
@@ -246,7 +246,7 @@ describe('useLogTail', () => {
       act(() => result.current.handleScroll());
       await waitFor(() => expect(result.current.mode).toBe('historical'));
 
-      act(() => push?.('live line while historical'));
+      act(() => push?.(line('live line while historical', 5000)));
       await waitFor(() => expect(result.current.bufferedCount).toBe(1));
       expect(result.current.lines.map((l) => l.text)).not.toContain('live line while historical');
     });
@@ -315,7 +315,7 @@ describe('useLogTail', () => {
 
     // @spec APP-LOGS-ENGINE-013
     it('should re-fetch a fresh snapshot via api.get and discard the buffer on jumpToLatest', async () => {
-      let push: ((chunk: string) => void) | undefined;
+      let push: ((chunk: LogEventLine) => void) | undefined;
       const api = makeApi({
         get: vi
           .fn()
@@ -324,7 +324,7 @@ describe('useLogTail', () => {
         getOlder: vi.fn().mockResolvedValue({ lines: [line('older', 100)], atOldest: false }),
         stream: vi.fn().mockImplementation(
           toStreamHandleMock(async function* () {
-            yield await new Promise<string>((resolve) => {
+            yield await new Promise<LogEventLine>((resolve) => {
               push = resolve;
             });
           }),
@@ -337,7 +337,7 @@ describe('useLogTail', () => {
       act(() => result.current.handleScroll());
       await waitFor(() => expect(result.current.mode).toBe('historical'));
 
-      act(() => push?.('buffered while historical'));
+      act(() => push?.(line('buffered while historical', 5000)));
       await waitFor(() => expect(result.current.bufferedCount).toBe(1));
 
       act(() => result.current.jumpToLatest());
@@ -479,6 +479,106 @@ describe('useLogTail', () => {
       expect(afterTimestamp).toBe(newestVisible.timestamp);
       expect(afterTimestamp).not.toBeGreaterThan(1300);
       expect(afterTimestamp).toBeLessThan(999_000);
+    });
+  });
+});
+
+describe('useLogTail — live-line identity, age, and newest-history state', () => {
+  // @spec APP-LOGS-TAIL-011
+  it('should carry a streamed line\'s CloudWatch timestamp and eventId onto the loaded line', async () => {
+    const api = makeApi({
+      stream: vi.fn().mockImplementation(
+        toStreamHandleMock(async function* () {
+          yield line('live', 7000);
+        }),
+      ),
+    });
+    const { result } = renderHook(() => useLogTail('watchdog', api));
+    await waitFor(() => expect(result.current.lines).toHaveLength(1));
+    expect(result.current.lines[0]).toMatchObject({ text: 'live', timestamp: 7000, eventId: '7000:live' });
+  });
+
+  // @spec APP-LOGS-ENGINE-017
+  it('should measure the footer age from the oldest event timestamp, not its receipt time', async () => {
+    const twoHoursAgo = Date.now() - 2 * 3_600_000;
+    const api = makeApi({ get: vi.fn().mockResolvedValue({ lines: [line('old', twoHoursAgo)] }) });
+    const { result } = renderHook(() => useLogTail('watchdog', api));
+    await waitFor(() => expect(result.current.lines).toHaveLength(1));
+    expect(result.current.ageLabel).toBe('2h ago');
+  });
+
+  // @spec APP-LOGS-RENDER-003
+  it('should keep each loaded line\'s id when older lines are prepended, and give every line a unique id', async () => {
+    const api = makeApi({
+      get: vi.fn().mockResolvedValue({ lines: [line('a', 2000), line('a', 2000)] }),
+      getOlder: vi.fn().mockResolvedValue({ lines: [line('o', 1000)], atOldest: false }),
+    });
+    const { result } = renderHook(() => useLogTail('watchdog', api));
+    await waitFor(() => expect(result.current.lines).toHaveLength(2));
+    const before = result.current.lines.map((l) => l.id);
+
+    setScrollPosition(result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+    act(() => result.current.handleScroll());
+    await waitFor(() => expect(result.current.lines).toHaveLength(3));
+
+    const after = result.current.lines.map((l) => l.id);
+    expect(after.slice(1)).toEqual(before);
+    expect(new Set(after).size).toBe(3);
+  });
+
+  describe('atNewest', () => {
+    /** Enters historical mode with a one-line window, then scrolls to the bottom to fire `getNewer`. */
+    async function enterHistoricalAndScrollDown(api: LogTailApi) {
+      const hook = renderHook(() => useLogTail('watchdog', api));
+      await waitFor(() => expect(hook.result.current.lines).toHaveLength(1));
+      setScrollPosition(hook.result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+      act(() => hook.result.current.handleScroll());
+      await waitFor(() => expect(hook.result.current.mode).toBe('historical'));
+      await waitFor(() => expect(hook.result.current.loadingOlder).toBe(false));
+      setScrollPosition(hook.result.current.boxRef, { scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+      act(() => hook.result.current.handleScroll());
+      return hook;
+    }
+
+    // @spec APP-LOGS-ENGINE-016
+    it('should report no newer history once getNewer returns hasMore false, and stop re-requesting', async () => {
+      const api = makeApi({
+        get: vi.fn().mockResolvedValue({ lines: [line('a', 1000)] }),
+        getOlder: vi.fn().mockResolvedValue({ lines: [line('o', 500)], atOldest: false }),
+        getNewer: vi.fn().mockResolvedValue({ lines: [line('n', 1500)], hasMore: false }),
+      });
+      const { result } = await enterHistoricalAndScrollDown(api);
+      await waitFor(() => expect(result.current.atNewest).toBe(true));
+      expect(result.current.hasNewer).toBe(true);
+
+      act(() => result.current.handleScroll());
+      await Promise.resolve();
+      expect(api.getNewer).toHaveBeenCalledTimes(1);
+    });
+
+    // @spec APP-LOGS-ENGINE-016
+    it('should keep reporting newer history while getNewer returns hasMore true', async () => {
+      const api = makeApi({
+        get: vi.fn().mockResolvedValue({ lines: [line('a', 1000)] }),
+        getOlder: vi.fn().mockResolvedValue({ lines: [line('o', 500)], atOldest: false }),
+        getNewer: vi.fn().mockResolvedValue({ lines: [line('n', 1500)], hasMore: true }),
+      });
+      const { result } = await enterHistoricalAndScrollDown(api);
+      await waitFor(() => expect(result.current.lines).toHaveLength(3));
+      expect(result.current.atNewest).toBe(false);
+    });
+
+    // @spec APP-LOGS-ENGINE-016
+    it('should clear atNewest on jumpToLatest', async () => {
+      const api = makeApi({
+        get: vi.fn().mockResolvedValue({ lines: [line('a', 1000)] }),
+        getOlder: vi.fn().mockResolvedValue({ lines: [line('o', 500)], atOldest: false }),
+        getNewer: vi.fn().mockResolvedValue({ lines: [], hasMore: false }),
+      });
+      const { result } = await enterHistoricalAndScrollDown(api);
+      await waitFor(() => expect(result.current.atNewest).toBe(true));
+      act(() => result.current.jumpToLatest());
+      expect(result.current.atNewest).toBe(false);
     });
   });
 });

@@ -94,7 +94,7 @@ Autoscroll is also suppressed while the stream is paused.
 ## Pause and Resume
 
 The button on the right toggles between **Pause** and **Resume**, and the pill
-in the page header switches between `LIVE` and `PAUSED`.
+in the page header switches between `LIVE` and `PAUSED` (and reads `HISTORICAL` while you are browsing history, see below).
 
 **Pausing does not stop the stream.** New lines keep arriving; they are held
 in a buffer instead of being appended to the view. While paused, the footer
@@ -164,17 +164,20 @@ own retention for that log group, not by anything the app enforces.
 
 The pause buffer itself is *not* capped, so a long pause can accumulate more
 than 300 lines; the cap is applied when you press Resume, keeping the newest
-300. Note that the footer's `buffered N` count (see [Pause and
-Resume](#pause-and-resume)) only appears while paused — lines buffered purely
-because you are in historical mode (not paused) are not surfaced there; the
-presence of the **Jump to latest** button is the signal that live lines are
-being held back.
+300. The footer's `buffered N` count (see [Pause and
+Resume](#pause-and-resume)) appears whenever lines are buffered, whether you
+are paused or in historical mode, and the page-header pill reads `HISTORICAL`
+instead of `LIVE` while you are in historical mode.
+
+Once scrolling down has paged forward to the newest stored history, further
+scrolling to the bottom stops requesting newer pages; **Jump to latest**
+stays, because live lines are still being held back.
 
 ## On a narrow window
 
 Below a certain width the search box and the Autoscroll checkbox collapse
 behind a **Filters** button. Expanding it reveals the same controls stacked
-vertically.
+vertically. At any width exactly one search box and one Autoscroll checkbox exist: inline on a wide window, inside the drawer on a narrow one.
 
 The game combobox and the Pause/Resume button stay visible at every width.
 

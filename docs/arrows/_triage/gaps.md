@@ -235,12 +235,12 @@ Specs: `docs/intent/operator-app/infra-logs/infra-logs-specs.md` · Arrow doc: `
 | `APP-LOGS-TAIL-005` | closed | - | Fixed (was): the Lambda tail replayed the retained group. It starts 30 s before the tail began (`LOG_TAIL_LOOKBACK_MS`) |
 | `APP-LOGS-TAIL-007` | closed | - | Fixed (was): no `abortSignal` and a plain `setTimeout`. The SDK call takes the signal and the sleep is `sleepInterruptible` |
 | `APP-LOGS-TAIL-009` | closed | - | Fixed (was): a poll failure was not logged. It logs `warn` with functionKey, log group, normalized message |
-| `APP-LOGS-TAIL-011` | b | low | streamLogs yields chunk.message only (desktop-main/src/services/LogsService.ts:206-207); LogChunk = string (desktop-preload/src/hyveon-api.ts:157); UI does not render timestamps today |
-| `APP-LOGS-ENGINE-016` | b | low | loadNewer never reads page.hasMore (web/src/hooks/use-log-tail.hook.ts:478-502) and handleScroll re-fires getNewer on every bottom scroll while historical (:533-535), so the tail cannot report that no newer history remains. A separate atNewest-style flag (cf. atOldest :206,:412) meets the spec without touching hasNewer / Jump to latest (:110,:616) |
-| `APP-LOGS-ENGINE-017` | b | low | ageLabel = formatAge(now - oldest.receivedAt) (web/src/hooks/use-log-tail.hook.ts:370-371) though snapshot lines carry timestamp |
-| `APP-LOGS-UI-008` | b | low | LiveBadge takes only paused (web/src/components/live-badge.component.tsx:19); buffered count shown only when paused (log-tail-view.component.tsx:213) though historical also buffers |
-| `APP-LOGS-UI-009` | c | low | Desktop pair stays mounted under hidden md:contents (web/src/components/log-tail-view.component.tsx:150-153) but display:none, no ids, never both visible; harmless |
-| `APP-LOGS-RENDER-003` | b | low | Rows keyed by index (web/src/components/log-line-display.component.tsx:117); list receives text only (log-tail-view.component.tsx:201), so no stable id passed down |
+| `APP-LOGS-TAIL-011` | closed | - | Fixed (was): Live chunks are `LogEventLine` values carrying the CloudWatch timestamp and synthesized event id |
+| `APP-LOGS-ENGINE-016` | closed | - | Fixed (was): `getNewer` `hasMore: false` sets `atNewest`, which stops further forward requests; `hasNewer` keeps driving Jump to latest |
+| `APP-LOGS-ENGINE-017` | closed | - | Fixed (was): The footer age is measured from the oldest loaded event timestamp |
+| `APP-LOGS-UI-008` | closed | - | Fixed (was): `LiveBadge` reads `Historical` and the buffered count shows whenever lines are buffered |
+| `APP-LOGS-UI-009` | closed | - | Fixed (was): A `matchMedia` hook mounts one search input and one autoscroll toggle at a time |
+| `APP-LOGS-RENDER-003` | closed | - | Fixed (was): Rows are keyed by a per-line `id` assigned by the engine and rendered through a memoised row |
 
 ### `app-update-and-release`
 
