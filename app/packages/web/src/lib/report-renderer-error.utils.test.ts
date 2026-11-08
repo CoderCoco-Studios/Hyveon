@@ -544,6 +544,50 @@ describe('installConsoleForwarding', () => {
     expect(sent.filter((e) => e.message === 'only once')).toHaveLength(2);
   });
 
+  // @spec APP-DIAG-CONS-012
+  it('should back off exponentially between attempts while reportLog keeps timing out', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi.fn().mockImplementation(() => new Promise(() => undefined));
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    console.log('blocked main');
+    await vi.advanceTimersByTimeAsync(80_000);
+
+    // attempts at 2s (10s timeout), 14s (20s), 36s (40s), 78s (60s cap)
+    expect(reportLog).toHaveBeenCalledTimes(4);
+  });
+
+  // @spec APP-DIAG-CONS-012
+  it('should reset the backoff once a call settles', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let resolveFirst: () => void = () => undefined;
+    const first = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const reportLog = vi
+      .fn()
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(new Promise(() => undefined))
+      .mockReturnValueOnce(new Promise(() => undefined));
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    console.log('a');
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    resolveFirst();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reportLog).toHaveBeenCalledTimes(2);
+
+    // timeout is back to 10s after the late settle, so the next attempt comes ~12s later
+    await vi.advanceTimersByTimeAsync(12_000);
+
+    expect(reportLog).toHaveBeenCalledTimes(3);
+  });
+
   it('should preserve message/stack for a cross-realm Error, where `instanceof Error` fails', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const reportLog = vi.fn().mockResolvedValue(undefined);

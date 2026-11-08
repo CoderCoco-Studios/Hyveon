@@ -1,7 +1,7 @@
 import type { RendererConsoleLevel, RendererLogEntry } from '@hyveon/desktop-preload';
 
 /** Duck-types an `Error`-shaped value — `instanceof Error` fails for errors from a different JS realm (e.g. an iframe), which don't share this realm's `Error` constructor. */
-function isErrorLike(value: unknown): value is Error {
+export function isErrorLike(value: unknown): value is Error {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -19,8 +19,14 @@ const MAX_BATCH_ENTRIES = 50;
 /** Hard cap on entries buffered between flushes, bounding memory if console output bursts faster than the flush interval. */
 const MAX_QUEUE_SIZE = 200;
 
-/** How long a `diagnostics.reportLog` call may stay unsettled before the batch is treated as failed and requeued. */
+/** How long the first `diagnostics.reportLog` call may stay unsettled before the batch is treated as failed and requeued. */
 const FLUSH_TIMEOUT_MS = 10_000;
+
+/** Ceiling for the per-attempt timeout, which doubles on each consecutive timeout. */
+const MAX_FLUSH_TIMEOUT_MS = 60_000;
+
+/** Consecutive flush attempts that timed out without any call settling; scales the next attempt's timeout. */
+let consecutiveTimeouts = 0;
 
 let queue: RendererLogEntry[] = [];
 let droppedSinceLastFlush = 0;
@@ -98,7 +104,9 @@ function requeueAfterFailedFlush(entries: RendererLogEntry[], droppedCount: numb
  * {@link inFlightCount} while its `diagnostics.reportLog` call is pending;
  * if the call rejects, throws synchronously, or fails to settle within
  * {@link FLUSH_TIMEOUT_MS} (transient failure), the batch is requeued rather than lost. A late settle after the
- * timeout is ignored, so a batch is never requeued twice.
+ * timeout is ignored for requeueing, so a batch is never requeued twice, but it resets the backoff. Consecutive
+ * timeouts double the next attempt's timeout up to {@link MAX_FLUSH_TIMEOUT_MS}, so a blocked main process
+ * receives a bounded number of resends.
  */
 function flush(): void {
   if (flushInFlight) {
@@ -143,10 +151,18 @@ function flush(): void {
     }
     flushInFlight = false;
   };
-  const timeout = setTimeout(() => settle(true), FLUSH_TIMEOUT_MS);
+  const timeoutMs = Math.min(FLUSH_TIMEOUT_MS * 2 ** consecutiveTimeouts, MAX_FLUSH_TIMEOUT_MS);
+  const timeout = setTimeout(() => {
+    consecutiveTimeouts += 1;
+    settle(true);
+  }, timeoutMs);
+  const onSettled = (failed: boolean): void => {
+    consecutiveTimeouts = 0;
+    settle(failed);
+  };
   void pending.then(
-    () => settle(false),
-    () => settle(true),
+    () => onSettled(false),
+    () => onSettled(true),
   );
 }
 

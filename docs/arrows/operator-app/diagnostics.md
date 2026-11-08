@@ -5,7 +5,7 @@ The app's own winston log, the Settings → Diagnostics live tail and "Export di
 ## Status
 
 **MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
-All five `app-diagnostics-logging` requirements have working code and tests; the main gaps are a log scrubber that misses JSON-shaped secrets, and an audit trail whose EARS are derived from its code alone.
+All five `app-diagnostics-logging` requirements have working code and tests; the main gap is an audit trail whose EARS are derived from its code alone.
 
 ## References
 
@@ -17,7 +17,7 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 - `docs/intent/operator-app/diagnostics/diagnostics-design.md`
 
 ### EARS
-- `docs/intent/operator-app/diagnostics/diagnostics-specs.md` (95 specs)
+- `docs/intent/operator-app/diagnostics/diagnostics-specs.md` (96 specs)
 
 ### Tests
 - `app/packages/cloud-aws/src/AwsAuditLogStore.test.ts`
@@ -116,7 +116,7 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 | Audit Trail Reading | `APP-DIAG-AUDR-001` to `APP-DIAG-AUDR-004` | 3 | 0 | 1 |
 | Audit Page | `APP-DIAG-AUDUI-001` to `APP-DIAG-AUDUI-008` | 7 | 0 | 1 |
 
-**Summary:** 88 of 95 active specs implemented; 0 deferred; 7 gaps.
+**Summary:** 89 of 96 active specs implemented; 0 deferred; 7 gaps.
 
 ## Key Findings
 

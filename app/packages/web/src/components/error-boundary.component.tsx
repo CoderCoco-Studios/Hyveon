@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { errMessage } from '@hyveon/shared';
-import { reportRendererError } from '../lib/report-renderer-error.utils.js';
+import { isErrorLike, reportRendererError } from '../lib/report-renderer-error.utils.js';
 
 interface Props {
   children: ReactNode;
@@ -42,8 +42,8 @@ export class ErrorBoundary extends Component<Props, State> {
    * @param info - React-supplied details, including the component stack.
    */
   componentDidCatch(error: unknown, info: ErrorInfo): void {
-    const message = errMessage(error);
-    const stack = error instanceof Error ? error.stack : undefined;
+    const message = isErrorLike(error) ? error.message : errMessage(error);
+    const stack = isErrorLike(error) ? error.stack : undefined;
     const combinedStack = [stack, info.componentStack]
       .filter((part): part is string => Boolean(part))
       .join('\n\nComponent stack:');

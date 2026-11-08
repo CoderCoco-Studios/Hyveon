@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import vm from 'node:vm';
 import { render, screen } from '@testing-library/react';
 import { ErrorBoundary } from './error-boundary.component.js';
 import { reportRendererError } from '../lib/report-renderer-error.utils.js';
 
-vi.mock('../lib/report-renderer-error.utils.js', () => ({
+vi.mock('../lib/report-renderer-error.utils.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/report-renderer-error.utils.js')>()),
   reportRendererError: vi.fn(),
 }));
 
@@ -89,6 +91,30 @@ describe('ErrorBoundary', () => {
     );
 
     expect(screen.getByRole('alert')).toHaveTextContent('Settings → Diagnostics');
+    consoleSpy.mockRestore();
+  });
+
+  // @spec APP-DIAG-RERR-007
+  it('should forward the stack of a cross-realm Error thrown in render', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const foreign = vm.runInNewContext('new Error("foreign boom")') as Error;
+    expect(foreign instanceof Error).toBe(false);
+    function ForeignBomb(): never {
+      throw foreign;
+    }
+
+    render(
+      <ErrorBoundary>
+        <ForeignBomb />
+      </ErrorBoundary>,
+    );
+
+    expect(reportRendererError).toHaveBeenCalledWith(
+      'foreign boom',
+      expect.stringContaining('foreign boom'),
+      'boundary',
+    );
+
     consoleSpy.mockRestore();
   });
 });
