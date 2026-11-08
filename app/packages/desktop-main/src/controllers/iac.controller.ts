@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import { Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
-import { RunLockHeldError, errMessage } from '@hyveon/shared';
+import { OptimisticLockError, RunLockHeldError, errMessage } from '@hyveon/shared';
 import type { DeploymentConfigDiff, RunLock, StackOutputs } from '@hyveon/shared';
 import {
   PulumiService,
@@ -325,6 +325,8 @@ interface IacApproveAck {
  */
 interface IacRollbackPayload {
   applyRunId: string;
+  /** The `headEtag` the matching `iac.rollback.resolve` returned; `confirm` only. The restore is conditional on it. */
+  headEtag?: string;
 }
 
 /**
@@ -350,6 +352,8 @@ interface IacRollbackResolveAck {
   versionId?: string;
   lastModified?: string;
   diff?: DeploymentConfigDiff;
+  /** Etag of the configuration head read at preview time; pass it back to `iac.rollback.confirm`. */
+  headEtag?: string;
   error?: string;
 }
 
@@ -1191,8 +1195,9 @@ export class IacController implements OnModuleInit {
       const target = await this.pulumi.resolveRollbackTarget(payload.applyRunId);
 
       let diff: DeploymentConfigDiff | undefined;
+      let headEtag: string | undefined;
       try {
-        diff = await this.pulumi.computeRollbackDiff(target.versionId);
+        ({ diff, headEtag } = await this.pulumi.computeRollbackDiff(target.versionId));
       } catch (err) {
         logger.warn('rollback resolve: diff computation failed — continuing without it', {
           err,
@@ -1205,6 +1210,7 @@ export class IacController implements OnModuleInit {
         versionId: target.versionId,
         lastModified: target.lastModified.toISOString(),
         ...(diff ? { diff } : {}),
+        ...(headEtag ? { headEtag } : {}),
       };
     } catch (err) {
       logger.error('rollback resolve error', { err, applyRunId: payload.applyRunId });
@@ -1255,7 +1261,7 @@ export class IacController implements OnModuleInit {
     sender.once('destroyed', onDestroyed);
 
     try {
-      const stream = this.pulumi.confirmRollback(payload.applyRunId, ac.signal);
+      const stream = this.pulumi.confirmRollback(payload.applyRunId, ac.signal, undefined, payload.headEtag);
       let next = await stream.next();
       while (!next.done) {
         if (sender.isDestroyed()) {
@@ -1321,6 +1327,9 @@ export class IacController implements OnModuleInit {
         // act on it, e.g. offer "plan against the restored version" as a
         // next step, per this ack field's own TSDoc.
         return { confirmed: false, versionId: err.restoredVersionId, error: err.message };
+      }
+      if (err instanceof OptimisticLockError) {
+        return { confirmed: false, error: 'Configuration changed while restoring: review and retry the rollback' };
       }
       const error = errMessage(err);
       return { confirmed: false, error };

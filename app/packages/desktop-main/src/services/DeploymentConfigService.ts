@@ -406,8 +406,10 @@ export class DeploymentConfigService {
    * or reverts an existing version) rather than applying a
    * `gameServers`-specific mutation like {@link addGameServer}/
    * {@link updateGameServer}/{@link removeGameServer} do. The put is
-   * conditional on the etag of the head it just read for the rename guard, so a concurrent edit (a game edit does
-   * not take the run lock) fails with {@link OptimisticLockError} instead of being overwritten. Invalidates the in-memory
+   * conditional on `expectedEtag` (the head etag the operator saw when the rollback was previewed) so an edit
+   * made after the preview (a game edit does not take the run lock) fails with {@link OptimisticLockError}
+   * instead of being overwritten; without `expectedEtag` it falls back to the etag of the head it just read for
+   * the rename guard, which only protects the read-to-put window. Invalidates the in-memory
    * {@link getGameServers} cache afterward so the next read reflects the
    * restored content, mirroring {@link writeConfig}.
    *
@@ -418,20 +420,21 @@ export class DeploymentConfigService {
    * never created for this install.
    *
    * @param rawConfig - The exact historic config content to restore.
+   * @param expectedEtag - The head etag the caller previewed; the put is conditional on it.
    * @returns The write's `{ etag, versionId }` — see {@link putRawConfig}.
    * @throws {@link ConfigurationNotConfiguredError} when no configuration
    *   bucket is configured.
    * @throws {@link RunsTableRenameError} when the restored document resolves
    *   to a different runs-table name than the current document.
-   * @throws {@link OptimisticLockError} when the head changed between the read and the put.
+   * @throws {@link OptimisticLockError} when the head changed since `expectedEtag` was read, or between the read and the put.
    */
-  async restoreRawConfig(rawConfig: string): Promise<{ etag: string; versionId?: string }> {
+  async restoreRawConfig(rawConfig: string, expectedEtag?: string): Promise<{ etag: string; versionId?: string }> {
     const { config: currentRaw, etag: currentEtag } = await this.fetchRawConfig();
     const { gameServers: _currentGameServers, ...currentSettings } = this.parseConfigContents(currentRaw);
     const restoredSettings = this.parseConfigContents(rawConfig);
     this.assertRunsTableNameStable(currentSettings, restoredSettings);
 
-    const result = await this.putRawConfig(rawConfig, currentEtag);
+    const result = await this.putRawConfig(rawConfig, expectedEtag ?? currentEtag);
     this.invalidateCache();
     return result;
   }

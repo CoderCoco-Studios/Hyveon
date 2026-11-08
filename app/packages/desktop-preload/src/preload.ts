@@ -634,7 +634,7 @@ const api: HyveonApi = {
     rollback: {
       resolve: (opts: { applyRunId: string }) =>
         invoke<IacRollbackResolveAck>('iac.rollback.resolve', opts),
-      confirm: (opts: { applyRunId: string }) =>
+      confirm: (opts: { applyRunId: string; headEtag?: string }) =>
         invoke<IacRollbackConfirmAck>('iac.rollback.confirm', opts),
     },
     lock: {

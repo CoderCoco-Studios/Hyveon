@@ -521,6 +521,27 @@ describe('DeploymentConfigService write path', () => {
       await expect(service.restoreRawConfig(FIXTURE_JSON)).rejects.toThrow(OptimisticLockError);
     });
 
+    // @spec CONFIG-RESTORE-004
+    it('should condition the put on the previewed expectedEtag, so an edit made after the preview is rejected', async () => {
+      // Head is etag-1 at restore time; the operator previewed etag-0 (an edit landed while the dialog was open).
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockImplementation(async (_key: string, _body: Uint8Array, opts?: { ifMatch?: string }) => {
+        if (opts?.ifMatch !== 'etag-1') {
+          throw new RemoteFileConflictError('deployment-config.json', 'Conflicting write detected.', opts?.ifMatch);
+        }
+        return { etag: 'etag-3' };
+      });
+
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
+
+      await expect(service.restoreRawConfig(FIXTURE_JSON, 'etag-0')).rejects.toThrow(OptimisticLockError);
+      expect(remoteFileStore.put).toHaveBeenCalledWith(
+        'deployment-config.json',
+        new TextEncoder().encode(FIXTURE_JSON),
+        { ifMatch: 'etag-0' },
+      );
+    });
+
     // @spec CONFIG-WRITE-006
     it('should invalidate the in-memory cache so the next getGameServers() re-reads the restored content', async () => {
       stubCurrentConfig(remoteFileStore);

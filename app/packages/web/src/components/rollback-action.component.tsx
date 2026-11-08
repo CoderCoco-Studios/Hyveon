@@ -63,6 +63,7 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
     versionId: string;
     lastModified: string;
     diff?: DeploymentConfigDiff;
+    headEtag?: string;
   } | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +79,12 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
       try {
         const ack = await window.hyveon!.iac.rollback.resolve({ applyRunId });
         if (ack.resolved && ack.versionId && ack.lastModified) {
-          setTarget({ versionId: ack.versionId, lastModified: ack.lastModified, diff: ack.diff });
+          setTarget({
+            versionId: ack.versionId,
+            lastModified: ack.lastModified,
+            diff: ack.diff,
+            headEtag: ack.headEtag,
+          });
           setDialogOpen(true);
         } else {
           setError(ack.error ?? 'Could not resolve a rollback target.');
@@ -96,11 +102,13 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
     setConfirming(true);
     void (async () => {
       try {
-        const ack = await window.hyveon!.iac.rollback.confirm({ applyRunId });
+        const ack = await window.hyveon!.iac.rollback.confirm({ applyRunId, headEtag: target?.headEtag });
         if (ack.confirmed && ack.versionId) {
           setDialogOpen(false);
           onRolledBack({ versionId: ack.versionId, rolledBackFrom: applyRunId });
         } else {
+          // Close so a retry re-resolves and picks up the current head etag.
+          setDialogOpen(false);
           setError(ack.error ?? 'Could not restore the historic configuration version.');
         }
       } catch (err) {

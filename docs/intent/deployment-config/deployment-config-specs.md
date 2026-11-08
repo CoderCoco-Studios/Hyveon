@@ -62,7 +62,7 @@ EARS requirements for prefix `CONFIG`; design in `docs/intent/deployment-config/
 - [x] **CONFIG-RESTORE-001**: When rollback calls `DeploymentConfigService.restoreRawConfig` with a historic version's content, the service shall write that content as a new head version of `deployment-config.json` without deleting or rewriting any existing version.
 - [x] **CONFIG-RESTORE-002**: When `DeploymentConfigService.restoreRawConfig` writes a historic deployment-config version, the new head's content shall be byte-for-byte identical to the historic content, with no parse-and-re-emit step.
 - [x] **CONFIG-RESTORE-003**: When `DeploymentConfigService.restoreRawConfig` runs, it shall apply the runs-table rename guard (CONFIG-WRITE-012) between the current head and the restored document before writing. (observed)
-- [x] **CONFIG-RESTORE-004**: If `deployment-config.json` changes between `restoreRawConfig`'s head read and its put (for example a game edit, which does not take the run lock), then the restore shall fail with `OptimisticLockError` rather than overwrite that change.
+- [x] **CONFIG-RESTORE-004**: If `deployment-config.json` changes after the head etag the rollback preview returned (for example a game edit made while the confirmation dialog was open, which does not take the run lock), then the restore shall fail with `OptimisticLockError` rather than overwrite that change, and `iac.rollback.confirm` shall report it as `Configuration changed while restoring: review and retry the rollback`.
 
 ## Settings IPC
 

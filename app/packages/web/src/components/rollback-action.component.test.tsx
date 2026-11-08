@@ -57,6 +57,48 @@ describe('RollbackAction', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
+  // @spec CONFIG-RESTORE-004
+  it('should pass the resolved headEtag to confirm', async () => {
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
+      resolved: true,
+      versionId: 'v-prior',
+      lastModified: '2026-07-18T00:00:00.000Z',
+      headEtag: 'etag-head',
+    });
+    hyveonMock.iac.rollback.confirm.mockResolvedValue({ confirmed: true, versionId: 'v-new-head' });
+    render(<RollbackAction applyRunId="apply-1" onRolledBack={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rollback' }));
+    await screen.findByRole('alertdialog');
+    await userEvent.click(screen.getByRole('button', { name: 'Roll back' }));
+
+    await waitFor(() =>
+      expect(hyveonMock.iac.rollback.confirm).toHaveBeenCalledWith({ applyRunId: 'apply-1', headEtag: 'etag-head' }),
+    );
+  });
+
+  // @spec CONFIG-RESTORE-004
+  it('should close the dialog and show the retry message when confirm reports the configuration changed', async () => {
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
+      resolved: true,
+      versionId: 'v-prior',
+      lastModified: '2026-07-18T00:00:00.000Z',
+      headEtag: 'etag-head',
+    });
+    hyveonMock.iac.rollback.confirm.mockResolvedValue({
+      confirmed: false,
+      error: 'Configuration changed while restoring: review and retry the rollback',
+    });
+    render(<RollbackAction applyRunId="apply-1" onRolledBack={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rollback' }));
+    await screen.findByRole('alertdialog');
+    await userEvent.click(screen.getByRole('button', { name: 'Roll back' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/review and retry the rollback/);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
   it('should surface a confirm failure inline and never call onRolledBack', async () => {
     hyveonMock.iac.rollback.resolve.mockResolvedValue({
       resolved: true,

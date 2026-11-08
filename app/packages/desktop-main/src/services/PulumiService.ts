@@ -248,7 +248,7 @@ export const DEPLOYMENT_CONFIG_SERVICE = Symbol('DEPLOYMENT_CONFIG_SERVICE');
  * identical to `DeploymentConfigService.restoreRawConfig`'s own signature.
  */
 export interface DeploymentConfigRestorer {
-  restoreRawConfig(rawConfig: string): Promise<{ etag: string; versionId?: string }>;
+  restoreRawConfig(rawConfig: string, expectedEtag?: string): Promise<{ etag: string; versionId?: string }>;
 }
 
 /**
@@ -3547,15 +3547,19 @@ export class PulumiService {
    * parse or decode to an object — is caught here, logged at `warn`, and
    * reported as `undefined`, so a diff-computation failure can never prevent
    * the operator from seeing the already-resolved target version. Callers
-   * must treat `undefined` as "no diff available", not as an error.
+   * must treat an absent `diff` as "no diff available", not as an error.
    *
    * @param targetVersionId - The rollback target's `versionId`, as resolved
    *   by {@link resolveRollbackTarget}.
-   * @returns A {@link DeploymentConfigDiff} comparing the target version
-   *   against the current head, or `undefined` if it could not be computed.
+   * @returns `diff` comparing the target version against the current head (absent if it could not be computed), and
+   *   `headEtag`, the etag of the head that was read (absent if the head was unreadable) — pass it to
+   *   {@link confirmRollback} so the restore is conditional on the head the operator previewed.
    */
-  async computeRollbackDiff(targetVersionId: string): Promise<DeploymentConfigDiff | undefined> {
+  async computeRollbackDiff(
+    targetVersionId: string,
+  ): Promise<{ diff?: DeploymentConfigDiff; headEtag?: string }> {
     logger.debug('PulumiService.computeRollbackDiff: computing rollback diff', { targetVersionId });
+    let headEtag: string | undefined;
     try {
       const key = CONFIGURATION_OBJECT_KEY;
       const remoteFileStore = this.getRemoteFileStore();
@@ -3563,28 +3567,29 @@ export class PulumiService {
         remoteFileStore.getVersion(key, targetVersionId),
         remoteFileStore.get(key),
       ]);
+      headEtag = head?.etag;
       if (!historic || !head) {
         logger.warn('PulumiService.computeRollbackDiff: target or current configuration bytes unavailable', {
           targetVersionId,
           historicFound: !!historic,
           headFound: !!head,
         });
-        return undefined;
+        return { headEtag };
       }
 
       const target = PulumiService.parseDeploymentConfigOrUndefined(new TextDecoder().decode(historic.body));
       const current = PulumiService.parseDeploymentConfigOrUndefined(new TextDecoder().decode(head.body));
       if (!target || !current) {
-        return undefined;
+        return { headEtag };
       }
 
-      return diffDeploymentConfig(target, current);
+      return { diff: diffDeploymentConfig(target, current), headEtag };
     } catch (err) {
       logger.warn('PulumiService.computeRollbackDiff: best-effort diff computation failed — omitting diff', {
         targetVersionId,
         error: errMessage(err),
       });
-      return undefined;
+      return { headEtag };
     }
   }
 
@@ -3637,6 +3642,9 @@ export class PulumiService {
    *   {@link previewCore}.
    * @param preMintedRunId - Optional caller-minted `runId` for the resulting
    *   plan run — must match {@link RUN_ID_PATTERN}.
+   * @param expectedHeadEtag - The head etag returned by {@link computeRollbackDiff} at preview time; the restore
+   *   write is conditional on it, so an edit made while the confirmation dialog was open fails with
+   *   `OptimisticLockError` instead of being reverted.
    * @throws A descriptive `Error` if another `preview`/`up`/`destroy`/
    *   rollback is already in flight on this instance, or if `preMintedRunId`
    *   doesn't match {@link RUN_ID_PATTERN}.
@@ -3651,6 +3659,7 @@ export class PulumiService {
     applyRunId: string,
     signal?: AbortSignal,
     preMintedRunId?: string,
+    expectedHeadEtag?: string,
   ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
     logger.debug('PulumiService.confirmRollback: confirming rollback', { applyRunId });
     if (this.operationInFlight) {
@@ -3684,7 +3693,7 @@ export class PulumiService {
       // was before this call started. Everything below, once this resolves,
       // is inside the compensating-semantics boundary — see this method's
       // TSDoc, "Compensating semantics".
-      const restored = await this.getDeploymentConfigService().restoreRawConfig(rawConfig);
+      const restored = await this.getDeploymentConfigService().restoreRawConfig(rawConfig, expectedHeadEtag);
 
       try {
         if (!restored.versionId) {

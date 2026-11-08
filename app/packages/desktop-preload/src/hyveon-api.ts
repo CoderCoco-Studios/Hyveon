@@ -740,6 +740,8 @@ export interface IacRollbackResolveAck {
   versionId?: string;
   lastModified?: string;
   diff?: DeploymentConfigDiff;
+  /** Etag of the configuration head read at preview time; pass it back to `confirm` so the restore is conditional on it. */
+  headEtag?: string;
   error?: string;
 }
 
@@ -2080,10 +2082,11 @@ export interface HyveonIacRollbackApi {
   /**
    * Confirms a previewed rollback of `opts.applyRunId`, by invoking the
    * `iac.rollback.confirm` IPC channel — restores the historic configuration
-   * content as a new head version. `confirmed: false` means no write was
-   * attempted — `error` describes why.
+   * content as a new head version, conditional on `opts.headEtag` (from {@link resolve}): an edit made after the
+   * preview fails with a "review and retry" message instead of being reverted. `confirmed: false` means no write
+   * was attempted — `error` describes why.
    */
-  confirm: (opts: { applyRunId: string }) => Promise<IacRollbackConfirmAck>;
+  confirm: (opts: { applyRunId: string; headEtag?: string }) => Promise<IacRollbackConfirmAck>;
 }
 
 /**
