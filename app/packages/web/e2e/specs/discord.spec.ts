@@ -1,3 +1,4 @@
+import { DISCORD_NOT_DEPLOYED_MESSAGE } from '@hyveon/shared';
 import type { ElectronApplication, Page } from '../fixtures/index.js';
 import {
   test,
@@ -406,15 +407,13 @@ test.describe('discord settings', () => {
   test('should show the not-deployed empty state when discord.getConfig rejects', async () => {
     await seedBaseMocks(win, [STOPPED_GAME]);
 
-    // Override discord.getConfig to reject — the page should surface the
-    // friendly "infrastructure not deployed yet" state, just as a 404 would.
-    await win.evaluate(() => {
+    // Reject the way the desktop read does for an undeployed stack: the shared message, IPC-prefixed.
+    const rejection = `Error invoking remote method 'discord.getConfig': Error: ${DISCORD_NOT_DEPLOYED_MESSAGE}`;
+    await win.evaluate((message) => {
       const hyveon = window.hyveon;
       if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
-      hyveon.__test.mock('discord.getConfig', () =>
-        Promise.reject(new Error('not deployed')),
-      );
-    });
+      hyveon.__test.mock('discord.getConfig', () => Promise.reject(new Error(message)));
+    }, rejection);
 
     const discord = new DiscordPage(win);
     await discord.goto();
