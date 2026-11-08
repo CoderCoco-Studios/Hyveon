@@ -60,4 +60,13 @@ describe('CostsPage', () => {
       'https://console.aws.amazon.com/cost-management/home#/cost-explorer',
     );
   });
+
+  // @spec RT-TASK-UI-004
+  it('should show an error banner when the cost estimates fail to load', async () => {
+    apiMock.costsEstimate.mockRejectedValue(new Error('describe denied'));
+
+    renderPage(<CostsPage />, { initialEntries: ['/costs'] });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load cost estimates: describe denied');
+  });
 });

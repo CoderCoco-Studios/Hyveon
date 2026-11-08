@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { toast } from 'sonner';
 import { api, type GameStatus, type CostEstimates } from '../api.service.js';
 import { usePoller } from './polling-provider.component.js';
 
@@ -32,6 +33,8 @@ export const GAME_STATUS_INTERVAL_MS = (() => {
 interface GameStatusContextValue {
   statuses: GameStatus[];
   estimates: CostEstimates | null;
+  /** Set when the one-time `costs.estimate` fetch rejected; estimates stay `null`. */
+  estimatesError: Error | null;
   loading: boolean;
   /** Set when the most recent `fetchStatuses` call rejected; cleared on the next successful poll. */
   error: Error | null;
@@ -43,7 +46,7 @@ interface GameStatusContextValue {
 
 const GameStatusCtx = createContext<GameStatusContextValue | null>(null);
 
-// @spec RT-TASK-UI-001, RT-TASK-UI-002, RT-TASK-UI-003
+// @spec RT-TASK-UI-001, RT-TASK-UI-002, RT-TASK-UI-003, RT-TASK-UI-004, RT-TASK-UI-005
 /**
  * Top-level provider for the dashboard's status + cost-estimate state. Lives
  * above the router so polling continues even when the user navigates to /logs
@@ -57,11 +60,13 @@ const GameStatusCtx = createContext<GameStatusContextValue | null>(null);
  * the `costs.estimate` IPC channel loops over every configured game and calls
  * `EcsService.getTaskDefinition()` per game, so polling it every 20s on every
  * route would add steady ECS API traffic for data that only changes on
- * a Pulumi apply.
+ * a Pulumi apply. A failed fetch is exposed as `estimatesError` and toasted once, so the dashboard and the Costs page
+ * never silently show empty estimates.
  */
 export function GameStatusProvider({ children }: { children: ReactNode }) {
   const [statuses, setStatuses] = useState<GameStatus[]>([]);
   const [estimates, setEstimates] = useState<CostEstimates | null>(null);
+  const [estimatesError, setEstimatesError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -84,17 +89,32 @@ export function GameStatusProvider({ children }: { children: ReactNode }) {
   const { refresh } = usePoller(GAME_STATUS_POLLER, fetchStatuses, GAME_STATUS_INTERVAL_MS);
 
   useEffect(() => {
-    void api.costsEstimate().then(setEstimates).catch(() => undefined);
+    let cancelled = false;
+    api.costsEstimate()
+      .then((est) => {
+        if (!cancelled) setEstimates(est);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const failure = err instanceof Error ? err : new Error(String(err));
+        setEstimatesError(failure);
+        toast.error('Could not load cost estimates', { description: failure.message });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const refreshGame = useCallback(async (game: string) => {
     const s = await api.statusGame(game);
-    setStatuses((prev) => prev.map((x) => (x.game === game ? s : x)));
+    setStatuses((prev) =>
+      prev.some((x) => x.game === game) ? prev.map((x) => (x.game === game ? s : x)) : [...prev, s],
+    );
   }, []);
 
   const value = useMemo<GameStatusContextValue>(
-    () => ({ statuses, estimates, loading, error, refresh, refreshGame }),
-    [statuses, estimates, loading, error, refresh, refreshGame],
+    () => ({ statuses, estimates, estimatesError, loading, error, refresh, refreshGame }),
+    [statuses, estimates, estimatesError, loading, error, refresh, refreshGame],
   );
 
   return <GameStatusCtx.Provider value={value}>{children}</GameStatusCtx.Provider>;

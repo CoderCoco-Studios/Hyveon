@@ -27,7 +27,7 @@ import {
 } from './game-data.js';
 import type {
   GameStatus,
-  ActionResult,
+  StartResult,
   CostEstimates,
   EnvInfo,
   DiscordConfigRedacted,
@@ -76,8 +76,8 @@ export async function launchElectron(): Promise<ElectronHandle> {
  * - `games.status`    → `GameStatus[]`
  * - `games.list`      → `{ games: string[] }`
  * - `costs.estimate`  → `CostEstimates`
- * - `games.start`     → `ActionResult`
- * - `games.stop`      → `ActionResult`
+ * - `games.start`     → `StartResult`
+ * - `games.stop`      → `StartResult`
  * - `discord.getConfig` → `DiscordConfigRedacted`
  *
  * @param win  - The Playwright `Page` for the Electron renderer window.
@@ -87,7 +87,7 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
   const statuses: GameStatus[] = opts.statuses ?? [STOPPED_GAME];
   const costs: CostEstimates = opts.costs ?? COST_DATA;
   const env: EnvInfo = opts.env ?? ENV_DATA;
-  const startResult: ActionResult | null = opts.startResult ?? null;
+  const startResult: StartResult | null = opts.startResult ?? null;
   const discord: DiscordConfigRedacted = opts.discord ?? CONFIGURED_DISCORD_CONFIG;
   const games: string[] = (opts.games ?? statuses.map((s) => s.game)).map((g) =>
     typeof g === 'string' ? g : g.name,
@@ -106,7 +106,7 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
       statusList: GameStatus[];
       gameList: string[];
       costEstimates: CostEstimates;
-      startRes: ActionResult | null;
+      startRes: StartResult | null;
       discordConfig: DiscordConfigRedacted;
     }) => {
       const hyveon = window.hyveon;
@@ -116,7 +116,7 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
       hyveon.__test.mock('games.status', () => Promise.resolve(statusList));
       hyveon.__test.mock('games.list', () => Promise.resolve({ games: gameList }));
       hyveon.__test.mock('costs.estimate', () => Promise.resolve(costEstimates));
-      // Defaults mirror EcsService's real ActionResult message format so specs
+      // Defaults mirror EcsService's real StartResult message format so specs
       // asserting on toast text match production wording, not a placeholder.
       hyveon.__test.mock('games.start', (...args: unknown[]) => {
         if (startRes) return Promise.resolve(startRes);

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Search } from 'lucide-react';
-import { api, type CostEstimates, type GameEstimate } from '../api.service.js';
+import { type CostEstimates, type GameEstimate } from '../api.service.js';
 import { Card, CardContent } from '@/components/ui/card.component';
 import { Button } from '@/components/ui/button.component';
 import { Input } from '@/components/ui/input.component';
@@ -15,6 +15,8 @@ import {
 import { cn } from '@/lib/utils.utils';
 import { formatUsd } from '@/lib/format.utils';
 import { PageHeader } from '../components/page-header.component.js';
+import { ErrorBanner } from '../components/error-banner.component.js';
+import { useGameStatus } from '../polling/game-status-provider.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { SectionCard } from '../components/section-card.component.js';
 import { AsyncContent } from '../components/async-content.component.js';
@@ -162,34 +164,14 @@ function EstimateTableRow({ row, color }: { row: EstimateRow; color: string }) {
   );
 }
 
-/**
- * Fetches the per-game Fargate cost estimates once on mount. The app makes no
- * AWS Cost Explorer API calls.
- */
-function useCostEstimates(): { estimates: CostEstimates | null } {
-  const [estimates, setEstimates] = useState<CostEstimates | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api.costsEstimate()
-      .then((est) => {
-        if (!cancelled) setEstimates(est);
-      })
-      .catch(() => { /* leave estimates null; the table renders an empty state */ });
-    return () => { cancelled = true; };
-  }, []);
-
-  return { estimates };
-}
-
-// @spec RT-TASK-COST-004, RT-TASK-COST-005, RT-TASK-UI-015
+// @spec RT-TASK-COST-004, RT-TASK-COST-005, RT-TASK-UI-004, RT-TASK-UI-015
 /**
  * Cost analysis route (`/costs`). Renders a sortable per-game Fargate cost
  * estimate table plus a callout linking out to the AWS Cost Explorer console
  * for real billed spend. The app makes no AWS Cost Explorer API calls, ever.
  */
 export function CostsPage() {
-  const { estimates } = useCostEstimates();
+  const { estimates, estimatesError } = useGameStatus();
 
   const games = useMemo(
     () => (estimates ? Object.keys(estimates.games).sort() : []),
@@ -213,6 +195,8 @@ export function CostsPage() {
       </PageHeader>
 
       <CostExplorerCallout />
+
+      {estimatesError && <ErrorBanner>Could not load cost estimates: {estimatesError.message}</ErrorBanner>}
 
       <EstimatesTable estimates={estimates} colorByGame={colorByGame} />
     </div>
