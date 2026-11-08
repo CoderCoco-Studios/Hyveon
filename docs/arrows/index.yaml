@@ -68,7 +68,7 @@ arrows:
     # Mutual with run; see the comment on run.
     blockedBy: [run, program, wizard-and-bootstrap]
     detail: iac/engine.md
-    next: "Preview and apply still build their redaction set from the configuration only; add the stack-state source to them as destroy has, then split the triplicated streaming code out of PulumiService.ts."
+    next: "Split the triplicated streaming code out of PulumiService.ts."
     drift: null
 
   program:

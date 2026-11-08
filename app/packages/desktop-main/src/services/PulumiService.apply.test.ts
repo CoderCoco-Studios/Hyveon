@@ -828,6 +828,100 @@ describe('PulumiService.apply environment redaction', () => {
   });
 });
 
+// @spec IAC-ENGINE-REDACT-003
+describe('PulumiService.apply state-derived redaction', () => {
+  const DEPLOYED_VALUE = 'deployedPassw0rd';
+
+  /** An `OutputMap` whose `appliedGameServers` holds `value` as a game-server environment value. */
+  function outputsHolding(value: string) {
+    return vi.fn().mockResolvedValue({
+      appliedGameServers: { value: { minecraft: { environment: [{ name: 'K', value }] } }, secret: false },
+    });
+  }
+
+  it('should redact a deployed value that the stored configuration no longer holds, in chunks and the log', async () => {
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.(`~ value: "${DEPLOYED_VALUE}" => "other"\n`);
+        return { stdout: '', stderr: '', outputs: {}, summary: makeUpdateSummary() };
+      },
+      { outputs: outputsHolding(DEPLOYED_VALUE) },
+    );
+    const service = makeService({ workspace });
+
+    const { chunks } = await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+
+    expect(chunks).toEqual([{ stream: 'stdout', line: '~ value: "***REDACTED***" => "other"' }]);
+    const logCall = writeFileSyncMock.mock.calls.find(
+      (call): call is [string, string] => typeof call[0] === 'string' && call[0].includes('pulumi.log'),
+    );
+    expect(logCall?.[1]).not.toContain(DEPLOYED_VALUE);
+  });
+
+  it('should redact a deployed value from a failed apply error message', async () => {
+    const workspace = makeWorkspace(
+      async () => {
+        throw new Error(`CommandError: code 255\nstdout: K=${DEPLOYED_VALUE}`);
+      },
+      { outputs: outputsHolding(DEPLOYED_VALUE) },
+    );
+    const service = makeService({ workspace });
+
+    const caught = await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH)).catch((err: unknown) => err);
+
+    expect(caught).toBeInstanceOf(PulumiUpError);
+    expect((caught as Error).message).not.toContain(DEPLOYED_VALUE);
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should fail closed, never calling stack.up(), when the stack state cannot be read', async () => {
+    const upImpl = vi.fn();
+    const workspace = makeWorkspace(upImpl, {
+      outputs: vi.fn().mockRejectedValue(new Error('backend unreachable')),
+      history: vi.fn().mockResolvedValue([makeUpdateSummary()]),
+    });
+    const service = makeService({ workspace });
+
+    await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toBeInstanceOf(PulumiUpError);
+
+    expect(upImpl).not.toHaveBeenCalled();
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should fail closed when outputs() throws and the update history cannot be read either', async () => {
+    const upImpl = vi.fn();
+    const workspace = makeWorkspace(upImpl, {
+      outputs: vi.fn().mockRejectedValue(new Error('backend unreachable')),
+      history: vi.fn().mockRejectedValue(new Error('backend unreachable')),
+    });
+    const service = makeService({ workspace });
+
+    await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toBeInstanceOf(PulumiUpError);
+
+    expect(upImpl).not.toHaveBeenCalled();
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should apply on a fresh stack whose outputs() throws and which has no update history (first-ever apply)', async () => {
+    const workspace = makeWorkspace(makeHappyPathUp(), { outputs: vi.fn().mockRejectedValue(new Error('no stack outputs')) });
+    const service = makeService({ workspace });
+
+    const { result } = await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+
+    expect(result).toBeDefined();
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should still apply when the stack has no outputs yet (first-ever apply)', async () => {
+    const workspace = makeWorkspace(makeHappyPathUp(), { outputs: vi.fn().mockResolvedValue({}) });
+    const service = makeService({ workspace });
+
+    const { result } = await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+
+    expect(result).toBeDefined();
+  });
+});
+
 // @spec IAC-RUN-PART-001
 describe('PulumiService.apply partial-apply detection', () => {
   it('should throw PulumiUpError (not PulumiPartialApplyError) when stack.up() fails before any mutating resource step completes', async () => {

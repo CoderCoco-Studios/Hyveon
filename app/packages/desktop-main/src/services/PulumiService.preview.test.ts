@@ -161,12 +161,13 @@ type FakeStackPreview = (opts: PreviewOptions) => Promise<PreviewResult>;
 function makeWorkspace(
   previewImpl: FakeStackPreview,
   historyEntries: UpdateSummary[] = [],
+  outputs: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue({}),
 ): PulumiWorkspaceService & { getOrCreateStack: ReturnType<typeof vi.fn> } {
   const previewMock = vi.fn().mockImplementation(previewImpl);
   const historyMock = vi.fn().mockResolvedValue(historyEntries);
   const getOrCreateStack = vi
     .fn()
-    .mockResolvedValue({ preview: previewMock, history: historyMock } as Partial<Stack> as Stack);
+    .mockResolvedValue({ preview: previewMock, history: historyMock, outputs } as Partial<Stack> as Stack);
   return { getOrCreateStack } as unknown as PulumiWorkspaceService & { getOrCreateStack: ReturnType<typeof vi.fn> };
 }
 
@@ -608,6 +609,177 @@ describe('PulumiService.preview environment redaction', () => {
   });
 });
 
+// @spec IAC-ENGINE-REDACT-003
+describe('PulumiService.preview state-derived redaction', () => {
+  const DEPLOYED_VALUE = 'deployedPassw0rd';
+
+  /** An `OutputMap` whose `appliedGameServers` holds the given environment values. */
+  function outputsHolding(...values: string[]) {
+    return vi.fn().mockResolvedValue({
+      appliedGameServers: {
+        value: { minecraft: { environment: values.map((value, i) => ({ name: `K${i}`, value })) } },
+        secret: false,
+      },
+    });
+  }
+
+  /** Runs a preview whose engine prints each of `lines` and returns the streamed lines. */
+  async function previewLines(lines: string[], outputs: ReturnType<typeof vi.fn>, remoteFileStore?: RemoteFileStore) {
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.(lines.map((line) => `${line}\n`).join(''));
+        return { stdout: '', stderr: '', changeSummary: { same: 1 } };
+      },
+      [],
+      outputs,
+    );
+    const service = makeService({ workspace, ...(remoteFileStore ? { remoteFileStore } : {}) });
+    const { chunks } = await collectPreviewChunks(service.preview());
+    return chunks.map((chunk) => chunk.line);
+  }
+
+  /** A configuration object whose single game holds `value` as its environment value. */
+  function configHolding(value: string): RemoteFileStore {
+    return makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(
+          JSON.stringify({ hostedZoneName: 'example.com', gameServers: { minecraft: { environment: [{ name: 'K', value }] } } }),
+        ),
+        etag: 'etag-1',
+      }),
+    });
+  }
+
+  it('should redact a deployed value that the stored configuration no longer holds', async () => {
+    const lines = await previewLines([`~ value: "${DEPLOYED_VALUE}" => "newPassw0rd99"`], outputsHolding(DEPLOYED_VALUE), configHolding('newPassw0rd99'));
+
+    expect(lines).toEqual(['~ value: "***REDACTED***" => "***REDACTED***"']);
+  });
+
+  it('should redact a deployed value that the configuration dropped entirely', async () => {
+    const lines = await previewLines([`- RCON_PASSWORD=${DEPLOYED_VALUE}`], outputsHolding(DEPLOYED_VALUE));
+
+    expect(lines).toEqual(['- RCON_PASSWORD=***REDACTED***']);
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should still redact configuration values when the stack has no outputs yet', async () => {
+    const lines = await previewLines(['RCON_PASSWORD=sup3rSecretValue'], vi.fn().mockResolvedValue({}), configHolding('sup3rSecretValue'));
+
+    expect(lines).toEqual(['RCON_PASSWORD=***REDACTED***']);
+  });
+
+  // @spec IAC-ENGINE-REDACT-005
+  it.each([
+    ['missing', {}],
+    ['not an object', { appliedGameServers: { value: 'oops', secret: false } }],
+    ['null', { appliedGameServers: { value: null, secret: false } }],
+    ['games without an environment', { appliedGameServers: { value: { minecraft: {}, bad: null }, secret: false } }],
+  ])('should tolerate appliedGameServers that is %s', async (_label, outputs) => {
+    const lines = await previewLines(['plain output'], vi.fn().mockResolvedValue(outputs));
+
+    expect(lines).toEqual(['plain output']);
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should fail closed, never calling stack.preview(), when the stack state cannot be read', async () => {
+    const previewImpl = vi.fn();
+    const workspace = makeWorkspace(previewImpl, [makeUpdateSummary()], vi.fn().mockRejectedValue(new Error('backend unreachable')));
+    const service = makeService({ workspace });
+
+    await expect(collectPreviewChunks(service.preview())).rejects.toThrow('backend unreachable');
+
+    expect(previewImpl).not.toHaveBeenCalled();
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should fail closed when outputs() throws and the update history cannot be read either', async () => {
+    const previewImpl = vi.fn();
+    const workspace = makeWorkspace(previewImpl, [], vi.fn().mockRejectedValue(new Error('backend unreachable')));
+    const history = vi.fn().mockRejectedValue(new Error('backend unreachable'));
+    workspace.getOrCreateStack.mockResolvedValue({ preview: previewImpl, history, outputs: vi.fn().mockRejectedValue(new Error('backend unreachable')) });
+    const service = makeService({ workspace });
+
+    await expect(collectPreviewChunks(service.preview())).rejects.toThrow('backend unreachable');
+
+    expect(previewImpl).not.toHaveBeenCalled();
+  });
+
+  // @spec IAC-ENGINE-REDACT-004
+  it('should treat a fresh stack whose outputs() throws as having no state and still redact configuration values', async () => {
+    const outputs = vi.fn().mockRejectedValue(new Error('no stack outputs'));
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.('RCON_PASSWORD=sup3rSecretValue\n');
+        return { stdout: '', stderr: '', changeSummary: { create: 1 } };
+      },
+      [],
+      outputs,
+    );
+    const service = makeService({ workspace, remoteFileStore: configHolding('sup3rSecretValue') });
+
+    const { chunks } = await collectPreviewChunks(service.preview());
+
+    expect(chunks.map((chunk) => chunk.line)).toEqual(['RCON_PASSWORD=***REDACTED***']);
+  });
+
+  // @spec IAC-ENGINE-REDACT-005
+  it('should not redact empty or too-short state values', async () => {
+    const lines = await previewLines(['count: 1 of 12, abc, on'], outputsHolding('', '1', 'abc', 'on'));
+
+    expect(lines).toEqual(['count: 1 of 12, abc, on']);
+  });
+
+  // @spec IAC-ENGINE-REDACT-005
+  it('should redact a value that holds regular expression metacharacters literally', async () => {
+    const lines = await previewLines(['pw=a.b*c(d)[e]+$^ and axbbbc'], outputsHolding('a.b*c(d)[e]+$^'));
+
+    expect(lines).toEqual(['pw=***REDACTED*** and axbbbc']);
+  });
+
+  // @spec IAC-ENGINE-REDACT-005
+  it('should redact every line of a multi-line secret even though output is redacted line by line', async () => {
+    const lines = await previewLines(['key line one', 'key line two', 'unrelated'], outputsHolding('key line one\nkey line two'));
+
+    expect(lines).toEqual(['***REDACTED***', '***REDACTED***', 'unrelated']);
+  });
+
+  // @spec IAC-ENGINE-REDACT-005
+  it('should redact a multi-line secret in a failed preview error message', async () => {
+    const workspace = makeWorkspace(
+      async () => {
+        throw new Error('CommandError\nstdout: key line one\nkey line two');
+      },
+      [],
+      outputsHolding('key line one\r\nkey line two'),
+    );
+    const service = makeService({ workspace });
+
+    const caught = await collectPreviewChunks(service.preview()).catch((err: unknown) => err);
+
+    expect(caught).toBeInstanceOf(PulumiPreviewError);
+    expect((caught as Error).message).not.toContain('key line');
+  });
+
+  // @spec IAC-ENGINE-REDACT-005
+  it('should redact a very large output line quickly', async () => {
+    const big = `${'x'.repeat(200_000)}${DEPLOYED_VALUE}${'y'.repeat(200_000)}`;
+    const started = Date.now();
+
+    const lines = await previewLines([big], outputsHolding(DEPLOYED_VALUE));
+
+    expect(lines[0]).not.toContain(DEPLOYED_VALUE);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  // @spec IAC-ENGINE-REDACT-005
+  it('should redact the longer value in full when a shorter state value is its prefix', async () => {
+    const lines = await previewLines(['token=sup3rSecretValue'], outputsHolding('sup3rSecret', 'sup3rSecretValue'));
+
+    expect(lines).toEqual(['token=***REDACTED***']);
+  });
+});
+
 describe('PulumiService.preview structured changeSummary', () => {
   it('should return the changeSummary captured from onEvent, not derived from stdout text', async () => {
     const workspace = makeWorkspace(makeHappyPathPreview({ create: 3, update: 1, same: 5 }));
@@ -929,7 +1101,7 @@ describe('PulumiService.preview abort handling', () => {
           rejectPreview = reject;
         }),
     );
-    const getOrCreateStack = vi.fn().mockResolvedValue({ preview: previewMock } as Partial<Stack> as Stack);
+    const getOrCreateStack = vi.fn().mockResolvedValue({ preview: previewMock, outputs: vi.fn().mockResolvedValue({}) } as Partial<Stack> as Stack);
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
     const runRecordPersister = makeRunRecordPersister();
     const service = makeService({ workspace, runRecordPersister });
@@ -993,7 +1165,7 @@ describe('PulumiService.preview abort handling', () => {
         rejectPreview = reject;
       });
     });
-    const getOrCreateStack = vi.fn().mockResolvedValue({ preview: previewMock } as Partial<Stack> as Stack);
+    const getOrCreateStack = vi.fn().mockResolvedValue({ preview: previewMock, outputs: vi.fn().mockResolvedValue({}) } as Partial<Stack> as Stack);
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
     const service = makeService({ workspace });
 

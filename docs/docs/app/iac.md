@@ -32,14 +32,19 @@ re-previewing. Output streams into the log viewer live (`Waiting for plan
 output…` until the first line arrives). The viewer auto-scrolls unless you
 scroll up, and re-pins when you scroll back to the bottom.
 
-Any sufficiently long (4+ characters) game-server `environment` value
-declared in the deployment configuration is redacted to `***REDACTED***`
-before it reaches this log viewer or the persisted `pulumi.log` file —
+Any sufficiently long (4+ characters) game-server `environment` value,
+whether it is declared in the deployment configuration or already deployed
+(including the old side of a changed value's diff, and a value you just
+removed), is redacted to `***REDACTED***` before it reaches this log viewer
+or the persisted `pulumi.log` file, and out of a failed run's error text —
 Pulumi's own console output legitimately echoes stack outputs, which include
 those values verbatim, so `PulumiService` scrubs them out of the streamed
-text first. This applies identically during **Apply** below. Shorter values
-are left as-is to avoid mangling unrelated log text with common short
-strings. The same values remain visible in plaintext both on a game's
+text first. Deployed values are read from the stack state; if the state
+cannot be read, the run is refused rather than risk leaking one. A stack that
+has not been deployed yet has no deployed values, so a first apply is
+unaffected. This applies identically during **Apply** and **Destroy**.
+Shorter values are left as-is to avoid mangling unrelated log text with
+common short strings. The same values remain visible in plaintext both on a game's
 [detail page](/app/games#the-game-detail-screen) and in the
 [add-game wizard's Environment step and the edit-game form's Environment
 card](/app/games#step-5--environment), so this redaction only ever affects
