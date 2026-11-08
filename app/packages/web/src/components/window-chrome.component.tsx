@@ -114,7 +114,7 @@ export function WindowControls() {
         type="button"
         onClick={() => void windowApi.close()}
         aria-label="Close"
-        className="min-h-8 min-w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+        className="min-h-8 min-w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-red hover:bg-red/10 transition-colors"
       >
         <X className="w-4 h-4" aria-hidden="true" />
       </button>

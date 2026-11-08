@@ -4,7 +4,24 @@ import { api, type EnvInfo } from '../api.service.js';
 import { cn } from '../lib/utils.utils.js';
 import { NavSections } from './app-nav.component.js';
 import { AppTopbar } from './app-topbar.component.js';
+import { useAppRegionStyle } from '../hooks/use-app-region-style.hook.js';
 import { Server, X } from 'lucide-react';
+
+// @spec APP-SHELL-NAV-009
+/** Product mark and name shown in the sidebar and the mobile drawer header. */
+function BrandMark() {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-8 h-8 rounded bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center" aria-hidden="true">
+        <Server className="w-5 h-5 text-white" />
+      </div>
+      <span className="font-semibold text-foreground">Hyveon</span>
+    </div>
+  );
+}
+
+/** Env pill text shown when the `env` IPC call rejects, distinct from a genuine `local` environment. */
+const ENV_FAILED_LABEL = 'env unavailable';
 
 // @spec APP-SHELL-NAV-007, APP-SHELL-NAV-008, APP-SHELL-TOP-001, APP-SHELL-CHROME-004
 /**
@@ -19,6 +36,8 @@ import { Server, X } from 'lucide-react';
 export function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [env, setEnv] = useState<EnvInfo | null>(null);
+  const [envError, setEnvError] = useState<string | null>(null);
+  const skipLinkStyle = useAppRegionStyle('no-drag');
   // The mobile drawer stores *which route it was opened on* rather than a
   // bare boolean, so "close whenever the route changes (e.g. browser
   // back/forward)" falls out of a render-time comparison instead of needing
@@ -27,12 +46,16 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const mobileMenuOpen = menuOpenForPath === location.pathname;
 
   useEffect(() => {
-    api.env().then(setEnv).catch(console.error);
+    api
+      .env()
+      .then(setEnv)
+      .catch((err: unknown) => {
+        console.error(err);
+        setEnvError(err instanceof Error ? err.message : String(err));
+      });
   }, []);
 
-  const envLabel = env
-    ? `${env.environment} · ${env.region}`
-    : 'local';
+  const envLabel = envError !== null ? ENV_FAILED_LABEL : env ? `${env.environment} · ${env.region}` : 'local';
 
   const openMobileMenu = () => setMenuOpenForPath(location.pathname);
   const closeMobileMenu = () => setMenuOpenForPath(null);
@@ -49,7 +72,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-card focus:text-foreground focus:rounded-[var(--radius-md)] focus:ring-2 focus:ring-[var(--color-primary)] focus:outline-none"
-        style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+        style={skipLinkStyle}
       >
         Skip to main content
       </a>
@@ -75,12 +98,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               : undefined
           }
         >
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center" aria-hidden="true">
-              <Server className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-semibold text-foreground">Game Servers</span>
-          </div>
+          <BrandMark />
         </div>
 
         <NavSections currentPath={location.pathname} prefix="desktop" />
@@ -106,12 +124,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       >
           {/* Drawer header with close button */}
           <div className="px-4 py-5 border-b border-border flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center" aria-hidden="true">
-                <Server className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-semibold text-foreground">Game Servers</span>
-            </div>
+            <BrandMark />
             <button
               type="button"
               onClick={closeMobileMenu}
@@ -127,7 +140,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
       {/* Main content */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <AppTopbar envLabel={envLabel} mobileMenuOpen={mobileMenuOpen} onOpenMobileMenu={openMobileMenu} />
+        <AppTopbar envLabel={envLabel} envError={envError} mobileMenuOpen={mobileMenuOpen} onOpenMobileMenu={openMobileMenu} />
 
         <main id="main" tabIndex={-1} className="flex-1 overflow-auto p-4 md:p-8">
           {children}

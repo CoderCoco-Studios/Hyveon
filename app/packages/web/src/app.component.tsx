@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
+import { toast } from 'sonner';
 import { AppLayout } from './components/app-layout.component.js';
 import { DashboardPage } from './pages/dashboard.page.js';
 import { CostsPage } from './pages/costs.page.js';
@@ -19,14 +20,23 @@ import { GameStatusProvider } from './polling/game-status-provider.component.js'
 import { Toaster } from './components/ui/sonner.component.js';
 import { FirstRunWizard } from './components/first-run-wizard/first-run-wizard.component.js';
 
-// @spec APP-SHELL-GATE-001, APP-SHELL-GATE-004, APP-SHELL-GATE-005
+/** Result of the first-run gate's one-time wizard-state read. */
+interface WizardGateState {
+  /** `null` while the read is in flight; `true` also covers every fail-open case. */
+  completed: boolean | null;
+  /** True when `wizard.getState()` rejected and the gate fell open to the routed shell. */
+  stateUnreadable: boolean;
+}
+
+// @spec APP-SHELL-GATE-001, APP-SHELL-GATE-004, APP-SHELL-GATE-005, APP-SHELL-GATE-006
 /**
  * Fetches the wizard's completion flag once on mount. Defaults to `true`
  * (i.e. skip the wizard) on any failure — a missing `window.hyveon` bridge or a
  * failed IPC call must never lock an otherwise-working install out of its
- * own dashboard. Returns `null` while the check is in flight.
+ * own dashboard. A rejected IPC call additionally sets `stateUnreadable` so the
+ * caller can tell the operator. `completed` is `null` while the check is in flight.
  */
-function useWizardCompleted(): boolean | null {
+function useWizardGate(): WizardGateState {
   // The "no bridge" answer is known before the first paint, so it is the
   // lazy initial value rather than a `setWizardCompleted(true)` inside the
   // effect — settling it synchronously avoids both the throwaway render and
@@ -41,6 +51,7 @@ function useWizardCompleted(): boolean | null {
   const [wizardCompleted, setWizardCompleted] = useState<boolean | null>(() =>
     window.hyveon?.wizard ? null : true,
   );
+  const [stateUnreadable, setStateUnreadable] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,14 +62,16 @@ function useWizardCompleted(): boolean | null {
         if (!cancelled) setWizardCompleted(state.wizardCompleted);
       })
       .catch(() => {
-        if (!cancelled) setWizardCompleted(true);
+        if (cancelled) return;
+        setStateUnreadable(true);
+        setWizardCompleted(true);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  return wizardCompleted;
+  return { completed: wizardCompleted, stateUnreadable };
 }
 
 // @spec IAC-RUN-PLAN-001
@@ -82,7 +95,16 @@ function useWizardCompleted(): boolean | null {
  * unaffected by the underlying `file://` path.
  */
 export default function App() {
-  const fetchedWizardCompleted = useWizardCompleted();
+  const { completed: fetchedWizardCompleted, stateUnreadable } = useWizardGate();
+
+  useEffect(() => {
+    if (!stateUnreadable) return;
+    toast.error('Setup state could not be read. Opening the dashboard; check the logs if setup looks incomplete.', {
+      id: 'setup-state-unreadable',
+      duration: Infinity,
+    });
+  }, [stateUnreadable]);
+
   // Set directly once the wizard's Finish step succeeds, rather than
   // re-fetching `wizard.state.get` — the wizard already knows the outcome,
   // and this avoids a redundant IPC round-trip on the completion path.

@@ -15,6 +15,10 @@
      at all, so the header rendered fully transparent over `--color-bg`
      instead, visibly mismatching the Windows overlay strip. */
   --color-card:      #1a1d2e;
+  /* Aliases the shell chrome uses: `bg-background` (app root), `bg-muted` (LIVE pill), `hover:bg-accent` (hover fills). */
+  --color-background: #0f1117;
+  --color-muted:      #252a40;
+  --color-accent:     #252a40;
 
   /* Foreground */
   --color-foreground:     #e1e4ed;
