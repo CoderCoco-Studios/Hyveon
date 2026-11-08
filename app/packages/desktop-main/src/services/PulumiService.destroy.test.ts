@@ -421,6 +421,28 @@ describe('PulumiService.destroy confirmation gate', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-DSTR-014
+  it('should log both the minted and the current state bucket and region when the target binding mismatches', async () => {
+    const store = makeFullyConfiguredStore();
+    const service = makeService({ workspace: makeWorkspace(makeHappyPathDestroy()), store });
+    const mintedBucket = store.get('bootstrap')?.stateBucket;
+    const mintedRegion = store.get('aws')?.region;
+    const token = service.mintDestroyConfirmationToken();
+    store.set('bootstrap', { stateBucket: 'a-different-bucket', configurationBucket: '' });
+
+    await expect(collectDestroyChunks(service.destroy(token))).rejects.toBeInstanceOf(DestroyNotConfirmedError);
+
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining('bound to a different target'),
+      {
+        mintedStateBucket: mintedBucket,
+        currentStateBucket: 'a-different-bucket',
+        mintedStateBucketRegion: mintedRegion,
+        currentStateBucketRegion: mintedRegion,
+      },
+    );
+  });
+
   it('should reject with DestroyNotConfirmedError when the token was minted for a different AWS region (target binding)', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
     const store = makeFullyConfiguredStore();

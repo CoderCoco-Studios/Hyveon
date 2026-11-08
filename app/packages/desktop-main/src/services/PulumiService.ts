@@ -369,16 +369,16 @@ function isSameTarget(minted: PulumiTargetBinding, current: PulumiTargetBinding)
  * forensic record (`AuditService` only records accepted submissions).
  *
  * @param action - Human label of the guarded action, such as `'destroy'` or `'lock clear'`.
- * @param reason - The gate's rejection reason.
+ * @param rejection - The gate's rejection; a binding mismatch carries the minted target.
  * @param current - The current target, logged for a binding mismatch.
  */
 function logConfirmationRejected(
   action: string,
-  reason: Extract<LockClearAssertResult<PulumiTargetBinding>, { ok: false }>['reason'],
+  rejection: Extract<LockClearAssertResult<PulumiTargetBinding>, { ok: false }>,
   current: PulumiTargetBinding,
 ): void {
   const prefix = `pulumi ${action} confirmation rejected:`;
-  switch (reason) {
+  switch (rejection.reason) {
     case 'no-token-minted':
       logger.warn(`${prefix} no confirmation token has ever been minted`);
       break;
@@ -392,7 +392,12 @@ function logConfirmationRejected(
       logger.warn(
         `${prefix} token is bound to a different target: the state bucket/region (or project/stack) changed since ` +
           'the token was minted, most likely via a Reconfigure completing in between',
-        { currentStateBucket: current.stateBucket, currentStateBucketRegion: current.stateBucketRegion },
+        {
+          mintedStateBucket: rejection.minted.stateBucket,
+          currentStateBucket: current.stateBucket,
+          mintedStateBucketRegion: rejection.minted.stateBucketRegion,
+          currentStateBucketRegion: current.stateBucketRegion,
+        },
       );
       break;
   }
@@ -4120,7 +4125,7 @@ export class PulumiService {
     };
     const result = this.destroyGate.assertFresh(token, current);
     if (result.ok) return;
-    logConfirmationRejected('destroy', result.reason, current);
+    logConfirmationRejected('destroy', result, current);
     throw new DestroyNotConfirmedError();
   }
 
@@ -4147,7 +4152,7 @@ export class PulumiService {
     };
     const result = this.lockClearGate.assertFresh(token, current);
     if (result.ok) return;
-    logConfirmationRejected('lock clear', result.reason, current);
+    logConfirmationRejected('lock clear', result, current);
     throw new LockClearNotConfirmedError();
   }
 

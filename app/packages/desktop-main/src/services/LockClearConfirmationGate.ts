@@ -44,11 +44,13 @@ interface PendingLockClearConfirmation<TBinding> {
  * minted for, or it was rejected for exactly one of four reasons — no token
  * was ever minted, the supplied token doesn't match the most recently minted
  * one, the most recently minted token has expired, or the binding it was
- * minted against no longer matches what's currently locked.
+ * minted against no longer matches what's currently locked (that rejection also carries the `minted` binding, for
+ * forensic logging).
  */
 export type LockClearAssertResult<TBinding> =
   | { ok: true; binding: TBinding }
-  | { ok: false; reason: 'no-token-minted' | 'token-mismatch' | 'expired' | 'binding-mismatch' };
+  | { ok: false; reason: 'no-token-minted' | 'token-mismatch' | 'expired' }
+  | { ok: false; reason: 'binding-mismatch'; minted: TBinding };
 
 // @spec IAC-RUN-LCLR-006
 /**
@@ -104,7 +106,7 @@ export class LockClearConfirmationGate<TBinding> {
     if (!pending) return { ok: false, reason: 'no-token-minted' };
     if (pending.token !== token) return { ok: false, reason: 'token-mismatch' };
     if (Date.now() > pending.expiresAt) return { ok: false, reason: 'expired' };
-    if (current === null || !this.isMatch(pending.binding, current)) return { ok: false, reason: 'binding-mismatch' };
+    if (current === null || !this.isMatch(pending.binding, current)) return { ok: false, reason: 'binding-mismatch', minted: pending.binding };
     this.pending = null;
     return { ok: true, binding: pending.binding };
   }
