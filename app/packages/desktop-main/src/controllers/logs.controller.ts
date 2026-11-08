@@ -212,7 +212,7 @@ export class LogsController implements OnModuleInit {
       }
       if (!sender.isDestroyed()) sender.send(channels.endChannel, {});
     } catch (err) {
-      if ((err as Error).name === 'AbortError') {
+      if ((err as { name?: unknown } | null | undefined)?.name === 'AbortError') {
         if (!sender.isDestroyed()) sender.send(channels.endChannel, {});
       } else {
         const message = ipcErrorMessage(err);
