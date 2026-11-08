@@ -55,7 +55,7 @@ EARS requirements for prefix `APP-DIAG`; design in `docs/intent/operator-app/dia
 ## Service-Layer Logging
 
 - [x] **APP-DIAG-SVC-001**: When a method in `app/packages/desktop-main/src/services/*.ts` that calls an AWS SDK operation or the Pulumi engine is invoked, the method shall write a `logger.debug` entry naming the method and never its payload or arguments.
-- [ ] **APP-DIAG-SVC-002**: If an AWS SDK or Pulumi call inside a `desktop-main/src/services/*.ts` method fails, then the method shall log the normalized message via `logger.warn` or `logger.error` before returning a modeled result or throwing a plain `Error`, and no raw SDK or Node error object shall propagate out of the method. (Partial: `testing/logger-raw-error.guard.test.ts` statically bars raw error objects in logger metadata across services and controllers, with an allowlist of files owned by other segments; open until that allowlist is empty.)
+- [ ] **APP-DIAG-SVC-002**: If an AWS SDK or Pulumi call inside a `desktop-main/src/services/*.ts` method fails, then the method shall log the normalized message via `logger.warn` or `logger.error` before returning a modeled result or throwing a plain `Error`, and no raw SDK or Node error object shall propagate out of the method. (Partial: `testing/logger-raw-error.guard.test.ts` statically bars raw error objects in logger metadata across `desktop-main/src`, with an allowlist of files owned by other segments; open until that allowlist is empty.)
 - [x] **APP-DIAG-SVC-003**: When `AuditService.record` logs a failed audit write, it shall log only the normalized error message, not the raw error object.
 - [x] **APP-DIAG-SVC-004**: The service-layer logging rule shall exempt pure helpers with no external call and no failure mode (for example `sleep.ts`, `mergeGameLists.ts`, `CostService.ts` arithmetic).
 - [x] **APP-DIAG-SVC-005**: When any `diagnostics.*` or `audit.list` IPC handler is invoked, the controller shall write a `logger.debug('<ControllerName>: <pattern> invoked')` line as its first statement, with no payload contents. (observed, `.claude/rules/logging.md` rule 1; `diagnostics.controller.ts:49,57,64,71,84,111`, `audit.controller.ts:26`)
@@ -102,10 +102,15 @@ These lines are owned by this leaf; the shared renderer (`LogLineList`, `parseAn
 ## Log Secret Scrubbing
 
 - [x] **APP-DIAG-SCRUB-001**: When `scrubSecrets` processes text, it shall replace every AWS access key ID (`AKIA` or `ASIA` followed by 16 uppercase alphanumerics) with `[REDACTED]`.
-- [x] **APP-DIAG-SCRUB-002**: When `scrubSecrets` processes text containing an unquoted `token`/`key`/`secret`-ish label followed by `:` or `=` and a value of 16 or more base64url/hex-ish characters, it shall replace the value with `[REDACTED]` and keep the label.
+- [x] **APP-DIAG-SCRUB-002**: When `scrubSecrets` processes text containing an unquoted `token`/`key`/`secret`-ish label followed by `:` or `=` and a value of 6 or more base64url/hex-ish characters (including `.` and `=`), it shall replace the value with `[REDACTED]` and keep the label.
 - [x] **APP-DIAG-SCRUB-003**: When `scrubSecrets` processes a JSON-quoted labeled value as emitted by the production `json()` format (`"botToken":"..."`) or the dev meta format (`"apiKey": "..."`), it shall redact the value.
 - [x] **APP-DIAG-SCRUB-004**: When `scrubSecrets` processes ordinary prose using words like "key" or "secret" without a separator and long value, it shall leave the text unchanged. (observed: `diagnosticsLogScrubber.ts:11-13`)
 - [x] **APP-DIAG-SCRUB-005**: When `DiagnosticsService` writes renderer-reported text (a renderer error message and stack, a forwarded console entry) to the app log, or returns tail lines, it shall pass the text through `scrubSecrets` first. (observed: `DiagnosticsService.logRendererError`, `logRendererConsoleBatch`, `readTail`)
+- [x] **APP-DIAG-SCRUB-006**: When `scrubSecrets` processes a Discord bot token (`id.timestamp.hmac`), labelled or bare, it shall redact the whole token including its dotted segments.
+- [x] **APP-DIAG-SCRUB-007**: When `scrubSecrets` processes an `Authorization` header credential with the `Bearer`, `Bot` or `Basic` scheme, or a bare `Bearer` credential of 16 or more characters, it shall redact the credential and keep the label and scheme.
+- [x] **APP-DIAG-SCRUB-008**: When `scrubSecrets` processes a presigned URL, it shall redact the full value of the `X-Amz-Signature`, `X-Amz-Security-Token` and `X-Amz-Credential` parameters up to the next `&`, quote or whitespace.
+- [x] **APP-DIAG-SCRUB-009**: When `scrubSecrets` processes a `password`/`passphrase`/`passwd`-labelled value, or any labelled token/key/secret value of 6 or more characters, it shall redact the value and keep the label.
+- [x] **APP-DIAG-SCRUB-010**: When `scrubSecrets` processes a 40-character base64-ish string that follows an AWS access key id within a few separator characters, it shall redact it; a 40-character string with no access key id nearby shall be left unchanged.
 
 ## Audit Trail Recording
 

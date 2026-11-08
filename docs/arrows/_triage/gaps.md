@@ -217,7 +217,7 @@ Specs: `docs/intent/operator-app/diagnostics/diagnostics-specs.md` · Arrow doc:
 | `APP-DIAG-SVC-003` | closed | - | Fixed. |
 | `APP-DIAG-PANEL-010` | closed | - | Fixed. |
 | `APP-DIAG-BNDL-013` | closed | - | Fixed. |
-| `APP-DIAG-SCRUB-003` | b | high | Verified by running the regex: '"botToken":"<24 chars>"' and '"apiKey": "..."' pass unredacted (desktop-main/src/services/diagnosticsLogScrubber.ts:15-16); bundle secret-leak path (resolved) |
+| `APP-DIAG-SCRUB-003` | closed | - | Fixed: the pattern accepts quoted labels and values, and the scrubber also covers Discord tokens, Authorization headers, presigned-URL parameters, passwords and short labelled values. |
 | `APP-DIAG-AUDIT-004` | closed | - | Fixed. |
 | `APP-DIAG-AUDR-004` | closed | - | Fixed. |
 | `APP-DIAG-AUDUI-008` | closed | - | Fixed. |

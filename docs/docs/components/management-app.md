@@ -102,6 +102,8 @@ structured-clone (a raw SDK/Node error carrying non-plain fields like
 not be cloned` and leaving the caller's `invoke()` promise unresolved) and
 logs the pattern name and original message/stack via the winston `logger`.
 
+A static guard test (`testing/logger-raw-error.guard.test.ts`) keeps raw error objects out of logger metadata: it scans every non-test source file under `desktop-main/src` for `logger.<level>(...)` calls that pass a caught-error binding bare, as an object property value (`{ err }`, `{ cause: err }`, `{ error: caught as Error }`) or by spread, and fails on any hit outside an allowlist of files owned by other segments. The scan is lexical rather than type-aware, so it can miss an error reached through an alias; a listed file that no longer has a hit only produces a console warning.
+
 There is no listen port, no `NODE_ENV=production` bearer-token check, and no
 static-file serving — the renderer is a separate Electron `BrowserWindow`
 loading the built Vite bundle (or the Vite dev server in dev mode), and it

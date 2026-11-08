@@ -276,4 +276,26 @@ describe('DiagnosticsBundleService.writeBundle', () => {
     const aws = JSON.parse((await readZipEntries(destinationPath))['aws-snapshot.json']!);
     expect(aws.games[0].message).not.toContain('abc123secretvalue9999');
   });
+
+  // @spec APP-DIAG-BNDL-013
+  it('should scrub secrets from the message of a successfully returned per-game status', async () => {
+    const destinationPath = join(tempDir, 'bundle.zip');
+    const outputs = stackOutputs({ gameNames: ['valheim'] });
+    const unhealthyEcs = {
+      getStatus: vi.fn().mockResolvedValue({ game: 'valheim', state: 'error', message: 'task failed token=abc123secretvalue9999' }),
+    } as Partial<EcsService> as EcsService;
+    const service = new DiagnosticsBundleService(
+      makeDiagnostics(),
+      makeDeploymentConfig(),
+      makeConfig(outputs),
+      unhealthyEcs,
+      makeStore(),
+    );
+
+    await service.writeBundle(destinationPath);
+
+    const aws = JSON.parse((await readZipEntries(destinationPath))['aws-snapshot.json']!);
+    expect(aws.games[0].message).not.toContain('abc123secretvalue9999');
+    expect(aws.games[0].state).toBe('error');
+  });
 });

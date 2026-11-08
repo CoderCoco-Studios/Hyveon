@@ -196,7 +196,10 @@ export class DiagnosticsBundleService {
     }
     const results = await Promise.allSettled(outputs.gameNames.map((game) => this.ecs.getStatus(game)));
     const games = results.map((result, index) => {
-      if (result.status === 'fulfilled') return result.value;
+      if (result.status === 'fulfilled') {
+        const status = result.value;
+        return status.message === undefined ? status : { ...status, message: scrubSecrets(status.message) };
+      }
       const game = outputs.gameNames[index]!;
       const message = scrubSecrets(errMessage(result.reason));
       logger.warn('DiagnosticsBundleService.gatherAwsSnapshot: getStatus failed for game', { game, message });
