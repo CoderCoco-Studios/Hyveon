@@ -1548,43 +1548,33 @@ export class PulumiService {
     return isPreEngineOrEngineFailure ? 'engine' : 'operation';
   }
 
-  /**
-   * Collects every operator-set game-server environment variable value out
-   * of `deploymentConfig.gameServers`, for scrubbing from Pulumi's streamed
-   * stdout/stderr before it is logged (see {@link redactEnvironmentValues}).
-   *
-   * @remarks
-   * Values shorter than {@link MIN_REDACTABLE_ENV_VALUE_LENGTH} are dropped
-   * from the set — a 1-3 character value (e.g. `"1"`, `"true"`'s prefix, an
-   * empty string) is common in unrelated engine output and would produce
-   * false-positive redactions that mangle the log rather than protect
-   * anything.
-   * @param deploymentConfig - The deployment configuration the in-flight
-   *   `preview`/`up` operation was built from.
-   * @returns The set of distinct, sufficiently long environment values to
-   *   redact.
-   */
-  private static buildEnvironmentRedactionSet(deploymentConfig: DeploymentConfig): Set<string> {
-    return PulumiService.redactionValuesFromGameServers(deploymentConfig.gameServers);
-  }
-
+  // @spec IAC-ENGINE-REDACT-005
   /**
    * Collects the redactable environment values out of a `gameServers` map, whether it came from the stored
    * configuration or from the `appliedGameServers` stack output.
    *
-   * @param gameServers - A `gameServers`-shaped map; `undefined` or non-object input yields an empty set.
-   * @returns The set of distinct, sufficiently long environment values.
+   * @remarks
+   * A value shorter than {@link MIN_REDACTABLE_ENV_VALUE_LENGTH} (including an empty one) is skipped, because a 1-3
+   * character value recurs in unrelated engine output and would shred it. Output is redacted one line at a time, so a
+   * multi-line value also contributes each of its lines on its own; the whole value is kept for multi-line error text.
+   * @param gameServers - A `gameServers`-shaped map; `undefined`, non-object or malformed input contributes nothing.
+   * @returns The distinct, sufficiently long values.
    */
-  private static redactionValuesFromGameServers(
-    gameServers: Record<string, Pick<GameServerConfig, 'environment'>> | undefined,
-  ): Set<string> {
-    if (!gameServers || typeof gameServers !== 'object') return new Set();
-    return new Set(
-      Object.values(gameServers)
-        .flatMap((game) => game?.environment ?? [])
-        .map((entry) => entry.value)
-        .filter((value) => typeof value === 'string' && value.length >= MIN_REDACTABLE_ENV_VALUE_LENGTH),
-    );
+  private static redactionValuesFromGameServers(gameServers: unknown): Set<string> {
+    const values = new Set<string>();
+    if (!gameServers || typeof gameServers !== 'object') return values;
+    for (const game of Object.values(gameServers as Record<string, Pick<GameServerConfig, 'environment'> | null>)) {
+      const environment = game?.environment;
+      if (!Array.isArray(environment)) continue;
+      for (const entry of environment) {
+        const value: unknown = entry?.value;
+        if (typeof value !== 'string') continue;
+        for (const candidate of [value, ...value.split(/\r?\n/)]) {
+          if (candidate.length >= MIN_REDACTABLE_ENV_VALUE_LENGTH) values.add(candidate);
+        }
+      }
+    }
+    return values;
   }
 
   // @spec IAC-ENGINE-REDACT-001
@@ -1601,19 +1591,18 @@ export class PulumiService {
    * `appliedGameServers` (`program.ts`). This deliberately redacts ALL
    * values unconditionally rather than only ones an operator marks
    * sensitive — `GameServerConfig` has no per-key sensitivity marker today.
-   * Values are applied longest-first so that a shorter value which happens
+   * The set iterates longest-first (see {@link PulumiService.loadRedactionSet}) so that a shorter value which happens
    * to be a substring of a longer one (e.g. `abcd` inside `abcd-secret`)
    * cannot redact the longer value's prefix and leave its suffix exposed in
    * the output.
    * @param line - A single streamed line of Pulumi stdout/stderr.
-   * @param redactedValues - The value set built by
-   *   {@link buildEnvironmentRedactionSet}.
+   * @param redactedValues - The longest-first value set built by {@link PulumiService.loadRedactionSet}.
    * @returns `line` with every redacted value replaced.
    */
   private static redactEnvironmentValues(line: string, redactedValues: Set<string>): string {
     let redacted = line;
-    for (const value of [...redactedValues].sort((a, b) => b.length - a.length)) {
-      redacted = redacted.split(value).join(ENV_REDACTION_PLACEHOLDER);
+    for (const value of redactedValues) {
+      if (redacted.includes(value)) redacted = redacted.split(value).join(ENV_REDACTION_PLACEHOLDER);
     }
     return redacted;
   }
@@ -1835,7 +1824,6 @@ export class PulumiService {
       // Always defined by the time `startedAt` is set below, so it's safe to record on every outcome.
       const observedConfigVersionId = head.versionId;
       const deploymentConfig = PulumiService.parseConfigurationObject(obj.body);
-      const redactedEnvironmentValues = PulumiService.buildEnvironmentRedactionSet(deploymentConfig);
 
       if (internalController.signal.aborted) {
         // Aborted while reading the configuration — end cleanly before ever
@@ -1857,6 +1845,7 @@ export class PulumiService {
         stateBucketRegion,
         backendReady: true,
       });
+      const redactedEnvironmentValues = await this.loadRedactionSet(stack, deploymentConfig);
 
       if (internalController.signal.aborted) {
         // Aborted while resolving the workspace/engine — end cleanly before
@@ -2548,8 +2537,6 @@ export class PulumiService {
           throw new Error(`Configuration object "${key}" not found in S3 bucket "${bucket}".`);
         }
         const deploymentConfig = PulumiService.parseConfigurationObject(obj.body);
-        const redactedEnvironmentValues = PulumiService.buildEnvironmentRedactionSet(deploymentConfig);
-        errorRedactionSet = redactedEnvironmentValues;
 
         const stateBucket = this.store.get('bootstrap')?.stateBucket;
         const stateBucketRegion = this.store.get('aws')?.region;
@@ -2566,6 +2553,8 @@ export class PulumiService {
           backendReady: true,
         });
         capturedStack = stack;
+        const redactedEnvironmentValues = await this.loadRedactionSet(stack, deploymentConfig);
+        errorRedactionSet = redactedEnvironmentValues;
 
         // --- Chunk-streaming setup — identical algorithm to preview() (see that method's TSDoc) ---
         const buffers: Record<'stdout' | 'stderr', string> = { stdout: '', stderr: '' };
@@ -3086,7 +3075,7 @@ export class PulumiService {
    * `destroy` can tear down a stack even when the current configuration
    * object is missing, malformed, or describes a different layout than
    * what's actually deployed. The redaction set comes from the stack state
-   * (see {@link loadDestroyRedactionSet}), with the configuration object as
+   * (see {@link PulumiService.loadRedactionSet}), with the configuration object as
    * an additional best-effort source; an unreadable state fails the destroy
    * before the engine runs, an unreadable configuration does not.
    *
@@ -3316,7 +3305,7 @@ export class PulumiService {
           wake?.();
           wake = null;
         };
-        const redactedEnvironmentValues = await this.loadDestroyRedactionSet(stack);
+        const redactedEnvironmentValues = await this.loadRedactionSet(stack);
         errorRedactionSet = redactedEnvironmentValues;
         const push = (chunk: PulumiRunChunk): void => {
           queue.push({ ...chunk, line: PulumiService.redactEnvironmentValues(chunk.line, redactedEnvironmentValues) });
@@ -3675,33 +3664,42 @@ export class PulumiService {
     return prior;
   }
 
-  // @spec IAC-ENGINE-REDACT-002
+  // @spec IAC-ENGINE-REDACT-002, IAC-ENGINE-REDACT-003, IAC-ENGINE-REDACT-004
   /**
-   * Builds the set of game-server environment values to scrub from a destroy's output and error text. The primary
-   * source is the stack state (`appliedGameServers`), because `pulumi destroy` prints the outputs it deletes and the
-   * state is what is actually deployed; the stored configuration is added as a second source and never required.
+   * Builds the set of game-server environment values to scrub from an operation's output, persisted log and error
+   * text. Preview, apply and destroy all use it. The primary source is the stack state (`appliedGameServers`), because
+   * the engine prints deployed values, including the old side of a `~ value: "old" => "new"` diff; the configuration is
+   * added as a second source for values about to be deployed.
    *
-   * @param stack - The stack about to be destroyed.
+   * @remarks
+   * A stack with no outputs yet (a first-ever apply) has no deployed secrets, so the state source is empty and the
+   * configuration still applies. The set iterates longest-first so a shorter value that prefixes a longer one cannot
+   * leave the longer value's suffix exposed.
+   * @param stack - The stack the operation is about to run against.
+   * @param deploymentConfig - The configuration the operation was built from; when omitted (destroy) the stored
+   *   configuration object is read best-effort instead.
    * @returns The redaction set.
-   * @throws Error when the stack state cannot be read, so the destroy fails before any engine output exists.
+   * @throws Error when the stack state cannot be read, so the operation fails before any engine output exists.
    */
-  private async loadDestroyRedactionSet(stack: Stack): Promise<Set<string>> {
+  private async loadRedactionSet(stack: Stack, deploymentConfig?: DeploymentConfig): Promise<Set<string>> {
     const outputs = await stack.outputs();
-    const applied = outputs['appliedGameServers']?.value as Record<string, GameServerConfig> | undefined;
-    const values = PulumiService.redactionValuesFromGameServers(applied);
-    try {
-      const obj = await this.getRemoteFileStore().get(CONFIGURATION_OBJECT_KEY);
-      if (obj) {
-        for (const value of PulumiService.buildEnvironmentRedactionSet(PulumiService.parseConfigurationObject(obj.body))) {
-          values.add(value);
+    const values = PulumiService.redactionValuesFromGameServers(outputs?.['appliedGameServers']?.value);
+    if (deploymentConfig) {
+      PulumiService.redactionValuesFromGameServers(deploymentConfig.gameServers).forEach((value) => values.add(value));
+    } else {
+      try {
+        const obj = await this.getRemoteFileStore().get(CONFIGURATION_OBJECT_KEY);
+        if (obj) {
+          const stored = PulumiService.parseConfigurationObject(obj.body);
+          PulumiService.redactionValuesFromGameServers(stored.gameServers).forEach((value) => values.add(value));
         }
+      } catch (err) {
+        logger.warn('PulumiService: could not read the deployment configuration to extend the output redaction set', {
+          error: err instanceof SyntaxError ? 'configuration object is not valid JSON' : errMessage(err),
+        });
       }
-    } catch (err) {
-      logger.warn('PulumiService: could not read the deployment configuration to extend the output redaction set', {
-        error: err instanceof SyntaxError ? 'configuration object is not valid JSON' : errMessage(err),
-      });
     }
-    return values;
+    return new Set([...values].sort((a, b) => b.length - a.length));
   }
 
   // @spec GAME-HTTPS-010

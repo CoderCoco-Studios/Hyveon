@@ -206,9 +206,9 @@ Each decision below is recorded here because its substance crosses at least two 
 
 8. **Game environment values are echoed into outputs unencrypted and redacted from engine output by the app.**
    Spans `iac/program` (`appliedGameServers` is not `pulumi.secret`, so consumers redact) and `iac/engine` (`redactEnvironmentValues` on streamed lines).
-   Rationale `[stated]`: the program leaves redaction to consumers (`program-design.md`, outputs table, citing `program.ts:11-15`); `PulumiService` replaces every value of four or more characters from the current configuration before a line reaches the run-log viewer or `pulumi.log` (`docs/docs/components/infra.md`, "Configuration input").
+   Rationale `[stated]`: the program leaves redaction to consumers (`program-design.md`, outputs table, citing `program.ts:11-15`); `PulumiService` replaces every value of four or more characters, drawn from the stack state and the current configuration, before a line reaches the run-log viewer or `pulumi.log` (`docs/docs/components/infra.md`, "Configuration input").
    Alternative rejected `[inferred]`: marking the output `pulumi.secret`, which would make the passphrase a confidentiality boundary and contradict decision 7.
-   Destroy output is not yet redacted (`IAC-ENGINE-REDACT-002`); `iac/engine` owns redaction for every operation.
+   `iac/engine` owns redaction for every operation (`IAC-ENGINE-REDACT-001` to `IAC-ENGINE-REDACT-005`).
 
 9. **Portable configuration, machine-local inputs.**
    Spans `iac/program` (requires `lambdaBundlesDir` as an option with no default) and `iac/engine` (resolves it, and resolves engine and workspace paths under `userData`).

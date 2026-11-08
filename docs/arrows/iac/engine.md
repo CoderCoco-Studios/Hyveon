@@ -105,7 +105,7 @@ Engine provisioning, the workspace seam, credential exclusivity and provable-own
 | Workspace seam | `IAC-ENGINE-WS-001` to `IAC-ENGINE-WS-010` | 10 | 0 | 0 |
 | Secrets passphrase | `IAC-ENGINE-PASS-001` to `IAC-ENGINE-PASS-008` | 8 | 0 | 0 |
 | Credentials | `IAC-ENGINE-CRED-001` to `IAC-ENGINE-CRED-006` | 6 | 0 | 0 |
-| Output redaction | `IAC-ENGINE-REDACT-001` to `IAC-ENGINE-REDACT-002` | 2 | 0 | 0 |
+| Output redaction | `IAC-ENGINE-REDACT-001` to `IAC-ENGINE-REDACT-005` | 5 | 0 | 0 |
 | Stale backend lock recovery | `IAC-ENGINE-LOCK-001` to `IAC-ENGINE-LOCK-010` | 10 | 0 | 0 |
 | Engine process lifecycle | `IAC-ENGINE-LIFE-001` to `IAC-ENGINE-LIFE-009` | 8 | 1 | 0 |
 | Leaked-promise recovery | `IAC-ENGINE-LEAK-001` to `IAC-ENGINE-LEAK-003` | 3 | 0 | 0 |
@@ -114,11 +114,11 @@ Engine provisioning, the workspace seam, credential exclusivity and provable-own
 | Install region | `IAC-ENGINE-REGION-001` to `IAC-ENGINE-REGION-002` | 2 | 0 | 0 |
 | Electron runtime guard | `IAC-ENGINE-RT-001` to `IAC-ENGINE-RT-003` | 3 | 0 | 0 |
 
-**Summary:** 92 of 94 active specs implemented; 2 deferred; 0 gaps.
+**Summary:** 95 of 97 active specs implemented; 2 deferred; 0 gaps.
 
 ## Key Findings
 
-1. **Destroy output redaction fails closed on the stack state**: `destroy()` builds its redaction set with `loadDestroyRedactionSet`, which reads the stack state (`appliedGameServers`) first; an unreadable state fails the destroy before the engine runs. The stored configuration object is an additional best-effort source, and an unreadable or malformed one only logs a fixed warning (`IAC-ENGINE-REDACT-002`).
+1. **Output redaction is state-derived and fails closed for every operation**: preview, apply and destroy build one set with `loadRedactionSet`, the union of the stack state's `appliedGameServers` and the configuration the operation was built from (destroy reads the stored configuration object best-effort). An unreadable stack state fails the operation before the engine runs; an empty state (first-ever apply) leaves only the configuration source. Values under 4 characters are skipped, matching is literal, multi-line values contribute each line, and longer values go first (`IAC-ENGINE-REDACT-002` to `IAC-ENGINE-REDACT-005`).
 2. **Quit waits for in-flight operations to wind down**: `installOperationQuitHook` prevents the first `before-quit`, calls `PulumiService.abortInFlightOperations()`, waits up to 15 s for `PulumiService.whenIdle()` and the file manager helper stopper, then calls `quit()` once; a 10 s force-exit timer after `quit()` is the backstop (`IAC-ENGINE-LIFE-009`). Whether Electron exits cleanly with a live `pulumi` child without the force-exit is `[unverified]`.
 3. **Escalation wording is honest**: escalation abandons the promise and says so (`IAC-ENGINE-LIFE-004`). Only `initializeStack` passes `onEscalate`, and its hook merely records that the run escalated; it does not kill the child, so an escalated `pulumi` child keeps running. Escalated runs deliberately keep their lock-ownership record as reclaim evidence.
 4. **Stack initialization is cancellable and lock-recoverable**: `initializeStack(onPhase?, signal?)` runs `refresh()` through `runWithEscalatingCancellation`, the leaked-promise wrapper and the shared `runWithOwnOrphanLockRecovery` (`IAC-ENGINE-LIFE-007`, `IAC-ENGINE-LOCK-010`). No operator cancel channel exists yet (`IAC-ENGINE-LIFE-006`, deferred with `IAC-RUN-CANCEL-001`).

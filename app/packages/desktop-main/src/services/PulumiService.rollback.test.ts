@@ -216,7 +216,7 @@ function makeWorkspace(previewImpl: FakeStackPreview): PulumiWorkspaceService & 
   getOrCreateStack: ReturnType<typeof vi.fn>;
 } {
   const previewMock = vi.fn().mockImplementation(previewImpl);
-  const getOrCreateStack = vi.fn().mockResolvedValue({ preview: previewMock } as Partial<Stack> as Stack);
+  const getOrCreateStack = vi.fn().mockResolvedValue({ preview: previewMock, outputs: vi.fn().mockResolvedValue({}) } as Partial<Stack> as Stack);
   return { getOrCreateStack } as unknown as PulumiWorkspaceService & { getOrCreateStack: ReturnType<typeof vi.fn> };
 }
 
