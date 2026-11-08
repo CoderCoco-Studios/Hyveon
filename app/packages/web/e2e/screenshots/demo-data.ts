@@ -668,6 +668,11 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
       return Promise.resolve({ found: false });
     });
     mock('iac.runs.list', () => Promise.resolve(d.iacHistory));
+    mock('iac.runs.record', (payload: unknown) => {
+      const { runId } = payload as { runId: string };
+      const record = d.iacHistory.records.find((r: { runId: string }) => r.runId === runId);
+      return Promise.resolve(record ? { found: true, record } : { found: false });
+    });
     mock('iac.runs.logUrl', () => Promise.resolve({ url: 'https://example-logs.s3.amazonaws.com/demo-run.log' }));
     // Keyed on `runId` (the preload calls this handler with `(runId, signal)`
     // — see `streamIacRunLogs` in `preload.ts`) so the plan and apply

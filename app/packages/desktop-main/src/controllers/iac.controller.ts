@@ -11,9 +11,6 @@ import {
   PulumiRollbackPlanFailedError,
   PulumiStackInitializationError,
   type PulumiRunChunk,
-  type PulumiPreviewResult,
-  type PulumiUpResult,
-  type PulumiDestroyResult,
 } from '../services/PulumiService.js';
 import type { PulumiPhaseCallback, PulumiProvisioningPhase, PulumiPhaseStatus } from '../services/PulumiEngineService.js';
 import { PulumiUnrecognizedLockError } from '../services/PulumiLockRecovery.js';
@@ -40,6 +37,13 @@ const DESTROY_CHUNK_CHANNEL = 'iac.destroy.chunk';
 
 /** Fixed side-channel `IacController.destroy` sends its terminal message on. */
 const DESTROY_END_CHANNEL = 'iac.destroy.end';
+
+/** The streaming operations whose handlers share {@link IacController.pumpRunStream}, with their chunk and end channels. */
+const RUN_STREAM_CHANNELS = {
+  plan: { chunk: PLAN_CHUNK_CHANNEL, end: PLAN_END_CHANNEL },
+  apply: { chunk: APPLY_CHUNK_CHANNEL, end: APPLY_END_CHANNEL },
+  destroy: { chunk: DESTROY_CHUNK_CHANNEL, end: DESTROY_END_CHANNEL },
+} as const;
 
 /**
  * Fixed side-channel {@link IacController.confirmRollback} pushes streamed
@@ -137,11 +141,9 @@ interface IacPlanPayload {
 }
 
 /**
- * Message payload sent, in order, on {@link PLAN_CHUNK_CHANNEL} for every
- * chunk `PulumiService.preview` yields. `runId` ties the chunk back to the
- * `plan()` call that produced it — the same id already handed back in
- * {@link IacPlanAck.runId} — so the renderer (and a second, rejected
- * concurrent call) can never mix up output from two overlapping runs.
+ * Message payload sent, in order, on a run's chunk channel ({@link PLAN_CHUNK_CHANNEL}, {@link APPLY_CHUNK_CHANNEL} or
+ * {@link DESTROY_CHUNK_CHANNEL}) for every chunk the service generator yields. `runId` ties the chunk back to the call
+ * that produced it, the same id handed back in the submission ack, so output from two overlapping runs can never mix.
  */
 interface IacPlanChunkMessage {
   runId: string;
@@ -149,19 +151,22 @@ interface IacPlanChunkMessage {
 }
 
 /**
- * Message payload sent once on {@link PLAN_END_CHANNEL} when a
- * `iac.plan` run finishes. `exitCode` is `0` on success, or `null` on
- * failure — the Automation API has no process exit code, so `null`
- * uniformly means "did not succeed" here, rather than trying to recover a
- * synthetic non-zero number. `result` is
- * present only on a successful run — the structured `changeSummary` and
- * artifact/hash/engine-version fields `PulumiService.preview` resolved.
+ * Message payload sent once on a run's end channel ({@link PLAN_END_CHANNEL}, {@link APPLY_END_CHANNEL} or
+ * {@link DESTROY_END_CHANNEL}) when the run finishes. `exitCode` is `0` on success, or `null` on failure: the
+ * Automation API has no process exit code, so `null` uniformly means "did not succeed" rather than a synthetic non-zero
+ * number. `result` is present only on a successful run (for a plan, the structured `changeSummary` and
+ * artifact/hash/engine-version fields). `staleLock` is present on an apply or destroy failure that was a
+ * `PulumiUnrecognizedLockError`, which can surface here rather than on the ack because `stack.up()`'s lock conflict is
+ * only discovered once the operation is already streaming.
+ *
+ * @typeParam TResult - The service generator's terminal result type.
  */
-interface IacPlanEndMessage {
+interface IacPlanEndMessage<TResult> {
   runId: string;
   exitCode: number | null;
   error?: string;
-  result?: PulumiPreviewResult;
+  result?: TResult;
+  staleLock?: StaleLockInfo;
 }
 
 /**
@@ -361,11 +366,9 @@ interface IacRollbackResolveAck {
  * Result `confirmRollback()` resolves with. `confirmed: true` means the
  * historic configuration content was restored as a new head version AND the
  * follow-up plan `PulumiService.confirmRollback` runs against it internally
- * completed successfully — `versionId` is the restored version's id, ready
- * to pass to `iac.plan`'s `configVersionId` (alongside
- * `rolledBackFrom: applyRunId`) for a renderer that still drives the
- * existing two-call flow (see {@link IacController.confirmRollback}'s
- * own TSDoc, "Streaming vs. the renderer's existing one-shot contract").
+ * completed successfully — `versionId` is the restored version's id
+ * and `planRunId` is the id of the one tagged plan run it produced, which the renderer adopts to show and approve
+ * (it submits no second plan).
  * `confirmed: false` means no write was attempted, or a write was attempted
  * and the restore-then-plan unit failed partway through — `error` is always
  * a human-readable description of why. `versionId` is ALSO populated on a
@@ -379,6 +382,8 @@ interface IacRollbackResolveAck {
 interface IacRollbackConfirmAck {
   confirmed: boolean;
   versionId?: string;
+  /** The rollback's single tagged plan run, set when `confirmed` is `true`. */
+  planRunId?: string;
   error?: string;
 }
 
@@ -412,37 +417,6 @@ interface IacApplyPayload {
 }
 
 /**
- * Message payload sent, in order, on {@link APPLY_CHUNK_CHANNEL} for every
- * chunk `PulumiService.apply` yields. `runId` ties the chunk back to the
- * `apply()` call that produced it — the same id already handed back in the
- * ack `IacController.apply` resolves — mirrors
- * {@link IacPlanChunkMessage}.
- */
-interface IacApplyChunkMessage {
-  runId: string;
-  chunk: PulumiRunChunk;
-}
-
-/**
- * Message payload sent once on {@link APPLY_END_CHANNEL} when a
- * `iac.apply` run finishes. `exitCode` is `0` on success, or `null` on
- * failure — see {@link IacPlanEndMessage}'s doc comment for why there
- * is no real numeric exit code to report under the Pulumi Automation API.
- * `result` is present only on a successful run. `staleLock` is present when
- * the failure was `PulumiUnrecognizedLockError` — see {@link StaleLockInfo}.
- * Unlike {@link IacPlanAck}, `PulumiUnrecognizedLockError` can surface
- * here (rather than on the immediate ack) because `stack.up()`'s lock
- * conflict is only discovered once the operation has already been streaming.
- */
-interface IacApplyEndMessage {
-  runId: string;
-  exitCode: number | null;
-  error?: string;
-  result?: PulumiUpResult;
-  staleLock?: StaleLockInfo;
-}
-
-/**
  * Result {@link IacController.mintDestroyToken} resolves with —
  * delegates directly to `PulumiService.mintDestroyConfirmationToken()`,
  * which the operator must then supply back on {@link IacController.destroy}'s
@@ -465,35 +439,6 @@ interface IacDestroyMintAck {
  */
 interface IacDestroyPayload {
   confirmationToken: string;
-}
-
-/**
- * Message payload sent, in order, on {@link DESTROY_CHUNK_CHANNEL} for every
- * chunk `PulumiService.destroy` yields. `runId` ties the chunk back to the
- * `destroy()` call that produced it — the same id already handed back in the
- * ack `IacController.destroy` resolves — mirrors
- * {@link IacApplyChunkMessage}.
- */
-interface IacDestroyChunkMessage {
-  runId: string;
-  chunk: PulumiRunChunk;
-}
-
-/**
- * Message payload sent once on {@link DESTROY_END_CHANNEL} when a
- * `iac.destroy` run finishes. `exitCode` is `0` on success, or `null`
- * on failure — see {@link IacPlanEndMessage}'s doc comment for why.
- * `result` is present only on a successful run. `staleLock` is present when
- * the failure was `PulumiUnrecognizedLockError` — see
- * {@link IacApplyEndMessage}'s identical field for why this surfaces
- * here rather than on the immediate ack.
- */
-interface IacDestroyEndMessage {
-  runId: string;
-  exitCode: number | null;
-  staleLock?: StaleLockInfo;
-  error?: string;
-  result?: PulumiDestroyResult;
 }
 
 // @spec IAC-RUN-IPC-001, IAC-RUN-IPC-002
@@ -704,6 +649,93 @@ export class IacController implements OnModuleInit {
     return { started: true, streamId };
   }
 
+  /**
+   * Registers an accepted run so its `AbortController` fires when the submitting window is destroyed.
+   *
+   * @param active - The per-operation map of in-flight runs.
+   * @param runId - The accepted run's id.
+   * @param ac - The run's abort controller.
+   * @param sender - The WebContents that submitted the run.
+   * @returns A cleanup that deregisters the run and removes the listener; call it when the stream settles.
+   */
+  private trackRun(
+    active: Map<string, AbortController>,
+    runId: string,
+    ac: AbortController,
+    sender: WebContents,
+  ): () => void {
+    active.set(runId, ac);
+    const onDestroyed = () => ac.abort();
+    sender.once('destroyed', onDestroyed);
+    return () => {
+      active.delete(runId);
+      sender.removeListener('destroyed', onDestroyed);
+    };
+  }
+
+  // @spec IAC-RUN-IPC-004, IAC-RUN-IPC-007, IAC-RUN-IPC-008
+  /**
+   * Drives an accepted plan, apply or destroy generator to completion, sending each chunk tagged with the `runId` on the
+   * operation's chunk channel and exactly one terminal message on its end channel.
+   *
+   * @remarks
+   * Drives the generator with repeated `.next()` calls rather than `for await...of` so its return value (the terminal
+   * result) can ride on the end message. Apply and destroy attach the serialized stale-lock holder to a failed end
+   * message when the failure is a {@link PulumiUnrecognizedLockError}; plan never does. Stops and aborts the run as
+   * soon as the sender window is destroyed, and always runs `cleanup`.
+   *
+   * @typeParam TResult - The generator's terminal result type.
+   * @param opts - `op` selects the channels and log label; `runId`, `sender` and `ac` identify the run, its window and its
+   *   abort controller; `stream` is the service generator and `firstStep` its first step, already requested by the
+   *   handler; `cleanup` deregisters the run (from {@link trackRun}).
+   */
+  private async pumpRunStream<TResult>(opts: {
+    op: keyof typeof RUN_STREAM_CHANNELS;
+    runId: string;
+    sender: WebContents;
+    ac: AbortController;
+    stream: AsyncGenerator<PulumiRunChunk, TResult | undefined, void>;
+    firstStep:
+      | Promise<IteratorResult<PulumiRunChunk, TResult | undefined>>
+      | IteratorResult<PulumiRunChunk, TResult | undefined>;
+    cleanup: () => void;
+  }): Promise<void> {
+    const { op, runId, sender, ac, stream, cleanup } = opts;
+    const channels = RUN_STREAM_CHANNELS[op];
+    try {
+      let next = await opts.firstStep;
+      while (!next.done) {
+        if (sender.isDestroyed()) {
+          ac.abort();
+          await stream.return(undefined);
+          return;
+        }
+        const chunkMessage: IacPlanChunkMessage = { runId, chunk: next.value };
+        sender.send(channels.chunk, chunkMessage);
+        next = await stream.next();
+      }
+      if (!sender.isDestroyed()) {
+        const endMessage: IacPlanEndMessage<TResult | undefined> = { runId, exitCode: 0, result: next.value };
+        sender.send(channels.end, endMessage);
+      }
+    } catch (err) {
+      logger.error(`${op} error`, { err });
+      if (!sender.isDestroyed()) {
+        const endMessage: IacPlanEndMessage<TResult | undefined> = {
+          runId,
+          exitCode: null,
+          error: String(err),
+          ...(op !== 'plan'
+            ? { staleLock: err instanceof PulumiUnrecognizedLockError ? serializeStaleLock(err) : undefined }
+            : {}),
+        };
+        sender.send(channels.end, endMessage);
+      }
+    } finally {
+      cleanup();
+    }
+  }
+
   // @spec IAC-RUN-PLAN-003, IAC-RUN-LCLR-002, IAC-RUN-IPC-003, IAC-RUN-IPC-004, IAC-RUN-IPC-007
   // @spec APP-DIAG-AUDIT-006
   /**
@@ -745,14 +777,7 @@ export class IacController implements OnModuleInit {
     const firstStep = stream.next();
     firstStep.catch(() => { /* handled in the streaming loop below */ });
 
-    this.activePlans.set(runId, ac);
-
-    const onDestroyed = () => ac.abort();
-    sender.once('destroyed', onDestroyed);
-    const cleanup = () => {
-      this.activePlans.delete(runId);
-      sender.removeListener('destroyed', onDestroyed);
-    };
+    const cleanup = this.trackRun(this.activePlans, runId, ac, sender);
 
     // Best-effort: AuditService.record() never throws (failures are logged
     // and swallowed internally), so awaiting it here cannot block or fail
@@ -770,36 +795,7 @@ export class IacController implements OnModuleInit {
       ...(payload.configVersionId !== undefined ? { versionId: payload.configVersionId } : {}),
     });
 
-    // Fire-and-forget the streaming loop. Chunks are pushed back to the
-    // renderer directly via WebContents.send rather than through the normal
-    // invoke reply mechanism, which only supports a single return value.
-    void (async () => {
-      try {
-        let next = await firstStep;
-        while (!next.done) {
-          if (sender.isDestroyed()) {
-            ac.abort();
-            await stream.return(undefined);
-            return;
-          }
-          const chunkMessage: IacPlanChunkMessage = { runId, chunk: next.value };
-          sender.send(PLAN_CHUNK_CHANNEL, chunkMessage);
-          next = await stream.next();
-        }
-        if (!sender.isDestroyed()) {
-          const message: IacPlanEndMessage = { runId, exitCode: 0, result: next.value };
-          sender.send(PLAN_END_CHANNEL, message);
-        }
-      } catch (err) {
-        logger.error('plan error', { err });
-        if (!sender.isDestroyed()) {
-          const message: IacPlanEndMessage = { runId, exitCode: null, error: String(err) };
-          sender.send(PLAN_END_CHANNEL, message);
-        }
-      } finally {
-        cleanup();
-      }
-    })();
+    void this.pumpRunStream({ op: 'plan', runId, sender, ac, stream, firstStep, cleanup });
 
     return { started: true, runId };
   }
@@ -879,14 +875,7 @@ export class IacController implements OnModuleInit {
       return { started: false, error };
     }
 
-    this.activeApplies.set(runId, ac);
-
-    const onDestroyed = () => ac.abort();
-    sender.once('destroyed', onDestroyed);
-    const cleanup = () => {
-      this.activeApplies.delete(runId);
-      sender.removeListener('destroyed', onDestroyed);
-    };
+    const cleanup = this.trackRun(this.activeApplies, runId, ac, sender);
 
     // Best-effort: AuditService.record() never throws (failures are logged
     // and swallowed internally), so awaiting it here cannot block or fail
@@ -898,41 +887,7 @@ export class IacController implements OnModuleInit {
     // second redundant `getByRunId` call purely for audit metadata.
     await this.audit?.record({ action: 'apply', game: '', before: null, after: null });
 
-    // Fire-and-forget the streaming loop, mirroring plan()'s shape — starts
-    // from the already-resolved `first` step instead of an unawaited one,
-    // since this method awaited the gate above before acking.
-    void (async () => {
-      try {
-        let next = first;
-        while (!next.done) {
-          if (sender.isDestroyed()) {
-            ac.abort();
-            await stream.return(undefined);
-            return;
-          }
-          const chunkMessage: IacApplyChunkMessage = { runId, chunk: next.value };
-          sender.send(APPLY_CHUNK_CHANNEL, chunkMessage);
-          next = await stream.next();
-        }
-        if (!sender.isDestroyed()) {
-          const message: IacApplyEndMessage = { runId, exitCode: 0, result: next.value };
-          sender.send(APPLY_END_CHANNEL, message);
-        }
-      } catch (err) {
-        logger.error('apply error', { err });
-        if (!sender.isDestroyed()) {
-          const message: IacApplyEndMessage = {
-            runId,
-            exitCode: null,
-            error: String(err),
-            staleLock: err instanceof PulumiUnrecognizedLockError ? serializeStaleLock(err) : undefined,
-          };
-          sender.send(APPLY_END_CHANNEL, message);
-        }
-      } finally {
-        cleanup();
-      }
-    })();
+    void this.pumpRunStream({ op: 'apply', runId, sender, ac, stream, firstStep: first, cleanup });
 
     return { started: true, runId };
   }
@@ -1034,52 +989,13 @@ export class IacController implements OnModuleInit {
       return { started: false, error };
     }
 
-    this.activeDestroys.set(runId, ac);
-
-    const onDestroyed = () => ac.abort();
-    sender.once('destroyed', onDestroyed);
-    const cleanup = () => {
-      this.activeDestroys.delete(runId);
-      sender.removeListener('destroyed', onDestroyed);
-    };
+    const cleanup = this.trackRun(this.activeDestroys, runId, ac, sender);
 
     // Best-effort: AuditService.record() never throws (failures are logged
     // and swallowed internally), mirrors apply()'s own audit-entry call.
     await this.audit?.record({ action: 'destroy', game: '', before: null, after: null });
 
-    // Fire-and-forget the streaming loop, mirroring apply()'s shape.
-    void (async () => {
-      try {
-        let next = first;
-        while (!next.done) {
-          if (sender.isDestroyed()) {
-            ac.abort();
-            await stream.return(undefined);
-            return;
-          }
-          const chunkMessage: IacDestroyChunkMessage = { runId, chunk: next.value };
-          sender.send(DESTROY_CHUNK_CHANNEL, chunkMessage);
-          next = await stream.next();
-        }
-        if (!sender.isDestroyed()) {
-          const message: IacDestroyEndMessage = { runId, exitCode: 0, result: next.value };
-          sender.send(DESTROY_END_CHANNEL, message);
-        }
-      } catch (err) {
-        logger.error('destroy error', { err });
-        if (!sender.isDestroyed()) {
-          const message: IacDestroyEndMessage = {
-            runId,
-            exitCode: null,
-            error: String(err),
-            staleLock: err instanceof PulumiUnrecognizedLockError ? serializeStaleLock(err) : undefined,
-          };
-          sender.send(DESTROY_END_CHANNEL, message);
-        }
-      } finally {
-        cleanup();
-      }
-    })();
+    void this.pumpRunStream({ op: 'destroy', runId, sender, ac, stream, firstStep: first, cleanup });
 
     return { started: true, runId };
   }
@@ -1219,7 +1135,7 @@ export class IacController implements OnModuleInit {
     }
   }
 
-  // @spec IAC-RUN-RBK-007, IAC-RUN-RBK-009, IAC-RUN-IPC-007
+  // @spec IAC-RUN-RBK-007, IAC-RUN-RBK-009, IAC-RUN-RBK-010, IAC-RUN-IPC-007
   // @spec APP-DIAG-AUDIT-006, CONFIG-RESTORE-005
   /**
    * Confirms the rollback flow (#112) for `payload.applyRunId`. `PulumiService.confirmRollback`
@@ -1229,11 +1145,8 @@ export class IacController implements OnModuleInit {
    * {@link ROLLBACK_CONFIRM_CHUNK_CHANNEL}.
    *
    * @remarks
-   * **Accepted consequence, not a bug**: the renderer submits a separate `iac.plan` call after a
-   * successful ack, so a confirmed rollback produces TWO `PulumiRunRecord`s tagged
-   * `rolledBackFrom: applyRunId` — this method's own internal plan run (never surfaced to the
-   * renderer) and the renderer's own subsequent one (which is what the operator actually sees
-   * and can approve/apply).
+   * A confirmed rollback produces exactly one tagged plan run: this method's own internal plan, whose id the ack
+   * returns as `planRunId` so the renderer adopts it instead of submitting a second plan.
    *
    * The restored configuration version id the renderer needs (`IacRollbackConfirmAck.versionId`)
    * is not a field of `PulumiPreviewResult` — it's recovered via
@@ -1324,7 +1237,7 @@ export class IacController implements OnModuleInit {
         versionId,
       });
 
-      return { confirmed: true, versionId };
+      return { confirmed: true, versionId, planRunId: result.runId };
     } catch (err) {
       logger.error('rollback confirm error', { err, applyRunId: payload.applyRunId });
       if (err instanceof PulumiRollbackPlanFailedError) {

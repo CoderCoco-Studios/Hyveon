@@ -1315,6 +1315,35 @@ describe('PulumiService.apply abort handling', () => {
     expect(runRecordPersister.persist).toHaveBeenCalledWith(expect.objectContaining({ exitCode: null }), expect.any(String));
   });
 
+  // @spec IAC-RUN-DSTR-011
+  it('should abort the engine call and settle the run as aborted when abortInFlightOperations runs mid-apply', async () => {
+    const upMock = vi.fn().mockImplementation(
+      (opts: UpOptions) =>
+        new Promise<UpResult>((_resolve, reject) => {
+          opts.onOutput?.('Updating...\n');
+          opts.signal?.addEventListener('abort', () => reject(new Error('interrupted')));
+        }),
+    );
+    const getOrCreateStack = vi
+      .fn()
+      .mockResolvedValue({ up: upMock, cancel: vi.fn(), outputs: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
+    const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
+    const runRecordPersister = makeRunRecordPersister();
+    const service = makeService({ workspace, runRecordPersister });
+
+    const gen = service.apply(PLAN_RUN_ID, PLAN_HASH);
+    expect((await gen.next()).done).toBe(false);
+
+    expect(service.abortInFlightOperations()).toBe(true);
+
+    const next = await gen.next();
+    expect(next.done).toBe(true);
+    expect(runRecordPersister.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ exitCode: null, kind: 'apply' }),
+      expect.any(String),
+    );
+  });
+
   it('should persist partialApply: true when the operator cancels mid-flight after at least one mutating resource step already completed', async () => {
     // The operator pressing Cancel partway through a real apply is arguably
     // the single most likely real-world way this system ends up partway

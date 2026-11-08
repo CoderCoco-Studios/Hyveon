@@ -571,7 +571,7 @@ describe('IacController', () => {
 
   // plan
 
-  // @spec IAC-RUN-IPC-003, IAC-RUN-IPC-004
+  // @spec IAC-RUN-IPC-003, IAC-RUN-IPC-004, IAC-RUN-IPC-008
   describe('plan', () => {
     it('should return { started: true, runId } immediately without waiting for the run to settle', async () => {
       // PulumiService.preview never yields/returns on its own here, so if
@@ -1644,6 +1644,7 @@ describe('IacController', () => {
       expect(pulumi.confirmRollback).not.toHaveBeenCalled();
     });
 
+    // @spec IAC-RUN-RBK-010
     it('should drive the generator to completion, forwarding every intermediate chunk on iac.rollback.confirm.chunk tagged with applyRunId', async () => {
       const chunks: PulumiRunChunk[] = [
         { stream: 'stdout', line: 'Previewing update (rollback)...' },
@@ -1660,7 +1661,7 @@ describe('IacController', () => {
 
       const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
-      expect(result).toEqual({ confirmed: true, versionId: 'config-v-new-head' });
+      expect(result).toEqual({ confirmed: true, versionId: 'config-v-new-head', planRunId: 'rollback-plan-run-1' });
       const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.rollback.confirm.chunk');
       expect(chunkCalls).toEqual([
         ['iac.rollback.confirm.chunk', { applyRunId: 'apply-run-1', chunk: chunks[0] }],
@@ -1730,7 +1731,11 @@ describe('IacController', () => {
       const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(pulumi.readRunRecord).toHaveBeenCalledWith('rollback-plan-run-42');
-      expect(result).toEqual({ confirmed: true, versionId: 'config-v-recovered' });
+      expect(result).toEqual({
+        confirmed: true,
+        versionId: 'config-v-recovered',
+        planRunId: 'rollback-plan-run-42',
+      });
     });
 
     it('should only resolve the ack once the whole restore+plan generator has settled — not before', async () => {

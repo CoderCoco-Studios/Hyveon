@@ -44,8 +44,8 @@ export function IacHistoryPage() {
 
   /** Routes a confirmed rollback into the plan/apply run view — see `IacPage`'s `RollbackNavState`. */
   const handleRolledBack = useCallback(
-    ({ versionId, rolledBackFrom }: RollbackResult) => {
-      navigate('/iac', { state: { configVersionId: versionId, rolledBackFrom } });
+    ({ versionId, rolledBackFrom, planRunId }: RollbackResult) => {
+      navigate('/iac', { state: { configVersionId: versionId, rolledBackFrom, planRunId } });
     },
     [navigate],
   );

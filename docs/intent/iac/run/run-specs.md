@@ -23,8 +23,8 @@ EARS requirements for prefix `IAC-RUN`, the run-lifecycle leaf described in `doc
 - [x] **IAC-RUN-STORE-005**: If the runs table name cannot be resolved, then `RunRecordService.persist` shall skip persistence with a warning, `listRuns` shall resolve an empty page, `getByRunId` shall resolve `undefined`, and `approveRun` and `writePreflightMarker` shall throw.
 - [x] **IAC-RUN-STORE-006**: When the renderer requests a run log URL over `iac.runs.logUrl`, the system shall return a presigned S3 GET URL for the record's `logS3Key` resolved in the main process, defaulting to a one-hour expiry, so no AWS credential crosses the bridge.
 - [x] **IAC-RUN-STORE-007**: When a run record carrying `partialApply` is written to or read from the runs table, `AwsRunRecordStore` shall round-trip the `partialApply` field unchanged. (observed: `AwsRunRecordStore.ts` `putRecord` and `toRunRecord`)
-- [ ] **IAC-RUN-STORE-008**: When `RunRecordService.approveRun` writes an approval, the system shall preserve every other field of the stored record, including `partialApply`. (observed: `approveRun` spreads the record read by `getRecordByRunId` into the whole-item `putRecord` at `RunRecordService.ts:640-641`, and `AwsRunRecordStore.putRecord`/`toRunRecord` round-trip every `RunRecord` field; gap: no test asserts that approval preserves the other fields, and the put is unconditional so a concurrent write to the same record is overwritten)
-- [ ] **IAC-RUN-STORE-009**: When a run-record service method in `RunRecordService` or `RunService` logs a caught store, S3 or file-system failure, the system shall log the normalised error message rather than the raw error object. (observed: `.claude/rules/logging.md` rule 2; gap: raw `err` logged at `RunRecordService.ts:336`, `:351`, `:382`, `RunService.ts:241`)
+- [x] **IAC-RUN-STORE-008**: When `RunRecordService.approveRun` writes an approval, the system shall preserve every other field of the stored record, including `partialApply`, `rolledBackFrom` and the log. (observed: `approveRun` spreads the record read by `getRecordByRunId` into the whole-item `putRecord`, and `AwsRunRecordStore.putRecord`/`toRunRecord` round-trip every `RunRecord` field)
+- [x] **IAC-RUN-STORE-009**: When a run-record service method in `RunRecordService` or `RunService` logs a caught store, S3 or file-system failure, the system shall log the normalised error message (`error`) rather than the raw error object. (observed: `.claude/rules/logging.md` rule 2; `RunRecordService.persist`, `RunService.releaseRun`)
 
 ## Apply lock
 
@@ -36,8 +36,8 @@ EARS requirements for prefix `IAC-RUN`, the run-lifecycle leaf described in `doc
 - [x] **IAC-RUN-LOCK-006**: When `RunService.releaseRun(runId)` is called, the system shall clear the in-memory lock and conditionally delete the `LOCK/CURRENT` item only if each is held by that same `runId`, and shall never throw. (observed: `RunService.ts:225-246`, `AwsRunRecordStore.ts:485-501`)
 - [x] **IAC-RUN-LOCK-007**: The system shall acquire the durable apply lock for apply and destroy runs only; plan (preview) and rollback-confirm runs shall be guarded by the in-process workspace guard alone. (observed: `PulumiService.ts:1461`, `:2106`, `:2960`, `:3596`; `docs/docs/app/iac.md:200-201`)
 - [x] **IAC-RUN-LOCK-008**: The `LOCK/CURRENT` item shall carry no `status` attribute, so it never appears in the `status-index` GSI or in the `pk = RUN` partition listing. (observed: `AwsRunRecordStore.ts:428-436`)
-- [ ] **IAC-RUN-LOCK-009**: When `RunService.createRun`, `releaseRun` or the durable lock lookup run before the first successful apply on a fresh install, the system shall use the same pre-apply runs-table fallback as `RunRecordService`, so the first apply holds the durable lock. (observed; gap: `RunService.ts:179`, `:231`, `:272` consult only `getStackOutputs().runsTableName`)
-- [ ] **IAC-RUN-LOCK-010**: While a run holds the durable apply lock across an app restart, `iac.runs.get` shall report that run as `running`. (observed; gap: `iac-runs.controller.ts:219` checks only the in-memory lock)
+- [x] **IAC-RUN-LOCK-009**: When `RunService.createRun`, `releaseRun` or the durable lock lookup run before the first successful apply on a fresh install, the system shall resolve the runs table through the same stack-outputs-then-deployment-config chain as `RunRecordService`, so the first apply holds the durable lock. (observed: both services call `resolveRunsTableName` in `runs-table-name.ts`)
+- [x] **IAC-RUN-LOCK-010**: While a run's apply lock is held and unexpired, in memory or only in the durable `LOCK/CURRENT` item (as after an app restart), `iac.runs.get` shall report that run as `running`; a durable lock the operator has not cleared keeps reading as running until its TTL passes. (observed: `iac-runs.controller.ts` `get` reads `RunService.getHeldLock`)
 
 ## Run-lock recovery
 
@@ -78,7 +78,7 @@ EARS requirements for prefix `IAC-RUN`, the run-lifecycle leaf described in `doc
 - [x] **IAC-RUN-APPR-003**: When `RunRecordService.approveRun` is called, the system shall refuse unless the record exists, is of kind `plan` and has status `success`, and otherwise write `approvedBy` and `approvedAt` onto it. (observed: `RunRecordService.ts:604-651`)
 - [x] **IAC-RUN-APPR-004**: Until a plan run has been approved, the IaC page shall not render an enabled "Apply" action, and once approved it shall show who approved and when, with the approval's expiry time.
 - [x] **IAC-RUN-APPR-005**: The system shall treat an approval as valid for 15 minutes (`APPROVAL_WINDOW_MS`), and the IaC page shall show "approval expired, re-approve to apply" with a "Re-approve" action once the window has passed.
-- [ ] **IAC-RUN-APPR-006**: The IaC page shall import `APPROVAL_WINDOW_MS` and `isApprovalExpired` from `@hyveon/shared` rather than keeping a renderer-local copy. (observed: duplication rule; gap: local copy at `iac.page.tsx:41-53` while the same file imports `errMessage` from `@hyveon/shared` at `:6`)
+- [x] **IAC-RUN-APPR-006**: The IaC page shall take the approval window and expiry check from `APPROVAL_WINDOW_MS` and `isApprovalExpired` in `@hyveon/shared`, the same definitions the apply gate enforces, with no renderer-local copy. (observed: `iac.page.tsx` imports both)
 - [x] **IAC-RUN-APPR-007**: When a plan run is approved, the system shall record an `approve` audit entry. (observed: `iac.controller.ts:1127-1132`)
 
 ## Apply gate
@@ -119,9 +119,9 @@ EARS requirements for prefix `IAC-RUN`, the run-lifecycle leaf described in `doc
 - [x] **IAC-RUN-DSTR-008**: If `iac.destroy` is invoked while a workspace operation is in flight, then the system shall resolve `{ started: false, error, conflict }` without starting the engine, writing an audit entry, or persisting a run record.
 - [x] **IAC-RUN-DSTR-009**: When a destroy submission is accepted, the system shall resolve `{ started: true, runId }`, record a `destroy` audit entry, and persist a `kind: 'destroy'` run record once it settles.
 - [x] **IAC-RUN-DSTR-010**: If an accepted destroy run is cancelled (its renderer is destroyed or the abort signal fires) before it settles, then the system shall release the durable apply lock and settle the run record as `aborted`.
-- [ ] **IAC-RUN-DSTR-011**: When the app shuts down while a destroy or apply run is in flight, the system shall release the durable apply lock as part of shutdown.
+- [x] **IAC-RUN-DSTR-011**: When the app begins to quit while a destroy or apply run is in flight, the system shall abort the engine call so the run settles as `aborted` and releases the durable apply lock through run-record persistence. (observed: `installOperationQuitHook` calls `PulumiService.abortInFlightOperations`, which folds the shutdown signal into every operation's own signal; a wedged engine call is force-exited after 10 s and its lock then expires by TTL)
 - [x] **IAC-RUN-DSTR-012**: If a destroy run fails or completes, then the system shall require a newly minted token for the next destroy attempt.
-- [ ] **IAC-RUN-DSTR-014**: The destroy confirmation token shall be implemented on `LockClearConfirmationGate` rather than a separate hand-rolled single-use token. (observed: duplication rule; gap: `PulumiService.ts:2734`, `:3798-3837`)
+- [x] **IAC-RUN-DSTR-014**: `PulumiService` shall mint, supersede, expire, bind and consume both its destroy confirmation token and its Pulumi backend lock-clear token through `LockClearConfirmationGate`, with one shared target binding and one shared rejection-logging helper, rather than a hand-rolled single-use token. (observed: `destroyGate` and `lockClearGate` in `PulumiService.ts`)
 
 ## Run history and listing
 
@@ -140,7 +140,7 @@ EARS requirements for prefix `IAC-RUN`, the run-lifecycle leaf described in `doc
 - [x] **IAC-RUN-DETL-001**: When the operator opens a history row, the system shall show a read-only run-detail page at `/iac/history/:runId` with the run's status, change summary, approver and captured log, using the same log viewer as the live IaC page.
 - [x] **IAC-RUN-DETL-002**: When run detail resolves a run's log, the system shall replay it through `iac.runs.streamLogs` when local run artifacts exist, otherwise use the record's `logInline`, otherwise fetch it from the presigned URL returned by `iac.runs.logUrl` for the record's `logS3Key`.
 - [x] **IAC-RUN-DETL-003**: The run-detail page shall never render Approve or Apply controls.
-- [ ] **IAC-RUN-DETL-004**: When run detail is opened for any persisted run, the system shall resolve that run's record by `runId`, regardless of how many newer runs exist. (observed; gap: `iac-run-detail.page.tsx:22`, `:49-53` scans only the newest 200 records from `iac.runs.list`)
+- [x] **IAC-RUN-DETL-004**: When run detail is opened for any persisted run, the system shall resolve that run's record by `runId` through the `iac.runs.record` channel (`RunRecordService.getByRunId`), regardless of how many newer runs exist. (observed: `iac-run-detail.page.tsx` `useHistoryRecord`)
 
 ## Rollback
 
@@ -153,7 +153,7 @@ EARS requirements for prefix `IAC-RUN`, the run-lifecycle leaf described in `doc
 - [x] **IAC-RUN-RBK-007**: If the rollback plan fails after the restore was written, then the system shall record the orphaned restore durably and return `{ confirmed: false, error }` carrying the restored version id, rather than leaving an unreported head.
 - [x] **IAC-RUN-RBK-008**: When a rollback plan completes successfully, the system shall leave it in `awaiting_approval` and require the same approval, approval window, plan-hash, configuration-version, engine-version and apply-lock gates as any other plan.
 - [x] **IAC-RUN-RBK-009**: When a rollback is confirmed, the system shall record a `rollback` audit entry carrying the restored version id. (observed: `iac.controller.ts:1276-1282`)
-- [ ] **IAC-RUN-RBK-010**: When a rollback is confirmed, the system shall produce exactly one tagged plan run for the operator to approve. (observed; gap: `confirmRollback` runs a tagged preview (`PulumiService.ts:3631`) and the IaC page then auto-submits a second tagged plan on arrival (`iac.page.tsx:130-135`))
+- [x] **IAC-RUN-RBK-010**: When a rollback is confirmed, the system shall produce exactly one tagged plan run for the operator to approve: the plan `confirmRollback` runs, whose id the confirm ack returns as `planRunId` and which the IaC page adopts without submitting another plan. (observed: `IacController.confirmRollback`, `useIacRun.adopt`)
 
 ## IPC surface and streaming
 
@@ -164,7 +164,7 @@ EARS requirements for prefix `IAC-RUN`, the run-lifecycle leaf described in `doc
 - [x] **IAC-RUN-IPC-005**: The `iac.plan`, `iac.apply`, `iac.destroy`, `iac.runs.logs` and `iac.rollback.confirm` handlers shall be self-bridged and excluded from the generic `ipcMain.handle` bridge.
 - [x] **IAC-RUN-IPC-006**: The preload shall expose `mintDestroyToken`, `destroy`, `plan`, `approve`, `apply`, `runs.get`, `runs.streamLogs`, `runs.list`, `runs.logUrl`, `runs.lock.mintToken`, `runs.lock.clear`, `rollback.resolve` and `rollback.confirm` on `hyveon.iac`, with typed mirrors in `hyveon-api.ts`.
 - [x] **IAC-RUN-IPC-007**: When the WebContents that submitted a plan, apply, destroy or rollback confirm is destroyed, the controller shall abort that run's `AbortController`. (observed: `iac.controller.ts:740`, `:870`, `:1020`, `:1233`)
-- [ ] **IAC-RUN-IPC-008**: The plan, apply and destroy streaming loops in `IacController` shall share one extracted implementation. (observed: duplication rule (three occurrences); gap: `iac.controller.ts:766-792`, `:890-921`, `:1032-1063`)
+- [x] **IAC-RUN-IPC-008**: The plan, apply and destroy handlers in `IacController` shall share one extracted run-tracking helper and one streaming-loop helper rather than three copies. (observed: `trackRun` and `pumpRunStream` in `iac.controller.ts`)
 - [x] **IAC-RUN-IPC-009**: When `iac.runs.get` is called for a run not holding the lock, the system shall read the local `run.json` and report `RunDetailStatus` computed from its kind, exit code and, for plans, whether the plan artifact exists. (observed: `iac-runs.controller.ts:224-237`, `shared/src/runs.ts:280-346`)
 
 ## Integration coverage
@@ -173,9 +173,9 @@ EARS requirements for prefix `IAC-RUN`, the run-lifecycle leaf described in `doc
 - [x] **IAC-RUN-ITEST-002**: No integration spec shall invoke the real Pulumi engine, download the engine binary, or reach real AWS.
 - [x] **IAC-RUN-ITEST-003**: The integration suite shall verify that `IacController.plan`, dispatched through the real controller wiring, reports the stub's scripted success (with a plan artifact and `planHash`), its exact change-summary counts, and a failed preview with no `planHash`.
 - [x] **IAC-RUN-ITEST-004**: The integration suite shall verify that `IacController.apply` maps each apply-gate error class (missing plan, unapproved, expired approval, hash mismatch, stale artifact, moved configuration, engine version change, held lock) to a `{ started: false }` ack with no engine output, and runs the stub to completion for a fresh approved plan.
-- [ ] **IAC-RUN-ITEST-005**: The integration suite shall exercise the real `PulumiService.apply` gate arithmetic, including the atomic-lock ordering of two competing applies, through the real controller wiring.
+- [D] **IAC-RUN-ITEST-005**: The integration suite shall exercise the real `PulumiService.apply` gate arithmetic, including the atomic-lock ordering of two competing applies, through the real controller wiring. (deferred: the tier-2 harness replaces `PulumiService` with a scriptable stub by design (`IAC-RUN-ITEST-001`); `PulumiService.apply.test.ts` covers the gate arithmetic and `IAC-RUN-GATE-012` the lock ordering)
 - [x] **IAC-RUN-ITEST-006**: The integration suite shall verify that `IacController.destroy` maps `DestroyNotConfirmedError` for missing, consumed, wrong-target, expired, superseded and concurrently reused tokens to a refused ack with no engine output, and runs the stub's destroy for a fresh token.
-- [ ] **IAC-RUN-ITEST-007**: The integration suite shall exercise the real `PulumiService.destroy` token bookkeeping (minting, binding, expiry, supersession, atomic consumption).
+- [D] **IAC-RUN-ITEST-007**: The integration suite shall exercise the real `PulumiService.destroy` token bookkeeping (minting, binding, expiry, supersession, atomic consumption). (deferred: same stub-by-design harness as `IAC-RUN-ITEST-005`; `PulumiService.destroy.test.ts` covers the token bookkeeping)
 - [x] **IAC-RUN-ITEST-008**: The integration suite shall verify that ANSI escape sequences on stdout and stderr pass byte-for-byte, with stream attribution, through the streamed chunks and the persisted run log.
 - [x] **IAC-RUN-ITEST-009**: The integration suite shall verify that successful and failed runs persist a run record (with `planHash` only on success), that a log under 350 KiB is embedded inline with no S3 key, and that the persisted run is returned by `iac.runs.list` both with a page-size limit and with a matching status filter.
 - [x] **IAC-RUN-ITEST-010**: The integration suite shall verify that the stack-outputs channel returns the stub's scripted outputs and resolves a "not deployed yet" result rather than throwing for a never-deployed stack.

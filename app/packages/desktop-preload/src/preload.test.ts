@@ -2152,6 +2152,22 @@ describe('preload dispatcher', () => {
     });
   });
 
+  // iac.runs.record
+
+  // @spec IAC-RUN-DETL-004
+  describe('iac.runs.record', () => {
+    it('should invoke the iac.runs.record channel with the runId', async () => {
+      const bridge = await loadPreloadBridge('0');
+      ipcInvoke.mockResolvedValue({ found: false });
+      const iacRuns = (bridge['iac'] as { runs: { record: (runId: string) => Promise<unknown> } }).runs;
+
+      const actual = await iacRuns.record('run-123');
+
+      expect(ipcInvoke).toHaveBeenCalledWith('iac.runs.record', { runId: 'run-123' });
+      expect(actual).toEqual({ found: false });
+    });
+  });
+
   // iac.runs.logUrl
 
   describe('iac.runs.logUrl', () => {

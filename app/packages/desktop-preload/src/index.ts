@@ -19,6 +19,7 @@ export type {
   RunDetailStatus,
   IacRunsGetResult,
   IacRunsListOpts,
+  IacRunsRecordResult,
   RunHistoryRecord,
   RunHistoryPageResult,
   RunHistoryStatus,

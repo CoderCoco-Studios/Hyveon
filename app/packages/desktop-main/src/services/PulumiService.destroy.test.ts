@@ -367,6 +367,18 @@ describe('PulumiService.destroy confirmation gate', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-DSTR-014
+  it('should log the specific rejection reason from the shared confirmation gate', async () => {
+    const service = makeService({ workspace: makeWorkspace(makeHappyPathDestroy()) });
+    service.mintDestroyConfirmationToken();
+
+    await expect(collectDestroyChunks(service.destroy('some-other-token'))).rejects.toBeInstanceOf(DestroyNotConfirmedError);
+
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'pulumi destroy confirmation rejected: supplied token does not match the most recently minted token',
+    );
+  });
+
   it('should reject with DestroyNotConfirmedError when the most recently minted token has expired', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
     const service = makeService({ workspace });
@@ -407,6 +419,28 @@ describe('PulumiService.destroy confirmation gate', () => {
 
     await expect(collectDestroyChunks(service.destroy(token))).rejects.toBeInstanceOf(DestroyNotConfirmedError);
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
+  });
+
+  // @spec IAC-RUN-DSTR-014
+  it('should log both the minted and the current state bucket and region when the target binding mismatches', async () => {
+    const store = makeFullyConfiguredStore();
+    const service = makeService({ workspace: makeWorkspace(makeHappyPathDestroy()), store });
+    const mintedBucket = store.get('bootstrap')?.stateBucket;
+    const mintedRegion = store.get('aws')?.region;
+    const token = service.mintDestroyConfirmationToken();
+    store.set('bootstrap', { stateBucket: 'a-different-bucket', configurationBucket: '' });
+
+    await expect(collectDestroyChunks(service.destroy(token))).rejects.toBeInstanceOf(DestroyNotConfirmedError);
+
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining('bound to a different target'),
+      {
+        mintedStateBucket: mintedBucket,
+        currentStateBucket: 'a-different-bucket',
+        mintedStateBucketRegion: mintedRegion,
+        currentStateBucketRegion: mintedRegion,
+      },
+    );
   });
 
   it('should reject with DestroyNotConfirmedError when the token was minted for a different AWS region (target binding)', async () => {

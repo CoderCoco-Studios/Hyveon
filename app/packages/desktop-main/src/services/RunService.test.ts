@@ -8,7 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RunLockHeldError } from '@hyveon/shared';
-import type { RunLock, RunRecordStore } from '@hyveon/shared';
+import type { RemoteFileStore, RunLock, RunRecordStore } from '@hyveon/shared';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -62,10 +62,25 @@ function makeStore(): RunRecordStore {
   };
 }
 
-/** Builds a `RunService` with a `ConfigService` stub returning `outputs` and the given (or default) store stub. */
-function makeService(outputs: StackOutputs | null = STACK_OUTPUTS, store: RunRecordStore = makeStore()): RunService {
+/** Builds a `RemoteFileStore` stub whose `get()` serves `config` as the persisted deployment config (or nothing). */
+function makeRemoteFileStore(config?: { projectName?: string; runsTableName?: string }): RemoteFileStore {
+  return {
+    get: async () =>
+      config === undefined ? undefined : { body: new TextEncoder().encode(JSON.stringify(config)), etag: 'etag-1' },
+    getVersion: () => Promise.reject(new Error('not implemented in fake')),
+    put: () => Promise.reject(new Error('not implemented in fake')),
+    listVersions: () => Promise.reject(new Error('not implemented in fake')),
+  };
+}
+
+/** Builds a `RunService` with a `ConfigService` stub returning `outputs` and the given (or default) store and remote-file-store stubs. */
+function makeService(
+  outputs: StackOutputs | null = STACK_OUTPUTS,
+  store: RunRecordStore = makeStore(),
+  remoteFileStore: RemoteFileStore = makeRemoteFileStore(),
+): RunService {
   const config = { getStackOutputs: async () => outputs } as Partial<ConfigService> as ConfigService;
-  return new RunService(config, store);
+  return new RunService(config, store, remoteFileStore);
 }
 
 beforeEach(() => {
@@ -498,5 +513,109 @@ describe('RunService', () => {
       expect(err.name).toBe('RunLockChangedError');
       expect(err.message).toMatch(/run lock has changed/i);
     });
+  });
+});
+
+describe('RunService pre-apply runs-table fallback', () => {
+  const PRE_APPLY = makeRemoteFileStore({ projectName: 'hyveon', runsTableName: 'pre-apply-runs' });
+
+  // @spec IAC-RUN-LOCK-009
+  it('should hold the durable lock on a fresh install when only the persisted deployment config names the table', async () => {
+    const service = makeService(null, makeStore(), PRE_APPLY);
+
+    const lock = await service.createRun('apply', 'alice');
+
+    expect(acquireRunLockMock).toHaveBeenCalledWith(lock);
+  });
+
+  // @spec IAC-RUN-LOCK-009
+  it('should release the durable lock on a fresh install through the same fallback', async () => {
+    const service = makeService(null, makeStore(), PRE_APPLY);
+    const lock = await service.createRun('apply', 'alice');
+
+    await service.releaseRun(lock.runId);
+
+    expect(releaseRunLockMock).toHaveBeenCalledWith(lock.runId);
+  });
+
+  // @spec IAC-RUN-LOCK-009
+  it('should resolve a durable-only lock through the fallback when minting a clear token', async () => {
+    const held: RunLock = {
+      runId: 'other-process-run',
+      kind: 'apply',
+      initiator: 'bob',
+      acquiredAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    getRunLockMock.mockResolvedValue(held);
+    const service = makeService(null, makeStore(), PRE_APPLY);
+
+    await expect(service.mintLockClearConfirmationToken('other-process-run')).resolves.toEqual(expect.any(String));
+  });
+
+  // @spec IAC-RUN-LOCK-009
+  it('should skip the durable lock when neither stack outputs nor the deployment config name a table', async () => {
+    const service = makeService(null, makeStore(), makeRemoteFileStore());
+
+    await service.createRun('apply', 'alice');
+
+    expect(acquireRunLockMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('RunService.getHeldLock', () => {
+  const durable = (expiresInMs: number): RunLock => ({
+    runId: 'restart-run',
+    kind: 'apply',
+    initiator: 'alice',
+    acquiredAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + expiresInMs).toISOString(),
+  });
+
+  // @spec IAC-RUN-LOCK-010
+  it('should report an unexpired durable lock this process never acquired', async () => {
+    getRunLockMock.mockResolvedValue(durable(60_000));
+
+    await expect(makeService().getHeldLock()).resolves.toMatchObject({ runId: 'restart-run' });
+  });
+
+  // @spec IAC-RUN-LOCK-010
+  it('should not report a durable lock past its TTL', async () => {
+    getRunLockMock.mockResolvedValue(durable(-1000));
+
+    await expect(makeService().getHeldLock()).resolves.toBeUndefined();
+  });
+
+  // @spec IAC-RUN-LOCK-010
+  it('should prefer the in-memory lock without reading the durable item', async () => {
+    const service = makeService();
+    const lock = await service.createRun('apply', 'alice');
+
+    await expect(service.getHeldLock()).resolves.toEqual(lock);
+    expect(getRunLockMock).not.toHaveBeenCalled();
+  });
+
+  // @spec IAC-RUN-LOCK-010
+  it('should treat a rejected durable read as no lock', async () => {
+    getRunLockMock.mockRejectedValue(new Error('boom'));
+
+    await expect(makeService().getHeldLock()).resolves.toBeUndefined();
+  });
+});
+
+describe('RunService error logging', () => {
+  // @spec IAC-RUN-STORE-009
+  it('should log the normalised message, not the raw error, when the durable release fails', async () => {
+    releaseRunLockMock.mockRejectedValue(new Error('ddb down'));
+    const service = makeService();
+
+    await service.releaseRun('run-x');
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('failed to release DynamoDB apply lock'),
+      expect.objectContaining({ error: 'ddb down', runId: 'run-x' }),
+    );
+    const ctx = vi.mocked(logger.warn).mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(ctx).not.toHaveProperty('err');
   });
 });

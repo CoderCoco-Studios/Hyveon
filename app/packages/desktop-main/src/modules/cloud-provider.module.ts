@@ -7,7 +7,6 @@ import {
   AwsDiscordConfigStore,
   AwsRunRecordStore,
 } from '@hyveon/cloud-aws';
-import { resolvePreApplyRunsTableName } from '@hyveon/shared';
 import type {
   CloudProvider,
   SecretsStore,
@@ -24,6 +23,7 @@ import { ElectronStoreService } from '../services/ElectronStoreService.js';
 import { resolveAwsClientCredentialsWithSignature } from '../services/awsCredentialSource.js';
 import type { AwsClientCredentials } from '../services/awsCredentialSource.js';
 import { createAwsCloudProvider } from '../services/EcsService.js';
+import { resolveRunsTableName } from '../services/runs-table-name.js';
 import {
   CLOUD_PROVIDER,
   SECRETS_STORE,
@@ -137,8 +137,8 @@ export async function resolveDiscordConfigStoreConfig(
  * Resolves the `{ tableName, bucket, region }` config the AWS `RunRecordStore`'s
  * `getConfig` callback needs. `tableName` comes from
  * `ConfigService.getStackOutputs()`'s `runsTableName`, falling back — only
- * when that's empty — to `resolvePreApplyRunsTableName(remoteFileStore)`
- * (`@hyveon/shared`), which reads the persisted `DeploymentConfig` directly
+ * when that's empty — through the shared `resolveRunsTableName` (`runs-table-name.ts`) to
+ * `resolvePreApplyRunsTableName(remoteFileStore)` (`@hyveon/shared`), which reads the persisted `DeploymentConfig` directly
  * to compute the table's deterministic name without touching Pulumi.
  *
  * That fallback fixes a Critical bootstrap deadlock (see
@@ -170,8 +170,7 @@ export async function resolveRunRecordStoreConfig(
   credentials: AwsClientCredentials;
   credentialsSignature: string;
 }> {
-  const outputs = await config.getStackOutputs();
-  const tableName = outputs?.runsTableName || (await resolvePreApplyRunsTableName(remoteFileStore));
+  const tableName = await resolveRunsTableName(config, remoteFileStore);
   const { credentials, signature } = resolveAwsClientCredentialsWithSignature(store);
   return {
     tableName: tableName ?? '',

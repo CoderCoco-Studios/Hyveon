@@ -90,6 +90,7 @@ function flushPromises(): Promise<void> {
 function makeRunService(lock: RunLock | undefined = undefined): RunService {
   return {
     getCurrentLock: vi.fn().mockReturnValue(lock),
+    getHeldLock: vi.fn().mockResolvedValue(lock),
     mintLockClearConfirmationToken: vi.fn().mockResolvedValue('tok-default'),
     clearLock: vi.fn().mockResolvedValue(undefined),
   } as unknown as RunService;
@@ -126,6 +127,7 @@ function makeRunRecordService(
 ): RunRecordService {
   return {
     listRuns: vi.fn().mockResolvedValue(listRunsResult),
+    getByRunId: vi.fn().mockResolvedValue(undefined),
     getLogUrl: vi.fn().mockResolvedValue(logUrl),
   } as Partial<RunRecordService> as RunRecordService;
 }
@@ -151,6 +153,7 @@ describe('@MessagePattern channel names', () => {
       ['get', 'iac.runs.get'],
       ['logs', 'iac.runs.logs'],
       ['list', 'iac.runs.list'],
+      ['record', 'iac.runs.record'],
       ['logUrl', 'iac.runs.logUrl'],
       ['mintLockClearToken', 'iac.runs.lock.clear.mintToken'],
       ['clearLock', 'iac.runs.lock.clear'],
@@ -168,7 +171,40 @@ describe('IacRunsController.get', () => {
     const result = await controller.get({ runId: 'run-live' });
 
     expect(result).toEqual({ found: true, status: 'running' });
-    expect(pulumi.readRunRecord).not.toHaveBeenCalled();
+  });
+
+  // @spec IAC-RUN-LOCK-010
+  it('should report running for a run holding only the durable lock, as after an app restart', async () => {
+    const runService = makeRunService();
+    vi.mocked(runService.getHeldLock).mockResolvedValue(buildLock({ runId: 'run-restarted' }));
+    const pulumi = makePulumi();
+    const controller = new IacRunsController(pulumi, runService, makeRunRecordService());
+
+    const result = await controller.get({ runId: 'run-restarted' });
+
+    expect(result).toEqual({ found: true, status: 'running' });
+  });
+
+  // @spec IAC-RUN-LOCK-010
+  it('should report the settled status, not running, when the lock release failed for a finished run', async () => {
+    const record = buildRecord({ runId: 'run-done', kind: 'apply', exitCode: 0 });
+    const runService = makeRunService(buildLock({ runId: 'run-done' }));
+    const controller = new IacRunsController(makePulumi(record), runService, makeRunRecordService());
+
+    const result = await controller.get({ runId: 'run-done' });
+
+    expect(result).toEqual({ found: true, status: 'success', record });
+  });
+
+  // @spec IAC-RUN-LOCK-010
+  it('should report running while an apply holds the lock under the runId of its persisted plan record', async () => {
+    const record = buildRecord({ runId: 'run-held', kind: 'plan', exitCode: 0 });
+    const runService = makeRunService(buildLock({ runId: 'run-held', kind: 'apply' }));
+    const controller = new IacRunsController(makePulumi(record), runService, makeRunRecordService());
+
+    const result = await controller.get({ runId: 'run-held' });
+
+    expect(result).toEqual({ found: true, status: 'running' });
   });
 
   it('should return found: true, status: success plus the record for a finished apply run', async () => {
@@ -583,6 +619,33 @@ describe('IacRunsController.clearLock', () => {
 });
 
 // @spec IAC-RUN-STORE-006
+// @spec IAC-RUN-DETL-004
+describe('IacRunsController.record', () => {
+  it('should resolve the persisted record for the runId through RunRecordService.getByRunId', async () => {
+    const record = buildDynamoRecord({ runId: 'run-ancient' });
+    const runRecordService = makeRunRecordService();
+    vi.mocked(runRecordService.getByRunId).mockResolvedValue(record);
+    const controller = new IacRunsController(makePulumi(), makeRunService(), runRecordService);
+
+    const result = await controller.record({ runId: 'run-ancient' });
+
+    expect(runRecordService.getByRunId).toHaveBeenCalledWith('run-ancient');
+    expect(result).toEqual({ found: true, record });
+  });
+
+  it('should resolve found: false when no record exists for the runId', async () => {
+    const controller = new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService());
+
+    await expect(controller.record({ runId: 'run-missing' })).resolves.toEqual({ found: false });
+  });
+
+  it('should reject a payload with a missing runId', async () => {
+    const controller = new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService());
+
+    await expect(controller.record({} as unknown as { runId: string })).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
 describe('IacRunsController.logUrl', () => {
   it("should delegate to RunRecordService.getLogUrl and wrap the result in { url }", async () => {
     const runRecordService = makeRunRecordService(undefined, 'https://example.com/signed-log');

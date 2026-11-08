@@ -549,6 +549,14 @@ export type IacRunsGetResult =
   | { found: true; status: RunDetailStatus; record?: IacRunRecord };
 
 /**
+ * Result of `iac.runs.record`: the persisted history record for the run, when one exists.
+ *
+ * Mirrors `IacRunsRecordResult` in `@hyveon/desktop-main/src/controllers/iac-runs.controller.ts`, which is the source of
+ * truth.
+ */
+export type IacRunsRecordResult = { found: false } | { found: true; record: RunHistoryRecord };
+
+/**
  * Lifecycle status of a {@link RunHistoryRecord}.
  *
  * Mirrors `RunStatus` in `@hyveon/shared/src/runs.ts` — that file is the
@@ -769,6 +777,8 @@ export interface IacRollbackResolveAck {
 export interface IacRollbackConfirmAck {
   confirmed: boolean;
   versionId?: string;
+  /** The rollback's single tagged plan run, set when `confirmed` is `true`; the renderer adopts it rather than planning again. */
+  planRunId?: string;
   error?: string;
 }
 
@@ -1863,6 +1873,13 @@ export interface HyveonIacRunsApi {
    */
   list: (opts?: IacRunsListOpts) => Promise<RunHistoryPageResult>;
   /**
+   * Resolves one persisted run record by its `runId`, however old the run is, or `{ found: false }` when none exists.
+   * An apply shares its plan's `runId`, so the newest match for an applied plan is its apply record.
+   *
+   * Internally this is a plain `invoke('iac.runs.record', { runId })` call.
+   */
+  record: (runId: string) => Promise<IacRunsRecordResult>;
+  /**
    * Resolves a temporary, fetchable URL for a run's log once it has been
    * offloaded to remote storage (i.e. the record's `logS3Key` is set,
    * distinguishing it from a small enough log embedded on `logInline`).
@@ -2061,13 +2078,9 @@ export interface HyveonIacLockApi {
  * previews the target version for the confirmation dialog without writing
  * anything, then {@link confirm} restores it as a new configuration head
  * version (and, internally, re-plans against it — see
- * {@link IacRollbackConfirmAck}'s doc comment). The caller completes
- * the rollback with an ordinary `iac.plan` call
- * (`{ configVersionId: confirm's returned versionId, rolledBackFrom: applyRunId }`)
- * so the tagged plan streams and gates through the exact same channel every
- * other plan does — see `iac.controller.ts`'s `confirmRollback` TSDoc,
- * "Known, accepted consequence", for the resulting duplicate-plan-record
- * behavior this produces today.
+ * {@link IacRollbackConfirmAck}'s doc comment). A confirmed rollback yields exactly one tagged plan run, returned as
+ * `planRunId`; the caller streams and approves that run through the ordinary `iac.runs.*` and `iac.approve` channels
+ * and submits no second plan.
  */
 export interface HyveonIacRollbackApi {
   /**

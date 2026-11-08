@@ -50,8 +50,8 @@ describe('LockClearConfirmationGate', () => {
 
   it('should reject a token whose binding no longer matches the current lock, including no lock', () => {
     const token = gate.mint('run-1');
-    expect(gate.assertFresh(token, 'run-2')).toEqual({ ok: false, reason: 'binding-mismatch' });
-    expect(gate.assertFresh(token, null)).toEqual({ ok: false, reason: 'binding-mismatch' });
+    expect(gate.assertFresh(token, 'run-2')).toEqual({ ok: false, reason: 'binding-mismatch', minted: 'run-1' });
+    expect(gate.assertFresh(token, null)).toEqual({ ok: false, reason: 'binding-mismatch', minted: 'run-1' });
   });
 
   it('should keep the pending token after a failed assert', () => {

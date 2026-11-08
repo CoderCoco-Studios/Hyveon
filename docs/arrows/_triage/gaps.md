@@ -27,7 +27,7 @@ Totals count specs, one class per spec. `APP-WIZARD-HEALTH-008` is counted once,
 
 | Segment | Specs file | a | b (high / med / low) | c | d | Total |
 |---|---|---|---|---|---|---|
-| `run` | `docs/intent/iac/run/run-specs.md` | 0 | 5 (0 / 3 / 2) | 3 | 4 | 12 |
+| `run` | `docs/intent/iac/run/run-specs.md` | 0 | 0 | 0 | 0 | 0 (12 since closed) |
 | `engine` | `docs/intent/iac/engine/engine-specs.md` | 0 | 13 (1 / 5 / 7) | 2 | 0 | 15 |
 | `program` | `docs/intent/iac/program/program-specs.md` | 0 | 10 (2 / 1 / 7) | 1 | 2 | 13 |
 | `task-and-dns` | `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md` | 0 | 10 (1 / 3 / 6) | 1 | 3 | 14 |
@@ -77,7 +77,7 @@ These pairs describe one behaviour from two leaves. Keep one ID as the owner and
 | Health-check Lambda env vars | `RT-HEALTH-PROV-003`, `IAC-PROGRAM-LAMBDA-011`, `IAC-PROGRAM-RUNTIME-003` | `iac/program` (provisioning) |
 | Health-check Lambda network path | `RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-012` | `iac/program` |
 | Install region single-sourced | `IAC-ENGINE-REGION-001`, `CONFIG-SET-012`, `CONFIG-FORM-003`, `CONFIG-FORM-007`, `APP-WIZARD-REGLOCK-001` | `iac/engine` (decision 10 in the HLD); the others cite it |
-| Quit-time abort of IaC runs (`IAC-ENGINE-LIFE-009` closed; `IAC-RUN-DSTR-011` still open in `iac/run`) | `IAC-RUN-DSTR-011` | `iac/run` |
+| Quit-time abort of IaC runs (`IAC-ENGINE-LIFE-009` and `IAC-RUN-DSTR-011` closed) | `IAC-RUN-DSTR-011` | `iac/run` |
 | Audit-read error handling | `APP-DIAG-AUDR-004`, `APP-DIAG-SVC-002` | `APP-DIAG-SVC-002` |
 | Partial-apply persistence | `IAC-RUN-STORE-008` | `IAC-RUN-STORE-008` |
 
@@ -98,19 +98,19 @@ Specs: `docs/intent/iac/run/run-specs.md` · Arrow doc: `docs/arrows/iac/run.md`
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `IAC-RUN-STORE-008` | d | - | approveRun spreads the stored record (RunRecordService.ts:643) and approves only kind 'plan' (:634), which never carries partialApply; the only loss path is the store round-trip, i.e. STORE-007 |
-| `IAC-RUN-STORE-009` | b | low | Raw err still logged at RunRecordService.ts:339,354,385 and RunService.ts:244 |
-| `IAC-RUN-LOCK-009` | b | med | RunService createRun/releaseRun/lock lookup use only getStackOutputs().runsTableName (RunService.ts:181,234,275) vs RunRecordService fallback resolvePreApplyRunsTableName (RunRecordService.ts:268-272); first apply has only in-memory lock |
-| `IAC-RUN-LOCK-010` | c | - | iac.runs.get checks only in-memory lock (controllers/iac-runs.controller.ts:223-226). But after restart the run's engine process is dead, so "running" from a stale durable lock would be wrong; needs a decision (multi-instance only) |
-| `IAC-RUN-APPR-006` | d | - | Renderer-local APPROVAL_WINDOW_MS/isApprovalExpired still at web/src/pages/iac.page.tsx:48-53 (shared already imported :6); pure dedupe, no behaviour, belongs in LLD Work Required |
-| `IAC-RUN-DSTR-011` | b | med | The engine quit coordinator (`IAC-ENGINE-LIFE-009`, `operation-quit-hook.ts`) now holds the quit until `PulumiService.whenIdle()`, i.e. until the destroy/apply generator's own `finally` has persisted the record and released the lock; this row stays open only until the run layer adds its own test and flips the spec |
-| `IAC-RUN-DSTR-014` | d | - | Hand-rolled destroy token still at PulumiService.ts:2750 (mintDestroyConfirmationToken) beside LockClearConfirmationGate; pure dedupe/refactor, no behaviour change; belongs in LLD Work Required |
+| `IAC-RUN-STORE-008` (CLOSED) | d | - | Closed in the `iac/run` gap layer. Was: approveRun spreads the stored record (RunRecordService.ts:643) and approves only kind 'plan' (:634), which never carries partialApply; the only loss path is the store round-trip, i.e. STORE-007 |
+| `IAC-RUN-STORE-009` (CLOSED) | b | low | Closed in the `iac/run` gap layer. Was: Raw err still logged at RunRecordService.ts:339,354,385 and RunService.ts:244 |
+| `IAC-RUN-LOCK-009` (CLOSED) | b | med | Closed in the `iac/run` gap layer. Was: RunService createRun/releaseRun/lock lookup use only getStackOutputs().runsTableName (RunService.ts:181,234,275) vs RunRecordService fallback resolvePreApplyRunsTableName (RunRecordService.ts:268-272); first apply has only in-memory lock |
+| `IAC-RUN-LOCK-010` (CLOSED) | c | - | Closed in the `iac/run` gap layer. Was: iac.runs.get checks only in-memory lock (controllers/iac-runs.controller.ts:223-226). But after restart the run's engine process is dead, so "running" from a stale durable lock would be wrong; needs a decision (multi-instance only) |
+| `IAC-RUN-APPR-006` (CLOSED) | d | - | Closed in the `iac/run` gap layer. Was: Renderer-local APPROVAL_WINDOW_MS/isApprovalExpired still at web/src/pages/iac.page.tsx:48-53 (shared already imported :6); pure dedupe, no behaviour, belongs in LLD Work Required |
+| `IAC-RUN-DSTR-011` (CLOSED) | b | med | Closed in the `iac/run` gap layer. Was: No shutdown hook for IaC runs (only helper quit hook, helper-quit-hook.ts:34); lock release relies on WebContents destroy abort racing exit, then 1h TTL. Overlaps IAC-ENGINE-LIFE-009 (same fix) |
+| `IAC-RUN-DSTR-014` (CLOSED) | d | - | Closed in the `iac/run` gap layer. Was: Hand-rolled destroy token still at PulumiService.ts:2750 (mintDestroyConfirmationToken) beside LockClearConfirmationGate; pure dedupe/refactor, no behaviour change; belongs in LLD Work Required |
 | `IAC-RUN-HIST-004` (CLOSED) | b | med | Was a status-filtered query with `KeyConditionExpression` 'status = :status' and no ExpressionAttributeNames (cloud-aws/src/AwsRunRecordStore.ts:305); `status` is a DynamoDB reserved word, so real DynamoDB rejected it. The key condition is now `#status = :status` with `ExpressionAttributeNames` |
-| `IAC-RUN-DETL-004` | b | low | Run detail resolves runId by scanning newest 200 records of iac.runs.list (web/src/pages/iac-run-detail.page.tsx:22,50); older runs render not-found |
-| `IAC-RUN-RBK-010` | b | med | confirmRollback runs previewCore tagged plan (PulumiService.ts:3656), then iac.page.tsx:130-135 auto-submits a second tagged plan on arrival (nav from iac-history.page.tsx:48), so two plan runs per rollback |
-| `IAC-RUN-IPC-008` | d | - | Three hand-rolled stream loops still in iac.controller.ts (plan :721, apply :825, destroy :986 handlers); pure dedupe refactor, no behaviour, belongs in LLD Work Required |
-| `IAC-RUN-ITEST-005` | c | - | Integration harness replaces PulumiService with PulumiServiceStub by design (web/e2e/integration-specs/iac-apply-gates.spec.ts:35-41); gate math unit-tested in PulumiService.apply.test.ts; needs harness-redesign decision |
-| `IAC-RUN-ITEST-007` | c | - | Same deliberate stub design (web/e2e/integration-specs/iac-destroy-token.spec.ts:16-17); token bookkeeping unit-tested in PulumiService.destroy.test.ts; low marginal value |
+| `IAC-RUN-DETL-004` (CLOSED) | b | low | Closed in the `iac/run` gap layer. Was: Run detail resolves runId by scanning newest 200 records of iac.runs.list (web/src/pages/iac-run-detail.page.tsx:22,50); older runs render not-found |
+| `IAC-RUN-RBK-010` (CLOSED) | b | med | Closed in the `iac/run` gap layer. Was: confirmRollback runs previewCore tagged plan (PulumiService.ts:3656), then iac.page.tsx:130-135 auto-submits a second tagged plan on arrival (nav from iac-history.page.tsx:48), so two plan runs per rollback |
+| `IAC-RUN-IPC-008` (CLOSED) | d | - | Closed in the `iac/run` gap layer. Was: Three hand-rolled stream loops still in iac.controller.ts (plan :721, apply :825, destroy :986 handlers); pure dedupe refactor, no behaviour, belongs in LLD Work Required |
+| `IAC-RUN-ITEST-005` (CLOSED) | c | - | Deferred, not built in the `iac/run` gap layer. Was: Integration harness replaces PulumiService with PulumiServiceStub by design (web/e2e/integration-specs/iac-apply-gates.spec.ts:35-41); gate math unit-tested in PulumiService.apply.test.ts; needs harness-redesign decision |
+| `IAC-RUN-ITEST-007` (CLOSED) | c | - | Deferred, not built in the `iac/run` gap layer. Was: Same deliberate stub design (web/e2e/integration-specs/iac-destroy-token.spec.ts:16-17); token bookkeeping unit-tested in PulumiService.destroy.test.ts; low marginal value |
 
 ### `engine`
 

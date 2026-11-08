@@ -192,8 +192,9 @@ It appears under whichever action you attempted (plan, apply or destroy), with
 the raw backend error stacked below it. Wait for the in-flight run to finish
 and try again.
 
-Apply additionally takes a durable lock that self-releases after one hour, so
-a crashed apply cannot wedge the workspace permanently.
+Apply additionally takes a durable lock, held from the very first apply, that self-releases after one hour, so
+a crashed apply cannot wedge the workspace permanently. If the app restarts while a run's lock is still held,
+the run keeps showing as running until you clear the lock or the hour passes.
 
 ### Stale run locks
 
@@ -334,19 +335,11 @@ offloaded copy in S3. If none of those exist you see:
 
 > This run has no replayable, inline, or offloaded log.
 
-### Why an old run can 404
+### When run detail says not found
 
 > No run history record was found for "…".
 
-This page finds its record by searching the most recent runs rather than
-looking it up by ID, and that search is capped at the **100 most recent
-runs**. A run older than that will 404 when you open (or refresh) its detail
-page directly, even though it is still reachable by paging through the history
-list.
-
-The records themselves are not being deleted — they live in DynamoDB with no
-expiry. The other cause of a 404 is that the runs table has not been deployed
-at all, in which case *every* run detail page 404s.
+The page looks the run up by its ID, so a run of any age opens directly. The record does not exist if the ID is wrong or the runs table has not been created yet, in which case *every* run detail page reports not found. The records themselves are never deleted: they live in DynamoDB with no expiry.
 
 ## Rollback
 
@@ -373,9 +366,8 @@ or reverted, so you can always roll forward again by rolling back the
 rollback.
 
 **A rollback does not change your infrastructure by itself.** Confirming
-restores the configuration object and then drops you on the Infrastructure
-page with a plan already running against the restored config — but that
-plan goes through the normal gates. **You must still approve it and apply
+restores the configuration object, plans against it once, and then drops you on the Infrastructure
+page showing that finished plan — which goes through the normal gates. **You must still approve it and apply
 it.** Until you do, your declared configuration and your deployed
 infrastructure disagree.
 

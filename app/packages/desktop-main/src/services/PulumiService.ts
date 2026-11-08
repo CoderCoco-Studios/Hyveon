@@ -65,7 +65,7 @@ import {
 } from './PulumiCancellation.js';
 import { runTreatingLeakedPromiseAsSuccess } from './PulumiLeakedPromise.js';
 import { classifyStackLockConflict, isStackLockConflict, PulumiUnrecognizedLockError } from './PulumiLockRecovery.js';
-import { LockClearConfirmationGate } from './LockClearConfirmationGate.js';
+import { LockClearConfirmationGate, type LockClearAssertResult } from './LockClearConfirmationGate.js';
 import type { PersistRunRecordParams, PreflightMarkerParams } from './RunRecordService.js';
 
 /**
@@ -334,54 +334,16 @@ const DESTROY_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 const LOCK_CLEAR_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 
 /**
- * The most recently minted destroy-confirmation token, its expiry, and the
- * destroy TARGET it was bound to — set by
- * {@link PulumiService.mintDestroyConfirmationToken} and consumed (single-use)
- * by {@link PulumiService.assertFreshDestroyConfirmation} the moment a
- * {@link PulumiService.destroy} call validates it.
+ * The target a destroy or lock-clear confirmation token is bound to at mint time, the shared
+ * {@link LockClearConfirmationGate}'s `TBinding` for both of `PulumiService`'s gates, compared field-by-field against
+ * the CURRENT target when a token is validated.
  *
- * Binds `stateBucket`/`stateBucketRegion` (not just `stackName`/`projectName`,
- * which are hardcoded constants and can never mismatch): the First-Run
- * Wizard's "Reconfigure" flow can repoint the self-managed backend at a
- * different S3 state bucket while a destroy-confirmation modal is open, and
- * without this binding a stale token would silently authorize destroying
- * whatever stack now lives in the new bucket.
- *
- * `null` when no token has been minted, or once the most recently minted one
- * has been consumed or superseded by a newer
- * {@link PulumiService.mintDestroyConfirmationToken} call — minting always
- * supersedes, so only the most recently minted token is ever accepted.
+ * Binds `stateBucket`/`stateBucketRegion` (not just `stackName`/`projectName`, which are hardcoded constants and can
+ * never mismatch): the First-Run Wizard's "Reconfigure" flow can repoint the self-managed backend at a different S3
+ * state bucket while a confirmation dialog is open, and without this binding a stale token would silently authorize
+ * acting on whatever stack now lives in the new bucket.
  */
-interface PulumiPendingDestroyConfirmation {
-  /** The single-use token the renderer must supply back to {@link PulumiService.destroy}. */
-  token: string;
-  /** `Date.now() + DESTROY_CONFIRMATION_TTL_MS`, captured at mint time. */
-  expiresAt: number;
-  /**
-   * The self-managed backend's configured state bucket at mint time
-   * (`ElectronStoreService`'s `bootstrap.stateBucket`), or `undefined` if
-   * unconfigured at that moment — see this interface's doc comment, "Target
-   * binding".
-   */
-  stateBucket: string | undefined;
-  /** The state bucket's configured AWS region at mint time (`aws.region`) — see this interface's doc comment. */
-  stateBucketRegion: string | undefined;
-  /** {@link PULUMI_STACK_NAME} at mint time — always the same constant today; see this interface's doc comment for why it's still recorded. */
-  stackName: string;
-  /** {@link PULUMI_PROJECT_NAME} at mint time — always the same constant today, for the identical reason {@link stackName} is still recorded. */
-  projectName: string;
-}
-
-/**
- * The target a lock-clear-confirmation token is bound to at mint time —
- * the shared {@link LockClearConfirmationGate}'s `TBinding` for
- * `PulumiService`'s gate. Compared field-by-field against the CURRENT
- * target when {@link PulumiService.assertFreshLockClearConfirmation}
- * validates a token, mirroring {@link PulumiPendingDestroyConfirmation}'s
- * target-binding design exactly (see that interface's doc comment for the
- * full "why state bucket/region, not just stack/project" reasoning).
- */
-interface PulumiLockClearBinding {
+interface PulumiTargetBinding {
   /** The self-managed backend's configured state bucket at mint time, or `undefined` if unconfigured. */
   stateBucket: string | undefined;
   /** The state bucket's configured AWS region at mint time. */
@@ -390,6 +352,55 @@ interface PulumiLockClearBinding {
   stackName: string;
   /** {@link PULUMI_PROJECT_NAME} at mint time. */
   projectName: string;
+}
+
+/** Field-by-field equality of two {@link PulumiTargetBinding}s. */
+function isSameTarget(minted: PulumiTargetBinding, current: PulumiTargetBinding): boolean {
+  return (
+    minted.stateBucket === current.stateBucket &&
+    minted.stateBucketRegion === current.stateBucketRegion &&
+    minted.stackName === current.stackName &&
+    minted.projectName === current.projectName
+  );
+}
+
+/**
+ * Logs the specific reason a confirmation token was rejected, naming the guarded action, so a rejected attempt leaves a
+ * forensic record (`AuditService` only records accepted submissions).
+ *
+ * @param action - Human label of the guarded action, such as `'destroy'` or `'lock clear'`.
+ * @param rejection - The gate's rejection; a binding mismatch carries the minted target.
+ * @param current - The current target, logged for a binding mismatch.
+ */
+function logConfirmationRejected(
+  action: string,
+  rejection: Extract<LockClearAssertResult<PulumiTargetBinding>, { ok: false }>,
+  current: PulumiTargetBinding,
+): void {
+  const prefix = `pulumi ${action} confirmation rejected:`;
+  switch (rejection.reason) {
+    case 'no-token-minted':
+      logger.warn(`${prefix} no confirmation token has ever been minted`);
+      break;
+    case 'token-mismatch':
+      logger.warn(`${prefix} supplied token does not match the most recently minted token`);
+      break;
+    case 'expired':
+      logger.warn(`${prefix} the most recently minted token has expired`);
+      break;
+    case 'binding-mismatch':
+      logger.warn(
+        `${prefix} token is bound to a different target: the state bucket/region (or project/stack) changed since ` +
+          'the token was minted, most likely via a Reconfigure completing in between',
+        {
+          mintedStateBucket: rejection.minted.stateBucket,
+          currentStateBucket: current.stateBucket,
+          mintedStateBucketRegion: rejection.minted.stateBucketRegion,
+          currentStateBucketRegion: current.stateBucketRegion,
+        },
+      );
+      break;
+  }
 }
 
 /**
@@ -686,26 +697,21 @@ export class PulumiService {
   private readonly activeRuns = new Map<string, PulumiActiveRunBuffer>();
 
   /**
-   * The most recently minted destroy-confirmation token, its expiry, and its
-   * bound target — see {@link PulumiPendingDestroyConfirmation}'s doc comment
-   * for the full contract, including the target-binding design.
+   * Mint/assert/consume gate for the destroy confirmation token: single-use, expiring, superseded by every new mint,
+   * bound to the current {@link PulumiTargetBinding}.
    */
-  private pendingDestroyConfirmation: PulumiPendingDestroyConfirmation | null = null;
+  private readonly destroyGate = new LockClearConfirmationGate<PulumiTargetBinding>(
+    DESTROY_CONFIRMATION_TTL_MS,
+    isSameTarget,
+  );
 
   /**
-   * Mint/assert/consume gate for the lock-clear confirmation token — see
-   * {@link LockClearConfirmationGate}, shared-shape with `RunService`'s own
-   * lock-clear gate. Bound here to a {@link PulumiLockClearBinding} (the
-   * self-managed backend's state bucket/region/stack/project), compared
-   * field-by-field.
+   * Mint/assert/consume gate for the Pulumi backend lock-clear confirmation token, the same shape as
+   * {@link destroyGate} and `RunService`'s run-lock gate (see {@link LockClearConfirmationGate}).
    */
-  private readonly lockClearGate = new LockClearConfirmationGate<PulumiLockClearBinding>(
+  private readonly lockClearGate = new LockClearConfirmationGate<PulumiTargetBinding>(
     LOCK_CLEAR_CONFIRMATION_TTL_MS,
-    (minted, current) =>
-      minted.stateBucket === current.stateBucket &&
-      minted.stateBucketRegion === current.stateBucketRegion &&
-      minted.stackName === current.stackName &&
-      minted.projectName === current.projectName,
+    isSameTarget,
   );
 
   /**
@@ -805,7 +811,7 @@ export class PulumiService {
     }
   }
 
-  // @spec IAC-ENGINE-LIFE-009
+  // @spec IAC-ENGINE-LIFE-009, IAC-RUN-DSTR-011
   /**
    * Aborts every in-flight preview, apply, destroy, rollback and stack
    * initialization so a `SIGINT` reaches the engine during app shutdown. An
@@ -2979,50 +2985,45 @@ export class PulumiService {
     }
   }
 
-  // @spec IAC-RUN-DSTR-003
   /**
-   * Mints a fresh, single-use confirmation token for a subsequent
-   * {@link destroy} call, valid for {@link DESTROY_CONFIRMATION_TTL_MS},
-   * bound to the CURRENT destroy target — see
-   * {@link PulumiPendingDestroyConfirmation}'s doc comment for the full
-   * target-binding design. Intended to
-   * be called the moment the renderer shows its destroy-confirmation modal,
-   * so the token's lifetime brackets the window the operator actually has
-   * that modal open.
+   * Snapshots the CURRENT destroy / lock-clear target for a token binding.
    *
-   * Minting a new token immediately supersedes any previously minted (and not
-   * yet consumed) token — only the most recently minted token is ever
-   * accepted by {@link destroy}. A token is consumed (and can never be
-   * reused) the moment a `destroy()` call validates it, whether or not that
-   * run ultimately succeeds — a second destroy attempt requires minting a new
-   * token.
+   * @returns The configured state bucket and region plus the fixed stack and project names.
    */
-  mintDestroyConfirmationToken(): string {
-    this.pendingDestroyConfirmation = {
-      token: randomUUID(),
-      expiresAt: Date.now() + DESTROY_CONFIRMATION_TTL_MS,
+  private currentTarget(): PulumiTargetBinding {
+    return {
       stateBucket: this.store.get('bootstrap')?.stateBucket,
       stateBucketRegion: this.store.get('aws')?.region,
       stackName: PULUMI_STACK_NAME,
       projectName: PULUMI_PROJECT_NAME,
     };
-    return this.pendingDestroyConfirmation.token;
+  }
+
+  // @spec IAC-RUN-DSTR-003, IAC-RUN-DSTR-014
+  /**
+   * Mints a fresh, single-use confirmation token for a subsequent {@link destroy} call, valid for
+   * {@link DESTROY_CONFIRMATION_TTL_MS} and bound to the CURRENT target ({@link PulumiTargetBinding}). Intended to be
+   * called the moment the renderer shows its destroy-confirmation modal, so the token's lifetime brackets the window
+   * the operator actually has that modal open.
+   *
+   * Minting supersedes any previously minted, unconsumed token; a token is consumed the moment a `destroy()` call
+   * validates it, whether or not that run succeeds, so a second destroy attempt requires a new token.
+   *
+   * @returns The minted token.
+   */
+  mintDestroyConfirmationToken(): string {
+    return this.destroyGate.mint(this.currentTarget());
   }
 
   /**
-   * Mints a fresh, single-use confirmation token for a subsequent
-   * {@link clearStaleLock} call, valid for {@link LOCK_CLEAR_CONFIRMATION_TTL_MS},
-   * bound to the CURRENT lock-clear target — mirrors
-   * {@link mintDestroyConfirmationToken} exactly. Intended to be called the
-   * moment the renderer shows its stale-lock confirmation dialog.
+   * Mints a fresh, single-use confirmation token for a subsequent {@link clearStaleLock} call, valid for
+   * {@link LOCK_CLEAR_CONFIRMATION_TTL_MS} and bound to the CURRENT target. Intended to be called the moment the
+   * renderer shows its stale-lock confirmation dialog.
+   *
+   * @returns The minted token.
    */
   mintLockClearConfirmationToken(): string {
-    return this.lockClearGate.mint({
-      stateBucket: this.store.get('bootstrap')?.stateBucket,
-      stateBucketRegion: this.store.get('aws')?.region,
-      stackName: PULUMI_STACK_NAME,
-      projectName: PULUMI_PROJECT_NAME,
-    });
+    return this.lockClearGate.mint(this.currentTarget());
   }
 
   // @spec IAC-RUN-DSTR-004, IAC-RUN-DSTR-005, IAC-RUN-DSTR-006, IAC-RUN-DSTR-007, IAC-RUN-DSTR-010, IAC-RUN-DSTR-012
@@ -3035,7 +3036,7 @@ export class PulumiService {
    * {@link PulumiRunChunk} per line of stdout/stderr as the operation
    * produces it, and resolving to a {@link PulumiDestroyResult} once it
    * settles, gated behind a confirmation-token mechanism that is genuinely
-   * target-bound (see {@link PulumiPendingDestroyConfirmation}).
+   * target-bound (see {@link PulumiTargetBinding}).
    *
    * @remarks
    * Unlike {@link apply}, there is no preceding plan to validate against —
@@ -4096,107 +4097,54 @@ export class PulumiService {
   }
 
   /**
-   * Throws {@link DestroyNotConfirmedError} unless `token` matches the most
-   * recently minted, not-yet-expired, not-yet-consumed confirmation token AND
-   * `currentStateBucket`/`currentStateBucketRegion` match the target the
-   * token was minted against — see {@link PulumiPendingDestroyConfirmation}'s
-   * doc comment for the full target-binding design. On success, consumes the
-   * token (clears {@link pendingDestroyConfirmation}) so it can never be
-   * replayed against a second `destroy()` call.
+   * Throws {@link DestroyNotConfirmedError} unless `token` is the most recently minted, unexpired, unconsumed destroy
+   * token and the target it was minted against still matches the current one. On success the token is consumed so it
+   * can never be replayed; on failure the pending mint is untouched, so a still-valid token stays usable.
    *
-   * Fully synchronous — no `await` anywhere in this method — which is what
-   * makes token consumption atomic: two "concurrent" calls (in the
-   * single-threaded JS sense — interleaved via Promise scheduling, never
-   * truly parallel) that both reach this method are strictly ordered by
-   * JS's own run-to-completion semantics, exactly like
-   * `RunService.createRun`'s in-memory compare-and-set. Whichever call's
-   * synchronous body runs first observes {@link pendingDestroyConfirmation}
-   * as still set and clears it; the second, whenever it runs, observes it
-   * already `null` (or already superseded by a newer mint) and throws. The
-   * two extra equality comparisons for target binding are added before the
-   * same single synchronous clear, so they don't introduce any `await`
-   * either.
+   * Fully synchronous (no `await`), which makes consumption atomic: of two interleaved calls carrying the same token,
+   * whichever runs first consumes it and the other is refused. Every rejection logs its specific reason through
+   * {@link logConfirmationRejected}, because this gate is the only thing standing between an accidental invocation and
+   * destroying all managed infrastructure.
    *
-   * Does NOT clear {@link pendingDestroyConfirmation} on failure (wrong
-   * token, expired, wrong target) — a genuinely correct, still-valid token remains usable by a
-   * subsequent call even if an earlier call supplied a wrong one first (e.g.
-   * a stale IPC retry racing a fresh one).
-   *
-   * Logs a `logger.warn` naming the SPECIFIC rejection reason (no token ever
-   * minted, token mismatch, expired, or target mismatch) before throwing on
-   * every failure branch — this gate is the ONLY thing
-   * standing between an accidental invocation and destroying all managed
-   * infrastructure, and `AuditService` only records ACCEPTED submissions
-   * (the `iac-destroy-flow` spec's audit requirement is scoped to those), so
-   * a rejected destroy attempt would otherwise leave no forensic record at
-   * all beyond the bare `DestroyNotConfirmedError` message reaching
-   * whichever caller invoked this method. This is especially load-bearing
-   * for the target-mismatch case (a Reconfigure completed between mint and
-   * confirm): without a distinguishing log line, that rejection is
-   * indistinguishable after the fact from an operator simply re-submitting
-   * a stale token.
+   * @param token - The token supplied to {@link destroy}.
+   * @param currentStateBucket - The configured state bucket right now.
+   * @param currentStateBucketRegion - The configured state bucket region right now.
+   * @throws {@link DestroyNotConfirmedError} when the token is missing, wrong, expired, superseded, consumed or bound
+   *   to a different target.
    */
   private assertFreshDestroyConfirmation(
     token: string,
     currentStateBucket: string | undefined,
     currentStateBucketRegion: string | undefined,
   ): void {
-    const pending = this.pendingDestroyConfirmation;
-    if (!pending) {
-      logger.warn('pulumi destroy confirmation rejected: no confirmation token has ever been minted');
-      throw new DestroyNotConfirmedError();
-    }
-    if (pending.token !== token) {
-      logger.warn('pulumi destroy confirmation rejected: supplied token does not match the most recently minted token');
-      throw new DestroyNotConfirmedError();
-    }
-    if (Date.now() > pending.expiresAt) {
-      logger.warn('pulumi destroy confirmation rejected: the most recently minted token has expired', {
-        expiresAt: pending.expiresAt,
-      });
-      throw new DestroyNotConfirmedError();
-    }
-    if (
-      pending.stateBucket !== currentStateBucket ||
-      pending.stateBucketRegion !== currentStateBucketRegion ||
-      pending.stackName !== PULUMI_STACK_NAME ||
-      pending.projectName !== PULUMI_PROJECT_NAME
-    ) {
-      logger.warn(
-        'pulumi destroy confirmation rejected: token is bound to a different target — the state bucket/region ' +
-          '(or project/stack) changed since the token was minted, most likely via a Reconfigure completing in ' +
-          'between',
-        {
-          mintedStateBucket: pending.stateBucket,
-          currentStateBucket,
-          mintedStateBucketRegion: pending.stateBucketRegion,
-          currentStateBucketRegion,
-        },
-      );
-      throw new DestroyNotConfirmedError();
-    }
-    this.pendingDestroyConfirmation = null;
+    const current: PulumiTargetBinding = {
+      stateBucket: currentStateBucket,
+      stateBucketRegion: currentStateBucketRegion,
+      stackName: PULUMI_STACK_NAME,
+      projectName: PULUMI_PROJECT_NAME,
+    };
+    const result = this.destroyGate.assertFresh(token, current);
+    if (result.ok) return;
+    logConfirmationRejected('destroy', result, current);
+    throw new DestroyNotConfirmedError();
   }
 
   /**
-   * Throws {@link LockClearNotConfirmedError} unless `token` matches the most
-   * recently minted, not-yet-expired, not-yet-consumed lock-clear
-   * confirmation token AND `currentStateBucket`/`currentStateBucketRegion`
-   * match the target the token was minted against — mirrors
-   * {@link assertFreshDestroyConfirmation} exactly, delegating the actual
-   * mint/expiry/binding check to the shared {@link LockClearConfirmationGate}
-   * and mapping its rejection reason to the same specific `logger.warn` line
-   * this method logged before the extraction. Fully synchronous, so token
-   * consumption is atomic the same way that method's is. Does NOT consume
-   * the pending mint on failure — a still-valid token remains usable by a
-   * subsequent call.
+   * The lock-clear counterpart of {@link assertFreshDestroyConfirmation}: same gate semantics and logging, refusing with
+   * {@link LockClearNotConfirmedError}.
+   *
+   * @param token - The token supplied to {@link clearStaleLock}.
+   * @param currentStateBucket - The configured state bucket right now.
+   * @param currentStateBucketRegion - The configured state bucket region right now.
+   * @throws {@link LockClearNotConfirmedError} when the token is missing, wrong, expired, superseded, consumed or bound
+   *   to a different target.
    */
   private assertFreshLockClearConfirmation(
     token: string,
     currentStateBucket: string | undefined,
     currentStateBucketRegion: string | undefined,
   ): void {
-    const current: PulumiLockClearBinding = {
+    const current: PulumiTargetBinding = {
       stateBucket: currentStateBucket,
       stateBucketRegion: currentStateBucketRegion,
       stackName: PULUMI_STACK_NAME,
@@ -4204,29 +4152,10 @@ export class PulumiService {
     };
     const result = this.lockClearGate.assertFresh(token, current);
     if (result.ok) return;
-    switch (result.reason) {
-      case 'no-token-minted':
-        logger.warn('pulumi lock clear confirmation rejected: no confirmation token has ever been minted');
-        break;
-      case 'token-mismatch':
-        logger.warn(
-          'pulumi lock clear confirmation rejected: supplied token does not match the most recently minted token',
-        );
-        break;
-      case 'expired':
-        logger.warn('pulumi lock clear confirmation rejected: the most recently minted token has expired');
-        break;
-      case 'binding-mismatch':
-        logger.warn(
-          'pulumi lock clear confirmation rejected: token is bound to a different target — the state bucket/region ' +
-            '(or project/stack) changed since the token was minted, most likely via a Reconfigure completing in ' +
-            'between',
-          { currentStateBucket, currentStateBucketRegion },
-        );
-        break;
-    }
+    logConfirmationRejected('lock clear', result, current);
     throw new LockClearNotConfirmedError();
   }
+
 
   /**
    * Resolves the OS-level identity recorded as {@link RunLock.initiator} for
