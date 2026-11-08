@@ -21,6 +21,7 @@ import {
   invalidateSecretsCache,
   putBotToken,
   putPublicKey,
+  readHealthCheckAuthSecret,
   upsertHealthCheckAuthSecret,
 } from './secretsStore.js';
 
@@ -200,6 +201,49 @@ describe('upsertHealthCheckAuthSecret', () => {
     await expect(upsertHealthCheckAuthSecret('palworld', 'sk-abc123')).rejects.toThrow('Some other invalid request.');
     expect(secrets.commandCalls(RestoreSecretCommand)).toHaveLength(0);
     expect(secrets.commandCalls(CreateSecretCommand)).toHaveLength(0);
+  });
+});
+
+// @spec GAME-WRITE-004
+describe('readHealthCheckAuthSecret', () => {
+  beforeEach(() => {
+    secrets.reset();
+    __resetSecretsClient();
+  });
+
+  it('should return the current secret string for the game by its deterministic name', async () => {
+    secrets.on(GetSecretValueCommand).resolves({ SecretString: 'sk-old' });
+
+    await expect(readHealthCheckAuthSecret('palworld')).resolves.toBe('sk-old');
+    expect(secrets.commandCalls(GetSecretValueCommand)[0]?.args[0].input).toEqual({
+      SecretId: 'hyveon-palworld-healthcheck-auth',
+    });
+  });
+
+  it('should return null when the secret does not exist', async () => {
+    secrets.on(GetSecretValueCommand).rejects(new ResourceNotFoundException({ message: 'nope', $metadata: {} }));
+
+    await expect(readHealthCheckAuthSecret('palworld')).resolves.toBeNull();
+  });
+
+  it('should return null when the secret is pending deletion', async () => {
+    secrets.on(GetSecretValueCommand).rejects(new InvalidRequestException({ message: 'scheduled for deletion', $metadata: {} }));
+    secrets.on(DescribeSecretCommand).resolves({ DeletedDate: new Date() });
+
+    await expect(readHealthCheckAuthSecret('palworld')).resolves.toBeNull();
+  });
+
+  it('should rethrow an InvalidRequestException that is not about pending deletion', async () => {
+    secrets.on(GetSecretValueCommand).rejects(new InvalidRequestException({ message: 'other', $metadata: {} }));
+    secrets.on(DescribeSecretCommand).resolves({});
+
+    await expect(readHealthCheckAuthSecret('palworld')).rejects.toThrow('other');
+  });
+
+  it('should rethrow any other failure', async () => {
+    secrets.on(GetSecretValueCommand).rejects(new Error('AccessDenied'));
+
+    await expect(readHealthCheckAuthSecret('palworld')).rejects.toThrow('AccessDenied');
   });
 });
 

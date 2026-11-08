@@ -96,7 +96,7 @@ import type {
   OlderLogsPage,
   RunHistoryPageResult,
   StackInitPhaseEvent,
-  StoredGameWizardDraft,
+  StoredResolvedGameWizardDraft,
   UpdateDeploymentSettingsPayload,
   UpdateGamePayload,
   AwsProfileSummary,
@@ -439,7 +439,7 @@ const api: HyveonApi = {
     update: (payload: UpdateGamePayload) => invoke('games.update', payload),
     delete: (payload: DeleteGamePayload) => invoke('games.delete', payload),
     draft: {
-      get: () => invoke<StoredGameWizardDraft | null>('games.draft.get'),
+      get: () => invoke<StoredResolvedGameWizardDraft | null>('games.draft.get'),
       save: (payload: { draft: GameWizardDraft; stepIndex: number }) => invoke<void>('games.draft.save', payload),
       updateStepIndex: (stepIndex: number) => invoke<void>('games.draft.updateStepIndex', { stepIndex }),
       clear: () => invoke<void>('games.draft.clear'),

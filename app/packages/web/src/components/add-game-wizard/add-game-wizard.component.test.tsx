@@ -384,6 +384,33 @@ describe('AddGameWizard — submit failure paths', () => {
     expect(toastMock.success).not.toHaveBeenCalled();
   });
 
+  // @spec GAME-WIZ-005
+  it('should jump to the earliest affected step and list every affected step when issues span several steps', async () => {
+    apiMock.createGame.mockResolvedValue({
+      ok: false,
+      code: 'validation',
+      issues: [
+        { path: 'ports[0]', message: 'Port 25565/tcp collides with existing game "valheim".' },
+        { path: 'name', message: 'A game named "mygame" already exists.' },
+      ],
+    });
+    await openWizard();
+    await fillHappyPathToReview();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await screen.findByText('Step 1 of 6: Identity');
+    expect(await screen.findByText(/Fix the highlighted fields on these steps: .*Identity.*Networking/)).toBeInTheDocument();
+  });
+
+  // @spec GAME-IPC-007
+  it('should tell the operator the existing games could not be loaded instead of silently checking against none', async () => {
+    apiMock.games.mockRejectedValue(new Error('IPC unavailable'));
+    await openWizard();
+
+    expect(await screen.findByText(/Could not load the existing games.*IPC unavailable/)).toBeInTheDocument();
+  });
+
   it('should leave the dialog open on the Review step and surface the server message on a conflict/error failure', async () => {
     apiMock.createGame.mockResolvedValue({
       ok: false,
@@ -484,6 +511,18 @@ describe('AddGameWizard — draft autosave', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
 
     await waitFor(() => expect(apiMock.clearGameDraft).toHaveBeenCalled());
+  });
+
+  // @spec GAME-DRAFT-013
+  it('should still close the wizard after a successful submit when clearing the draft fails', async () => {
+    apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
+    apiMock.clearGameDraft.mockRejectedValueOnce(new Error('locked'));
+    await openWizard();
+    await fillHappyPathToReview();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Submit' })).not.toBeInTheDocument());
   });
 
   it('should not clear the saved draft on a failed submit', async () => {

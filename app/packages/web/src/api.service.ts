@@ -5,11 +5,12 @@
 //
 // Types shared with `desktop-main`/`desktop-preload` are imported from
 // `@hyveon/shared`/`@hyveon/desktop-preload` below rather than re-declared —
-// the remaining local interfaces (`GameWizardDraft`, `Discord*`,
-// `EnvInfo`, etc.) have no shared-package counterpart and are genuinely
-// web-only shapes.
+// the remaining local interfaces (`Discord*`, `EnvInfo`, etc.) have no
+// shared-package counterpart and are genuinely web-only shapes.
 
 import type {
+  ResolvedGameWizardDraft,
+  StoredResolvedGameWizardDraft,
   ExportDiagnosticsBundleResult,
   GameServerHealthCheckAuth,
   GameServerHealthCheckAuthWriteInput,
@@ -125,54 +126,11 @@ export type {
   VolumeTransferProgress,
 };
 
-/**
- * In-progress add-game wizard field values.
- *
- * Mirrors `WizardDraft` in
- * `app/packages/web/src/components/add-game-wizard/wizard-form.utils.ts` —
- * that file is the source of truth; keep this copy in sync with it.
- */
-export interface GameWizardDraft {
-  name: string;
-  image: string;
-  connect_message: string;
-  cpu: number | null;
-  memory: number | null;
-  ports: { container: number | null; protocol: string; visibility: 'public' | 'internal' }[];
-  volumes: { name: string; container_path: string }[];
-  file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
-  environment: { name: string; value: string }[];
-  command: string[];
-  /** Absent when the "Pin hostname" switch is off. */
-  pinnedHostname?: string;
-  https: boolean;
-  /** Absent on a draft autosaved before this field existed; consumers treat a missing value as `null`. */
-  webPort?: number | null;
-  healthCheck: {
-    enabled: boolean;
-    scheme: string;
-    port: number | null;
-    path: string;
-    method: string;
-    timeoutMs: number | null;
-    jsonPath: string;
-    operator: string;
-    value: string;
-    authType: 'none' | 'raw' | 'basic' | 'bearer';
-    secretArn: string;
-    username: string;
-    password: string;
-    token: string;
-    secretSet: boolean;
-  };
-}
+/** Add-game wizard field values as the renderer holds them: the shared draft with every backfilled field required. */
+export type GameWizardDraft = ResolvedGameWizardDraft;
 
-/** A saved add-game wizard draft plus which step the operator was on and when it was last autosaved. */
-export interface StoredGameWizardDraft {
-  draft: GameWizardDraft;
-  stepIndex: number;
-  savedAt: string;
-}
+/** A saved add-game wizard draft plus its step and last-autosave time, as returned by `games.draft.get`. */
+export type StoredGameWizardDraft = StoredResolvedGameWizardDraft;
 
 /** Discord slash-command action a user can be permitted to invoke on a game. */
 export type DiscordAction = 'start' | 'stop' | 'status';
@@ -331,9 +289,7 @@ export const api = {
   createGame: async (payload: CreateGamePayload): Promise<GameWriteResult> => hyveon().games.create(payload),
   updateGame: async (payload: UpdateGamePayload): Promise<GameWriteResult> => hyveon().games.update(payload),
   deleteGame: async (payload: DeleteGamePayload): Promise<GameWriteResult> => hyveon().games.delete(payload),
-  // Preload types `ports[].visibility` optional, this file's `GameWizardDraft` requires it — hence the cast.
-  getGameDraft: async (): Promise<StoredGameWizardDraft | null> =>
-    hyveon().games.draft.get() as Promise<StoredGameWizardDraft | null>,
+  getGameDraft: async (): Promise<StoredGameWizardDraft | null> => hyveon().games.draft.get(),
   saveGameDraft: async (draft: GameWizardDraft, stepIndex: number): Promise<void> =>
     hyveon().games.draft.save({ draft, stepIndex }),
   updateGameDraftStepIndex: async (stepIndex: number): Promise<void> =>

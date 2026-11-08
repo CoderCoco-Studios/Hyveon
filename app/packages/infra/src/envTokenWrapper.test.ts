@@ -30,6 +30,18 @@ describe('buildIpv4WrapperScript', () => {
     expect(script).not.toContain('EULA');
   });
 
+  // @spec GAME-TOKEN-008
+  it('should bound the worst-case discovery time (attempts x per-attempt timeouts and sleep) to about 60 seconds', () => {
+    const script = buildIpv4WrapperScript({ environment: [tokenVar], command: ['/start.sh'] });
+    const attempts = Number(/"\$attempt" -lt (\d+)/.exec(script)?.[1]);
+    const wgetTimeout = Number(/wget[^;]*? -T (\d+)/.exec(script)?.[1]);
+    const curlTimeout = Number(/curl[^;]*? -m (\d+)/.exec(script)?.[1]);
+    const sleepSeconds = Number(/sleep (\d+)/.exec(script)?.[1]);
+    const worstCase = attempts * (wgetTimeout + curlTimeout + sleepSeconds);
+    expect(worstCase).toBeGreaterThan(0);
+    expect(worstCase).toBeLessThanOrEqual(65);
+  });
+
   // @spec IAC-PROGRAM-TOKEN-005
   it('should exec the command with each argument single-quoted', () => {
     const script = buildIpv4WrapperScript({ environment: [tokenVar], command: ['/start.sh', '--port', '8211'] });

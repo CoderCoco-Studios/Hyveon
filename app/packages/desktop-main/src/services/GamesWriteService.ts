@@ -1,6 +1,6 @@
 /**
  * Write-side orchestrator for the `games.create` / `games.update` /
- * `games.delete` IPC channels (and their HTTP equivalents) — see issue #98.
+ * `games.delete` IPC channels.
  *
  * Each operation follows the same shape:
  *  1. Validate the proposed entry via `validateGameServer()` (skipped for
@@ -32,7 +32,11 @@ import type {
 import { OptimisticLockError, errMessage, redactGameServer, validateGameServer } from '@hyveon/shared';
 import type { GameServerWriteConfig } from '@hyveon/shared';
 import { validateHealthCheckAuthInput } from '@hyveon/shared/gameServerValidator';
-import { deleteHealthCheckAuthSecret, upsertHealthCheckAuthSecret } from '@hyveon/shared/secrets/secretsStore';
+import {
+  deleteHealthCheckAuthSecret,
+  readHealthCheckAuthSecret,
+  upsertHealthCheckAuthSecret,
+} from '@hyveon/shared/secrets/secretsStore';
 import { logger } from '../logger.js';
 import { AuditService } from './AuditService.js';
 import { ConfigService } from './ConfigService.js';
@@ -52,6 +56,21 @@ type GameWriteAction = 'create' | 'update' | 'delete';
  */
 const STRUCTURAL_PREVIEW_SECRET_ARN = 'arn:aws:secretsmanager:us-east-1:000000000000:secret:pending-structural-preview';
 
+/**
+ * The deferred half of a health-check secret change: `rollback` undoes an upsert when the config write fails, `commit`
+ * runs the orphan deletes once it succeeds. Both swallow and log their own Secrets Manager failures.
+ */
+interface SecretChange {
+  rollback(): Promise<void>;
+  commit(): Promise<void>;
+}
+
+/** The outcome of {@link GamesWriteService.resolveHealthCheckAuthSecret}: a persistable config plus its deferred secret change, or a modeled failure. */
+type ResolvedHealthCheck = { config: Omit<GameServer, 'name'>; change: SecretChange } | { failure: GameWriteResult };
+
+/** A no-op {@link SecretChange} for saves that touch no app-owned secret. */
+const NO_SECRET_CHANGE: SecretChange = { rollback: async () => undefined, commit: async () => undefined };
+
 /** Maps a {@link GameWriteAction} to the {@link AuditAction} recorded via `AuditService.record()`. */
 const AUDIT_ACTION_BY_WRITE_ACTION: Record<GameWriteAction, AuditAction> = {
   create: 'add',
@@ -68,6 +87,8 @@ const AUDIT_ACTION_BY_WRITE_ACTION: Record<GameWriteAction, AuditAction> = {
  */
 @Injectable()
 export class GamesWriteService {
+  private writeChain: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly config: ConfigService,
     private readonly deploymentConfig: DeploymentConfigService,
@@ -75,7 +96,7 @@ export class GamesWriteService {
   ) {}
 
   // @spec GAME-VALID-001, GAME-HTTPS-003, GAME-WRITE-001, GAME-WRITE-002, GAME-WRITE-003, GAME-WRITE-008
-  // @spec GAME-WRITE-009, GAME-WRITE-011, GAME-WRITE-013
+  // @spec GAME-WRITE-004, GAME-WRITE-005, GAME-WRITE-006, GAME-WRITE-009, GAME-WRITE-011, GAME-WRITE-013
   /**
    * Adds a brand-new `gameServers` entry. Validates `payload.config` via
    * `validateGameServer()` against every currently-declared game (so a port
@@ -114,13 +135,21 @@ export class GamesWriteService {
    *    setup wizard instead of a generic failure message.
    */
   async createGame(payload: CreateGamePayload): Promise<GameWriteResult> {
+    return this.exclusive(() => this.createGameLocked(payload));
+  }
+
+  /** createGame body, run under the write lock. */
+  private async createGameLocked(payload: CreateGamePayload): Promise<GameWriteResult> {
     logger.debug('GamesWriteService.createGame: creating game server entry', { game: payload.name });
     const authIssues = validateHealthCheckAuthInput(payload.config.healthCheck?.auth);
     if (authIssues.length > 0) {
       return { ok: false, code: 'validation', issues: authIssues };
     }
 
-    const siblings = await this.deploymentConfig.getGameServers();
+    const siblings = await this.readSiblings();
+    if (!Array.isArray(siblings)) {
+      return siblings;
+    }
 
     // Duplicate-name check first: validateGameServer has no such rule
     // (checkPortCollisions explicitly skips self-name comparisons), so
@@ -147,9 +176,14 @@ export class GamesWriteService {
       return { ok: false, code: 'validation', issues: structuralValidation.issues };
     }
 
-    const resolvedConfig = await this.resolveHealthCheckAuthSecret(payload.name, payload.config, null);
-    const validation = validateGameServer(payload.name, resolvedConfig, siblings);
+    const resolved = await this.resolveHealthCheckAuthSecret(payload.name, payload.config, null);
+    if ('failure' in resolved) {
+      return resolved.failure;
+    }
+    const secretChange = resolved.change;
+    const validation = validateGameServer(payload.name, resolved.config, siblings);
     if (!validation.success) {
+      await secretChange.rollback();
       return { ok: false, code: 'validation', issues: validation.issues };
     }
 
@@ -158,6 +192,7 @@ export class GamesWriteService {
     try {
       write = await this.deploymentConfig.addGameServer(name, config, payload.expectedVersionId);
     } catch (err) {
+      await secretChange.rollback();
       if (err instanceof OptimisticLockError) {
         return this.conflictResult(err);
       }
@@ -170,11 +205,12 @@ export class GamesWriteService {
       return this.errorResult(err);
     }
 
+    await secretChange.commit();
     return this.successResult('create', name, validation.data, { before: null, after: validation.data, versionId: write.versionId });
   }
 
   // @spec GAME-VALID-001, GAME-VALID-008, GAME-HTTPS-003, GAME-WRITE-001, GAME-WRITE-003, GAME-WRITE-008
-  // @spec GAME-WRITE-011, GAME-WRITE-013
+  // @spec GAME-WRITE-004, GAME-WRITE-005, GAME-WRITE-006, GAME-WRITE-010, GAME-WRITE-011, GAME-WRITE-013
   /**
    * Replaces an existing `gameServers` entry's value in place. Validates
    * `payload.config` via `validateGameServer()` against every declared game
@@ -187,24 +223,27 @@ export class GamesWriteService {
    *    with the full issue list.
    *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
    *    with both etags.
-   *  - `GameServerEntryError` (`payload.name` doesn't exist in `gameServers`,
-   *    or the config document parsed but its `gameServers` map is missing/
-   *    not an object) → `{ code: 'not_found' }`, regardless of its specific
-   *    `reason` — this write path never throws an
-   *    `'invalid-name'`/`'duplicate-name'` error (the name is already
-   *    known-good, being an existing key), so any error here means
-   *    "couldn't find/apply the update." Note this does NOT cover malformed
-   *    JSON itself (a `JSON.parse` failure) — that's a plain `Error` from
-   *    `DeploymentConfigService.parseConfigContents()`, not a `GameServerEntryError`,
-   *    and falls through to the generic `{ code: 'error' }` below instead.
+   *  - `GameServerEntryError` with `reason: 'not-found'` (`payload.name` doesn't
+   *    exist in `gameServers`) → `{ code: 'not_found' }`. Any other reason
+   *    (`'structural'` — the `gameServers` map is missing/not an object) → the
+   *    catch-all `{ code: 'error' }`, so a broken document is not reported as
+   *    a missing game. Malformed JSON is a plain `Error` and also lands there.
    *  - `ConfigurationNotConfiguredError` (no configuration bucket configured)
    *    → `{ code: 'setup_incomplete' }`, distinct from the generic
    *    `{ code: 'error' }` so a caller can route the operator toward the
    *    setup wizard instead of a generic failure message.
    */
   async updateGame(payload: UpdateGamePayload): Promise<GameWriteResult> {
+    return this.exclusive(() => this.updateGameLocked(payload));
+  }
+
+  /** updateGame body, run under the write lock. */
+  private async updateGameLocked(payload: UpdateGamePayload): Promise<GameWriteResult> {
     logger.debug('GamesWriteService.updateGame: updating game server entry', { game: payload.name });
-    const siblings = await this.deploymentConfig.getGameServers();
+    const siblings = await this.readSiblings();
+    if (!Array.isArray(siblings)) {
+      return siblings;
+    }
     const before = siblings.find((sibling) => sibling.name === payload.name) ?? null;
 
     const authIssues = validateHealthCheckAuthInput(payload.config.healthCheck?.auth);
@@ -222,10 +261,15 @@ export class GamesWriteService {
       return { ok: false, code: 'validation', issues: structuralValidation.issues };
     }
 
-    const incomingConfig = await this.resolveHealthCheckAuthSecret(payload.name, payload.config, before);
+    const resolved = await this.resolveHealthCheckAuthSecret(payload.name, payload.config, before);
+    if ('failure' in resolved) {
+      return resolved.failure;
+    }
+    const secretChange = resolved.change;
 
-    const validation = validateGameServer(payload.name, incomingConfig, siblings);
+    const validation = validateGameServer(payload.name, resolved.config, siblings);
     if (!validation.success) {
+      await secretChange.rollback();
       return { ok: false, code: 'validation', issues: validation.issues };
     }
 
@@ -234,10 +278,11 @@ export class GamesWriteService {
     try {
       write = await this.deploymentConfig.updateGameServer(name, config, payload.expectedVersionId);
     } catch (err) {
+      await secretChange.rollback();
       if (err instanceof OptimisticLockError) {
         return this.conflictResult(err);
       }
-      if (err instanceof GameServerEntryError) {
+      if (err instanceof GameServerEntryError && err.reason === 'not-found') {
         return { ok: false, code: 'not_found', message: err.message };
       }
       if (err instanceof ConfigurationNotConfiguredError) {
@@ -246,11 +291,12 @@ export class GamesWriteService {
       return this.errorResult(err);
     }
 
+    await secretChange.commit();
     return this.successResult('update', name, validation.data, { before, after: validation.data, versionId: write.versionId });
   }
 
   // @spec RT-HEALTH-CRED-005, RT-HEALTH-CRED-006
-  // @spec GAME-WRITE-007, GAME-WRITE-008, GAME-WRITE-011, GAME-WRITE-013
+  // @spec GAME-WRITE-006, GAME-WRITE-007, GAME-WRITE-008, GAME-WRITE-010, GAME-WRITE-011, GAME-WRITE-013
   /**
    * Removes a `gameServers` entry. Skips `validateGameServer()` entirely —
    * there's no proposed config to validate — and delegates straight to
@@ -259,20 +305,27 @@ export class GamesWriteService {
    * Failure mapping:
    *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
    *    with both etags.
-   *  - `GameServerEntryError` (`payload.name` doesn't exist in `gameServers`,
-   *    or the config document parsed but its `gameServers` map is missing/
-   *    not an object) → `{ code: 'not_found' }`, regardless of its specific
-   *    `reason` — see {@link updateGame}'s doc for why this catch is
-   *    intentionally blanket, and for the malformed-JSON case this does
-   *    NOT cover (falls through to `{ code: 'error' }` instead).
+   *  - `GameServerEntryError` with `reason: 'not-found'` (`payload.name` doesn't
+   *    exist in `gameServers`) → `{ code: 'not_found' }`. Any other reason
+   *    (`'structural'` — the `gameServers` map is missing/not an object) → the
+   *    catch-all `{ code: 'error' }`, so a broken document is not reported as
+   *    a missing game. Malformed JSON is a plain `Error` and also lands there.
    *  - `ConfigurationNotConfiguredError` (no configuration bucket configured)
    *    → `{ code: 'setup_incomplete' }`, distinct from the generic
    *    `{ code: 'error' }` so a caller can route the operator toward the
    *    setup wizard instead of a generic failure message.
    */
   async deleteGame(payload: DeleteGamePayload): Promise<GameWriteResult> {
+    return this.exclusive(() => this.deleteGameLocked(payload));
+  }
+
+  /** deleteGame body, run under the write lock. */
+  private async deleteGameLocked(payload: DeleteGamePayload): Promise<GameWriteResult> {
     logger.debug('GamesWriteService.deleteGame: deleting game server entry', { game: payload.name });
-    const siblings = await this.deploymentConfig.getGameServers();
+    const siblings = await this.readSiblings();
+    if (!Array.isArray(siblings)) {
+      return siblings;
+    }
     const before = siblings.find((sibling) => sibling.name === payload.name) ?? null;
 
     let write: { etag: string; versionId?: string };
@@ -282,7 +335,7 @@ export class GamesWriteService {
       if (err instanceof OptimisticLockError) {
         return this.conflictResult(err);
       }
-      if (err instanceof GameServerEntryError) {
+      if (err instanceof GameServerEntryError && err.reason === 'not-found') {
         return { ok: false, code: 'not_found', message: err.message };
       }
       if (err instanceof ConfigurationNotConfiguredError) {
@@ -296,6 +349,39 @@ export class GamesWriteService {
     }
 
     return this.successResult('delete', payload.name, undefined, { before, after: null, versionId: write.versionId });
+  }
+
+
+  // @spec GAME-WRITE-014
+  /**
+   * Serializes a write so the sibling read, secret upsert, config write and commit/rollback of one write never
+   * interleave with another's. The desktop app is a single process, so an in-process chain is sufficient.
+   *
+   * @param fn - The write to run once every earlier write has settled.
+   * @returns Whatever `fn` resolves to.
+   */
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.writeChain.then(fn, fn);
+    this.writeChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  // @spec GAME-WRITE-006
+  /**
+   * Reads the declared games used as the cross-game sibling set, failing the write instead of validating against an
+   * empty list when the read fails.
+   *
+   * @returns The declared games, or the modeled failure result to return to the caller.
+   */
+  private async readSiblings(): Promise<GameServer[] | GameWriteResult> {
+    try {
+      return await this.deploymentConfig.getGameServersStrict();
+    } catch (err) {
+      if (err instanceof ConfigurationNotConfiguredError) {
+        return this.setupIncompleteResult(err);
+      }
+      return this.errorResult(err);
+    }
   }
 
   // @spec APP-DIAG-AUDIT-005
@@ -378,6 +464,7 @@ export class GamesWriteService {
     return { ok: false, code: 'setup_incomplete', message: err.message };
   }
 
+  // @spec GAME-WRITE-012
   /**
    * Builds the catch-all `GameWriteFailure` for any error that isn't a
    * conflict/validation/not-found/setup-incomplete (e.g. an unexpected S3
@@ -387,7 +474,7 @@ export class GamesWriteService {
    * HTTP 500 body.
    */
   private errorResult(err: unknown): GameWriteResult {
-    logger.error('Game server write failed', { err });
+    logger.error('Game server write failed', { error: errMessage(err) });
     return { ok: false, code: 'error', message: 'An unexpected error occurred while writing the game server configuration' };
   }
 
@@ -440,96 +527,104 @@ export class GamesWriteService {
   }
 
   // @spec RT-HEALTH-CRED-001, RT-HEALTH-CRED-005, RT-HEALTH-CRED-006, RT-HEALTH-NET-005
+  // @spec RT-HEALTH-CRED-007, GAME-WRITE-004, GAME-WRITE-005
   /**
-   * Resolves `config.healthCheck.auth` into the persisted
-   * `GameServerHealthCheckAuth` shape (`{ type?, secretArn }`), performing
-   * whatever Secrets Manager write the declared change requires:
-   *  - `auth` omitted → leave `before`'s credential unchanged (existing
-   *    behavior, unchanged from before this feature).
-   *  - `auth === null` → explicit clear. Deletes `before`'s app-owned secret
-   *    (if `before.auth.type` was `'basic'`/`'bearer'`) and returns `config`
-   *    with `healthCheck.auth` unset.
-   *  - `auth.type` `'raw'`/absent → the operator-supplied `secretArn` is
-   *    used as-is (already required by {@link validateHealthCheckAuthInput}
-   *    before this method runs). If `before`'s credential was app-owned
-   *    (`'basic'`/`'bearer'`), its now-orphaned secret is deleted.
-   *  - `auth.type` `'basic'`/`'bearer'` → builds the secret value
-   *    (`JSON.stringify({ username, password })` or the raw `token`) and
-   *    calls {@link upsertHealthCheckAuthSecret}, which creates the secret on
-   *    first save and updates it in place on every subsequent edit (see
-   *    that function's own doc for why no separate "does it already exist"
-   *    check is needed).
+   * Resolves `config.healthCheck.auth` into the persisted `GameServerHealthCheckAuth` shape (`{ type?, secretArn }`),
+   * performing the Secrets Manager upsert a `basic`/`bearer` credential requires and returning the deferred
+   * {@link SecretChange} for the rest:
+   *  - `auth` omitted → leave `before`'s credential unchanged.
+   *  - `auth === null`, or `auth.type` `'raw'`/absent → the operator-supplied `secretArn` (if any) is used as-is, and
+   *    `before`'s app-owned secret (`'basic'`/`'bearer'`) is deleted by `commit()` once the config write succeeded.
+   *  - `auth.type` `'basic'`/`'bearer'` → builds the secret value (`JSON.stringify({ username, password })` or the raw
+   *    `token`) and calls {@link upsertHealthCheckAuthSecret}, which creates the secret on first save and updates it
+   *    in place afterwards. `rollback()` then undoes it: it restores the previous value read before the upsert, or
+   *    deletes the secret when this save created it.
    *
    * @remarks
-   * Must only be called after {@link previewResolvedHealthCheckAuth}'s
-   * structural preview has already passed `validateGameServer` — this method
-   * is the one that actually talks to Secrets Manager
-   * (`upsertHealthCheckAuthSecret`/`deleteHealthCheckAuthSecret`), and that
-   * write must never happen ahead of a structural check that's unrelated to
-   * `auth` but could still reject the overall entry (a port collision, bad
-   * cpu/memory pairing, etc.) — doing so would leave a live secret mutated or
-   * deleted for a save that was never actually persisted.
-   *
-   * Never called for a `deleteGame` — that path calls
-   * {@link deleteHealthCheckAuthSecret} directly in {@link deleteGame} once
-   * the config removal itself has succeeded.
+   * Must only be called after {@link previewResolvedHealthCheckAuth}'s structural preview has passed
+   * `validateGameServer`. The caller must call `change.rollback()` on any later failure and `change.commit()` after
+   * the config write succeeds, so a failed save leaves the app-owned secret as it was.
    *
    * @param gameId - The `game_servers` map key this entry is being saved under.
    * @param config - The proposed write-side config (may be `undefined` when the entry has no `healthCheck` at all).
    * @param before - The entry's prior persisted state, or `null` for a brand-new game.
-   * @returns `config` with `healthCheck.auth` resolved to the persisted shape (or `undefined`), ready for `validateGameServer`.
+   * @returns The persistable config and its {@link SecretChange}, or a modeled `error` result when Secrets Manager fails.
    */
   private async resolveHealthCheckAuthSecret(
     gameId: string,
     config: GameServerWriteConfig,
     before: GameServer | null,
-  ): Promise<Omit<GameServer, 'name'>> {
+  ): Promise<ResolvedHealthCheck> {
+    const beforeAuth = before?.healthCheck?.auth;
+    const ownedBefore = beforeAuth !== undefined && (beforeAuth.type === 'basic' || beforeAuth.type === 'bearer');
+    const deleteOwnedOnCommit: SecretChange = {
+      rollback: async () => undefined,
+      commit: async () => {
+        if (ownedBefore) {
+          await this.deleteAppOwnedSecret(gameId, beforeAuth.secretArn);
+        }
+      },
+    };
+
     if (!config.healthCheck) {
-      if (before?.healthCheck?.auth && (before.healthCheck.auth.type === 'basic' || before.healthCheck.auth.type === 'bearer')) {
-        await this.deleteAppOwnedSecret(gameId, before.healthCheck.auth.secretArn);
-      }
-      return { ...config, healthCheck: undefined };
+      return { config: { ...config, healthCheck: undefined }, change: deleteOwnedOnCommit };
     }
 
     const { auth, ...healthCheckRest } = config.healthCheck;
-    const beforeAuth = before?.healthCheck?.auth;
 
     if (auth === undefined) {
-      return { ...config, healthCheck: { ...healthCheckRest, auth: beforeAuth } };
+      return { config: { ...config, healthCheck: { ...healthCheckRest, auth: beforeAuth } }, change: NO_SECRET_CHANGE };
     }
 
     if (auth === null) {
-      if (beforeAuth && (beforeAuth.type === 'basic' || beforeAuth.type === 'bearer')) {
-        await this.deleteAppOwnedSecret(gameId, beforeAuth.secretArn);
-      }
-      return { ...config, healthCheck: { ...healthCheckRest, auth: undefined } };
+      return { config: { ...config, healthCheck: { ...healthCheckRest, auth: undefined } }, change: deleteOwnedOnCommit };
     }
 
     const type = auth.type ?? 'raw';
     if (type === 'raw') {
-      if (beforeAuth && (beforeAuth.type === 'basic' || beforeAuth.type === 'bearer')) {
-        await this.deleteAppOwnedSecret(gameId, beforeAuth.secretArn);
-      }
-      return { ...config, healthCheck: { ...healthCheckRest, auth: { type: 'raw', secretArn: auth.secretArn as string } } };
+      const rawAuth = { type: 'raw' as const, secretArn: auth.secretArn as string };
+      return { config: { ...config, healthCheck: { ...healthCheckRest, auth: rawAuth } }, change: deleteOwnedOnCommit };
     }
 
     const secretValue = type === 'basic' ? JSON.stringify({ username: auth.username, password: auth.password }) : (auth.token as string);
-    const secretArn = await this.upsertAppOwnedSecret(gameId, secretValue);
-    return { ...config, healthCheck: { ...healthCheckRest, auth: { type, secretArn } } };
-  }
-
-  // @spec RT-HEALTH-CRED-007
-  /** Wraps {@link upsertHealthCheckAuthSecret}, normalizing and logging any Secrets Manager failure per this repo's logging convention. */
-  private async upsertAppOwnedSecret(gameId: string, value: string): Promise<string> {
+    let previousValue: string | null = null;
     try {
-      return await upsertHealthCheckAuthSecret(gameId, value);
+      if (ownedBefore) {
+        previousValue = await readHealthCheckAuthSecret(gameId);
+      }
+      const secretArn = await upsertHealthCheckAuthSecret(gameId, secretValue);
+      const change: SecretChange = {
+        rollback: () => this.restoreAppOwnedSecret(gameId, previousValue),
+        commit: async () => undefined,
+      };
+      return { config: { ...config, healthCheck: { ...healthCheckRest, auth: { type, secretArn } } }, change };
     } catch (err) {
       const message = errMessage(err);
       logger.error('GamesWriteService.resolveHealthCheckAuthSecret: failed to create/update the health-check credential secret', {
         game: gameId,
         error: message,
       });
-      throw new Error(`Failed to save the health-check credential: ${message}`);
+      return { failure: { ok: false, code: 'error', message: `Failed to save the health-check credential: ${message}` } };
+    }
+  }
+
+  // @spec GAME-WRITE-004
+  /**
+   * Undoes an app-owned secret upsert after a failed config write: restores `previousValue` when a value was read
+   * before the upsert, else deletes the secret this save created or revived. Logs, never throws.
+   */
+  private async restoreAppOwnedSecret(gameId: string, previousValue: string | null): Promise<void> {
+    try {
+      if (previousValue === null) {
+        await deleteHealthCheckAuthSecret(gameId);
+      } else {
+        await upsertHealthCheckAuthSecret(gameId, previousValue);
+      }
+    } catch (err) {
+      logger.error('GamesWriteService.resolveHealthCheckAuthSecret: failed to roll back the health-check credential secret', {
+        game: gameId,
+        error: errMessage(err),
+      });
     }
   }
 

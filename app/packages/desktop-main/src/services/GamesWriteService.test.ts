@@ -6,6 +6,7 @@ vi.mock('../logger.js', () => ({
 
 vi.mock('@hyveon/shared/secrets/secretsStore', () => ({
   upsertHealthCheckAuthSecret: vi.fn(),
+  readHealthCheckAuthSecret: vi.fn(),
   deleteHealthCheckAuthSecret: vi.fn(),
 }));
 
@@ -17,7 +18,7 @@ import type {
   StackOutputs,
 } from '@hyveon/shared';
 import { OptimisticLockError } from '@hyveon/shared';
-import { upsertHealthCheckAuthSecret, deleteHealthCheckAuthSecret } from '@hyveon/shared/secrets/secretsStore';
+import { upsertHealthCheckAuthSecret, deleteHealthCheckAuthSecret, readHealthCheckAuthSecret } from '@hyveon/shared/secrets/secretsStore';
 import { GamesWriteService } from './GamesWriteService.js';
 import type { AuditService } from './AuditService.js';
 import type { ConfigService } from './ConfigService.js';
@@ -139,6 +140,7 @@ describe('GamesWriteService', () => {
     vi.mocked(logger.info).mockClear();
     vi.mocked(upsertHealthCheckAuthSecret).mockReset();
     vi.mocked(deleteHealthCheckAuthSecret).mockReset();
+    vi.mocked(readHealthCheckAuthSecret).mockReset();
   });
 
   describe('createGame', () => {
@@ -302,7 +304,7 @@ describe('GamesWriteService', () => {
       expect(audit.record).not.toHaveBeenCalled();
     });
 
-    // @spec GAME-WRITE-011
+    // @spec GAME-WRITE-011, GAME-WRITE-012
     it('should return a catch-all error result without recording an audit entry when the write raises an unexpected error', async () => {
       const deploymentConfig = makeDeploymentConfig();
       const originalError = new Error('disk full');
@@ -318,7 +320,7 @@ describe('GamesWriteService', () => {
         code: 'error',
         message: 'An unexpected error occurred while writing the game server configuration',
       });
-      expect(loggerErrorSpy).toHaveBeenCalledWith('Game server write failed', { err: originalError });
+      expect(loggerErrorSpy).toHaveBeenCalledWith('Game server write failed', { error: 'disk full' });
       expect(audit.record).not.toHaveBeenCalled();
     });
 
@@ -337,7 +339,7 @@ describe('GamesWriteService', () => {
         code: 'error',
         message: 'An unexpected error occurred while writing the game server configuration',
       });
-      expect(loggerErrorSpy).toHaveBeenCalledWith('Game server write failed', { err: structuralError });
+      expect(loggerErrorSpy).toHaveBeenCalledWith('Game server write failed', { error: structuralError.message });
       expect(audit.record).not.toHaveBeenCalled();
     });
 
@@ -772,6 +774,265 @@ describe('GamesWriteService', () => {
       expect(result).toMatchObject({ ok: false, code: 'validation' });
       expect(upsertHealthCheckAuthSecret).not.toHaveBeenCalled();
       expect(deleteHealthCheckAuthSecret).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('failed config write leaves the health-check secret as it was', () => {
+    const ARN = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-minecraft-healthcheck-auth-AbCdEf';
+    const basicWrite = { auth: { type: 'basic', username: 'admin', password: 'hunter2' } } as const;
+
+    /** Existing `minecraft` entry whose health check carries an app-owned credential of the given type. */
+    function ownedBefore(type: 'basic' | 'bearer' = 'bearer'): GameServer {
+      return makeExistingGame({
+        name: 'minecraft',
+        healthCheck: makeHealthCheck({ auth: { type, secretArn: ARN } }) as GameServerHealthCheck,
+      });
+    }
+
+    // @spec GAME-WRITE-004
+    it('should delete the secret it created when a create loses the config write to an OptimisticLockError', async () => {
+      vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue(ARN);
+      const { service, deploymentConfig } = makeService();
+      vi.mocked(deploymentConfig.addGameServer).mockRejectedValue(new OptimisticLockError('a', 'b'));
+
+      const result = await service.createGame({ name: 'minecraft', config: makeConfig({ healthCheck: makeHealthCheck(basicWrite) }) });
+
+      expect(result).toMatchObject({ ok: false, code: 'conflict' });
+      expect(deleteHealthCheckAuthSecret).toHaveBeenCalledWith('minecraft');
+    });
+
+    // @spec GAME-WRITE-004
+    it('should restore the previous secret value when an update fails its config write', async () => {
+      vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue(ARN);
+      vi.mocked(readHealthCheckAuthSecret).mockResolvedValue('old-token');
+      const { service, deploymentConfig } = makeService({ existingGameServers: [ownedBefore()] });
+      vi.mocked(deploymentConfig.updateGameServer).mockRejectedValue(new Error('S3 down'));
+
+      const result = await service.updateGame({
+        name: 'minecraft',
+        config: makeConfig({ healthCheck: makeHealthCheck({ auth: { type: 'bearer', token: 'new-token' } }) }),
+      });
+
+      expect(result).toMatchObject({ ok: false, code: 'error' });
+      expect(vi.mocked(upsertHealthCheckAuthSecret).mock.calls).toEqual([
+        ['minecraft', 'new-token'],
+        ['minecraft', 'old-token'],
+      ]);
+      expect(deleteHealthCheckAuthSecret).not.toHaveBeenCalled();
+    });
+
+    // @spec GAME-WRITE-004
+    it('should delete the secret on rollback when an owned secret was missing before the failed update', async () => {
+      vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue(ARN);
+      vi.mocked(readHealthCheckAuthSecret).mockResolvedValue(null);
+      const { service, deploymentConfig } = makeService({ existingGameServers: [ownedBefore()] });
+      vi.mocked(deploymentConfig.updateGameServer).mockRejectedValue(new Error('S3 down'));
+
+      const result = await service.updateGame({
+        name: 'minecraft',
+        config: makeConfig({ healthCheck: makeHealthCheck({ auth: { type: 'bearer', token: 'new-token' } }) }),
+      });
+
+      expect(result).toMatchObject({ ok: false, code: 'error' });
+      expect(vi.mocked(upsertHealthCheckAuthSecret).mock.calls).toEqual([['minecraft', 'new-token']]);
+      expect(deleteHealthCheckAuthSecret).toHaveBeenCalledWith('minecraft');
+    });
+
+    // @spec GAME-WRITE-004
+    it('should not delete the app-owned secret when the config write of an auth clear fails', async () => {
+      const { service, deploymentConfig } = makeService({ existingGameServers: [ownedBefore('basic')] });
+      vi.mocked(deploymentConfig.updateGameServer).mockRejectedValue(new OptimisticLockError('a', 'b'));
+
+      const result = await service.updateGame({
+        name: 'minecraft',
+        config: makeConfig({ healthCheck: { ...makeHealthCheck(), auth: null } }),
+      });
+
+      expect(result).toMatchObject({ ok: false, code: 'conflict' });
+      expect(deleteHealthCheckAuthSecret).not.toHaveBeenCalled();
+    });
+
+    // @spec GAME-WRITE-004
+    it('should delete the orphaned secret only after the config write of an auth clear succeeds', async () => {
+      const { service, deploymentConfig } = makeService({ existingGameServers: [ownedBefore('basic')] });
+
+      const result = await service.updateGame({
+        name: 'minecraft',
+        config: makeConfig({ healthCheck: { ...makeHealthCheck(), auth: null } }),
+      });
+
+      expect(result.ok).toBe(true);
+      expect(deleteHealthCheckAuthSecret).toHaveBeenCalledWith('minecraft');
+      expect(vi.mocked(deleteHealthCheckAuthSecret).mock.invocationCallOrder[0]).toBeGreaterThan(
+        vi.mocked(deploymentConfig.updateGameServer).mock.invocationCallOrder[0],
+      );
+    });
+
+    // @spec GAME-WRITE-004
+    it('should still return the modeled failure and log when the rollback itself throws', async () => {
+      vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue(ARN);
+      vi.mocked(deleteHealthCheckAuthSecret).mockRejectedValue(new Error('rollback denied'));
+      const { service, deploymentConfig } = makeService();
+      vi.mocked(deploymentConfig.addGameServer).mockRejectedValue(new OptimisticLockError('a', 'b'));
+      vi.mocked(logger.error).mockClear();
+
+      const result = await service.createGame({ name: 'minecraft', config: makeConfig({ healthCheck: makeHealthCheck(basicWrite) }) });
+
+      expect(result).toMatchObject({ ok: false, code: 'conflict' });
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('roll back'), expect.objectContaining({ error: 'rollback denied' }));
+    });
+
+    // @spec GAME-WRITE-004
+    it('should roll back the secret when the post-upsert validation fails', async () => {
+      vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue('not-a-secret-arn');
+      const { service, deploymentConfig } = makeService();
+
+      const result = await service.createGame({ name: 'minecraft', config: makeConfig({ healthCheck: makeHealthCheck(basicWrite) }) });
+
+      expect(result).toMatchObject({ ok: false, code: 'validation' });
+      expect(deploymentConfig.addGameServer).not.toHaveBeenCalled();
+      expect(deleteHealthCheckAuthSecret).toHaveBeenCalledWith('minecraft');
+    });
+
+    // @spec GAME-WRITE-005
+    it('should return a modeled error result, not reject, when the Secrets Manager upsert fails', async () => {
+      vi.mocked(upsertHealthCheckAuthSecret).mockRejectedValue(new Error('AccessDenied'));
+      const { service, deploymentConfig } = makeService();
+
+      const result = await service.createGame({ name: 'minecraft', config: makeConfig({ healthCheck: makeHealthCheck(basicWrite) }) });
+
+      expect(result).toMatchObject({ ok: false, code: 'error', message: expect.stringContaining('health-check credential') });
+      expect(deploymentConfig.addGameServer).not.toHaveBeenCalled();
+    });
+
+    // @spec GAME-WRITE-005
+    it('should return a modeled error result on update when the previous secret value cannot be read', async () => {
+      vi.mocked(readHealthCheckAuthSecret).mockRejectedValue(new Error('AccessDenied'));
+      const { service, deploymentConfig } = makeService({ existingGameServers: [ownedBefore()] });
+
+      const result = await service.updateGame({
+        name: 'minecraft',
+        config: makeConfig({ healthCheck: makeHealthCheck({ auth: { type: 'bearer', token: 'new-token' } }) }),
+      });
+
+      expect(result).toMatchObject({ ok: false, code: 'error' });
+      expect(upsertHealthCheckAuthSecret).not.toHaveBeenCalled();
+      expect(deploymentConfig.updateGameServer).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('concurrent writes', () => {
+    const ARN = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-minecraft-healthcheck-auth-AbCdEf';
+    const basicWrite = { auth: { type: 'basic', username: 'admin', password: 'hunter2' } } as const;
+
+    /** A promise whose resolution the test controls. */
+    function deferred<T = void>(): { promise: Promise<T>; resolve: (v: T) => void } {
+      let resolve!: (v: T) => void;
+      const promise = new Promise<T>((r) => { resolve = r; });
+      return { promise, resolve };
+    }
+
+    // @spec GAME-WRITE-014
+    it("should not start a second create until the first has committed, so a losing create cannot roll back the winner's secret", async () => {
+      vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue(ARN);
+      const { service, deploymentConfig } = makeService();
+      const gate = deferred<{ etag: string }>();
+      const committed: GameServer[] = [];
+      vi.mocked(deploymentConfig.getGameServersStrict).mockImplementation(async () => [...committed]);
+      vi.mocked(deploymentConfig.addGameServer).mockImplementationOnce(async (name) => {
+        const result = await gate.promise;
+        committed.push(makeExistingGame({ name }));
+        return result;
+      });
+      const config = makeConfig({ healthCheck: makeHealthCheck(basicWrite) });
+
+      const first = service.createGame({ name: 'minecraft', config });
+      const second = service.createGame({ name: 'minecraft', config });
+      await vi.waitFor(() => expect(deploymentConfig.addGameServer).toHaveBeenCalledTimes(1));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(upsertHealthCheckAuthSecret).toHaveBeenCalledTimes(1);
+      expect(deploymentConfig.getGameServersStrict).toHaveBeenCalledTimes(1);
+
+      gate.resolve({ etag: 'e' });
+      await first;
+      await second;
+
+      expect(upsertHealthCheckAuthSecret).toHaveBeenCalledTimes(1);
+      expect(deleteHealthCheckAuthSecret).not.toHaveBeenCalled();
+    });
+
+    // @spec GAME-WRITE-014
+    it('should run two updates of one game strictly in order, each reading siblings after the previous write', async () => {
+      const { service, deploymentConfig } = makeService({ existingGameServers: [makeExistingGame({ name: 'minecraft' })] });
+      const gate = deferred<{ etag: string }>();
+      vi.mocked(deploymentConfig.updateGameServer).mockReturnValueOnce(gate.promise);
+
+      const first = service.updateGame({ name: 'minecraft', config: buildConfig() });
+      const second = service.updateGame({ name: 'minecraft', config: buildConfig() });
+      await vi.waitFor(() => expect(deploymentConfig.updateGameServer).toHaveBeenCalledTimes(1));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(deploymentConfig.getGameServersStrict).toHaveBeenCalledTimes(1);
+
+      gate.resolve({ etag: 'e' });
+      await Promise.all([first, second]);
+
+      expect(deploymentConfig.updateGameServer).toHaveBeenCalledTimes(2);
+    });
+
+    // @spec GAME-WRITE-014
+    it('should keep serving later writes after an earlier write rejects', async () => {
+      const { service, deploymentConfig } = makeService();
+      vi.mocked(deploymentConfig.getGameServersStrict).mockRejectedValueOnce(new Error('S3 down'));
+
+      const first = await service.deleteGame({ name: 'a' });
+      await service.deleteGame({ name: 'b' });
+
+      expect(first).toMatchObject({ ok: false });
+      expect(deploymentConfig.removeGameServer).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('failed sibling read', () => {
+    // @spec GAME-WRITE-006
+    it.each([
+      ['createGame', (s: GamesWriteService) => s.createGame({ name: 'ark', config: buildConfig() })],
+      ['updateGame', (s: GamesWriteService) => s.updateGame({ name: 'ark', config: buildConfig() })],
+      ['deleteGame', (s: GamesWriteService) => s.deleteGame({ name: 'ark' })],
+    ])('should fail %s without writing when the sibling read fails', async (_name, run) => {
+      const { service, deploymentConfig } = makeService();
+      vi.mocked(deploymentConfig.getGameServersStrict).mockRejectedValue(new Error('S3 down'));
+
+      const result = await run(service);
+
+      expect(result).toMatchObject({ ok: false, code: 'error' });
+      expect(deploymentConfig.addGameServer).not.toHaveBeenCalled();
+      expect(deploymentConfig.updateGameServer).not.toHaveBeenCalled();
+      expect(deploymentConfig.removeGameServer).not.toHaveBeenCalled();
+    });
+
+    // @spec GAME-WRITE-006
+    it('should return setup_incomplete when the sibling read finds no configuration bucket', async () => {
+      const { service, deploymentConfig } = makeService();
+      vi.mocked(deploymentConfig.getGameServersStrict).mockRejectedValue(new ConfigurationNotConfiguredError());
+
+      const result = await service.createGame({ name: 'ark', config: buildConfig() });
+
+      expect(result).toMatchObject({ ok: false, code: 'setup_incomplete' });
+    });
+  });
+
+  describe('GameServerEntryError reasons on update and delete', () => {
+    // @spec GAME-WRITE-010
+    it.each([
+      ['updateGame', 'updateGameServer', (s: GamesWriteService) => s.updateGame({ name: 'ark', config: buildConfig() })],
+      ['deleteGame', 'removeGameServer', (s: GamesWriteService) => s.deleteGame({ name: 'ark' })],
+    ] as const)('should return a distinct error (not not_found) from %s for a structurally broken map', async (_n, method, run) => {
+      const { service, deploymentConfig } = makeService();
+      vi.mocked(deploymentConfig[method]).mockRejectedValue(new GameServerEntryError('"gameServers" map not found.', 'structural'));
+
+      const result = await run(service);
+
+      expect(result).toMatchObject({ ok: false, code: 'error' });
     });
   });
 });

@@ -328,5 +328,16 @@ describe('GameWizardDraftService', () => {
 
       expect(() => service.clear()).not.toThrow();
     });
+
+    // @spec GAME-DRAFT-008
+    it('should report whether the delete succeeded', () => {
+      const failing = makeStore();
+      vi.mocked(failing.delete).mockImplementation(() => {
+        throw new Error('locked');
+      });
+
+      expect(new GameWizardDraftService(makeStore()).clear()).toBe(true);
+      expect(new GameWizardDraftService(failing).clear()).toBe(false);
+    });
   });
 });

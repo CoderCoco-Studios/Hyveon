@@ -1,11 +1,11 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import type { CreateGamePayload, DeleteGamePayload, GameListEntry, GameWriteResult, UpdateGamePayload } from '@hyveon/shared';
+import type { CreateGamePayload, DeleteGamePayload, GameListEntry, GameServer, GameWriteResult, UpdateGamePayload } from '@hyveon/shared';
 import { ConfigService } from '../services/ConfigService.js';
 import type { StartResult } from '@hyveon/shared';
 import { EcsService } from '../services/EcsService.js';
 import { GamesWriteService } from '../services/GamesWriteService.js';
-import { DeploymentConfigService } from '../services/DeploymentConfigService.js';
+import { ConfigurationNotConfiguredError, DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import { computeDriftFromOutputs } from '../services/DriftService.js';
 import { GameWizardDraftService } from '../services/GameWizardDraftService.js';
 import type { GameWizardDraft, StoredGameWizardDraft } from '../services/ElectronStoreService.js';
@@ -32,7 +32,7 @@ export class GamesController {
     private readonly helperSessions: HelperSessionRegistry,
   ) {}
 
-  // @spec GAME-IPC-004, GAME-MODEL-003
+  // @spec GAME-IPC-004, GAME-IPC-007, GAME-MODEL-003
   /**
    * Lists games merged from the declared view, the deployed view, and
    * per-game drift — see {@link mergeGameLists}.
@@ -57,9 +57,22 @@ export class GamesController {
   async listGames(): Promise<{ games: GameListEntry[] }> {
     logger.debug('GamesController: games.list invoked');
     this.deploymentConfig.invalidateCache();
-    const [declared, outputs] = await Promise.all([this.deploymentConfig.getGameServers(), this.config.getStackOutputs()]);
+    const [declared, outputs] = await Promise.all([this.readDeclared(), this.config.getStackOutputs()]);
     const driftReport = computeDriftFromOutputs(declared, outputs);
     return { games: mergeGameLists(declared, outputs?.gameNames ?? [], driftReport.entries) };
+  }
+
+  /**
+   * Reads the declared games, rejecting when the config cannot be read so the renderer shows a load error instead
+   * of an empty list. An unconfigured bucket (pre-wizard) is not a failure and yields no declared games.
+   */
+  private async readDeclared(): Promise<GameServer[]> {
+    try {
+      return await this.deploymentConfig.getGameServersStrict();
+    } catch (err) {
+      if (err instanceof ConfigurationNotConfiguredError) return [];
+      throw err;
+    }
   }
 
   /**
@@ -197,13 +210,17 @@ export class GamesController {
     this.gameWizardDraft.updateStepIndex(payload.stepIndex);
   }
 
+  // @spec GAME-DRAFT-008
   /**
    * Clears the saved add-game wizard draft.
    *
+   * @throws Error when the draft could not be deleted, so the games page can tell the operator it is still saved.
    */
   @MessagePattern('games.draft.clear')
   clearDraft(): void {
     logger.debug('GamesController: games.draft.clear invoked');
-    this.gameWizardDraft.clear();
+    if (!this.gameWizardDraft.clear()) {
+      throw new Error('Could not discard the saved draft; it is still stored.');
+    }
   }
 }

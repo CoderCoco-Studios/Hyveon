@@ -47,6 +47,13 @@ describe('normalizeGameServer', () => {
     expect(result.ports).toEqual([{ container: 27015, protocol: 'udp' }]);
   });
 
+  // @spec GAME-VALID-011
+  it('should promote a hand-edited uppercase TCP ports[0] like tcp', () => {
+    const result = normalizeGameServer(makeGame({ https: true, ports: [{ container: 8080, protocol: 'TCP' }] }));
+    expect(result.webPort).toBe(8080);
+    expect(result.ports).toEqual([]);
+  });
+
   it('should leave ports empty when a legacy https game had exactly one port', () => {
     const result = normalizeGameServer(makeGame({ https: true, ports: [{ container: 30000, protocol: 'tcp' }] }));
     expect(result.webPort).toBe(30000);

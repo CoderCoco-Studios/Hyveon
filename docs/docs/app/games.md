@@ -145,6 +145,8 @@ authoritative health check) still can. Note that this is VPC-wide
 reachability, not scoped to any one caller — see
 [Infra program reference](/components/infra) for the security-group detail.
 
+A port's `protocol` must be exactly `tcp`, `udp` or `icmp`. A hand-edited `deployment-config.json` entry with any other value (including upper-case `TCP`) is rejected with an issue on that port's protocol; the wizard and edit form show an existing upper-case value as its lower-case equivalent.
+
 #### ICMP entries (ping reachability)
 
 Selecting `ICMP` for a row relabels the numeric field **ICMP type** instead of **Container port**, prefills it with `8` if it's still blank, and shows a hint underneath: *"8 = echo request (ping)"*. An ICMP row never becomes an ECS port mapping — it only opens an ICMP ingress rule on the security group, for the type you declared (`0`–`255`; `8` is a standard ping). This is for a game whose community or server-browser tooling pings the server to check it's alive (Palworld's server browser is the reference case): declaring `{ "container": 8, "protocol": "icmp" }` opens ICMP echo without exposing or mapping any container port for it. The numeric field enforces the same `0`–`255` range as any other ICMP type — entering an out-of-range value blocks the step with `ICMP type must be an integer between 0 and 255`.
@@ -233,12 +235,23 @@ independent of which type it was saved as.
 **Omitting vs. clearing on an edit works like every other secret field:**
 leaving the fields for the current type blank keeps the existing credential
 unchanged; switching to **None** and saving clears it (deleting the
-app-owned secret first if the previous credential was Basic or Bearer).
+app-owned secret once the configuration write has succeeded, if the previous
+credential was Basic or Bearer).
 Switching from Basic/Bearer to **Raw ARN** and entering a new ARN also
 deletes the now-orphaned app-owned secret — but selecting **Raw ARN** and
 leaving that field blank counts as "unchanged," so the prior Basic/Bearer
 secret is left in place and still referenced. Removing the game entirely
 always deletes its app-owned secret, if any.
+
+If the save fails after a Basic or Bearer credential was written (a stale
+version, a missing game, or an S3 error), the app restores the secret's
+previous value, or deletes a secret that save created, so a failed save
+normally leaves the live health-check credentials as they were. The rollback is
+best-effort: if it fails, the failure is logged and you still see the original
+save error. Saves run one at a time, so two concurrent saves cannot undo each
+other's credential. If the secret itself cannot
+be written, the save fails with a `Failed to save the health-check credential`
+error and nothing is written to the configuration.
 
 ### Step 4 — Storage
 
@@ -374,16 +387,15 @@ Like every other change on this screen, pinning only updates the configuration o
 
 ### Step 6 — Review
 
-A read-only summary in four cards — **Identity**, **Resources**,
-**Networking**, **Storage** — showing exactly what will be written. The
+A read-only summary in up to five cards — **Identity**, **Resources**,
+**Networking**, **Storage** and, when there is anything to show, **Environment** — showing exactly what will be written. The
 Networking card's health-check sub-section (present only when one is
 enabled) shows the request shape and condition, and whether a credential
 is set — never the credential's value or ARN, the same convention the
 Storage card follows for file-seed contents. The Storage card lists
-file-seed *paths* only (contents are never displayed) and, underneath, an
-**Environment variables** list of name/value pairs — both sub-sections are
-omitted entirely when empty rather than shown blank.
-When **Pin hostname** is on, the Storage card also lists a **Pinned hostname** row with the value; with the switch off the row is absent.
+the volumes and the file-seed *paths* only (contents are never displayed);
+the file-seed list is omitted entirely when empty rather than shown blank.
+The **Environment** card lists the **Environment variables** as name/value pairs and, when **Pin hostname** is on, a **Pinned hostname** row with the value. The card is omitted when there are no variables and the switch is off.
 
 On an HTTPS game the Networking card shows the **HTTPS** row, then a **Web port** row, followed by an **Additional ports** list (`No additional ports.` when empty) instead of the plain **Ports** list.
 
@@ -404,8 +416,14 @@ block you until you reach them.
 On the Review step, Submit is disabled unless the whole draft is clean.
 
 If the server rejects the submission, the dialog stays open with your draft
-intact and jumps to whichever step the first problem belongs to, with the
-message rendered against the offending field.
+intact and jumps to the earliest step that has a problem, with the
+message rendered against the offending field. When the problems span more
+than one step, a banner above the step lists every affected step so you can
+visit each one.
+
+The wizard checks name and port collisions against the games already
+declared. If that list cannot be loaded, a banner at the top of the dialog
+says so and those collisions are only caught when you submit.
 
 ### Draft autosave
 
@@ -439,7 +457,7 @@ time you open the Games page, an orange banner appears above the table:
 
 **Resume** reopens the wizard pre-filled at the step you left off on.
 **Discard** deletes the saved draft and hides the banner without opening the
-wizard. The banner never opens the wizard on its own — resuming is always
+wizard; if the delete fails, an error toast says so and the banner stays. The banner never opens the wizard on its own — resuming is always
 something you click.
 
 There is only one draft slot: starting a second add-game draft (via Discard,
@@ -507,6 +525,8 @@ AWS resources.
 
 If you navigate to a name that exists in neither place you get
 `No game named "foo" was found.`
+
+If the games list itself cannot be loaded, the page shows `Failed to load games: <error>` instead of that message. The banner has no retry button; reopen the page to try again.
 
 ## Files
 

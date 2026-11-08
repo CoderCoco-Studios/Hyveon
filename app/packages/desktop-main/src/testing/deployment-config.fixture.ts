@@ -63,6 +63,7 @@ export function deploymentConfigStub(
   const stub: Partial<DeploymentConfigService> = {
     invalidateCache: vi.fn(),
     getGameServers: vi.fn().mockResolvedValue(declared),
+    getGameServersStrict: vi.fn().mockResolvedValue(declared),
     getTopLevelSettings: vi.fn().mockResolvedValue({ settings: projectName ? { projectName } : {} }),
     ...overrides,
   };

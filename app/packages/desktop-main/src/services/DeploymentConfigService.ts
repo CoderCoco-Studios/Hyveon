@@ -312,11 +312,7 @@ export class DeploymentConfigService {
     const generation = this.cacheGeneration;
 
     try {
-      const { config: raw } = await this.fetchRawConfig();
-      const value = this.flattenGameServers(this.parseConfigContents(raw));
-      if (generation === this.cacheGeneration) {
-        this.cache = { value, cachedAt: this.now(), failed: false };
-      }
+      const value = await this.loadAndCacheGameServers(generation);
       logger.info('Loaded deployment config gameServers', { count: value.length });
       return value;
     } catch (err) {
@@ -326,12 +322,47 @@ export class DeploymentConfigService {
         // doesn't read as a genuine incident.
         logger.warn('No configuration bucket configured — returning empty gameServers list', {});
       } else {
-        logger.error('Failed to load deployment config gameServers — returning empty list', { err });
+        logger.error('Failed to load deployment config gameServers — returning empty list', { err: errMessage(err) });
       }
       if (generation === this.cacheGeneration) {
         this.cache = { value: [], cachedAt: this.now(), failed: true };
       }
       return [];
+    }
+  }
+
+  /** Reads and parses the config, caching the result unless {@link invalidateCache} ran since `generation` was read. */
+  private async loadAndCacheGameServers(generation: number): Promise<GameServer[]> {
+    const { config: raw } = await this.fetchRawConfig();
+    const value = this.flattenGameServers(this.parseConfigContents(raw));
+    if (generation === this.cacheGeneration) {
+      this.cache = { value, cachedAt: this.now(), failed: false };
+    }
+    return value;
+  }
+
+  // @spec GAME-WRITE-006
+  /**
+   * Like {@link getGameServers} but rejects when the config cannot be read or parsed, so a write path never treats a
+   * failed read as "no games declared". Serves a successful cached read; a negatively cached failure is retried.
+   *
+   * @returns The declared games.
+   * @throws ConfigurationNotConfiguredError when no configuration bucket is configured.
+   * @throws Error when the source cannot be read or its contents cannot be parsed.
+   */
+  async getGameServersStrict(): Promise<GameServer[]> {
+    const ttl = this.config.readEnvConfigCacheTtlMs();
+    if (this.cache && !this.cache.failed && this.now() - this.cache.cachedAt < ttl) {
+      return this.cache.value;
+    }
+
+    try {
+      return await this.loadAndCacheGameServers(this.cacheGeneration);
+    } catch (err) {
+      if (!(err instanceof ConfigurationNotConfiguredError)) {
+        logger.error('Failed to load deployment config gameServers (strict read)', { err: errMessage(err) });
+      }
+      throw err;
     }
   }
 

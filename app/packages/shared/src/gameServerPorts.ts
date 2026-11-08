@@ -1,5 +1,5 @@
 import type { DeploymentConfig } from './deploymentConfig.js';
-import type { GameServerConfig, GameServerPort } from './gameServerConfig.js';
+import { isTcpProtocol, type GameServerConfig, type GameServerPort } from './gameServerConfig.js';
 
 /** Container ports the in-task Caddy sidecar binds publicly on any `https: true` game. */
 export const HTTPS_RESERVED_PORTS = [80, 443] as const;
@@ -60,7 +60,7 @@ export function normalizeGameServer<T extends NormalizableGame>(game: T): T {
     return game;
   }
   const [first, ...rest] = game.ports;
-  if (first === undefined || first.protocol !== 'tcp' || first.container === null) {
+  if (first === undefined || !isTcpProtocol(first.protocol) || first.container === null) {
     return game;
   }
   return { ...game, webPort: first.container, ports: rest };
@@ -104,7 +104,7 @@ export function ingressPorts(game: GameServerConfig): GameServerPort[] {
   if (webPort === undefined) {
     return game.ports;
   }
-  return game.ports.filter((port) => !(port.container === webPort && port.protocol.toLowerCase() === 'tcp'));
+  return game.ports.filter((port) => !(port.container === webPort && isTcpProtocol(port.protocol)));
 }
 
 // @spec GAME-HTTPS-010
@@ -129,7 +129,7 @@ export function findWebPortCollisions(config: DeploymentConfig): string[] {
       if (other === owner || !Array.isArray(otherGame.ports)) {
         continue;
       }
-      if (otherGame.ports.some((port) => port.container === webPort && port.protocol.toLowerCase() === 'tcp')) {
+      if (otherGame.ports.some((port) => port.container === webPort && isTcpProtocol(port.protocol))) {
         messages.push(`Game "${owner}" webPort ${webPort} collides with tcp port ${webPort} on game "${other}"; the shared security group would expose "${owner}"'s upstream directly, bypassing Caddy.`);
       }
     }

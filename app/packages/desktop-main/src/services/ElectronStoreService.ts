@@ -5,6 +5,8 @@ import { Injectable } from '@nestjs/common';
 import type Store from 'electron-store';
 import { logger } from '../logger.js';
 import { SafeStorageService } from './SafeStorageService.js';
+import type { GameWizardDraft, StoredGameWizardDraft } from '@hyveon/shared';
+export type { GameWizardDraft, StoredGameWizardDraft };
 
 // electron-store@11 is ESM-only — require() would throw ERR_REQUIRE_ESM.
 // Load via dynamic import, but only inside Electron; in plain-Node test
@@ -94,82 +96,6 @@ export interface OrphanedRollbackRecord {
   failedAt: string;
   /** `Error.message` (or `String(err)` for a non-`Error` throw) of the plan-creation failure. */
   failureMessage: string;
-}
-
-/**
- * In-progress add-game wizard field values, mirroring `WizardDraft` in
- * `app/packages/web/src/components/add-game-wizard/wizard-form.utils.ts` —
- * that file is the source of truth; keep this copy in sync with it. Not
- * secret in the general case, but may contain operator-entered environment
- * variable values the operator considers sensitive — see
- * {@link StoredGameWizardDraft}'s doc comment for the at-rest posture this
- * accepts.
- */
-export interface GameWizardDraft {
-  name: string;
-  image: string;
-  connect_message: string;
-  cpu: number | null;
-  memory: number | null;
-  /** Absent on a draft autosaved before `visibility` existed — {@link GameWizardDraftService} backfills `'public'` on read. */
-  ports: { container: number | null; protocol: string; visibility?: 'public' | 'internal' }[];
-  volumes: { name: string; container_path: string }[];
-  file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
-  environment: { name: string; value: string }[];
-  https: boolean;
-  /**
-   * Caddy upstream port for an https draft. Absent on a draft autosaved before this field existed —
-   * {@link GameWizardDraftService} normalises a legacy https draft (`ports[0]` as upstream) on read.
-   */
-  webPort?: number | null;
-  /** Absent on a draft autosaved before this field existed — {@link GameWizardDraftService} backfills `[]` on read. */
-  command?: string[];
-  /** Absent when the "Pin hostname" switch is off. */
-  pinnedHostname?: string;
-  /** Absent on a draft autosaved before this field existed — {@link GameWizardDraftService} backfills a default on read. */
-  healthCheck?: {
-    enabled: boolean;
-    scheme: string;
-    port: number | null;
-    path: string;
-    method: string;
-    timeoutMs: number | null;
-    jsonPath: string;
-    operator: string;
-    value: string;
-    /** Absent on a draft autosaved before `authType`/`username`/`password`/`token` existed — {@link GameWizardDraftService} backfills a default on read. */
-    authType?: 'none' | 'raw' | 'basic' | 'bearer';
-    secretArn: string;
-    username?: string;
-    password?: string;
-    token?: string;
-    secretSet: boolean;
-  };
-}
-
-/**
- * A saved add-game wizard draft plus which step the operator was on and
- * when it was last autosaved. Written/read via
- * {@link GameWizardDraftService}, never directly through
- * {@link ElectronStoreService.get}/{@link ElectronStoreService.set} from
- * outside that service.
- *
- * @remarks
- * Stored in plaintext, matching the storage posture of the eventual
- * `deployment-config.json` write this draft becomes on submit — neither is
- * field-level encrypted, unlike the AWS/pasted-credentials/passphrase
- * fields above, which are genuine secrets. However, `GameWizardDraftService.get()`
- * blanks out `environment[].value` and `file_seeds[].content`/`content_base64`
- * before returning a stored entry to a caller, so those operator-entered
- * values never reach the renderer over IPC even though they're written to
- * disk here — the operator re-enters them on resume. `GameWizardDraftService.save()`
- * still persists the full, unredacted draft; only reads are redacted.
- */
-export interface StoredGameWizardDraft {
-  draft: GameWizardDraft;
-  stepIndex: number;
-  /** ISO-8601 timestamp of the most recent autosave. */
-  savedAt: string;
 }
 
 // @spec APP-WIZARD-PROG-002

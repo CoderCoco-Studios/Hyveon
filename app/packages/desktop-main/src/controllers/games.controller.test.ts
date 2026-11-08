@@ -7,6 +7,7 @@ import type { EcsService } from '../services/EcsService.js';
 import type { HelperSessionRegistry } from '../services/volumeFiles/HelperSessionRegistry.js';
 import type { GamesWriteService } from '../services/GamesWriteService.js';
 import type { DeploymentConfigService } from '../services/DeploymentConfigService.js';
+import { ConfigurationNotConfiguredError } from '../services/DeploymentConfigService.js';
 import type { GameServer, GameWriteResult, StackOutputs } from '@hyveon/shared';
 import type { GameWizardDraftService } from '../services/GameWizardDraftService.js';
 import type { StoredGameWizardDraft } from '../services/ElectronStoreService.js';
@@ -82,7 +83,7 @@ function makeGameWizardDraft(): GameWizardDraftService {
   return {
     get: vi.fn().mockReturnValue(null),
     save: vi.fn(),
-    clear: vi.fn(),
+    clear: vi.fn().mockReturnValue(true),
   } as Partial<GameWizardDraftService> as GameWizardDraftService;
 }
 
@@ -109,6 +110,26 @@ describe('GamesController', () => {
       const config = makeConfig();
       await new GamesController(config, makeEcs(), makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft(), makeRegistry()).listGames();
       expect(config.invalidateCache).not.toHaveBeenCalled();
+    });
+
+    // @spec GAME-IPC-007
+    it('should reject, not resolve an empty list, when the deployment config cannot be read', async () => {
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.getGameServersStrict).mockRejectedValue(new Error('S3 down'));
+
+      await expect(
+        new GamesController(makeConfig(), makeEcs(), deploymentConfig, makeGamesWrite(), makeGameWizardDraft(), makeRegistry()).listGames(),
+      ).rejects.toThrow('S3 down');
+    });
+
+    // @spec GAME-IPC-007
+    it('should resolve the deployed view without rejecting when no configuration bucket is configured yet', async () => {
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.getGameServersStrict).mockRejectedValue(new ConfigurationNotConfiguredError());
+
+      const result = await new GamesController(makeConfig(), makeEcs(), deploymentConfig, makeGamesWrite(), makeGameWizardDraft(), makeRegistry()).listGames();
+
+      expect(result.games.every((g) => !g.declared)).toBe(true);
     });
 
     it('should invalidate the DeploymentConfigService cache before reading game names', async () => {
@@ -401,5 +422,14 @@ describe('games.draft.* handlers', () => {
     controller.clearDraft();
 
     expect(draftService.clear).toHaveBeenCalled();
+  });
+
+  // @spec GAME-DRAFT-008
+  it('should reject games.draft.clear when the draft could not be deleted', () => {
+    const draftService = makeGameWizardDraft();
+    vi.mocked(draftService.clear).mockReturnValue(false);
+    const controller = new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeGamesWrite(), draftService, makeRegistry());
+
+    expect(() => controller.clearDraft()).toThrow(/discard the saved draft/);
   });
 });

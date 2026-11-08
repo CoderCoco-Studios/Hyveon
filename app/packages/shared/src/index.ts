@@ -5,6 +5,7 @@ export * from './iamPolicy.js';
 export * from './wizardSteps.js';
 export * from './addGameWizardSteps.js';
 export * from './gameServerConfig.js';
+export * from './gameWizardDraft.js';
 export * from './deploymentConfig.js';
 export * from './awsRegions.js';
 export * from './stackOutputs.js';

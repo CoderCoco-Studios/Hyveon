@@ -15,6 +15,10 @@ const apiMock = vi.hoisted(() => ({
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 
+/** Stub for `sonner`'s `toast`, so the discard-failure toast can be asserted without a mounted toaster. */
+const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock('sonner', () => ({ toast: toastMock }));
+
 import { GamesPage } from './games.page.js';
 import { renderPage } from '../test-utils/render-page.utils.js';
 
@@ -358,5 +362,19 @@ describe('GamesPage', () => {
     await waitFor(() => expect(apiMock.clearGameDraft).toHaveBeenCalled());
     expect(screen.queryByText(/Unfinished draft/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Add a game server' })).not.toBeInTheDocument();
+  });
+
+  // @spec GAME-DRAFT-008
+  it('should tell the operator and keep the banner when deleting the draft fails', async () => {
+    apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
+    apiMock.clearGameDraft.mockRejectedValueOnce(new Error('disk full'));
+    const user = userEvent.setup();
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+    await screen.findByRole('button', { name: 'Discard' });
+
+    await user.click(screen.getByRole('button', { name: 'Discard' }));
+
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith(expect.stringContaining('disk full')));
+    expect(screen.getByText(/Unfinished draft/i)).toBeInTheDocument();
   });
 });

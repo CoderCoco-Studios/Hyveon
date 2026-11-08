@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 import { api, type GameListEntry, type StoredGameWizardDraft } from '../api.service.js';
 import { GameStatusBadges } from '../components/game-status-badges.component.js';
 import { PageHeader } from '../components/page-header.component.js';
@@ -22,7 +23,7 @@ function formatPorts(entry: GameListEntry): string {
   return parts.length === 0 ? '—' : parts.join(', ');
 }
 
-// @spec GAME-IPC-006, GAME-DRAFT-006, GAME-DRAFT-007, GAME-DRAFT-010
+// @spec GAME-IPC-006, GAME-DRAFT-006, GAME-DRAFT-008, GAME-DRAFT-007, GAME-DRAFT-010
 /**
  * Games route (`/games`) — read-only table of every game the app knows
  * about, merging the declared deployment config with the deployed
@@ -116,8 +117,12 @@ export function GamesPage() {
 
   /** Discards the saved draft and hides the banner, without opening the wizard. */
   async function handleDiscardDraft() {
-    await api.clearGameDraft();
-    setDraft(null);
+    try {
+      await api.clearGameDraft();
+      setDraft(null);
+    } catch (err) {
+      toast.error(`Failed to discard the draft: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /**

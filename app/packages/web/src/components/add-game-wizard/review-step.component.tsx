@@ -31,7 +31,7 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-// @spec GAME-HOST-015
+// @spec GAME-HOST-015, GAME-HOST-016
 /**
  * Final step of the add-game wizard: renders a read-only summary of
  * every field entered across the Identity, Resources, Networking, Storage,
@@ -148,25 +148,33 @@ export function ReviewStep({ draft, issues = [], submitError = null }: ReviewSte
               </ul>
             </div>
           )}
-
-          {hasEnvironment && (
-            <div>
-              <h4 className="text-xs uppercase tracking-wider text-[var(--color-muted-foreground)] mb-1">
-                Environment variables
-              </h4>
-              <ul className="space-y-1">
-                {draft.environment.map((variable, index) => (
-                  <li key={index}>
-                    <SummaryRow label={variable.name} value={variable.value} />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {draft.pinnedHostname !== undefined && <SummaryRow label="Pinned hostname" value={draft.pinnedHostname || '—'} />}
         </div>
       </SectionCard>
+
+      {(hasEnvironment || draft.pinnedHostname !== undefined) && (
+        <SectionCard title="Environment">
+          <div className="space-y-3">
+            {hasEnvironment && (
+              <div>
+                <h4 className="text-xs uppercase tracking-wider text-[var(--color-muted-foreground)] mb-1">
+                  Environment variables
+                </h4>
+                <ul className="space-y-1">
+                  {draft.environment.map((variable, index) => (
+                    <li key={index}>
+                      <SummaryRow label={variable.name} value={variable.value} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {draft.pinnedHostname !== undefined && (
+              <SummaryRow label="Pinned hostname" value={draft.pinnedHostname || '—'} />
+            )}
+          </div>
+        </SectionCard>
+      )}
 
       {issues.length > 0 && (
         <div

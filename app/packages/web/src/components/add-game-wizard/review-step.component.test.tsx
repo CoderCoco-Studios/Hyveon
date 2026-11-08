@@ -94,6 +94,27 @@ describe('ReviewStep — empty optional sections', () => {
     expect(screen.queryByText('Environment variables')).not.toBeInTheDocument();
   });
 
+  // @spec GAME-HOST-016
+  it('should group environment variables and the pinned hostname under an Environment card, not Storage', () => {
+    render(
+      <ReviewStep draft={makeDraft({ environment: [{ name: 'EULA', value: 'TRUE' }], pinnedHostname: 'foundry' })} />,
+    );
+
+    const cardOf = (title: string) => within(screen.getByRole('heading', { name: title }).parentElement!.parentElement!);
+    const environment = cardOf('Environment');
+    expect(environment.getByText('EULA')).toBeInTheDocument();
+    expect(environment.getByText('Pinned hostname')).toBeInTheDocument();
+    const storage = cardOf('Storage');
+    expect(storage.queryByText('EULA')).not.toBeInTheDocument();
+    expect(storage.queryByText('Pinned hostname')).not.toBeInTheDocument();
+  });
+
+  it('should omit the Environment card when there are no variables and no pinned hostname', () => {
+    render(<ReviewStep draft={makeDraft({ environment: [], pinnedHostname: undefined })} />);
+
+    expect(screen.queryByRole('heading', { name: 'Environment' })).not.toBeInTheDocument();
+  });
+
   // @spec GAME-HOST-015
   it('should list the pinned hostname when set', () => {
     render(<ReviewStep draft={makeDraft({ pinnedHostname: 'foundry' })} />);

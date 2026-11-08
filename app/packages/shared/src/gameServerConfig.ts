@@ -62,6 +62,16 @@ export function isIcmpProtocol(protocol: string): boolean {
   return protocol.toLowerCase() === 'icmp';
 }
 
+/** `true` when `protocol` is `"tcp"`, matched case-insensitively like {@link isIcmpProtocol} so raw-read helpers agree. */
+export function isTcpProtocol(protocol: string): boolean {
+  return protocol.toLowerCase() === 'tcp';
+}
+
+/** `true` when `protocol` is `"udp"`, matched case-insensitively like {@link isIcmpProtocol}. */
+export function isUdpProtocol(protocol: string): boolean {
+  return protocol.toLowerCase() === 'udp';
+}
+
 /** Environment variable injected into the game server container. */
 export interface GameServerEnvironmentVariable {
   /** Environment variable name (e.g. `"EULA"`). */

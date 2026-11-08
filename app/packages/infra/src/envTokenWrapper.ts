@@ -33,10 +33,10 @@ function quotedWithIpSplices(value: string): string {
 }
 
 // @spec IAC-PROGRAM-TOKEN-005, IAC-PROGRAM-TOKEN-006
-// @spec GAME-TOKEN-007, GAME-TOKEN-009, GAME-TOKEN-011, GAME-TOKEN-012
+// @spec GAME-TOKEN-007, GAME-TOKEN-008, GAME-TOKEN-009, GAME-TOKEN-011, GAME-TOKEN-012
 /**
  * Builds the wrapper script: retry loop against the IP-echo endpoint (wget
- * then curl, 30 × 2s), a shape check rejecting any non-IPv4 response before
+ * then curl, at most 5 attempts of about 12s each, so about 60s in total), a shape check rejecting any non-IPv4 response before
  * it's accepted, targeted `export` lines, then `exec` of the command. Exits
  * non-zero without starting the game if discovery fails.
  *
@@ -68,7 +68,7 @@ export function buildIpv4WrapperScript(args: Ipv4WrapperArgs): string {
     `fetch_ip() { wget -t 1 -T 5 -qO- ${quotedUrl} 2>/dev/null || curl -fsS -m 5 ${quotedUrl} 2>/dev/null; }`,
     'attempt=0',
     'HYVEON_PUBLIC_IPV4=""',
-    'while [ "$attempt" -lt 30 ]; do',
+    'while [ "$attempt" -lt 5 ]; do',
     `  HYVEON_PUBLIC_IPV4="$(fetch_ip | tr -d '[:space:]')"`,
     '  case "$HYVEON_PUBLIC_IPV4" in',
     '    ""|*[!0-9.]*) HYVEON_PUBLIC_IPV4="" ;;',
