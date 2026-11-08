@@ -106,7 +106,8 @@ below). Before your first apply the field reads:
 > Run a plan and apply from the [Infrastructure](/app/iac) page to provision the Lambda and surface this URL.
 
 Once it exists it is shown in a code block with a **Copy** button (which flips
-to **Copied** for a second and a half).
+to **Copied** for a second and a half, only after the clipboard write succeeds;
+if the clipboard is unavailable the button stays on **Copy**).
 
 **What to do with it:** paste it into your application's *Interactions
 Endpoint URL* field in the Discord developer portal. Discord immediately sends
@@ -143,8 +144,9 @@ this depends on: your hosted zone must already exist (see
 
 **Save credentials** sends the Application ID always, and each secret only if
 you typed something into it. Blank secret fields leave the stored values
-untouched. Both secret inputs are cleared after submitting. Success shows a
-`Credentials saved` toast.
+untouched. Both secret inputs are cleared only after the save succeeds, and success shows a
+`Credentials saved` toast. If the save fails, the **Action failed** toast appears and
+the inputs keep what you typed so you can retry.
 
 Note that the Application ID *is* always sent, so clearing that field and
 saving will clear the stored value.
@@ -326,6 +328,10 @@ ones that already have a permission entry. Games with no entry start blank.
 Chip inputs behave exactly as described under [Admins](#chip-input-behaviour),
 except that removing a chip here happens immediately with no confirmation.
 
+Saving a row for a game that is not declared in the deployment configuration is
+refused. **Clear** is refused for a game that is neither declared nor holds a
+permission entry, so an entry left behind by a removed game can still be cleared.
+
 ### How the gates combine
 
 A non-admin needs **both halves**: their user ID (or one of their role IDs)
@@ -372,14 +378,20 @@ so if you know you have games declared, check the Games page.
 ## Loading and error states
 
 Before the configuration loads, the page shows only its heading and
-`Loading…`. If the configuration cannot be read at all:
+`Loading…`. If the configuration cannot be read, the page shows one of two
+messages in place of the tabs:
 
 > Discord config unavailable — infrastructure not deployed yet. Run a plan
 > and apply from the [Infrastructure](/app/iac) page first.
 
-The tabs, the readiness badge and the Get started card are all absent in that
-state. It means the infra program has not published the DynamoDB table name
-and Secrets Manager ARNs the app needs — no apply has succeeded yet.
+This means the infra program has not published the DynamoDB table name the app
+needs — no apply has succeeded yet. Any other read failure shows instead:
+
+> Could not load the Discord configuration: *the reason*
+
+followed by a **Retry** button that reads the configuration again. The tabs,
+the readiness badge and the Get started card are absent in both states, so
+nothing can be edited from a configuration that failed to load.
 
 Any failed change produces a toast titled **Action failed** with the reason as
 its description.

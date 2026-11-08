@@ -124,33 +124,33 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
-| Serverless invariants | `DISCORD-SVC-001` to `DISCORD-SVC-005` | 4 | 0 | 1 |
+| Serverless invariants | `DISCORD-SVC-001` to `DISCORD-SVC-005` | 5 | 0 | 0 |
 | Ingress and signature verification | `DISCORD-AUTH-001` to `DISCORD-AUTH-008` | 8 | 0 | 0 |
-| Command handling (interactions Lambda) | `DISCORD-CMD-001` to `DISCORD-CMD-013` | 12 | 0 | 1 |
+| Command handling (interactions Lambda) | `DISCORD-CMD-001` to `DISCORD-CMD-013` | 13 | 0 | 0 |
 | Permission evaluation (canRun) | `DISCORD-PERM-001` to `DISCORD-PERM-005` | 5 | 0 | 0 |
-| Followup Lambda | `DISCORD-RUN-001` to `DISCORD-RUN-015` | 14 | 0 | 1 |
+| Followup Lambda | `DISCORD-RUN-001` to `DISCORD-RUN-015` | 15 | 0 | 0 |
 | Pending interactions | `DISCORD-PEND-001` to `DISCORD-PEND-004` | 4 | 0 | 0 |
 | Message rendering | `DISCORD-MSG-001` to `DISCORD-MSG-006` | 6 | 0 | 0 |
 | Configuration model | `DISCORD-CFG-001` to `DISCORD-CFG-006` | 6 | 0 | 0 |
 | Desktop configuration service | `DISCORD-DESK-001` to `DISCORD-DESK-009` | 9 | 0 | 0 |
-| IPC surface | `DISCORD-IPC-001` to `DISCORD-IPC-006` | 5 | 0 | 1 |
+| IPC surface | `DISCORD-IPC-001` to `DISCORD-IPC-006` | 6 | 0 | 0 |
 | Command registration | `DISCORD-REG-001` to `DISCORD-REG-005` | 5 | 0 | 0 |
-| Discord page | `DISCORD-UI-001` to `DISCORD-UI-010` | 7 | 0 | 3 |
+| Discord page | `DISCORD-UI-001` to `DISCORD-UI-010` | 10 | 0 | 0 |
 
-**Summary:** 85 of 92 active specs implemented; 0 deferred; 7 gaps.
+**Summary:** 92 of 92 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 
-1. **Failed dynamic config reads are not cached or saved over** — `DiscordConfigService.loadStrict()` throws on a failed `CONFIG#discord` read and caches nothing, so the dynamic row is never written on the basis of a failed read. The display path (`load()`, used by `getConfig` and `getRedacted`) still returns an uncached empty config (`DISCORD-UI-008`). `loadBase()` separately caches an empty base config after a failed `BASE#discord` read. `setCredentials()` calls `loadStrict()` only when updating `clientId`; secrets-only updates skip the dynamic read.
+1. **Failed dynamic config reads are not cached or saved over** — `DiscordConfigService.loadStrict()` throws on a failed `CONFIG#discord` read and caches nothing, so the dynamic row is never written on the basis of a failed read. `getRedacted` also uses `loadStrict()` and rejects (not-deployed message or the real failure), so the page never shows an empty config as real (`DISCORD-UI-008`); the remaining display reads (`getConfig`, used by `listGuilds`, `getAdmins`, `getPermissions`) still degrade to an uncached empty config. `loadBase()` separately caches an empty base config after a failed `BASE#discord` read. `setCredentials()` calls `loadStrict()` only when updating `clientId`; secrets-only updates skip the dynamic read.
 2. **`patchInteractionOriginal` doc contradicts code** [resolved: fetch is wrapped, `DISCORD-RUN-014`] — the TSDoc says it "swallows and logs failures rather than throwing" (`shared/src/discord/patchOriginal.ts:9-11`), but `fetch` is not wrapped (`:23`); a network rejection throws. In update-dns this skips `deletePending` (`update-dns/handler.ts:193-194`), leaving cleanup to the TTL.
 3. **Followup can leave a deferred interaction unresolved** [resolved: config read moved inside the `try`, `DISCORD-RUN-010`] — `getEffectiveDiscordConfig` runs before the `try` (`followup/handler.ts:240`) and the final PATCH runs after it (`:272`); a failure in either leaves Discord showing "thinking..." until the token expires.
 4. **Followup logs the interaction token** [resolved: logs identifiers only, `DISCORD-RUN-011`] — `console.error('Followup handler failed', { err, event })` (`followup/handler.ts:268`) logs the whole event, which carries `interactionToken` (a 15-minute webhook credential). Conflicts with `.claude/rules/logging.md` rule 3 [inferred: the rule targets desktop-main, but the intent applies].
-5. **Raw exception text is sent to Discord users** — `String(err)` is embedded in user-facing replies (`followup/handler.ts:114`, `:146`, `:160`).
-6. **Deferred ack waits on the async invoke** — `handleApplicationCommand` awaits `invokeFollowup` before returning type 5 (`interactions/handler.ts:204-213`, `:216-225`, `:234-243`), so Lambda-invoke latency counts against Discord's 3-second budget. [resolved: timestamp freshness, `DISCORD-AUTH-007`] `hex.substr` is deprecated (`:74`).
-7. **Two `DiscordEventReceiver` implementations, neither used** — `shared/src/discord/awsLambdaDiscordReceiver.ts:32` (reads `discord_interactions_url`) has no consumer outside its test and the barrel export (`shared/src/index.ts:37`). The bound `AwsDiscordEventReceiver` is constructed with no config callback (`cloud-provider.module.ts:204`), so it would always return `null` (`AwsDiscordEventReceiver.ts:44-45`), and nothing injects `DISCORD_RECEIVER`; the controller reads `outputs.interactionsInvokeUrl` directly instead (`discord.controller.ts:39`, `:77`). `StackOutputs` also carries two identical URL fields (`stackOutputs.ts:147`, `:156`; `infra/src/program.ts:448-451`).
+5. **Raw exception text was sent to Discord users** [resolved: fixed reply via `failureReply`, normalised error logged only, `DISCORD-RUN-012`].
+6. **Deferred ack waits on the async invoke** [resolved: the invoke is awaited, because Lambda freezes after return, but bounded to 2 seconds with an ephemeral retry notice on timeout, `DISCORD-CMD-009`; the config read stays unbounded on the ack path, two DynamoDB point reads]. [resolved: timestamp freshness, `DISCORD-AUTH-007`] `hex.substr` is deprecated (`:74`).
+7. **Two `DiscordEventReceiver` implementations, neither used** — `shared/src/discord/awsLambdaDiscordReceiver.ts:32` (reads `discord_interactions_url`) has no consumer outside its test and the barrel export (`shared/src/index.ts:37`). [the controller now reads the URL through one accessor, `DISCORD-SVC-005`; removing the duplicate stack output and the receivers needs `iac/program` and `operator-app/desktop-shell` specs to change and stays open as a cross-segment item] The bound `AwsDiscordEventReceiver` is constructed with no config callback (`cloud-provider.module.ts:204`), so it would always return `null` (`AwsDiscordEventReceiver.ts:44-45`), and nothing injects `DISCORD_RECEIVER`; the controller reads `outputs.interactionsInvokeUrl` directly instead (`discord.controller.ts:39`, `:77`). `StackOutputs` also carries two identical URL fields (`stackOutputs.ts:147`, `:156`; `infra/src/program.ts:448-451`).
 8. **Sweep disagreement: autocomplete does honour the guild allowlist** — sweep-8 says autocomplete "skips allowedGuilds check" (`interactions/handler.ts:157-184`). The code filters through `canRun` (`:177`), whose first step is the allowlist (`canRun.ts:29`). Not a bug; it matches `docs/docs/app/discord.md:336-338`.
 9. **Sweep disagreement: `putPermission` actions cast is benign** — sweep-6 flags `actions as DiscordAction[]` (`discord.controller.ts:198`) as unvalidated. The service filters to `start|stop|status` before saving (`DiscordConfigService.ts:386-391`). The cast is cosmetic.
-10. **Desktop UI error handling is optimistic** — credentials secrets are cleared without awaiting the save result (`credentials-section.component.tsx:47-52`); the clipboard write is fire-and-forget before "Copied" (`:56-59`); any load error renders "infrastructure not deployed yet" (`discord.page.tsx:39-50`).
+10. **Desktop UI error handling was optimistic** [resolved: secrets clear after a successful save, `DISCORD-UI-009`; "Copied" after a successful clipboard write, `DISCORD-UI-010`; a load error distinguishes not-deployed from other failures with Retry, `DISCORD-UI-008`].
 11. **Infra-side drift cited from `iac/program`** — interactions gets an unused `HOSTED_ZONE_NAME` (`infra/src/lambdas.ts:463`; the handler never reads it); Function URL CORS allows only POST from `https://discord.com` (`lambdas.ts:478-481`) while CloudFront forwards all methods [unverified: `discordDomain.ts:178` per sweep-8]. `discordDomain.ts` declares an ACM certificate (`:1-30`), contradicting CLAUDE.md's "no ... ACM certificate anywhere" (`CLAUDE.md:90`); the docs page describes it correctly (`docs/docs/app/discord.md:121-130`).
 12. **Stale and duplicated pieces** — `DiscordConfigService.ts:8-9` still says "`/api/discord/config`" (no HTTP transport exists); `FollowupPayload` (`interactions/handler.ts:246-254`) and `FollowupEvent` (`followup/handler.ts:40`) are hand-duplicated across the Lambda boundary; Discord helpers `getBotToken`/`putBotToken`/`putPublicKey`/`invalidateSecretsCache` in `shared/src/secrets/secretsStore.ts:63-91` have no Lambda consumer and duplicate cache logic in `AwsSecretsStore.ts` [unverified beyond sweep-7 for `AwsSecretsStore.ts:11-19,97-116`].
 13. **`docs/docs/app/discord.md:352-353` overstates recoverability** — the clear-permissions confirm says "recoverable from infrastructure-as-code", but per-game permissions live only in the operator-edited `CONFIG#discord` row; infra seeds only `BASE#discord` (base guilds and admins).
@@ -165,10 +165,10 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/discord-bot/discord-bot
 3. Stop logging the full followup event, which includes the interaction token (finding 4). (specs: `DISCORD-RUN-011`) Done.
 
 ### Should Fix
-4. Replace `String(err)` in user-facing Discord replies with a generic message plus a server-side log (finding 5). (specs: `DISCORD-RUN-012`)
-5. Return the deferred ack without awaiting a slow invoke path, or measure and document the budget (finding 6). (specs: `DISCORD-CMD-009`) The timestamp freshness check is done (`DISCORD-AUTH-007`).
-6. Delete one of the two `DiscordEventReceiver` implementations and either wire the remaining one (with its config callback) or remove the `DISCORD_RECEIVER` token; collapse the duplicate `interactionsInvokeUrl`/`discordInteractionsUrl` outputs (finding 7). (specs: `DISCORD-SVC-005`)
-7. Make the Discord page distinguish "not deployed" from other load errors, and only clear secret inputs after a successful save (finding 10). (specs: `DISCORD-UI-008`, `DISCORD-UI-009`)
+4. Replace `String(err)` in user-facing Discord replies with a generic message plus a server-side log (finding 5). (specs: `DISCORD-RUN-012`) Done.
+5. Return the deferred ack without awaiting a slow invoke path, or measure and document the budget (finding 6). (specs: `DISCORD-CMD-009`) Done. The timestamp freshness check is done (`DISCORD-AUTH-007`).
+6. Delete one of the two `DiscordEventReceiver` implementations and either wire the remaining one (with its config callback) or remove the `DISCORD_RECEIVER` token; collapse the duplicate `interactionsInvokeUrl`/`discordInteractionsUrl` outputs (finding 7). (specs: `DISCORD-SVC-005`) Desktop accessor done; the stack output and receiver deletion is a cross-segment item.
+7. Make the Discord page distinguish "not deployed" from other load errors, and only clear secret inputs after a successful save (finding 10). (specs: `DISCORD-UI-008`, `DISCORD-UI-009`, `DISCORD-UI-010`) Done.
 8. Fix the CLAUDE.md ACM invariant wording and the "recoverable from IaC" copy (findings 11, 13).
 
 ### Nice to Have
