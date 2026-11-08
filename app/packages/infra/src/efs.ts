@@ -21,7 +21,7 @@ import * as aws from '@pulumi/aws';
 import type * as pulumi from '@pulumi/pulumi';
 import type { GameServerConfig } from '@hyveon/shared';
 
-/** Every resource {@link defineEfs} declares, keyed by role. */
+// @spec IAC-PROGRAM-EFS-004
 /**
  * Derives the {@link EfsResources.gameAccessPoints} key for a `(game, volume)` pair.
  *
@@ -37,6 +37,7 @@ export function accessPointKey(game: string, volumeName: string): string {
   return `${game}/${volumeName}`;
 }
 
+/** Every resource {@link defineEfs} declares, keyed by role. */
 export interface EfsResources {
   /** The shared EFS filesystem. */
   fileSystem: aws.efs.FileSystem;

@@ -21,6 +21,7 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 - `docs/intent/iac/program/program-specs.md` (133 specs)
 
 ### Tests
+- `app/packages/infra/src/buildOutput.test.ts`
 - `app/packages/infra/src/discordDomain.test.ts`
 - `app/packages/infra/src/dynamodb.test.ts`
 - `app/packages/infra/src/ecs.test.ts`
@@ -37,6 +38,7 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 - `app/packages/infra/src/route53.test.ts`
 - `app/packages/infra/src/secrets.test.ts`
 - `app/packages/infra/src/securityGroups.test.ts`
+- `app/packages/lambda/buildLambda.test.ts`
 - `app/packages/shared/src/env.test.ts`
 - `app/packages/shared/src/envJson.test.ts`
 
@@ -106,44 +108,37 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
-| Workspace and Packaging | `IAC-PROGRAM-WS-001` to `IAC-PROGRAM-WS-006` | 5 | 0 | 1 |
+| Workspace and Packaging | `IAC-PROGRAM-WS-001` to `IAC-PROGRAM-WS-006` | 6 | 0 | 0 |
 | Composition and Providers | `IAC-PROGRAM-COMP-001` to `IAC-PROGRAM-COMP-005` | 5 | 0 | 0 |
 | Per-Game Fan-Out | `IAC-PROGRAM-FANOUT-001` to `IAC-PROGRAM-FANOUT-004` | 4 | 0 | 0 |
 | Network | `IAC-PROGRAM-NET-001` to `IAC-PROGRAM-NET-002` | 2 | 0 | 0 |
 | Security Groups | `IAC-PROGRAM-SG-001` to `IAC-PROGRAM-SG-013` | 13 | 0 | 0 |
 | IAM | `IAC-PROGRAM-IAM-001` to `IAC-PROGRAM-IAM-010` | 10 | 0 | 0 |
-| EFS | `IAC-PROGRAM-EFS-001` to `IAC-PROGRAM-EFS-004` | 3 | 0 | 1 |
+| EFS | `IAC-PROGRAM-EFS-001` to `IAC-PROGRAM-EFS-004` | 4 | 0 | 0 |
 | ECS Task Definitions | `IAC-PROGRAM-ECS-001` to `IAC-PROGRAM-ECS-008` | 8 | 0 | 0 |
-| In-Task TLS (Caddy Sidecar) | `IAC-PROGRAM-TLS-001` to `IAC-PROGRAM-TLS-010` | 9 | 0 | 1 |
-| Environment Tokens and Boot Wrapper | `IAC-PROGRAM-TOKEN-001` to `IAC-PROGRAM-TOKEN-007` | 6 | 0 | 1 |
+| In-Task TLS (Caddy Sidecar) | `IAC-PROGRAM-TLS-001` to `IAC-PROGRAM-TLS-010` | 10 | 0 | 0 |
+| Environment Tokens and Boot Wrapper | `IAC-PROGRAM-TOKEN-001` to `IAC-PROGRAM-TOKEN-007` | 7 | 0 | 0 |
 | Pinned Hostname | `IAC-PROGRAM-HOST-001` to `IAC-PROGRAM-HOST-008` | 8 | 0 | 0 |
-| Lambda Wiring | `IAC-PROGRAM-LAMBDA-001` to `IAC-PROGRAM-LAMBDA-016` | 14 | 0 | 2 |
+| Lambda Wiring | `IAC-PROGRAM-LAMBDA-001` to `IAC-PROGRAM-LAMBDA-016` | 15 | 0 | 1 |
 | Lambda Environment Wire Format | `IAC-PROGRAM-ENV-001` to `IAC-PROGRAM-ENV-007` | 7 | 0 | 0 |
 | Data Tables and Discord Seed Rows | `IAC-PROGRAM-DATA-001` to `IAC-PROGRAM-DATA-005` | 5 | 0 | 0 |
-| Secrets | `IAC-PROGRAM-SECRET-001` to `IAC-PROGRAM-SECRET-005` | 4 | 0 | 1 |
-| DNS and Discord Domain | `IAC-PROGRAM-DNS-001` to `IAC-PROGRAM-DNS-004` | 3 | 0 | 1 |
+| Secrets | `IAC-PROGRAM-SECRET-001` to `IAC-PROGRAM-SECRET-005` | 4 | 1 | 0 |
+| DNS and Discord Domain | `IAC-PROGRAM-DNS-001` to `IAC-PROGRAM-DNS-004` | 4 | 0 | 0 |
 | Stack Outputs | `IAC-PROGRAM-OUT-001` to `IAC-PROGRAM-OUT-008` | 8 | 0 | 0 |
-| EFS Seeding During Apply | `IAC-PROGRAM-SEED-001` to `IAC-PROGRAM-SEED-005` | 3 | 0 | 2 |
-| Lambda Runtime and Bundling | `IAC-PROGRAM-RUNTIME-001` to `IAC-PROGRAM-RUNTIME-006` | 4 | 0 | 2 |
+| EFS Seeding During Apply | `IAC-PROGRAM-SEED-001` to `IAC-PROGRAM-SEED-005` | 4 | 0 | 1 |
+| Lambda Runtime and Bundling | `IAC-PROGRAM-RUNTIME-001` to `IAC-PROGRAM-RUNTIME-006` | 5 | 1 | 0 |
 
-**Summary:** 120 of 133 active specs implemented; 0 deferred; 13 gaps.
+**Summary:** 129 of 133 active specs implemented; 2 deferred; 2 gaps.
 
 ## Key Findings
 
 1. **Health-check Lambda cannot reach the ECS and Secrets Manager APIs** (the missing `ECS_CLUSTER` env var is fixed, `IAC-PROGRAM-LAMBDA-011`; the original finding read): `app/packages/infra/src/lambdas.ts:568` gives the function only `{ AWS_REGION_ }`, but `lambda/health-check/src/handler.ts:40` calls `requireEnv('ECS_CLUSTER')` at module load, which throws (`app/packages/shared/src/env.ts:17-20`). `app/packages/infra/src/lambdas.test.ts:832` pins the env to exactly `{ AWS_REGION_ }`, locking the bug in. Sweep-8 also reports the health-check SG has only per-port egress to the game SG (`securityGroups.ts:430-446`), so even with the env fixed it has no path to the ECS or Secrets Manager APIs from a public subnet without a public IP (verified the egress rules; reachability is `[inferred]`). The watchdog treats invoke failures as active, so the symptom is "games with a health check never idle out".
-2. **Stack outputs now cover every volume; the efs-seeder still does not**: `buildStackOutputs` builds a per-game, per-volume map from `efs.gameAccessPoints["${game}-${volume.name}"]` and exports it as `efsVolumeAccessPoints` (`program.ts:477-494,511`; typed at `shared/src/stackOutputs.ts:79-83`, projected with a `{}` default by `iac/engine` at `PulumiService.ts:1042`). The older `efsAccessPoints` is kept and still carries only `volumes[0]` (`program.ts:493,510`). The helper task mounts every volume from the new map; the efs-seeder Lambda still mounts only the first volume (`lambdas.ts:718-745`), so deploy-time seeding remains first-volume-only.
-3. **Caddy image is a floating tag**: `ecs.ts:305` uses `caddy:2-alpine`, while `in-task-tls-termination` requires a version-pinned image and `hostnameShim.ts` pins busybox exactly.
+2. **Stack outputs now cover every volume; the efs-seeder still does not**: `buildStackOutputs` builds a per-game, per-volume map from `efs.gameAccessPoints[accessPointKey(game, volume.name)]` and exports it as `efsVolumeAccessPoints` (`program.ts:477-494,511`; typed at `shared/src/stackOutputs.ts:79-83`, projected with a `{}` default by `iac/engine` at `PulumiService.ts:1042`). The older `efsAccessPoints` is kept and still carries only `volumes[0]` (`program.ts:493,510`). The helper task mounts every volume from the new map; the efs-seeder Lambda still mounts only the first volume (`lambdas.ts:718-745`), so deploy-time seeding remains first-volume-only.
 4. **efs-seeder is conditional, spec says always-on**: `lambdas.ts:398` iterates `roles.efsSeederRoles`, which only exist for games with `file_seeds` (`iam.ts:222-226`). `lambda-runtime-currency` lists efs-seeder among "always-provisioned functions". CLAUDE.md ("four always-on, two conditional") matches the code.
 5. **ACM certificate exists despite "no ACM certificate anywhere"**: `discordDomain.ts:117-150` declares an ACM certificate and validation, unconditionally (`discordDomain.ts:14-15`). CLAUDE.md's TLS invariant and `in-task-tls-termination` say no ACM certificate exists; the spec scopes this to "the game-servers stack", which this single stack also is. Needs an explicit carve-out in the invariant.
-6. **Secret-preservation spec scenario is only unit-tested by option shape**: `pulumi-infra-program` requires a test that writes real values through the app path, re-deploys and asserts survival. `secrets.test.ts:125-152` only asserts `ignoreChanges: ['secretString']` is passed via `secretResourceOptions.forVersion`.
-7. **`domainName` output uses the untrimmed zone name**: `defineAll` trims `hostedZoneName` (`program.ts:163`) but `buildStackOutputs` echoes `config.hostedZoneName` (`program.ts:512`). `route53.ts:65` gets the trimmed but not dot-stripped name, while `ecs.ts`, `lambdas.ts` and `discordDomain.ts` use `stripTrailingDots`. Three normalisations of one value.
-8. **Four Lambda log groups are declared after their functions with no `dependsOn`**: `lambdas.ts:443,471,588,657`; only health-check (`:555`) and efs-seeder (`:754`) depend on their group. An early invocation could let Lambda auto-create the group without 7-day retention `[inferred]`.
 9. **Unused and inconsistent Lambda wiring**: interactions gets `HOSTED_ZONE_NAME` (`lambdas.ts:463`) but its handler never reads it; CloudFront allows PUT/PATCH/DELETE (`discordDomain.ts:178`) while the Function URL CORS lists POST only (`lambdas.ts:480`).
-10. **efs-seeder rerun trigger ignores `container_path`**: `escapes.ts:248-257` hashes only `file_seeds` into `triggers`, while `input` also carries `volumes[0].container_path`. Whether a path-only change re-invokes depends on provider diffing of `input` `[unverified]`.
 11. **Stale doc comments**: `program.ts:106,109` say "five Lambda functions" and "five inline IAM policies"; `secrets.ts:95` says "the two Discord secrets" (three are declared); `lambdas.ts:63`, `escapes.ts:35` and `iam.ts:29` point to an "HCL→Pulumi address table" or "full resource table" that does not exist; `secrets.ts:61-63` cross-references a `dynamodb.ts` doc section that is absent. 43 non-test references to HCL/Terraform/"legacy tool" remain in `app/packages/infra/src`.
-12. **Test helpers ship in `dist/`**: `app/packages/infra/tsconfig.json` excludes only `*.test.ts`, so `testing/fixtures.ts` and `testing/pulumiMocks.ts` compile into the package output. `testing/fixtures.ts:58-81` also hard-codes defaults instead of importing `DEPLOYMENT_CONFIG_DEFAULTS` `[unverified]`.
-13. **Build plumbing drift**: `buildLambda.mjs:13,16-17` uses cwd-relative paths and emits a sourcemap that is never shipped (only `handler.cjs` is zipped, `lambdas.ts:242`); efs-seeder bundles the SDK (`efs-seeder/esbuild.config.mjs:3`) and its `tsconfig.json` does not extend `tsconfig.lambda.json` (sweep-8).
-14. **Implicit `${game}-${volume}` key contract**: the access-point key is re-derived in `efs.ts`, `ecs.ts`, `lambdas.ts:721` and `program.ts:484`; game `a-b` volume `c` collides with game `a` volume `b-c` (sweep-8, key derivation verified at `lambdas.ts:721` and `program.ts:484`).
+13. **Build plumbing drift**: efs-seeder bundles the SDK (`efs-seeder/esbuild.config.mjs:3`) and its `tsconfig.json` does not extend `tsconfig.lambda.json` (sweep-8).
 15. **Sweep disagreement: "five vs six Lambdas"**: code comments here say five (`program.ts:106`); packages and CLAUDE.md say six. Primary owner is `operator-app/infra-logs`. `stack-outputs.fixture.ts:1-8` also carries issue-number history in its header.
 
 ## Work Required
@@ -155,15 +150,8 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/program/program-spe
 2. Let the efs-seeder target any volume, or document first-volume-only seeding as a hard limit; per-volume access points are already in the stack outputs (finding 2). (specs: `IAC-PROGRAM-SEED-004`)
 
 ### Should Fix
-3. Pin the Caddy image to an exact version (finding 3). (specs: `IAC-PROGRAM-TLS-002`)
-4. Reconcile `lambda-runtime-currency` (efs-seeder conditional; target lives in `buildLambda.mjs`) and the ACM invariant wording in CLAUDE.md and `in-task-tls-termination` with the code (findings 4, 5). (specs: `IAC-PROGRAM-RUNTIME-003`)
-5. Add a real secret-preservation test or relax the spec scenario (finding 6). (specs: `IAC-PROGRAM-SECRET-005`)
-6. Normalise `hostedZoneName` once and use it for outputs and the zone lookup (finding 7). (specs: `IAC-PROGRAM-DNS-004`)
-7. Make every Lambda depend on its log group (finding 8). (specs: `IAC-PROGRAM-LAMBDA-016`)
-8. Include `container_path` in the efs-seeder trigger hash (finding 10). (specs: `IAC-PROGRAM-SEED-003`)
+4. Reconcile `lambda-runtime-currency` (efs-seeder conditional; target lives in `buildLambda.mjs`) and the ACM invariant wording in CLAUDE.md and `in-task-tls-termination` with the code (findings 4, 5).
 
 ### Nice to Have
 9. Remove `HOSTED_ZONE_NAME` from interactions, restrict CloudFront methods (finding 9).
 10. Sweep stale doc comments and HCL references (finding 11).
-11. Exclude `app/packages/web/src/testing/` from the infra build; drop or ship the Lambda sourcemap; anchor `buildLambda.mjs` paths (findings 12, 13). (specs: `IAC-PROGRAM-WS-006`, `IAC-PROGRAM-RUNTIME-006`)
-12. Centralise the access-point key derivation behind one helper (finding 14). (specs: `IAC-PROGRAM-EFS-004`)

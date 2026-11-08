@@ -219,7 +219,7 @@ function fileSeedsHash(fileSeeds: GameServerConfig['file_seeds'], containerPath:
   return crypto.createHash('sha256').update(JSON.stringify({ seeds: fileSeeds ?? [], containerPath })).digest('hex');
 }
 
-// @spec IAC-PROGRAM-FANOUT-001, IAC-PROGRAM-SEED-001, IAC-PROGRAM-SEED-002, IAC-PROGRAM-SEED-005
+// @spec IAC-PROGRAM-FANOUT-001, IAC-PROGRAM-SEED-001, IAC-PROGRAM-SEED-002, IAC-PROGRAM-SEED-003, IAC-PROGRAM-SEED-005
 // @spec HELPER-SEED-001
 /**
  * Declares one `aws.lambda.Invocation` per game with `file_seeds` — see this

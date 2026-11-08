@@ -29,7 +29,7 @@ Totals count specs, one class per spec. `APP-WIZARD-HEALTH-008` is counted once,
 |---|---|---|---|---|---|---|
 | `run` | `docs/intent/iac/run/run-specs.md` | 0 | 0 | 0 | 0 | 0 (12 since closed) |
 | `engine` | `docs/intent/iac/engine/engine-specs.md` | 0 | 13 (1 / 5 / 7) | 2 | 0 | 15 |
-| `program` | `docs/intent/iac/program/program-specs.md` | 0 | 10 (2 / 1 / 7) | 1 | 2 | 13 |
+| `program` | `docs/intent/iac/program/program-specs.md` | 0 | 2 (1 / 1 / 0) | 0 | 0 | 2 (11 since closed) |
 | `task-and-dns` | `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md` | 0 | 10 (1 / 3 / 6) | 1 | 3 | 14 |
 | `watchdog` | `docs/intent/game-runtime/watchdog/watchdog-specs.md` | 0 | 3 (0 / 2 / 1) | 1 | 0 | 4 |
 | `health-check` | `docs/intent/game-runtime/health-check/health-check-specs.md` | 0 | 4 (2 / 1 / 1) | 0 | 1 | 5 |
@@ -127,18 +127,8 @@ Specs: `docs/intent/iac/program/program-specs.md` · Arrow doc: `docs/arrows/iac
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `IAC-PROGRAM-WS-006` | b | low | infra/tsconfig.json excludes only src/**/*.test.ts, so src/testing/fixtures.ts and pulumiMocks.ts compile into dist; private workspace, no runtime effect |
-| `IAC-PROGRAM-EFS-004` | b | low | Key `${game}-${volume.name}` re-derived at infra/src/efs.ts:122, ecs.ts:224,229,262, lambdas.ts:739, program.ts:493; GAME_NAME_PATTERN allows '-' (shared/src/gameServerValidator.ts:51) so a-b/c vs a/b-c collides; unlikely names |
-| `IAC-PROGRAM-TLS-002` | b | low | Caddy sidecar still uses floating tag 'caddy:2-alpine' (infra/src/ecs.ts:315) |
-| `IAC-PROGRAM-TOKEN-002` | d | - | program.ts:169-174 rejects every empty hostedZoneName up front, so a zone is mandatory for all deploys; token check (ecs.ts:127-131) only matters for zone ".". Scenario predates mandatory zone; generic error is clearer |
 | `IAC-PROGRAM-LAMBDA-011` (CLOSED) | b | high | health-check env is only AWS_REGION_ (infra/src/lambdas.ts:568) but handler does requireEnv('ECS_CLUSTER') at module load (lambda/health-check/src/handler.ts:40); watchdog fails active (watchdog handler.ts:159-163) so games never idle-stop |
 | `IAC-PROGRAM-LAMBDA-012` | b | high | health-check Lambda in public subnets (lambdas.ts:564-567), SG egress only to game ports (securityGroups.ts:295-320), no NAT/VPC endpoints in network.ts; can't reach ECS/Secrets Manager APIs; fail-active, so no idle stop |
-| `IAC-PROGRAM-LAMBDA-016` | b | low | followup/interactions/watchdog/dns-updater Functions (lambdas.ts:431,462,576,643) have no dependsOn on their log groups (:459,:487,:604,:674); only health-check :571 and seeder :773 do |
-| `IAC-PROGRAM-SECRET-005` | c | - | secrets.test.ts:159 only asserts ignoreChanges:['secretString']; a real write-redeploy-assert test needs a live-AWS harness that doesn't exist; ignoreChanges semantics are Pulumi's own |
-| `IAC-PROGRAM-DNS-004` | b | low | Only ecs.ts:178 and lambdas.ts:406 strip dots; route53.ts:67 gets trimmed-not-stripped name; domainName output echoes raw config.hostedZoneName (program.ts:521). Trailing dot is DNS-valid, so mostly cosmetic |
-| `IAC-PROGRAM-SEED-003` | b | low | triggers hash only file_seeds (infra/src/escapes.ts:261); container_path only in input (:262); Invocation defaults to CREATE_ONLY (no lifecycleScope set), so an input-only change does not re-invoke |
-| `IAC-PROGRAM-RUNTIME-003` | d | - | Runtime is nodejs24.x (lambdas.ts:59); the only failing part is the health-check init failure, which is exactly LAMBDA-011, so this duplicates it and closes when LAMBDA-011 does |
-| `IAC-PROGRAM-RUNTIME-006` | b | low | buildLambda.mjs:13,16-17 still use cwd-relative 'dist'/'src/handler.ts' and :23 sourcemap:true; works under npm workspace scripts (cwd = package dir); build hygiene only |
 
 ### `task-and-dns`
 

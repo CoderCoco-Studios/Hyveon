@@ -2,6 +2,7 @@ import { build } from 'esbuild';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
 
+// @spec IAC-PROGRAM-RUNTIME-006
 /**
  * Bundles a Lambda package's `src/handler.ts` into `dist/handler.cjs` with
  * the settings shared by every package under `app/packages/lambda/*`.

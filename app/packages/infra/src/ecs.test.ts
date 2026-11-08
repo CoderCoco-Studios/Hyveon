@@ -476,6 +476,30 @@ describe('defineEcs', () => {
     expect(containers[0]).not.toHaveProperty('entryPoint');
   });
 
+  // @spec IAC-PROGRAM-TOKEN-002
+  it('should refuse a public-address token with an empty hosted zone, naming the game and the token', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      alpha: {
+        ...FIXTURE_GAME_SERVERS.alpha,
+        environment: [{ name: 'PUBLIC_HOST', value: '${hyveon.network.public-address}' }],
+      },
+    };
+    const efs = await arrangeEfs(gameServers, provider);
+
+    expect(() =>
+      defineEcs({
+        projectName: 'hyveon',
+        awsRegion: 'us-east-1',
+        hostedZoneName: '.',
+        gameServers,
+        efs,
+        executionRoleArn: 'arn:aws:iam::123456789012:role/hyveon-task-execution',
+        provider,
+      }),
+    ).toThrow(/game "alpha" uses \$\{hyveon\.network\.public-address\}/);
+  });
+
   // @spec IAC-PROGRAM-TOKEN-003
   // @spec GAME-TOKEN-007
   it('should inject the wrapper entryPoint and command for an ipv4-token game', async () => {

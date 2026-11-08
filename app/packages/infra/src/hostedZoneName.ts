@@ -24,6 +24,7 @@ export function stripTrailingDots(hostedZoneName: string): string {
   return hostedZoneName.slice(0, end);
 }
 
+// @spec IAC-PROGRAM-DNS-004
 /**
  * Normalises the operator-supplied hosted-zone name once: trims surrounding whitespace, then strips trailing dots.
  *
