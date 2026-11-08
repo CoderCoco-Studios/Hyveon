@@ -17,8 +17,11 @@ import type {
   DeploymentConfigDiff,
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
+  CostEstimates,
   ExportDiagnosticsBundleResult,
+  GameEstimate,
   GameServerHealthCheckAuth,
+  GameStatus,
   LambdaFunctionKey,
   ManualUpdateCheckResult,
   UpdateDownloadProgress,
@@ -30,6 +33,7 @@ import type {
   RendererLogEntry,
   RunLock,
   StackOutputs,
+  StartResult,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
 } from '@hyveon/shared';
@@ -78,8 +82,11 @@ export type {
   DeploymentConfigDiff,
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
+  CostEstimates,
   ExportDiagnosticsBundleResult,
+  GameEstimate,
   GameServerHealthCheckAuth,
+  GameStatus,
   LambdaFunctionKey,
   ManualUpdateCheckResult,
   UpdateDownloadProgress,
@@ -90,43 +97,10 @@ export type {
   RendererConsoleLevel,
   RendererLogEntry,
   RunLock,
+  StartResult,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
 };
-
-// Shared payload shapes (mirrors types from @hyveon/shared and desktop-main)
-
-/** Current ECS state of a game server. */
-export interface GameStatus {
-  game: string;
-  state: 'running' | 'starting' | 'stopped' | 'not_deployed' | 'error';
-  publicIp?: string;
-  hostname?: string;
-  taskArn?: string;
-  message?: string;
-}
-
-/** Result of a start or stop operation. */
-export interface StartResult {
-  success: boolean;
-  message: string;
-  taskArn?: string;
-}
-
-/** Per-game Fargate cost projection. */
-export interface GameEstimate {
-  vcpu: number;
-  memoryGb: number;
-  costPerHour: number;
-  costPerDay24h: number;
-  costPerMonth4hpd: number;
-}
-
-/** Cost estimates for all games plus a "if everything were running" total. */
-export interface CostEstimates {
-  games: Record<string, GameEstimate>;
-  totalPerHourIfAllOn: number;
-}
 
 /**
  * One CloudWatch log event line — carries its own timestamp and identity so

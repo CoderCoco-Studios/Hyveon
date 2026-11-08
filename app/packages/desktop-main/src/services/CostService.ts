@@ -1,20 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR } from '@hyveon/cloud-aws';
-
-/** Per-game Fargate cost projection derived from its CPU/memory spec. */
-export interface GameEstimate {
-  vcpu: number;
-  memoryGb: number;
-  costPerHour: number;
-  costPerDay24h: number;
-  costPerMonth4hpd: number;
-}
-
-/** Aggregate of per-game estimates plus the cost if every game were running simultaneously. */
-export interface CostEstimates {
-  games: Record<string, GameEstimate>;
-  totalPerHourIfAllOn: number;
-}
+import { fargateHourlyCostRaw, type GameEstimate } from '@hyveon/shared';
 
 // @spec RT-TASK-COST-001
 /**
@@ -31,12 +16,10 @@ export class CostService {
    * safe to run in a tight loop over every game.
    */
   estimateForSpec(cpuUnits: number, memoryMib: number): GameEstimate {
-    const vcpu = cpuUnits / 1024;
-    const memGb = memoryMib / 1024;
-    const hourly = vcpu * FARGATE_VCPU_PER_HOUR + memGb * FARGATE_GB_PER_HOUR;
+    const hourly = fargateHourlyCostRaw(cpuUnits, memoryMib);
     return {
-      vcpu,
-      memoryGb: memGb,
+      vcpu: cpuUnits / 1024,
+      memoryGb: memoryMib / 1024,
       costPerHour: Math.round(hourly * 10000) / 10000,
       costPerDay24h: Math.round(hourly * 24 * 100) / 100,
       costPerMonth4hpd: Math.round(hourly * 4 * 30 * 100) / 100,

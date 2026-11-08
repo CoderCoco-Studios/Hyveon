@@ -28,20 +28,7 @@ export interface LogChunk {
   timestamp: Date;
 }
 
-/**
- * Cloud-agnostic cost snapshot returned by `getCostEstimate` — a
- * forward-looking Fargate cost projection derived from task-definition
- * CPU/memory, not a billed-actuals lookup. The app makes no AWS Cost Explorer
- * API calls.
- */
-export interface CostBreakdown {
-  /** Total cost across all items in the breakdown. */
-  total: number;
-  currency: string;
-  /** Per-game or per-service cost keyed by name. */
-  breakdown: Record<string, number>;
-}
-
+// @spec RT-TASK-COST-012
 /**
  * Cloud-provider abstraction. No `@aws-sdk/*` shapes appear in this interface
  * or its parameter/return types. Concrete implementations live in provider
@@ -52,7 +39,6 @@ export interface CloudProvider {
   stopWorkload(game: string): Promise<void>;
   getWorkloadStatus(game: string): Promise<WorkloadStatus>;
   streamWorkloadLogs(game: string, signal: AbortSignal): AsyncIterable<LogChunk>;
-  getCostEstimate(): Promise<CostBreakdown>;
 }
 
 /**

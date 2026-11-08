@@ -5,7 +5,6 @@ import { dirname, resolve } from 'node:path';
 import { RemoteFileConflictError } from './cloud.js';
 import type {
   CloudProvider,
-  CostBreakdown,
   DiscordEventReceiver,
   LogChunk,
   RemoteFileStore,
@@ -27,7 +26,8 @@ describe('cloud.ts interface file', () => {
 });
 
 describe('CloudProvider', () => {
-  it('should be implementable with a plain object satisfying all five methods', () => {
+  // @spec RT-TASK-COST-012
+  it('should be implementable with a plain object satisfying all four methods', () => {
     /**
      * Compile-time check: this object must satisfy CloudProvider or tsc/vitest
      * will fail. The runtime assertion just confirms the object is truthy.
@@ -41,9 +41,6 @@ describe('CloudProvider', () => {
         return { state: 'stopped' };
       },
       async *streamWorkloadLogs(_game: string, _signal: AbortSignal): AsyncIterable<LogChunk> {},
-      async getCostEstimate(): Promise<CostBreakdown> {
-        return { total: 0, currency: 'USD', breakdown: {} };
-      },
     } satisfies CloudProvider;
 
     expect(provider).toBeDefined();

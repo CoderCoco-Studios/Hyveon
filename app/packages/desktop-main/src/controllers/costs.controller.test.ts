@@ -4,7 +4,7 @@ import { CostsController } from './costs.controller.js';
 import type { ConfigService } from '../services/ConfigService.js';
 import type { CostService } from '../services/CostService.js';
 import type { EcsService } from '../services/EcsService.js';
-import type { StackOutputs } from '@hyveon/shared';
+import { FALLBACK_TASK_CPU, FALLBACK_TASK_MEMORY, type StackOutputs } from '@hyveon/shared';
 import { configServiceStub } from '../testing/config-service.fixture.js';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { expectChannels } from '../testing/message-pattern.test-utils.js';
@@ -73,11 +73,12 @@ describe('CostsController', () => {
       expect(costs.estimateForSpec).toHaveBeenCalledWith(4096, 16384);
     });
 
-    it('should fall back to 2048 cpu / 8192 memory when getTaskDefinition returns null', async () => {
+    // @spec RT-TASK-COST-011
+    it('should fall back to the shared task cpu and memory when getTaskDefinition returns null', async () => {
       const ecs = makeEcs(null);
       const costs = makeCosts();
       await new CostsController(makeConfig(), costs, ecs).estimate();
-      expect(costs.estimateForSpec).toHaveBeenCalledWith(2048, 8192);
+      expect(costs.estimateForSpec).toHaveBeenCalledWith(FALLBACK_TASK_CPU, FALLBACK_TASK_MEMORY);
     });
 
     // @spec RT-TASK-COST-007

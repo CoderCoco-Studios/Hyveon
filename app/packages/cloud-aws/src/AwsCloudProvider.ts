@@ -2,7 +2,6 @@ import {
   ECSClient,
   ListTasksCommand,
   DescribeTasksCommand,
-  DescribeTaskDefinitionCommand,
   RunTaskCommand,
   StopTaskCommand,
   type Task,
@@ -14,25 +13,14 @@ import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import type {
   CloudProvider,
-  CostBreakdown,
   LogChunk,
   StartOpts,
   WorkloadHandle,
   WorkloadStatus,
 } from '@hyveon/shared';
-import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR, getTaskEniId, resolveEniPublicIp } from '@hyveon/shared';
+import { getTaskEniId, resolveEniPublicIp } from '@hyveon/shared';
 import { startInProgressMessage, startWithLease } from '@hyveon/shared/aws/startLease';
 import { createCachedAwsClient } from './cachedClient.js';
-
-/**
- * Fargate on-demand pricing constants (us-east-1). Re-exported here from
- * `@hyveon/shared` — which owns them alongside the Fargate cpu/memory tier
- * table — so `CostService.estimateForSpec`
- * (`app/packages/desktop-main/src/services/CostService.ts`) and this file's
- * own {@link AwsCloudProvider.estimateHourlyCost} keep importing from
- * `@hyveon/cloud-aws` unchanged.
- */
-export { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR } from '@hyveon/shared';
 
 /**
  * Sleep for `ms` milliseconds, but reject immediately if `signal` is aborted.
@@ -138,13 +126,6 @@ export interface AwsCloudProviderConfig {
   discordTableName: string;
   /** Root domain used to build a game's public hostname (`{game}.{domain}`). */
   domainName?: string;
-  /**
-   * Names of the games to include in {@link AwsCloudProvider.getCostEstimate}'s
-   * per-game breakdown (mirrors the Pulumi stack's `gameNames` output).
-   * Optional so the class remains constructible without it; `getCostEstimate`
-   * returns a zeroed {@link CostBreakdown} when it's missing or empty.
-   */
-  gameNames?: string[];
 }
 
 /**
@@ -182,8 +163,7 @@ export interface AwsCloudProviderLogger {
  * `getConfig` callback instead of `ConfigService`.
  *
  * `streamWorkloadLogs` reproduces `LogsService.streamLogs`'s CloudWatch Logs
- * polling behaviour (see the method for details). `getCostEstimate`
- * reproduces the previous `CostService`'s Fargate-pricing estimate. The
+ * polling behaviour (see the method for details). The
  * app makes no AWS Cost Explorer API calls, ever.
  */
 export class AwsCloudProvider implements CloudProvider {
@@ -286,47 +266,6 @@ export class AwsCloudProvider implements CloudProvider {
     credentialsSignature: AwsCloudProviderConfig['credentialsSignature'],
   ): CloudWatchLogsClient {
     return this.getCachedLogsClient({ region, credentials, credentialsSignature });
-  }
-
-  /**
-   * Resolve a game's Fargate CPU/memory spec from its `{game}-server` task
-   * definition. Falls back to `2048` cpu / `8192` MiB (mirroring the previous
-   * `CostsController.estimate`'s fallback) when the task definition can't be
-   * resolved, so a single undeployed/misconfigured game doesn't blow up the
-   * whole cost estimate.
-   */
-  private async getTaskDefinitionSpec(
-    region: string,
-    credentials: AwsCloudProviderConfig['credentials'],
-    credentialsSignature: AwsCloudProviderConfig['credentialsSignature'],
-    game: string,
-  ): Promise<{ cpu: number; memory: number }> {
-    try {
-      const resp = await this.getEcsClient(region, credentials, credentialsSignature).send(
-        new DescribeTaskDefinitionCommand({ taskDefinition: `${game}-server` }),
-      );
-      const td = resp.taskDefinition;
-      return {
-        cpu: parseInt(td?.cpu ?? '2048', 10),
-        memory: parseInt(td?.memory ?? '8192', 10),
-      };
-    } catch (err) {
-      this.logger?.error(`Failed to describe task definition for game=${game}`, err);
-      return { cpu: 2048, memory: 8192 };
-    }
-  }
-
-  /**
-   * Convert a Fargate task's raw `cpu` (1024 = 1 vCPU) and `memory` (MiB) into
-   * a projected hourly dollar cost, using the same exported pricing constants
-   * and rounding that `CostService.estimateForSpec` uses for its
-   * `costPerHour` field.
-   */
-  private estimateHourlyCost(cpuUnits: number, memoryMib: number): number {
-    const vcpu = cpuUnits / 1024;
-    const memGb = memoryMib / 1024;
-    const hourly = vcpu * FARGATE_VCPU_PER_HOUR + memGb * FARGATE_GB_PER_HOUR;
-    return Math.round(hourly * 10000) / 10000;
   }
 
   // @spec RT-TASK-LAUNCH-009
@@ -628,39 +567,5 @@ export class AwsCloudProvider implements CloudProvider {
         break;
       }
     }
-  }
-
-  /**
-   * Retrieves a forward-looking cost estimate across all workloads.
-   *
-   * Estimates each configured game's hourly Fargate cost from its
-   * `{game}-server` task definition's CPU/memory (via {@link
-   * getTaskDefinitionSpec} / {@link estimateHourlyCost}, reproducing the
-   * previous `CostsController.estimate` + `CostService.estimateForSpec`
-   * behaviour), keyed by game name in `breakdown`, with `total` set to the
-   * sum-if-everything-were-running-simultaneously. Returns a zeroed {@link
-   * CostBreakdown} when the infra program hasn't been applied (`getConfig`
-   * returns nothing) or `config.gameNames` is missing/empty.
-   */
-  async getCostEstimate(): Promise<CostBreakdown> {
-    const config = (await this.getConfig?.()) ?? null;
-    const gameNames = config?.gameNames;
-    if (!config || !gameNames?.length) {
-      return { total: 0, currency: 'USD', breakdown: {} };
-    }
-
-    const breakdown: Record<string, number> = {};
-    for (const game of gameNames) {
-      const spec = await this.getTaskDefinitionSpec(
-        config.region,
-        config.credentials,
-        config.credentialsSignature,
-        game,
-      );
-      breakdown[game] = this.estimateHourlyCost(spec.cpu, spec.memory);
-    }
-
-    const total = Object.values(breakdown).reduce((sum, cost) => sum + cost, 0);
-    return { total: Math.round(total * 10000) / 10000, currency: 'USD', breakdown };
   }
 }

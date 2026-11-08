@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { estimateFargateHourlyCost } from '@hyveon/shared';
 import { CostService } from './CostService.js';
 
 describe('CostService', () => {
@@ -6,6 +7,13 @@ describe('CostService', () => {
 
   beforeEach(() => {
     service = new CostService();
+  });
+
+  // @spec RT-TASK-COST-010
+  it('should report the same hourly cost as the wizard estimate for every Fargate pairing', () => {
+    for (const [cpu, memory] of [[256, 512], [1024, 2048], [2048, 8192], [4096, 30720]] as const) {
+      expect(service.estimateForSpec(cpu, memory).costPerHour).toBe(estimateFargateHourlyCost(cpu, memory));
+    }
   });
 
   // @spec RT-TASK-COST-007

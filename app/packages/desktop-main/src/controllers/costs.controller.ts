@@ -1,5 +1,6 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern } from '@nestjs/microservices';
+import { FALLBACK_TASK_CPU, FALLBACK_TASK_MEMORY } from '@hyveon/shared';
 import { ConfigService } from '../services/ConfigService.js';
 import { CostService } from '../services/CostService.js';
 import { EcsService } from '../services/EcsService.js';
@@ -20,11 +21,11 @@ export class CostsController {
     private readonly ecs: EcsService,
   ) {}
 
-  // @spec RT-TASK-COST-006, RT-TASK-COST-007, RT-TASK-COST-008
+  // @spec RT-TASK-COST-006, RT-TASK-COST-007, RT-TASK-COST-008, RT-TASK-COST-011, RT-TASK-COST-012
   /**
    * Estimates the hourly Fargate cost of each game from its task definition's
    * CPU/memory, plus the sum-if-everything-were-running. Reads the game list
-   * from tfstate; falls back to `2048 cpu / 8192 MiB` if the task definition
+   * from tfstate; falls back to {@link FALLBACK_TASK_CPU} / {@link FALLBACK_TASK_MEMORY} if the task definition
    * can't be resolved. Returns zeros when tfstate is missing.
    */
   @MessagePattern('costs.estimate')
@@ -38,7 +39,7 @@ export class CostsController {
     const estimates: Record<string, ReturnType<CostService['estimateForSpec']>> = {};
     for (const game of outputs.gameNames) {
       const td = await this.ecs.getTaskDefinition(game);
-      estimates[game] = this.costs.estimateForSpec(td?.cpu ?? 2048, td?.memory ?? 8192);
+      estimates[game] = this.costs.estimateForSpec(td?.cpu ?? FALLBACK_TASK_CPU, td?.memory ?? FALLBACK_TASK_MEMORY);
     }
 
     const totalPerHourIfAllOn = Object.values(estimates).reduce((sum, e) => sum + e.costPerHour, 0);

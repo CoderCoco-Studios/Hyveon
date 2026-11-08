@@ -170,11 +170,17 @@ Event shape (simplified):
 2. On `RUNNING`: `resolvePublicIp()` — retries up to 5 times with
    3-second sleeps to survive ENI attach lag; then `upsertDns()` writes
    an A record `{game}.{domain}` → IP with `DNS_TTL`.
-3. On `STOPPED`: read the current record, verify its IP, `deleteDns()`.
-4. On `RUNNING`: call `notifyDiscordIfPending()` — look up
-   `PENDING#{taskArn}` in DynamoDB, format a final status message
-   (including the resolved public IP), PATCH the original Discord
-   interaction, delete the pending row.
+3. On `STOPPED`: read the current record and `deleteDns()`, sending the
+   stored record's TTL and IP (Route 53 rejects a DELETE that differs from the
+   stored record set, so a changed `DNS_TTL` cannot orphan a record).
+4. Call `notifyDiscordIfPending()` — look up `PENDING#{taskArn}` in
+   DynamoDB, format a final status message (including the resolved public IP
+   on `RUNNING`, an error status when the IP cannot be resolved, the UPSERT
+   fails, or the task reaches `STOPPED` with the row still present), PATCH the
+   original Discord interaction, delete the pending row.
+
+The handler logs the task ARN, family and `lastStatus` for each event, never
+the full event.
 
 Failure modes:
 
@@ -182,7 +188,9 @@ Failure modes:
   `{status: 'error', reason: 'no_ip'}`. No retry is scheduled — the task stays
   up but unreachable by DNS until another `RUNNING`/`STOPPED` state-change
   event fires for it (e.g. the task is stopped and started again).
-- Route 53 call fails → log, continue. There is no retry and no backstop —
+- UPSERT fails → PATCH an error status to any pending interaction, then fail
+  the invocation so EventBridge retries it.
+- Route 53 DELETE fails → log, continue. There is no retry and no backstop —
   the watchdog only issues `StopTask`, it never touches Route 53 — so a
   stale record persists until another `RUNNING`/`STOPPED` event fires for
   that game (e.g. the next start/stop cycle) or someone deletes it manually.
