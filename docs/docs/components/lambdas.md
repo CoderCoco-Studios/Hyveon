@@ -135,7 +135,7 @@ type FollowupPayload = {
 
 Failure modes:
 
-- ECS call fails → a fixed message in the PATCH body ("Could not start {game}. Check server logs." or the stop equivalent); the normalised error goes to the log only, because SDK text can carry ARNs and account details.
+- ECS call fails → a fixed message in the PATCH body ("`Could not start {game}. Check server logs.`" or the stop equivalent); the normalised error goes to the log only, because SDK text can carry ARNs and account details.
 - CloudWatch ENI lag (task RUNNING but no ENI yet) → `getStatus()` returns
   `{ state: 'error' }`; Discord shows the status line with the error state and no raw error text.
 - DynamoDB write fails (for `start`) → logged, PATCH still happens so user
