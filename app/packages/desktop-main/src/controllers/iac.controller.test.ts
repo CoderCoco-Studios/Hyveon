@@ -1658,7 +1658,7 @@ describe('IacController', () => {
       vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord());
       const { ctx, sender } = makeCtx();
 
-      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result).toEqual({ confirmed: true, versionId: 'config-v-new-head' });
       const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.rollback.confirm.chunk');
@@ -1676,6 +1676,20 @@ describe('IacController', () => {
       await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(pulumi.confirmRollback).toHaveBeenCalledWith('apply-run-1', expect.any(AbortSignal), undefined, 'etag-head');
+    });
+
+    // @spec CONFIG-RESTORE-005
+    it('should refuse to confirm without a previewed headEtag and never start the restore', async () => {
+      const pulumi = makePulumi();
+      const { ctx } = makeCtx();
+
+      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+
+      expect(result).toEqual({
+        confirmed: false,
+        error: 'The rollback preview could not read the current configuration: re-open the rollback to retry',
+      });
+      expect(pulumi.confirmRollback).not.toHaveBeenCalled();
     });
 
     // @spec CONFIG-RESTORE-004
@@ -1713,7 +1727,7 @@ describe('IacController', () => {
       );
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(pulumi.readRunRecord).toHaveBeenCalledWith('rollback-plan-run-42');
       expect(result).toEqual({ confirmed: true, versionId: 'config-v-recovered' });
@@ -1735,7 +1749,7 @@ describe('IacController', () => {
       vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord());
       const { ctx } = makeCtx();
 
-      const ackPromise = new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const ackPromise = new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
@@ -1761,7 +1775,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(record).toHaveBeenCalledTimes(1);
       const recordedEntry = record.mock.calls[0]?.[0] as RecordAuditEntryParams;
@@ -1777,7 +1791,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result).toEqual({ confirmed: false, error: error.message });
       expect(record).not.toHaveBeenCalled();
@@ -1796,7 +1810,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result.confirmed).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -1815,7 +1829,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result.confirmed).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -1833,7 +1847,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result.confirmed).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -1849,7 +1863,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(record).not.toHaveBeenCalled();
     });
@@ -1874,7 +1888,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1', headEtag: 'etag-head' }, ctx);
 
       expect(result).toEqual({
         confirmed: false,

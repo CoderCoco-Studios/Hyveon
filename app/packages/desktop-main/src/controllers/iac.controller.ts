@@ -1220,7 +1220,7 @@ export class IacController implements OnModuleInit {
   }
 
   // @spec IAC-RUN-RBK-007, IAC-RUN-RBK-009, IAC-RUN-IPC-007
-  // @spec APP-DIAG-AUDIT-006
+  // @spec APP-DIAG-AUDIT-006, CONFIG-RESTORE-005
   /**
    * Confirms the rollback flow (#112) for `payload.applyRunId`. `PulumiService.confirmRollback`
    * fuses a historic-configuration restore write and its follow-up plan into one guarded
@@ -1253,6 +1253,13 @@ export class IacController implements OnModuleInit {
     if (validationError) {
       logger.error('rollback confirm rejected: invalid payload', { error: validationError });
       return { confirmed: false, error: validationError };
+    }
+    if (!payload.headEtag) {
+      logger.warn('rollback confirm rejected: no previewed head etag', { applyRunId: payload.applyRunId });
+      return {
+        confirmed: false,
+        error: 'The rollback preview could not read the current configuration: re-open the rollback to retry',
+      };
     }
 
     const sender: WebContents = ctx.evt.sender;

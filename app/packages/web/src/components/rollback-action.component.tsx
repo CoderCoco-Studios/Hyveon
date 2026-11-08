@@ -22,7 +22,7 @@ interface RollbackActionProps {
   onRolledBack: (result: RollbackResult) => void;
 }
 
-// @spec IAC-RUN-RBK-002, IAC-RUN-RBK-003
+// @spec IAC-RUN-RBK-002, IAC-RUN-RBK-003, CONFIG-RESTORE-005
 /**
  * "Rollback" action for an apply row in `/iac/history`.
  * Two-step flow, mirroring the backend's resolve-then-confirm split so
@@ -143,6 +143,9 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
           }
           onConfirm={handleConfirm}
           confirmLabel={confirming ? 'Rolling back…' : 'Roll back'}
+          confirmDisabledReason={
+            target.headEtag ? undefined : 'Could not read the current configuration; close and click Rollback again to retry.'
+          }
         />
       )}
     </div>
