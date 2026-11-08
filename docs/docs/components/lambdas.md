@@ -47,9 +47,11 @@ makes no AWS SDK calls (see below).
    Discord stops routing to the URL. A request missing either header is
    rejected 401 before any verification. After the signature verifies, a
    timestamp that is not a non-negative integer, or that is more than 30
-   seconds from the Lambda clock (past or future), is also rejected 401. This
-   limits replay of a captured request to that 30-second window; a replay
-   inside the window is still possible.
+   seconds from the Lambda clock (before or after), is also rejected 401. The
+   window is ±30 seconds around the signed timestamp, so a captured request
+   can stay replayable for up to 60 seconds in the worst case: accepted while
+   its timestamp is up to 30 seconds in the future, and still accepted until
+   30 seconds after it. The check bounds replay but does not prevent it.
 2. **PING** (`type === 1`) → respond `{ type: 1 }` (PONG).
 3. **Autocomplete** (`type === 4`) → filter `GAME_NAMES` by the user's
    partial input, then filter by `canRun()` against the DynamoDB config,
