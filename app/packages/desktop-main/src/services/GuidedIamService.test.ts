@@ -360,50 +360,14 @@ describe('GuidedIamService', () => {
       expect(JSON.stringify(loggedPayload)).not.toContain(BOOTSTRAP_INPUT.secretAccessKey);
     });
 
-    // @spec APP-WIZARD-INTAKE-002, APP-WIZARD-TMPL-009
-    it('should record the account ID and the IAM user name from the caller ARN as the deploy principal', async () => {
+    // @spec APP-WIZARD-INTAKE-002, APP-WIZARD-RECONF-007
+    it('should write nothing to the store at intake, so a Reconfigure re-run that never rotates leaves the stored principal alone', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({
         Account: '123456789012',
         Arn: 'arn:aws:iam::123456789012:user/my-custom-deployer',
       });
 
       await service.intakeBootstrapKey(BOOTSTRAP_INPUT);
-
-      expect(store.set).toHaveBeenCalledWith('deployPrincipal', {
-        accountId: '123456789012',
-        userName: 'my-custom-deployer',
-      });
-    });
-
-    // @spec APP-WIZARD-TMPL-009
-    it('should record only the final path segment of a path-qualified IAM user ARN', async () => {
-      stsMock.on(GetCallerIdentityCommand).resolves({
-        Account: '123456789012',
-        Arn: 'arn:aws:iam::123456789012:user/teams/infra/deployer',
-      });
-
-      await service.intakeBootstrapKey(BOOTSTRAP_INPUT);
-
-      expect(store.set).toHaveBeenCalledWith('deployPrincipal', { accountId: '123456789012', userName: 'deployer' });
-    });
-
-    // @spec APP-WIZARD-INTAKE-002
-    it('should record only the account ID when the caller ARN is not an IAM user', async () => {
-      stsMock.on(GetCallerIdentityCommand).resolves({
-        Account: '123456789012',
-        Arn: 'arn:aws:sts::123456789012:assumed-role/Admin/session',
-      });
-
-      await service.intakeBootstrapKey(BOOTSTRAP_INPUT);
-
-      expect(store.set).toHaveBeenCalledWith('deployPrincipal', { accountId: '123456789012' });
-    });
-
-    // @spec APP-WIZARD-INTAKE-002
-    it('should record nothing when the bootstrap key does not authenticate', async () => {
-      stsMock.on(GetCallerIdentityCommand).rejects(new Error('invalid token'));
-
-      await expect(service.intakeBootstrapKey(BOOTSTRAP_INPUT)).rejects.toThrow();
 
       expect(store.set).not.toHaveBeenCalled();
     });
@@ -524,7 +488,9 @@ describe('GuidedIamService', () => {
       });
       store = {
         get: vi.fn().mockReturnValue(undefined),
-        set: vi.fn().mockImplementation(() => order.push('store.set(aws)')),
+        set: vi.fn().mockImplementation((key: string) => {
+          if (key === 'aws') order.push('store.set(aws)');
+        }),
         setPastedCredentials: vi.fn().mockImplementation(() => order.push('setPastedCredentials')),
       } as Partial<ElectronStoreService> as ElectronStoreService;
       service = new TestableGuidedIamService(store, safeStorage);
@@ -571,6 +537,65 @@ describe('GuidedIamService', () => {
       const deleteCalls = iamMock.commandCalls(DeleteAccessKeyCommand);
       expect(deleteCalls).toHaveLength(1);
       expect(deleteCalls[0]!.args[0].input).toEqual({ AccessKeyId: BOOTSTRAP_ACCESS_KEY_ID });
+    });
+
+    // @spec APP-WIZARD-INTAKE-002, APP-WIZARD-TMPL-009, APP-WIZARD-RECONF-007
+    it('should record the account ID and IAM user name from the verified key as the deploy principal alongside the aws record', async () => {
+      stubCreateAccessKeySuccess();
+      stsMock.on(GetCallerIdentityCommand).resolves({
+        Account: '123456789012',
+        Arn: 'arn:aws:iam::123456789012:user/my-custom-deployer',
+      });
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+
+      await service.rotate(ROTATION_INPUT);
+
+      expect(store.set).toHaveBeenCalledWith('deployPrincipal', {
+        accountId: '123456789012',
+        userName: 'my-custom-deployer',
+      });
+    });
+
+    // @spec APP-WIZARD-TMPL-009
+    it('should record only the final path segment of a path-qualified IAM user ARN', async () => {
+      stubCreateAccessKeySuccess();
+      stsMock.on(GetCallerIdentityCommand).resolves({
+        Account: '123456789012',
+        Arn: 'arn:aws:iam::123456789012:user/teams/infra/deployer',
+      });
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+
+      await service.rotate(ROTATION_INPUT);
+
+      expect(store.set).toHaveBeenCalledWith('deployPrincipal', { accountId: '123456789012', userName: 'deployer' });
+    });
+
+    // @spec APP-WIZARD-INTAKE-002
+    it('should record only the account ID when the verified caller ARN is not an IAM user', async () => {
+      stubCreateAccessKeySuccess();
+      stsMock.on(GetCallerIdentityCommand).resolves({
+        Account: '123456789012',
+        Arn: 'arn:aws:sts::123456789012:assumed-role/Admin/session',
+      });
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+
+      await service.rotate(ROTATION_INPUT);
+
+      expect(store.set).toHaveBeenCalledWith('deployPrincipal', { accountId: '123456789012' });
+    });
+
+    // @spec APP-WIZARD-RECONF-007
+    it('should not overwrite the stored deploy principal when verification fails or the keychain is unavailable', async () => {
+      stubCreateAccessKeySuccess();
+      stsMock.on(GetCallerIdentityCommand).rejects(new Error('invalid token'));
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+      await service.rotate(ROTATION_INPUT);
+      expect(store.set).not.toHaveBeenCalledWith('deployPrincipal', expect.anything());
+
+      safeStorage = makeSafeStorage(false);
+      service = new TestableGuidedIamService(store, safeStorage);
+      await expect(service.rotate(ROTATION_INPUT)).rejects.toBeInstanceOf(SafeStorageUnavailableError);
+      expect(store.set).not.toHaveBeenCalledWith('deployPrincipal', expect.anything());
     });
 
     it('should preserve other existing aws fields when activating the rotated key', async () => {
@@ -804,7 +829,6 @@ describe('GuidedIamService', () => {
         consoleUrl: expect.stringContaining('security_credentials'),
       });
       // The new key was already activated in step 4 and that is NOT rolled back.
-      expect(store.set).toHaveBeenCalledTimes(1);
       expect(store.set).toHaveBeenCalledWith('aws', { profile: GUIDED_PROFILE_NAME, region: REGION });
     });
 

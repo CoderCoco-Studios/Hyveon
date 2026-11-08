@@ -312,6 +312,7 @@ describe('FirstRunWizardService', () => {
       expect(store.delete).toHaveBeenCalledWith('aws');
       expect(store.delete).toHaveBeenCalledWith('bootstrap');
       expect(store.delete).toHaveBeenCalledWith('creds');
+      expect(store.delete).toHaveBeenCalledWith('deployPrincipal');
     });
 
     // @spec APP-WIZARD-REGLOCK-001
