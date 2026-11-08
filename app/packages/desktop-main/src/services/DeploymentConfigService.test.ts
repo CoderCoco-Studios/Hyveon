@@ -498,6 +498,40 @@ describe('DeploymentConfigService', () => {
   });
 
   // @spec CONFIG-READ-003, CONFIG-READ-005
+  // @spec GAME-WRITE-006
+  describe('getGameServersStrict', () => {
+    it('should reject when the config text is malformed JSON instead of resolving to an empty list', async () => {
+      remoteFileStore.get.mockResolvedValue({ body: new TextEncoder().encode('not { json'), etag: 'etag-1' });
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
+
+      await expect(service.getGameServersStrict()).rejects.toThrow();
+    });
+
+    it('should reject with ConfigurationNotConfiguredError when no bucket is configured', async () => {
+      const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
+
+      await expect(service.getGameServersStrict()).rejects.toBeInstanceOf(ConfigurationNotConfiguredError);
+    });
+
+    it('should not serve a negatively cached lenient failure as an empty list', async () => {
+      remoteFileStore.get.mockRejectedValueOnce(new Error('S3 unavailable'));
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket', ttlMs: 30000 }), remoteFileStore);
+      await expect(service.getGameServers()).resolves.toEqual([]);
+
+      remoteFileStore.get.mockResolvedValue({ body: new TextEncoder().encode(FIXTURE_JSON), etag: 'etag-2' });
+      const games = await service.getGameServersStrict();
+      expect(games.map((g) => g.name)).toContain('palworld');
+    });
+
+    it('should return the declared games on success', async () => {
+      remoteFileStore.get.mockResolvedValue({ body: new TextEncoder().encode(FIXTURE_JSON), etag: 'etag-1' });
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
+
+      const games = await service.getGameServersStrict();
+      expect(games.map((g) => g.name)).toContain('palworld');
+    });
+  });
+
   describe('parse errors', () => {
     it('should return an empty array and log when the config text is malformed JSON', async () => {
       remoteFileStore.get.mockResolvedValue({

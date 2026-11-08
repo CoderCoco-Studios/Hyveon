@@ -174,6 +174,24 @@ export async function upsertHealthCheckAuthSecret(gameId: string, value: string)
   }
 }
 
+// @spec GAME-WRITE-004
+/**
+ * Reads the current value of the app-owned health-check credential secret for `gameId`, uncached, so a failed game
+ * save can restore it. Never logged by callers.
+ *
+ * @param gameId - The `game_servers` map key whose credential secret to read.
+ * @returns The secret string, or `null` when the secret does not exist or has no string value.
+ */
+export async function readHealthCheckAuthSecret(gameId: string): Promise<string | null> {
+  try {
+    const resp = await getClient().send(new GetSecretValueCommand({ SecretId: healthCheckAuthSecretName(gameId) }));
+    return resp.SecretString ?? null;
+  } catch (err) {
+    if (err instanceof ResourceNotFoundException) return null;
+    throw err;
+  }
+}
+
 // @spec RT-HEALTH-CRED-005
 /**
  * Deletes the app-owned health-check credential secret for `gameId`, using
