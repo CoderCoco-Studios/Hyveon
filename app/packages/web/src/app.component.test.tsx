@@ -25,8 +25,18 @@ vi.mock('./polling/polling-provider.component.js', () => ({
 vi.mock('./polling/game-status-provider.component.js', () => ({
   GameStatusProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
-const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
-vi.mock('sonner', () => ({ toast: { error: toastError } }));
+const { toastError, visibleToasts } = vi.hoisted(() => ({
+  toastError: vi.fn(),
+  /** Toasts currently on screen, keyed by id: a repeated id replaces rather than adds, as sonner does. */
+  visibleToasts: new Map<string, string>(),
+}));
+vi.mock('sonner', () => ({
+  toast: {
+    error: toastError.mockImplementation((message: string, opts?: { id?: string }) => {
+      visibleToasts.set(opts?.id ?? `anon-${visibleToasts.size}`, message);
+    }),
+  },
+}));
 vi.mock('./components/ui/sonner.component.js', () => ({ Toaster: () => null }));
 vi.mock('./pages/dashboard.page.js', () => ({ DashboardPage: () => <div>dashboard</div> }));
 vi.mock('./pages/costs.page.js', () => ({ CostsPage: () => null }));
@@ -55,6 +65,7 @@ describe('App first-run gate', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
     toastError.mockClear();
+    visibleToasts.clear();
   });
 
   afterEach(() => {
@@ -174,8 +185,6 @@ describe('App first-run gate', () => {
 
     expect(await screen.findByTestId('app-shell')).toBeInTheDocument();
     await waitFor(() => expect(toastError).toHaveBeenCalled());
-    for (const call of toastError.mock.calls) {
-      expect(call[1]).toEqual(expect.objectContaining({ id: 'setup-state-unreadable' }));
-    }
+    expect([...visibleToasts.keys()]).toEqual(['setup-state-unreadable']);
   });
 });
