@@ -90,7 +90,7 @@ All six get/page methods run through `withLogGroup` (`LogsService.ts:237-264`), 
 
 - `'recent'`: the exact `No log streams found for {label}.` error is returned verbatim as a synthetic line (`:256-257`); any other failure is logged by the per-method hook (`logger.error`, `:284,631`) and folded into `Error fetching logs for {label}: {String(err)}` (`:262`). This is the contract that a failed snapshot returns a single message rather than propagating a raw SDK error (APP-LOGS-SNAP-004).
 - `'paging'`: any failure is normalized with `errMessage`, logged at `warn` (`:359,397,660,696`), and rethrown as a plain `Error` (`:261`).
-- `notFound`, passed only by the three Lambda methods, intercepts `ResourceNotFoundException` ahead of both branches.
+- `notFound` intercepts `ResourceNotFoundException` ahead of both branches: the two recent-snapshot methods return the informational no-log-group line (APP-LOGS-SNAP-005), and the Lambda paging methods throw a plain `Error` with that message.
 
 Synthetic lines carry `Date.now()` as their timestamp (`LogsService.ts:133-136`), so the renderer will later use a fabricated time as a paging boundary if the snapshot was a synthetic message.
 
@@ -106,18 +106,18 @@ The TSDoc gives the reasoning (`:407-441`): `'older'` walks newest-to-oldest; `'
 
 | Aspect | Game (`AwsCloudProvider.streamWorkloadLogs`) | Lambda (`LogsService.streamLambdaLogs`) |
 |---|---|---|
-| First `startTime` | `Date.now()` (`AwsCloudProvider.ts:600`) | `undefined`, i.e. whole retained group (`LogsService.ts:735`) |
+| First `startTime` | `Date.now()` | `Date.now()` |
 | Page size / paging | `limit: 100`, one call per poll (`:564`) | no limit, drains every `nextToken` (`:739-754`) |
 | Cursor advance | `ts + 1` (`:573-575`) | `max(ts)` (`:747-749`) |
 | Dedupe key fallback | `` `${ts}-${msg}` `` (`:568`) | `` `${ts}:${msg}` `` (`:744`) |
-| Abort | SDK `abortSignal` and `sleepInterruptible` (`:565,583-588`) | checked between events and polls; plain `setTimeout` sleep (`:750,765-766`) |
-| Poll error | `logger.error` then `[stream error] …` line (`:579-580`) | `[stream error] …` line, no log call (`:762-763`) |
+| Abort | SDK `abortSignal` and `sleepInterruptible` | SDK `abortSignal` and `sleepInterruptible` |
+| Poll error | `logger.error` then `[stream error] …` line | `logger.warn` with `functionKey` and log group, then `[stream error] …` line |
 | Infra not deployed | throws `WorkloadGuardError` before polling (`:554`) | n/a |
 
 The Lambda tail's TSDoc says it copies the game loop's shape and cites a design decision for not sharing it (`LogsService.ts:705-713`); that decision argues only that Lambda naming should not enter the cloud-agnostic `CloudProvider` interface, not that the loops must differ.
-Because the first Lambda poll has no `startTime`, it yields every retained event, re-delivering the snapshot the renderer already rendered (`use-log-tail.hook.ts:340-344`); that departs from the requirement to stream newly-arriving lines only (APP-LOGS-TAIL-005).
+Both tails start at the moment they began, so the snapshot's retained history is not re-delivered (APP-LOGS-TAIL-005).
 Both `seen` sets grow without bound for the life of a stream (`LogsService.ts:734`; `AwsCloudProvider.ts:601`) `[inferred]`.
-`AwsCloudProvider.ts:39` says its `sleepInterruptible` mirrors one in `LogsService`, which has none.
+Both loops use the single `sleepInterruptible` helper in `@hyveon/shared`.
 
 ## Renderer Tail Engine
 
@@ -172,7 +172,7 @@ The Lambda page defaults to `watchdog` and renders `LAMBDA_FUNCTION_KEYS` as `ar
 | Sharing the tail state machine | One `useLogTail` hook consumed by both pages | Parallel `useInfraLogTail` copy; a full shared presentational panel | A parallel copy satisfies "looks the same" but not "is the same" and would drift the first time either page's tail behavior changed, so extraction was chosen to keep one source of truth. It is a real refactor of the working `/logs` page, so `logs.page.test.tsx` served as a fixed regression gate that had to pass with zero edits. A shared presentational panel was first rejected as larger than needed because the two pickers differ; it now exists as `LogTailView`, and why it was later added is not recorded |
 | Game live tail | Delegate to `CloudProvider.streamWorkloadLogs`; snapshot and paging call CloudWatch directly | All game reads through `CloudProvider` | Depending on the interface keeps the service swappable (`LogsService.ts:164-169`); why snapshot/paging bypass it is stated only for Lambdas (see "Where Lambda log access lives"), for games it is `[inferred]` historical |
 | Lambda live tail | Separate loop in `LogsService` | Share the provider's loop | TSDoc cites the interface-boundary decision (`LogsService.ts:710`), which justifies that boundary, not a second loop; divergence appears unintended `[inferred]` |
-| Event identity for paging | Synthesized `${timestamp}:${message}` id, multiset exclusion | `Set` exclusion; per-stream ids | `GetLogEvents` has no `eventId`; a `Set` would drop distinct same-content events across rotated streams (`LogsService.ts:430-440,515-519`) |
+| Event identity for paging | Synthesized `${timestamp}:${message ?? ''}` id from one helper shared by snapshot, paging and tail, multiset exclusion | `Set` exclusion; per-stream ids | `GetLogEvents` has no `eventId`; a `Set` would drop distinct same-content events across rotated streams (`LogsService.ts:430-440,515-519`) |
 | Paging scan bound | Cap of 50 streams per call; `atOldest` only when the scan is exhaustive | Unbounded stream listing | Prevents one page call becoming unbounded CloudWatch requests on groups with years of task restarts (`LogsService.ts:138-147`) |
 | Snapshot vs paging failure contract | Snapshot never throws (synthetic line); paging throws a plain `Error` | One contract for both | Snapshot contract is required by APP-LOGS-SNAP-002 to APP-LOGS-SNAP-004; paging throws so the hook can show `Could not load older logs: …` (`use-log-tail.hook.ts:417-420`) `[inferred]` |
 | Missing Lambda log group in the tail | Yield one informational line and end the stream | Repeat `[stream error]` every poll | A missing group will not appear while the operator watches; repeating would flood the window (`LogsService.ts:715-721`) |
@@ -192,12 +192,7 @@ The Lambda page defaults to `watchdog` and renders `LAMBDA_FUNCTION_KEYS` as `ar
 
 ### Deferred
 
-1. Should `streamLambdaLogs` seed its first `startTime` (now, or the snapshot's newest timestamp) so it stops replaying the whole group and duplicating the snapshot (`LogsService.ts:735`; `use-log-tail.hook.ts:340-344`)? No test pins the first-poll `startTime` (`LogsService.test.ts:797` onward).
-2. Should the two live-tail loops collapse into one implementation (`LogsService.ts:727-768` vs `AwsCloudProvider.ts:590-631`), and if not, should the Lambda loop at least use an abort-aware sleep and SDK call (`:766`) and log poll errors per `.claude/rules/logging.md` rule 2 (`:762-763`)?
-3. Should `eventId` synthesis be one helper so the snapshot (`:326`) and paging (`:519`) agree for message-less events?
-4. Should the four identical controller catch blocks be extracted, and should the controller stop re-logging at `error` what the service already logged at `warn` (`logs.controller.ts:88-95,112-119,248-255,272-279`; `LogsService.ts:359,397,660,696`)?
 5. Should the game snapshot read across streams (or across containers) so `https` games with a Caddy sidecar show both containers (`LogsService.ts:304-315`)? Record the decision in the EARS either way.
-6. Should the game log group get a `notFound` hook like the Lambda family, instead of surfacing a raw `ResourceNotFoundException` string (`LogsService.ts:277-288`)?
 7. `fetchAcrossStreams` throws `No log streams found in {logGroup}.` (`:475`), a different text from the one `withLogGroup` recognizes (`:256,313`). Harmless today on the paging path; should both use one message?
 8. Should live chunks carry the CloudWatch timestamp and event id end to end (`LogsService.ts:205-206`, `hyveon-api.ts:157`), which would remove the `liveInterruptedAtRef` fallback (`use-log-tail.hook.ts:458`) and make the footer age real log age? Two unrelated types both named `LogChunk` (`shared/src/cloud.ts:26`, `hyveon-api.ts:157`) complicate this.
 9. Should `hasNewer` honour `NewerLogsPage.hasMore` (`use-log-tail.hook.ts:612`), and should historical mode auto-return to live once forward paging catches up? Today only `jumpToLatest` leaves it.
