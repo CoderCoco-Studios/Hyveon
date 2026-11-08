@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as aws from '@pulumi/aws';
 import type { GameServerConfig } from '@hyveon/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -387,6 +388,24 @@ describe('defineEfsSeederInvocations', () => {
       >
     ).seedsHash;
     expect(thirdHash).toBe(firstHash);
+  });
+
+  it('should keep seedsHash a SHA-256 of the file_seeds JSON alone, so an unchanged config never re-seeds', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const fn = new aws.lambda.Function('hyveon-efs-seeder-echo', { role: 'arn:aws:iam::123456789012:role/mock' }, { provider });
+    const policy = new aws.iam.RolePolicy('hyveon-efs-seeder-echo-policy', { role: 'mock-role', policy: '{}' }, { provider });
+    const invocations = defineEfsSeederInvocations({
+      projectName: 'hyveon',
+      provider,
+      gameServers: { echo: SEEDED_GAME },
+      efsSeederFunctions: { echo: fn },
+      efsSeederPolicies: { echo: policy },
+    });
+    await promiseOf(invocations.echo.id);
+    const latest = mocks.resources.filter((resource) => resource.name === 'hyveon-efs-seeder-echo-invocation').at(-1)!;
+
+    const expected = createHash('sha256').update(JSON.stringify(SEEDED_GAME.file_seeds)).digest('hex');
+    expect((latest.inputs.triggers as Record<string, string>).seedsHash).toBe(expected);
   });
 
   // @spec IAC-PROGRAM-SEED-001

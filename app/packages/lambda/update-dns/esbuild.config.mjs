@@ -1,3 +1,3 @@
 import { buildLambda } from '../buildLambda.mjs';
 
-await buildLambda({ external: ['@aws-sdk/*'] });
+await buildLambda({ packageDir: import.meta.dirname, external: ['@aws-sdk/*'] });

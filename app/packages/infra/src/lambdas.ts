@@ -49,7 +49,7 @@ import {
   type GameServerConfig,
   type GameServerHealthCheck,
 } from '@hyveon/shared';
-import type { EfsResources } from './efs.js';
+import { accessPointKey, type EfsResources } from './efs.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 import type { IamRoleResources } from './iam.js';
 import { lambdaLogGroup } from './logGroups.js';
@@ -177,7 +177,7 @@ export interface DefineLambdasArgs {
   ecsClusterName: pulumi.Input<string>;
   /** The ECS cluster's ARN (`ecs.ts`'s `EcsResources.cluster.arn`) — interpolated into {@link LambdaResources.ecsTaskChangeRule}'s event pattern. */
   ecsClusterArn: pulumi.Input<string>;
-  /** The EFS resources `efs.ts`'s `defineEfs` returned — every EFS-seeder function's `file_system_config.arn` looks up `efs.gameAccessPoints["${game}-${firstVolumeName}"].arn`. */
+  /** The EFS resources `efs.ts`'s `defineEfs` returned — every EFS-seeder function's `file_system_config.arn` looks up `efs.gameAccessPoints[accessPointKey(game, firstVolumeName)].arn`. */
   efs: EfsResources;
 
   /**
@@ -355,7 +355,7 @@ function healthChecksByGame(gameServers: Record<string, GameServerConfig>): Reco
 // @spec IAC-PROGRAM-FANOUT-001, IAC-PROGRAM-LAMBDA-001, IAC-PROGRAM-LAMBDA-002, IAC-PROGRAM-LAMBDA-003
 // @spec IAC-PROGRAM-LAMBDA-004, IAC-PROGRAM-LAMBDA-005, IAC-PROGRAM-LAMBDA-006, IAC-PROGRAM-LAMBDA-007
 // @spec IAC-PROGRAM-LAMBDA-008, IAC-PROGRAM-LAMBDA-009, IAC-PROGRAM-LAMBDA-010, IAC-PROGRAM-LAMBDA-013
-// @spec IAC-PROGRAM-LAMBDA-014, IAC-PROGRAM-LAMBDA-015
+// @spec IAC-PROGRAM-LAMBDA-014, IAC-PROGRAM-LAMBDA-015, IAC-PROGRAM-LAMBDA-016
 // @spec RT-WATCHDOG-SCHED-001, RT-WATCHDOG-SCHED-002, RT-WATCHDOG-SCHED-003, RT-WATCHDOG-SCHED-004
 // @spec RT-WATCHDOG-SCHED-006, RT-WATCHDOG-CFG-004
 // @spec RT-HEALTH-PROV-001, RT-HEALTH-PROV-002, RT-HEALTH-NET-003, RT-HEALTH-NET-004
@@ -429,6 +429,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
   // ── Followup Lambda — declared before interactions so its
   // function name is in scope for interactions' FOLLOWUP_LAMBDA_NAME below,
   // matching the HCL's own reference direction. ─────────────────────────────
+  const followupLogGroup = lambdaLogGroup(projectName, 'followup', opts);
   const followupFunction = new aws.lambda.Function(
     `${projectName}-followup`,
     {
@@ -454,12 +455,11 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       },
       tags: { Name: `${projectName}-followup` },
     },
-    opts,
+    { ...opts, dependsOn: [followupLogGroup] },
   );
 
-  const followupLogGroup = lambdaLogGroup(projectName, 'followup', opts);
-
   // ── Interactions Lambda ─────────────────────────────────────────────────────
+  const interactionsLogGroup = lambdaLogGroup(projectName, 'interactions', opts);
   const interactionsFunction = new aws.lambda.Function(
     `${projectName}-interactions`,
     {
@@ -482,10 +482,8 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       },
       tags: { Name: `${projectName}-interactions` },
     },
-    opts,
+    { ...opts, dependsOn: [interactionsLogGroup] },
   );
-
-  const interactionsLogGroup = lambdaLogGroup(projectName, 'interactions', opts);
 
   const interactionsFunctionUrl = new aws.lambda.FunctionUrl(
     `${projectName}-interactions-url`,
@@ -574,6 +572,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
   }
 
   // ── Watchdog Lambda + EventBridge schedule ─────────────────────────────────
+  const watchdogLogGroup = lambdaLogGroup(projectName, 'watchdog', opts);
   const watchdogFunction = new aws.lambda.Function(
     `${projectName}-watchdog`,
     {
@@ -599,10 +598,8 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       },
       tags: { Name: `${projectName}-watchdog` },
     },
-    opts,
+    { ...opts, dependsOn: [watchdogLogGroup] },
   );
-
-  const watchdogLogGroup = lambdaLogGroup(projectName, 'watchdog', opts);
 
   // `rate(1 minute)` vs `rate(N minutes)` — singular/plural matters to
   // EventBridge's schedule-expression parser, exactly as the HCL's inline
@@ -641,6 +638,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
 
   // ── DNS-updater Lambda + EventBridge ECS-state-change rule ────────────────
   // @spec RT-TASK-DNS-012
+  const dnsUpdaterLogGroup = lambdaLogGroup(projectName, 'dns-updater', opts);
   const dnsUpdaterFunction = new aws.lambda.Function(
     `${projectName}-dns-updater`,
     {
@@ -669,10 +667,8 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       },
       tags: { Name: `${projectName}-dns-updater` },
     },
-    opts,
+    { ...opts, dependsOn: [dnsUpdaterLogGroup] },
   );
-
-  const dnsUpdaterLogGroup = lambdaLogGroup(projectName, 'dns-updater', opts);
 
   // @spec RT-TASK-DNS-002
   const ecsTaskChangeRule = new aws.cloudwatch.EventRule(
@@ -737,7 +733,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     for (const [game, role] of seederGames) {
       const config = gameServers[game];
       const firstVolumeName = config.volumes[0].name;
-      const accessPointArn = efs.gameAccessPoints[`${game}-${firstVolumeName}`].arn;
+      const accessPointArn = efs.gameAccessPoints[accessPointKey(game, firstVolumeName)].arn;
 
       const logGroup = lambdaLogGroup(projectName, `efs-seeder-${game}`, opts, { Game: game });
       efsSeederLogGroups[game] = logGroup;

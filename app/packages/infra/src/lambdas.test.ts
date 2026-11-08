@@ -254,6 +254,29 @@ describe('defineLambdas', () => {
       expect('AWS_REGION' in variables).toBe(false);
     });
 
+    // @spec IAC-PROGRAM-LAMBDA-016
+    it('should make every always-on function depend on its own log group so Lambda never auto-creates the group', async () => {
+      const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
+      const dependsOnByName = new Map<string, unknown[]>();
+      await pulumi.runtime.runInPulumiStack(async () => {
+        pulumi.runtime.registerStackTransformation((args) => {
+          if (args.type === 'aws:lambda/function:Function') {
+            dependsOnByName.set(args.name, [args.opts.dependsOn ?? []].flat() as unknown[]);
+          }
+          return undefined;
+        });
+        await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
+      });
+
+      for (const name of ['followup', 'interactions', 'watchdog', 'dns-updater']) {
+        const dependsOn = dependsOnByName.get(`hyveon-${name}`) ?? [];
+        const logGroupUrns = await Promise.all(
+          dependsOn.map((dep) => promiseOf((dep as aws.cloudwatch.LogGroup).name)),
+        );
+        expect(logGroupUrns, name).toContain(`/aws/lambda/hyveon-${name}`);
+      }
+    });
+
     // @spec IAC-PROGRAM-LAMBDA-015
     it('should declare its log group at /aws/lambda/{project}-followup with 7-day retention', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
@@ -726,7 +749,7 @@ describe('defineLambdas', () => {
       });
       expect(fn.inputs.tags).toEqual({ Name: 'hyveon-efs-seeder-echo', Game: 'echo' });
 
-      const accessPointArn = await promiseOf(efs.gameAccessPoints['echo-saves'].arn);
+      const accessPointArn = await promiseOf(efs.gameAccessPoints['echo/saves'].arn);
       expect(fn.inputs.fileSystemConfig).toEqual({ arn: accessPointArn, localMountPath: '/mnt/efs' });
 
       const code = fn.inputs.code as pulumi.asset.AssetArchive;

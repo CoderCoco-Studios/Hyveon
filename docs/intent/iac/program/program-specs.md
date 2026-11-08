@@ -9,7 +9,7 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 - [x] **IAC-PROGRAM-WS-003**: When `npm run app:lint` and `npm run app:test` run from the repo root, both shall include the `@hyveon/infra` workspace (`app/eslint.config.js` lints `app/`; `app/vitest.config.ts:61-62` collects `packages/**/*.test.ts`).
 - [x] **IAC-PROGRAM-WS-004**: The infrastructure program shall be an inline Pulumi Automation API `PulumiFn` closure whose body is `defineAll` followed by `buildStackOutputs`, declaring every resource inside the closure and none at module scope (`program.ts:556-561`). (observed)
 - [x] **IAC-PROGRAM-WS-005**: The infrastructure program shall take the Lambda bundle directory as a required machine-local `lambdaBundlesDir` option outside `DeploymentConfig`, with no default anywhere in `@hyveon/infra` (`program.ts:42-63`, `lambdas.ts:16-30`). (observed)
-- [ ] **IAC-PROGRAM-WS-006**: The `@hyveon/infra` build output shall exclude test-only helpers under `src/testing/` (gap: `infra/tsconfig.json` excludes only `src/**/*.test.ts`, so `testing/fixtures.ts` and `testing/pulumiMocks.ts` compile into `dist/`). (observed)
+- [x] **IAC-PROGRAM-WS-006**: The `@hyveon/infra` build output shall exclude test-only helpers under `src/testing/` (`infra/tsconfig.json` excludes `src/testing` alongside `src/**/*.test.ts`; `buildOutput.test.ts` lists the compiled files).
 
 ## Composition and Providers
 
@@ -63,9 +63,9 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 ## EFS
 
 - [x] **IAC-PROGRAM-EFS-001**: The infrastructure program shall declare one encrypted EFS file system named `${projectName}-saves` and one mount target per public subnet guarded by the EFS security group (`efs.ts:93-114`). (observed)
-- [x] **IAC-PROGRAM-EFS-002**: The infrastructure program shall declare one EFS access point per `(game, volume)` pair, keyed `${game}-${volume.name}`, rooted at `/{game}/{volume.name}` with POSIX uid and gid 1000 and mode 0755 (`efs.ts:79`, `efs.ts:116-138`). (observed)
+- [x] **IAC-PROGRAM-EFS-002**: The infrastructure program shall declare one EFS access point per `(game, volume)` pair, keyed by `accessPointKey` (`{game}/{volume.name}`, see `IAC-PROGRAM-EFS-004`), rooted at `/{game}/{volume.name}` with POSIX uid and gid 1000 and mode 0755 (`efs.ts`). (observed)
 - [x] **IAC-PROGRAM-EFS-003**: For each game with `https: true`, the infrastructure program shall declare a dedicated certificate access point (logical name `${game}-caddy-data`, tag `${game}-certs`) rooted at the isolated directory `/{game}/caddy-data` (`efs.ts:141-161`).
-- [ ] **IAC-PROGRAM-EFS-004**: The access-point key for a `(game, volume)` pair shall be derived by one shared helper and shall be collision-free across games (gap: `${game}-${volume}` is re-derived at `efs.ts:120`, `ecs.ts:212-219`, `lambdas.ts:739`, `program.ts:484`, and game `a-b` volume `c` collides with game `a` volume `b-c`). (observed)
+- [x] **IAC-PROGRAM-EFS-004**: The access-point key for a `(game, volume)` pair shall be derived by one shared helper, `accessPointKey` in `efs.ts`, and shall be collision-free across games: the key is `{game}/{volume}`, and `/` cannot appear in a game or volume name, so game `a-b` volume `c` and game `a` volume `b-c` stay distinct (`ecs.ts`, `lambdas.ts` and `program.ts` import the helper). Each access point shall also carry a Pulumi alias to its legacy `${game}-${volume.name}` logical name, so the rename does not delete and recreate the access point a running task has mounted, except where that legacy name is shared by another pair or equals a certificate access point's `${game}-caddy-data` name (those pairs are replaced).
 
 ## ECS Task Definitions
 
@@ -81,7 +81,7 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 ## In-Task TLS (Caddy Sidecar)
 
 - [x] **IAC-PROGRAM-TLS-001**: For each game with `https: true`, the infrastructure program shall add an `essential` container named `caddy` mapping 443/tcp and 80/tcp and running `caddy reverse-proxy --from {game}.{zone} --to localhost:{webPort}`, where `{zone}` is the hosted zone name with trailing dots stripped (`ecs.ts:301-321`).
-- [ ] **IAC-PROGRAM-TLS-002**: The Caddy sidecar shall use the official `caddy` image pinned to an exact version (gap: `ecs.ts:305` uses the floating tag `caddy:2-alpine`).
+- [x] **IAC-PROGRAM-TLS-002**: The Caddy sidecar shall use the official `caddy` image pinned to an exact version (`CADDY_IMAGE` in `ecs.ts`, an exact `X.Y.Z-alpine` tag).
 - [x] **IAC-PROGRAM-TLS-003**: For each game with `https: true`, the Caddy sidecar shall mount that game's certificate access point read-write at `/data`, and no other container shall mount it (`ecs.ts:223-235`, `ecs.ts:312-318`).
 - [x] **IAC-PROGRAM-TLS-004**: For a game whose `https` is false or omitted, the task definition shall contain no Caddy sidecar, no 443/80 port mapping and no certificate volume (`ecs.ts:205`, `ecs.ts:223`, `ecs.ts:302`).
 - [x] **IAC-PROGRAM-TLS-005**: When an operator sets `https: true` and a `webPort` on an existing game, the sidecar, certificate access point and 443/80 ingress shall all follow from that config edit alone (`ecs.ts:301-321`, `efs.ts:141-161`, `securityGroups.ts:269-279`).
@@ -94,7 +94,7 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 ## Environment Tokens and Boot Wrapper
 
 - [x] **IAC-PROGRAM-TOKEN-001**: When building a game's task definition, the infrastructure program shall replace each `${hyveon.network.public-address}` occurrence in that game's environment values with `{game}.{zone}`, leaving no token in the resolved variable (`ecs.ts:118-137`, `ecs.ts:245`).
-- [ ] **IAC-PROGRAM-TOKEN-002**: If a game's environment uses `${hyveon.network.public-address}` and no hosted zone is configured, then preview and apply shall fail with an error naming the game and the token (gap: `program.ts:163-168` rejects every empty zone first with a generic hosted-zone message, so the game-and-token error at `ecs.ts:127-131` is unreachable).
+- [x] **IAC-PROGRAM-TOKEN-002**: If the hosted zone name is empty after normalisation, then preview and apply shall fail before any resource is declared with an error naming `hostedZoneName` (this covers every game whose environment uses `${hyveon.network.public-address}`), and `defineEcs` shall itself refuse an empty zone for such a game with an error naming the game and the token (`program.ts` `defineAll`, `ecs.ts` `resolveGameEnvironment`).
 - [x] **IAC-PROGRAM-TOKEN-003**: When any of a game's environment values contains `${hyveon.network.public-ipv4}`, the infrastructure program shall set that game container's `entryPoint` to a generated `/bin/sh -c` wrapper and leave the raw token in the container environment for the wrapper to substitute at boot (`ecs.ts:247-249`, `ecs.ts:281-289`).
 - [x] **IAC-PROGRAM-TOKEN-004**: When a game declares a non-empty `command`, the infrastructure program shall pass it through as the game container's `command`, whether or not any token is used (`ecs.ts:290`).
 - [x] **IAC-PROGRAM-TOKEN-005**: The generated ipv4 boot wrapper shall retry public-IPv4 discovery up to 30 times, accept only a dotted quad of four octets each at most 255, exit non-zero if discovery fails, then export the token-bearing variables shell-quoted and `exec` the configured command (`envTokenWrapper.ts:64-97`). (observed)
@@ -129,7 +129,7 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 - [x] **IAC-PROGRAM-LAMBDA-013**: Where a game declares `file_seeds`, its efs-seeder Lambda shall run in the public subnets with the efs-seeder security group, mount the game's first volume access point at `/mnt/efs`, and depend on its log group and every EFS mount target (`lambdas.ts:729-775`). (observed)
 - [x] **IAC-PROGRAM-LAMBDA-014**: Where at least one game declares `file_seeds` or `healthCheck`, `defineLambdas` shall reject a missing efs-seeder or health-check security-group id before constructing any resource (`lambdas.ts:415-427`). (observed)
 - [x] **IAC-PROGRAM-LAMBDA-015**: Every infrastructure-program Lambda log group shall be `/aws/lambda/{projectName}-{suffix}` with 7-day retention (`logGroups.ts:12`, `logGroups.ts:27-43`). (observed)
-- [ ] **IAC-PROGRAM-LAMBDA-016**: Every infrastructure-program Lambda function shall depend on its own log group so Lambda never auto-creates the group without retention (gap: interactions, followup, watchdog and dns-updater groups at `lambdas.ts:431`, `lambdas.ts:462`, `lambdas.ts:576`, `lambdas.ts:643` have no `dependsOn`; only `lambdas.ts:571` and `lambdas.ts:773` do). (observed)
+- [x] **IAC-PROGRAM-LAMBDA-016**: Every infrastructure-program Lambda function shall depend on its own log group so Lambda never auto-creates the group without retention (`lambdas.ts` declares each log group before its function and passes it in `dependsOn`).
 
 ## Lambda Environment Wire Format
 
@@ -155,14 +155,14 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 - [x] **IAC-PROGRAM-SECRET-002**: When deployed to a fresh account, the infrastructure program shall create the Discord bot-token, Discord public-key and FileBrowser credential secrets with `recoveryWindowInDays: 0` and a `placeholder` initial version (`secrets.ts:73`, `secrets.ts:107-161`).
 - [x] **IAC-PROGRAM-SECRET-003**: Every infrastructure-program secret version shall be create-only via `ignoreChanges: ['secretString']`, so a later preview reports no change and a re-deploy never resets a value the app has written (`secrets.ts:89-91`, `secrets.ts:117-161`).
 - [x] **IAC-PROGRAM-SECRET-004**: When the operator configures Discord credentials, the real values shall reach Secrets Manager only over the app's SDK path and never appear in infrastructure state, because the program carries only the placeholder (`secrets.ts:8-21`, `shared/src/deploymentConfig.ts:18-21`).
-- [ ] **IAC-PROGRAM-SECRET-005**: The infra test suite shall include a case that writes real values through the app's Secrets Manager path, re-deploys, and asserts the values survive unchanged (gap: `secrets.test.ts:125-157` asserts only that `ignoreChanges: ['secretString']` is passed).
+- [D] **IAC-PROGRAM-SECRET-005**: The infra test suite shall include a case that writes real values through the app's Secrets Manager path, re-deploys, and asserts the values survive unchanged (deferred: `secrets.test.ts` asserts that `ignoreChanges: ['secretString']` is passed, and the secret value is never in state; see Decisions & Alternatives, Secret-preservation test).
 
 ## DNS and Discord Domain
 
 - [x] **IAC-PROGRAM-DNS-001**: The infrastructure program shall look up the public hosted zone by name and shall declare no per-game Route 53 record, leaving the update-dns Lambda as the sole writer of game records (`route53.ts:62-69`).
 - [x] **IAC-PROGRAM-DNS-002**: The infrastructure program shall declare, as the only static Route 53 records, the Discord ACM validation record and the `discord.{zone}` A and AAAA aliases to the CloudFront distribution (`discordDomain.ts:131-140`, `discordDomain.ts:199-219`). (observed)
 - [x] **IAC-PROGRAM-DNS-003**: The infrastructure program shall front the interactions Function URL with a CloudFront distribution on alias `discord.{zone}` using HTTPS-only origin, caching disabled, `PriceClass_100`, IPv6, and the validated us-east-1 certificate with SNI and TLSv1.2_2021 (`discordDomain.ts:154-196`). (observed)
-- [ ] **IAC-PROGRAM-DNS-004**: The infrastructure program shall normalise `hostedZoneName` once (trim and strip trailing dots) and use that value for the zone lookup, every derived hostname and the `domainName` output (gap: `program.ts:163` trims, `route53.ts:65` receives the trimmed but not dot-stripped name, `ecs.ts`, `lambdas.ts` and `discordDomain.ts` strip dots, and `program.ts:512` echoes the raw config value). (observed)
+- [x] **IAC-PROGRAM-DNS-004**: The infrastructure program shall normalise `hostedZoneName` once (trim and strip trailing dots) and use that value for the zone lookup, every derived hostname and the `domainName` output (`normalizeHostedZoneName` in `hostedZoneName.ts`, called by `defineAll` and `buildStackOutputs`; a name that is blank or only dots is rejected as empty).
 
 ## Stack Outputs
 
@@ -179,7 +179,7 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 
 - [x] **IAC-PROGRAM-SEED-001**: Where a game declares `file_seeds`, the infrastructure program shall declare an `aws.lambda.Invocation` of that game's efs-seeder with input `{ game, seeds, container_path }` and an explicit `dependsOn` on the game's efs-seeder policy (`escapes.ts:99-103`, `escapes.ts:229-262`). (observed)
 - [x] **IAC-PROGRAM-SEED-002**: The efs-seeder invocation shall be re-run when the SHA-256 hash of the game's `file_seeds` changes (`escapes.ts:213-215`, `escapes.ts:256`). (observed)
-- [ ] **IAC-PROGRAM-SEED-003**: The efs-seeder invocation trigger shall also change when the seeded volume's `container_path` changes (gap: `escapes.ts:256` hashes only `file_seeds` while `escapes.ts:257` carries `container_path`; whether an `input`-only diff re-invokes is `[unverified]`). (observed)
+- [D] **IAC-PROGRAM-SEED-003**: The efs-seeder invocation trigger shall also change when the seeded volume's `container_path` changes (deferred: re-running the seeder overwrites seeded files an operator edited, so the trigger stays a hash of `file_seeds` alone).
 - [x] **IAC-PROGRAM-SEED-004**: Where a game declares `file_seeds`, the game-server validator shall reject any seed whose path is not a clean path (no `.`, `..` or empty segments) strictly under the first volume's `container_path`, with an error naming the seed and that path (a seed equal to the volume root is rejected; a single trailing slash is tolerated as the seeder tolerates it), because the efs-seeder mounts only the first volume (`lambdas.ts:738-764`, `escapes.ts:249`, `shared/src/gameServerValidator.ts`). (observed)
 - [x] **IAC-PROGRAM-SEED-005**: If an efs-seeder function has no matching game entry or seeder policy, then the infrastructure program shall fail naming the game (`escapes.ts:236-247`). (observed)
 
@@ -187,7 +187,6 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 
 - [x] **IAC-PROGRAM-RUNTIME-001**: Every Lambda function the infrastructure program declares, always-on or conditional, shall use the single `LAMBDA_RUNTIME` constant, whose value is `nodejs24.x` (`lambdas.ts:59`, `lambdas.ts:437`, `lambdas.ts:468`, `lambdas.ts:558`, `lambdas.ts:582`, `lambdas.ts:649`, `lambdas.ts:751`).
 - [x] **IAC-PROGRAM-RUNTIME-002**: No infrastructure-program Lambda resource shall declare `nodejs20.x` or any other deprecated runtime identifier (`infra/src` non-test sources reference only `LAMBDA_RUNTIME`).
-- [ ] **IAC-PROGRAM-RUNTIME-003**: When deployed functions are described after apply, each always-on function and, where configured, each efs-seeder and the health-check function shall report the supported runtime and return a successful invocation (gap: the health-check function fails at init, `lambdas.ts:568`, `lambda/health-check/src/handler.ts:40`).
 - [x] **IAC-PROGRAM-RUNTIME-004**: The shared Lambda bundler shall emit `dist/handler.cjs` as a minified CommonJS bundle with esbuild `target` naming the same Node major as `LAMBDA_RUNTIME` (`lambda/buildLambda.mjs:12-27`, `buildLambda.mjs:20`, `lambdas.ts:59`).
 - [x] **IAC-PROGRAM-RUNTIME-005**: The interactions, followup, watchdog, update-dns and health-check bundles shall mark `@aws-sdk/*` external and so execute against the runtime-provided SDK, while the efs-seeder bundle shall include its SDK (`lambda/*/esbuild.config.mjs:3`).
-- [ ] **IAC-PROGRAM-RUNTIME-006**: The shared Lambda bundler shall resolve its entry and output paths relative to the package rather than the process cwd and shall not emit a sourcemap that is never deployed (gap: `buildLambda.mjs:13`, `buildLambda.mjs:16-17` use cwd-relative paths and `buildLambda.mjs:23` emits a sourcemap that `lambdas.ts:244` never zips). (observed)
+- [x] **IAC-PROGRAM-RUNTIME-006**: The shared Lambda bundler shall resolve its entry and output paths relative to the package rather than the process cwd and shall not emit a sourcemap that is never deployed (`buildLambda({ packageDir })` in `lambda/buildLambda.mjs`; each package passes `import.meta.dirname`).

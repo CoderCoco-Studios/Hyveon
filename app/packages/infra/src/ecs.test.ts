@@ -189,7 +189,7 @@ describe('defineEcs', () => {
           fileSystemId: await promiseOf(efs.fileSystem.id),
           transitEncryption: 'ENABLED',
           authorizationConfig: {
-            accessPointId: await promiseOf(efs.gameAccessPoints['alpha-saves'].id),
+            accessPointId: await promiseOf(efs.gameAccessPoints['alpha/saves'].id),
             iam: 'DISABLED',
           },
         },
@@ -343,7 +343,7 @@ describe('defineEcs', () => {
     const caddy = containers[1];
     expect(caddy).toEqual({
       name: 'caddy',
-      image: 'caddy:2-alpine',
+      image: expect.stringMatching(/^caddy:\d+\.\d+\.\d+-alpine$/),
       essential: true,
       portMappings: [
         { containerPort: 443, hostPort: 443, protocol: 'tcp' },
@@ -476,6 +476,30 @@ describe('defineEcs', () => {
     expect(containers[0]).not.toHaveProperty('entryPoint');
   });
 
+  // @spec IAC-PROGRAM-TOKEN-002
+  it('should refuse a public-address token with an empty hosted zone, naming the game and the token', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      alpha: {
+        ...FIXTURE_GAME_SERVERS.alpha,
+        environment: [{ name: 'PUBLIC_HOST', value: '${hyveon.network.public-address}' }],
+      },
+    };
+    const efs = await arrangeEfs(gameServers, provider);
+
+    expect(() =>
+      defineEcs({
+        projectName: 'hyveon',
+        awsRegion: 'us-east-1',
+        hostedZoneName: '.',
+        gameServers,
+        efs,
+        executionRoleArn: 'arn:aws:iam::123456789012:role/hyveon-task-execution',
+        provider,
+      }),
+    ).toThrow(/game "alpha" uses \$\{hyveon\.network\.public-address\}/);
+  });
+
   // @spec IAC-PROGRAM-TOKEN-003
   // @spec GAME-TOKEN-007
   it('should inject the wrapper entryPoint and command for an ipv4-token game', async () => {
@@ -534,7 +558,7 @@ describe('defineEcs', () => {
     const ALPHA_ABSENT_FIELD_CONTAINERS =
       '[{"name":"alpha","image":"example/alpha:latest","essential":true,"portMappings":[{"containerPort":25565,"hostPort":25565,"protocol":"tcp"}],"environment":[],"mountPoints":[{"sourceVolume":"alpha-saves","containerPath":"/data","readOnly":false}],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":"/ecs/alpha-server","awslogs-region":"us-east-1","awslogs-stream-prefix":"ecs"}}}]';
     const DELTA_ABSENT_FIELD_CONTAINERS =
-      '[{"name":"delta","image":"example/delta:latest","essential":true,"portMappings":[{"containerPort":8080,"hostPort":8080,"protocol":"tcp"}],"environment":[],"mountPoints":[{"sourceVolume":"delta-saves","containerPath":"/data","readOnly":false}],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":"/ecs/delta-server","awslogs-region":"us-east-1","awslogs-stream-prefix":"ecs"}}},{"name":"caddy","image":"caddy:2-alpine","essential":true,"portMappings":[{"containerPort":443,"hostPort":443,"protocol":"tcp"},{"containerPort":80,"hostPort":80,"protocol":"tcp"}],"command":["caddy","reverse-proxy","--from","delta.example.com","--to","localhost:8080"],"mountPoints":[{"sourceVolume":"delta-caddy-data","containerPath":"/data","readOnly":false}],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":"/ecs/delta-server","awslogs-region":"us-east-1","awslogs-stream-prefix":"caddy"}}}]';
+      '[{"name":"delta","image":"example/delta:latest","essential":true,"portMappings":[{"containerPort":8080,"hostPort":8080,"protocol":"tcp"}],"environment":[],"mountPoints":[{"sourceVolume":"delta-saves","containerPath":"/data","readOnly":false}],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":"/ecs/delta-server","awslogs-region":"us-east-1","awslogs-stream-prefix":"ecs"}}},{"name":"caddy","image":"caddy:2.11.9-alpine","essential":true,"portMappings":[{"containerPort":443,"hostPort":443,"protocol":"tcp"},{"containerPort":80,"hostPort":80,"protocol":"tcp"}],"command":["caddy","reverse-proxy","--from","delta.example.com","--to","localhost:8080"],"mountPoints":[{"sourceVolume":"delta-caddy-data","containerPath":"/data","readOnly":false}],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":"/ecs/delta-server","awslogs-region":"us-east-1","awslogs-stream-prefix":"caddy"}}}]';
     const SHIM_REQUIRE = '--require=/hyveon/hostname-shim/hostname-shim.js';
 
     /** Builds the ECS resources for `gameServers` against fresh mocks and returns the recorder. */

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { accessPointKey } from './efs.js';
 import { buildStackOutputs, createInfraProgram, defineAll, type InfraProgramOptions } from './program.js';
 import { buildTestDeploymentConfig } from './testing/fixtures.js';
 import { installPulumiMocks, promiseOf } from './testing/pulumiMocks.js';
@@ -375,7 +376,7 @@ describe('defineAll', () => {
     const alphaTaskDef = mocks.resources.find((resource) => resource.name === 'alpha-server');
     expect(alphaTaskDef?.inputs.executionRoleArn).toBe(executionRoleArn);
 
-    const alphaAccessPointId = await promiseOf(result.efs.gameAccessPoints['alpha-saves'].id);
+    const alphaAccessPointId = await promiseOf(result.efs.gameAccessPoints['alpha/saves'].id);
     expect(alphaTaskDef?.inputs.volumes).toEqual([
       {
         name: 'alpha-saves',
@@ -414,7 +415,7 @@ describe('buildStackOutputs', () => {
     // only — not every `(game, volume)` pair `efs.gameAccessPoints` holds.
     const expectedAccessPoints: Record<string, string> = {};
     for (const [game, gameConfig] of Object.entries(config.gameServers)) {
-      const key = `${game}-${gameConfig.volumes[0].name}`;
+      const key = accessPointKey(game, gameConfig.volumes[0].name);
       expectedAccessPoints[game] = await promiseOf(resources.efs.gameAccessPoints[key].id);
     }
     expect(await promiseOf(outputs.efsAccessPoints)).toEqual(expectedAccessPoints);
@@ -438,6 +439,27 @@ describe('buildStackOutputs', () => {
     expect(await promiseOf(outputs.discordInteractionsUrl)).toBe(expectedCustomDomainUrl);
 
     expect(outputs.appliedGameServers).toEqual(config.gameServers);
+  });
+
+  // @spec IAC-PROGRAM-DNS-004
+  it('should normalise hostedZoneName once for the zone lookup, the derived hostnames and the domainName output', async () => {
+    const mocks = installPulumiMocks();
+    const config = buildTestDeploymentConfig({ hostedZoneName: '  example.com.  ' });
+    const resources = await runDefineAll(config);
+    const outputs = buildStackOutputs(resources, config);
+
+    const zoneCall = mocks.calls.find((call) => call.token === 'aws:route53/getZone:getZone');
+    expect(zoneCall?.inputs.name).toBe('example.com');
+    expect(outputs.domainName).toBe('example.com');
+    expect(await promiseOf(outputs.discordInteractionsUrl)).toBe('https://discord.example.com/');
+  });
+
+  // @spec IAC-PROGRAM-DNS-004
+  it('should reject a hostedZoneName that is only dots as empty', () => {
+    installPulumiMocks();
+    const config = buildTestDeploymentConfig({ hostedZoneName: ' . ' });
+
+    expect(() => defineAll(config, TEST_INFRA_PROGRAM_OPTIONS)).toThrow(/hostedZoneName is empty/);
   });
 
   // @spec IAC-PROGRAM-OUT-003
@@ -494,8 +516,8 @@ describe('buildStackOutputs', () => {
     const resources = await runDefineAll(config);
     const outputs = buildStackOutputs(resources, config);
 
-    const configId = await promiseOf(resources.efs.gameAccessPoints['alpha-config'].id);
-    const savesId = await promiseOf(resources.efs.gameAccessPoints['alpha-saves'].id);
+    const configId = await promiseOf(resources.efs.gameAccessPoints['alpha/config'].id);
+    const savesId = await promiseOf(resources.efs.gameAccessPoints['alpha/saves'].id);
     expect(await promiseOf(outputs.efsVolumeAccessPoints)).toEqual({ alpha: { config: configId, saves: savesId } });
     expect((await promiseOf(outputs.efsAccessPoints)).alpha).toBe(configId);
   });
@@ -512,6 +534,6 @@ describe('buildStackOutputs', () => {
     // `Record`, not a resource, so mutating it post-settlement is safe.
     resources.efs.gameAccessPoints = {};
 
-    expect(() => buildStackOutputs(resources, config)).toThrow(/no efs\.gameAccessPoints entry for "orphan-saves"/);
+    expect(() => buildStackOutputs(resources, config)).toThrow(/no efs\.gameAccessPoints entry for "orphan\/saves"/);
   });
 });

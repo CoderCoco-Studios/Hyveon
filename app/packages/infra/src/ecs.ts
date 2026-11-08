@@ -29,7 +29,7 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { HOSTNAME_SHIM_MOUNT_PATH, fileManagerLogGroupName, ingressPorts, isIcmpProtocol, type GameServerConfig, type GameServerEnvironmentVariable } from '@hyveon/shared';
 import { HYVEON_ENV_TOKENS, substituteHyveonToken, valueUsesToken } from '@hyveon/shared/envTokens';
-import type { EfsResources } from './efs.js';
+import { accessPointKey, type EfsResources } from './efs.js';
 import { buildIpv4WrapperScript } from './envTokenWrapper.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 import {
@@ -39,6 +39,9 @@ import {
   mergeNodeOptions,
 } from './hostnameShim.js';
 import { LOG_RETENTION_DAYS } from './logGroups.js';
+
+/** The official Caddy image the TLS sidecar runs, pinned to an exact version so a re-deploy never changes it silently. */
+const CADDY_IMAGE = 'caddy:2.11.9-alpine';
 
 /** Every resource {@link defineEcs} declares, keyed by role. */
 export interface EcsResources {
@@ -148,8 +151,8 @@ function requireWebPort(game: string, config: GameServerConfig): number {
 // @spec IAC-PROGRAM-ECS-006, IAC-PROGRAM-ECS-007, IAC-PROGRAM-ECS-008, IAC-PROGRAM-FANOUT-001, IAC-PROGRAM-FANOUT-002
 // @spec IAC-PROGRAM-FANOUT-003, IAC-PROGRAM-HOST-001, IAC-PROGRAM-HOST-002, IAC-PROGRAM-HOST-003, IAC-PROGRAM-HOST-004
 // @spec IAC-PROGRAM-HOST-005, IAC-PROGRAM-HOST-008, IAC-PROGRAM-IAM-001, IAC-PROGRAM-IAM-002, IAC-PROGRAM-TLS-001
-// @spec IAC-PROGRAM-TLS-003, IAC-PROGRAM-TLS-004, IAC-PROGRAM-TLS-005, IAC-PROGRAM-TLS-006, IAC-PROGRAM-TLS-007
-// @spec IAC-PROGRAM-TOKEN-001, IAC-PROGRAM-TOKEN-003, IAC-PROGRAM-TOKEN-004, IAC-PROGRAM-TOKEN-007
+// @spec IAC-PROGRAM-TLS-002, IAC-PROGRAM-TLS-003, IAC-PROGRAM-TLS-004, IAC-PROGRAM-TLS-005, IAC-PROGRAM-TLS-006, IAC-PROGRAM-TLS-007
+// @spec IAC-PROGRAM-TOKEN-001, IAC-PROGRAM-TOKEN-002, IAC-PROGRAM-TOKEN-003, IAC-PROGRAM-TOKEN-004, IAC-PROGRAM-TOKEN-007
 // @spec GAME-TOKEN-004, GAME-TOKEN-005, GAME-TOKEN-006, GAME-TOKEN-007, GAME-TOKEN-010, GAME-TOKEN-013, GAME-PORT-011
 // @spec GAME-HOST-006, GAME-HOST-007, GAME-HOST-008, GAME-HOST-009, GAME-HOST-010
 /**
@@ -226,7 +229,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
         fileSystemId: efs.fileSystem.id,
         transitEncryption: 'ENABLED',
         authorizationConfig: {
-          accessPointId: efs.gameAccessPoints[`${game}-${volume.name}`].id,
+          accessPointId: efs.gameAccessPoints[accessPointKey(game, volume.name)].id,
           iam: 'DISABLED',
         },
       },
@@ -312,7 +315,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
     if (isHttps) {
       containerDefs.push({
         name: 'caddy',
-        image: 'caddy:2-alpine',
+        image: CADDY_IMAGE,
         essential: true,
         portMappings: [
           { containerPort: 443, hostPort: 443, protocol: 'tcp' },
