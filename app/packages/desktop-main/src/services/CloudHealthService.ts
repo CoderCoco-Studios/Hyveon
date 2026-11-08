@@ -10,7 +10,7 @@ import { ConfigService } from './ConfigService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { readIsPackaged as sharedReadIsPackaged } from './electronRuntime.js';
-import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.js';
+import { resolveAwsClientCredentialsWithSignature, resolveAwsCredentialSource } from './awsCredentialSource.js';
 import { GUIDED_PROFILE_NAME, type OpenConsoleResult } from './GuidedIamService.js';
 
 /** Outcome of a single {@link CloudHealthCheck.check} call. */
@@ -84,6 +84,16 @@ export class CloudHealthService {
         fix: () => this.fixEcsServiceLinkedRole(),
       },
     ];
+  }
+
+  /** Whether the active credential source is the guided flow's pasted key, whose policy the CloudFormation stack manages. */
+  private isGuidedPastedSource(): boolean {
+    try {
+      const source = resolveAwsCredentialSource(this.store);
+      return source.kind === 'pasted' && source.profile === GUIDED_PROFILE_NAME;
+    } catch {
+      return false;
+    }
   }
 
   private getIamClient(): IAMClient {
@@ -162,7 +172,7 @@ export class CloudHealthService {
           outcome: 'needsPolicyUpdate',
           policyJson: JSON.stringify(generateHyveonDeployAllPolicy(projectName), null, 2),
           policyConsoleUrl: await this.buildPolicyConsoleUrl(),
-          policyManagedByStack: this.store.get('aws')?.profile === GUIDED_PROFILE_NAME,
+          policyManagedByStack: this.isGuidedPastedSource(),
         };
       }
       logger.error('CloudHealthService.fixEcsServiceLinkedRole: unexpected failure', { message });

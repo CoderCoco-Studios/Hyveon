@@ -137,7 +137,7 @@ it is a plain constant, not something the app needs to look up.
 
 Below the engine row, **AWS access key** has a **Rotate key** button. It replaces the access key Hyveon uses with a freshly minted one: the app creates a new key, verifies it with `sts:GetCallerIdentity`, stores it in the OS keychain, and only then deletes the old key. Later AWS calls and infrastructure operations use the new key without a restart.
 
-It works when the active credentials are the guided profile or pasted keys; for a `~/.aws` profile the row is not shown, since rotate that profile's keys with the AWS CLI or console instead. Outcomes:
+It works when the active credentials are the guided profile or pasted keys. For a `~/.aws` profile the row is not shown. Rotate that profile's keys with the AWS CLI or console instead. Outcomes:
 
 | Message | Meaning |
 |---|---|

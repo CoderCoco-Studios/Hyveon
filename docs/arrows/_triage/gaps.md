@@ -194,7 +194,7 @@ Specs: `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs
 | `APP-WIZARD-CREDS-011` | closed | - | Fixed (was): `wizard.state.get` returned `aws` whole. `readState` projects `profile` and `region` |
 | `APP-WIZARD-ROTKEY-005` | closed | - | Fixed (was): `rotateActiveCredentials` had no IPC/UI caller. Settings offers "Rotate key" over `wizard.aws.rotateKey` |
 | `APP-WIZARD-BOOT-004` | closed | - | Fixed (was): client construction ran outside the `try`. `buildClient` returns `{ status: 'failed' }` |
-| `APP-WIZARD-BOOT-012` | closed | - | Spec text fixed (was d): the wizard has no project-name field, so the runs table derives from the default project name the seeded config carries |
+| `APP-WIZARD-BOOT-012` | closed | - | Fixed (was d): the runs table follows the existing `deployment-config.json`: a non-empty `runsTableName` override wins, else `${projectName}-runs`; only when no document exists does it fall back to the default project name |
 | `APP-WIZARD-IAMCHK-008` | closed | - | Fixed (was): the check ran only on button press. `handleGuidedIamComplete` runs it automatically |
 | `APP-WIZARD-IAMCHK-009` | closed | - | Fixed (was): no renderer read `blocking`. The bootstrap step's `complete` gate and panel copy honour it |
 | `APP-WIZARD-HEALTH-008` | closed | - | Spec text fixed (was d): origin-conditional. Guided installs (`policyManagedByStack`) are pointed at their CloudFormation stack, others at the IAM console |

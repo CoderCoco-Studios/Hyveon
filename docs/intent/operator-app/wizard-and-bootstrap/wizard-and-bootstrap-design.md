@@ -203,7 +203,7 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 5. ✅ `wizard.state.get` projects only `profile` and `region` from the stored `aws` record (APP-WIZARD-CREDS-011).
 6. ✅ `SafeStorageService.decrypt` throws inside Electron when the keychain is unavailable instead of returning ciphertext (APP-WIZARD-CUSTODY-007).
 7. ✅ `BootstrapService` builds its client inside a guard so a missing region or undecryptable credentials return `{ status: 'failed' }` (APP-WIZARD-BOOT-004).
-8. ✅ The runs table name stays derived from `DEPLOYMENT_CONFIG_DEFAULTS.projectName`: the wizard has no project-name field, and the seeded configuration carries that name (APP-WIZARD-BOOT-012).
+8. ✅ The runs table name follows the `projectName` and `runsTableName` of the existing `deployment-config.json`, and falls back to `DEPLOYMENT_CONFIG_DEFAULTS.projectName` only when no document exists, because the wizard has no project-name field and a re-run must target the table the stack already uses (APP-WIZARD-BOOT-012).
 9. ✅ `rotateActiveCredentials` has an IPC channel and a Settings action (APP-WIZARD-ROTKEY-005).
 10. ✅ The IAM check runs automatically after guided provisioning and its `blocking` flag gates the bootstrap step (APP-WIZARD-IAMCHK-008, APP-WIZARD-IAMCHK-009).
 11. ✅ `cloudHealth.list` isolates a failing check and `writePolicyToDisk` logs and rethrows a plain error (APP-WIZARD-HEALTH-011).

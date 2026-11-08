@@ -155,6 +155,21 @@ describe('ECS service-linked role fix', () => {
     expect(profile.policyManagedByStack).toBe(false);
   });
 
+  // @spec APP-WIZARD-HEALTH-008
+  it('should not flag the policy as stack-managed for a ~/.aws profile that happens to be named hyveon-guided', async () => {
+    const err = Object.assign(new Error('not authorized'), { name: 'AccessDeniedException' });
+    iamMock.on(CreateServiceLinkedRoleCommand).rejects(err);
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+    const cliStore = {
+      get: vi.fn().mockImplementation((key: string) => (key === 'aws' ? { profile: 'hyveon-guided', region: 'us-east-1' } : undefined)),
+      getPastedCredentials: vi.fn().mockReturnValue(undefined),
+    } as Partial<ElectronStoreService> as ElectronStoreService;
+
+    const result = await new CloudHealthService(cliStore, makeConfig(), makeDeploymentConfig()).getChecks()[0]!.fix();
+
+    expect(result.policyManagedByStack).toBe(false);
+  });
+
   it('should omit the console URL when the account ID cannot be resolved', async () => {
     const err = Object.assign(new Error('not authorized'), { name: 'AccessDeniedException' });
     iamMock.on(CreateServiceLinkedRoleCommand).rejects(err);

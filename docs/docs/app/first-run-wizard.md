@@ -243,10 +243,11 @@ The region locks the moment the bootstrap step first runs, even if it then fails
 
 These are created with the AWS SDK directly — the wizard does not shell out to
 any CLI for this step. The run-history table's name is not operator-editable
-here: unlike the two buckets, it follows the project name of the
-`deployment-config.json` already in the Configuration bucket, so a re-run
-targets the table your stack uses, and uses the project-name default shown
-above when no such document exists yet.
+here: unlike the two buckets, it follows the `deployment-config.json`
+already in the Configuration bucket, so a re-run targets the table your stack
+uses. A non-empty `runsTableName` in that document wins; otherwise the table is
+`${projectName}-runs`. When no such document exists yet it uses the
+project-name default shown above.
 
 Press **Bootstrap AWS resources**. The State bucket and Run-history table are
 created concurrently with the rest. The initial-configuration seed is chained
@@ -297,9 +298,11 @@ than halfway through your first infrastructure apply.
 soon as guided provisioning completes, against the key Hyveon retains, and
 runs again on arriving at this step if no result is on hand (including in
 Reconfigure, where a collapsed step cannot skip it). Next stays disabled while
-the check is running, if it errored, and if it reports missing permissions:
-update your CloudFormation stack with a freshly rendered template and press
-**Re-check permissions** to get a passing result. The JSON shown lists the
+the check is running, if it errored, and if it reports missing permissions.
+If the check errored, resolve the error it shows and press **Re-check
+permissions**. If it reports missing permissions, update your CloudFormation
+stack with a freshly rendered template and press **Re-check permissions** to
+get a passing result. The JSON shown lists the
 missing actions only; do not paste it over the stack's policy.
 
 It resolves your caller identity, then asks IAM to simulate every action in
@@ -308,7 +311,7 @@ the `HyveonDeployAll` policy against your principal. Three outcomes:
 | Result | What you see |
 |---|---|
 | **Passed** | "All required permissions are present." |
-| **Missing** | "Some permissions are missing. Add the actions below to your IAM user's policy." followed by a JSON policy labelled "Missing actions only, not a complete policy" that contains exactly the denied actions, with a copy button. After guided setup the message instead says the policy must be fixed before you can continue and tells you to update your CloudFormation stack with a freshly rendered template; the JSON must not be pasted over the stack's policy |
+| **Missing** | "Some permissions are missing. Add the actions below to the policy of the IAM user, role or permission set these credentials use." followed by a JSON policy labelled "Missing actions only, not a complete policy" that contains exactly the denied actions, with a copy button. After guided setup the message instead says the policy must be fixed before you can continue and tells you to update your CloudFormation stack with a freshly rendered template, noting that an account-level denial (such as a service control policy) or credentials from another account can keep actions missing after the update; the JSON must not be pasted over the stack's policy |
 | **Warning** | The reason the simulation could not run (for example, your principal cannot call `iam:SimulatePrincipalPolicy`), followed by the full list of actions to check by hand |
 
 The full policy, and where to put it, is documented in the

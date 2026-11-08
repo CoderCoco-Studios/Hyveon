@@ -1216,7 +1216,7 @@ describe('FirstRunWizard', () => {
     });
 
     // @spec APP-WIZARD-RECONF-008
-    it('should cancel immediately when the only bootstrap attempt failed and created nothing', async () => {
+    it('should still ask for confirmation when a bootstrap attempt failed, since a failed step may have created a resource', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: true,
         activeCloud: 'aws',
@@ -1244,8 +1244,8 @@ describe('FirstRunWizard', () => {
 
       await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
 
-      expect(onCancel).toHaveBeenCalledTimes(1);
-      expect(screen.queryByText(/remain in place/i)).not.toBeInTheDocument();
+      expect(await screen.findByText(/remain in place and were not undone/i)).toBeInTheDocument();
+      expect(onCancel).not.toHaveBeenCalled();
     });
 
     // @spec APP-WIZARD-RECONF-008
