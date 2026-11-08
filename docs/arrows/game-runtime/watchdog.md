@@ -62,29 +62,29 @@ A single scheduled Lambda with its state in an ECS task tag; tested at the handl
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Schedule and provisioning | `RT-WATCHDOG-SCHED-001` to `RT-WATCHDOG-SCHED-006` | 6 | 0 | 0 |
-| Task selection | `RT-WATCHDOG-SCOPE-001` to `RT-WATCHDOG-SCOPE-006` | 5 | 0 | 1 |
+| Task selection | `RT-WATCHDOG-SCOPE-001` to `RT-WATCHDOG-SCOPE-006` | 6 | 0 | 0 |
 | Verdict source routing | `RT-WATCHDOG-ROUTE-001` to `RT-WATCHDOG-ROUTE-004` | 4 | 0 | 0 |
 | CloudWatch traffic verdict | `RT-WATCHDOG-CW-001` to `RT-WATCHDOG-CW-007` | 6 | 0 | 0 |
-| Health-check verdict | `RT-WATCHDOG-HC-001` to `RT-WATCHDOG-HC-006` | 5 | 0 | 1 |
+| Health-check verdict | `RT-WATCHDOG-HC-001` to `RT-WATCHDOG-HC-011` | 11 | 0 | 0 |
 | Idle-count state | `RT-WATCHDOG-STATE-001` to `RT-WATCHDOG-STATE-007` | 7 | 0 | 0 |
 | Shutdown | `RT-WATCHDOG-STOP-001` to `RT-WATCHDOG-STOP-004` | 4 | 0 | 0 |
 | Logging | `RT-WATCHDOG-LOG-001` to `RT-WATCHDOG-LOG-005` | 5 | 0 | 0 |
 | Configuration | `RT-WATCHDOG-CFG-001` to `RT-WATCHDOG-CFG-007` | 7 | 0 | 0 |
 | IAM | `RT-WATCHDOG-IAM-001` to `RT-WATCHDOG-IAM-003` | 3 | 0 | 0 |
 | Settings panel | `RT-WATCHDOG-UI-001` | 1 | 0 | 0 |
-| Documentation | `RT-WATCHDOG-DOC-001` to `RT-WATCHDOG-DOC-003` | 2 | 0 | 1 |
+| Documentation | `RT-WATCHDOG-DOC-001` to `RT-WATCHDOG-DOC-003` | 3 | 0 | 0 |
 
-**Summary:** 55 of 58 active specs implemented; 0 deferred; 3 gaps.
+**Summary:** 63 of 63 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 
 1. **Idle state lives in the `idle_checks` ECS task tag**: read at `handler.ts:146-155` (any error or non-numeric value becomes 0), written at `:157-168` (failures only warned). Activity resets the tag to 0 only when it was non-zero (`:250-253`). Matches the CLAUDE.md invariant.
 2. **Exactly one verdict source per game**: a declared `HEALTH_CHECKS[game]` routes to the health-check invoke and never to CloudWatch, otherwise CloudWatch only (`handler.ts:211-228`); both paths fail active (`:94-101`, `:118-143`). Tests pin the exclusivity (`handler.test.ts:200-271`).
-3. **Single `DescribeTasks` over all ARNs**: `handler.ts:200` passes every listed ARN in one call even though `ListTasks` is paginated (`:170-181`); `DescribeTasks` accepts at most 100 tasks, so more than 100 RUNNING tasks in the cluster appears to throw and abort the run (sweep-8, confirmed by reading the code).
+3. **(Resolved, `RT-WATCHDOG-SCOPE-005`) `DescribeTasks` is batched**: the listed ARNs are described in sequential batches of at most 100.
 4. **`StopTask` failures are isolated per task**: the `StopTaskCommand` call is wrapped in a try/catch that logs the game, task ARN and error message with `console.error` and moves on to the next task, so one failing stop does not abort the run. The handler still returns normally, so a persistent failure shows only in the logs; the next scheduled run retries.
-5. **Serial synchronous health-check invokes under a 60 s timeout** `[inferred]`: tasks are processed sequentially (`handler.ts:203-255`), each health-check invoke is `RequestResponse` (`:126`), the health-check function has a 30 s timeout (`lambdas.ts:544-547`) and the watchdog 60 s (`lambdas.ts:568`). Two or more hung checks in one run would time out the watchdog before later tasks are evaluated.
+5. **(Resolved, `RT-WATCHDOG-HC-006`) Health-check time is bounded per run**: invokes stay serial and synchronous, but each carries an abort signal sized to the remaining 40 s budget, and once it is spent the remaining health-checked tasks read failure-derived active without an invoke.
 6. **Legacy requirement text contradicts code**: the legacy `desktop-only-operator-surface` requirement said `ConfigService` reads and writes watchdog tunables in `server_config.json`; `app/packages/desktop-main/src/services/ConfigService.ts` contains no watchdog reference, there is no config controller under `desktop-main/src/controllers/`, and tunables live in `deployment-config.json` (`watchdog-panel.component.tsx:1-5`, `deploymentConfig.ts:240-242`). `watchdog-panel.component.tsx:4` still names `server_config.json` as history.
-7. **Docs attribute DNS writes to the watchdog**: `docs/docs/app/settings.md:250` says DNS TTL applies to "records the watchdog Lambda writes"; the watchdog never touches Route 53 (`handler.ts:13-17`), update-dns does. Violates `operator-documentation` (`spec.md:57`).
+7. **(Resolved, `RT-WATCHDOG-DOC-002`) Docs attributed DNS writes to the watchdog**: `docs/docs/app/settings.md` now attributes the per-game A records to the dns-updater Lambda.
 8. **Unused dependencies and permissions**: `package.json` lists `@aws-sdk/client-route-53` and `@smithy/core` devDeps that `handler.ts` does not import (`@smithy/core` may be test-only, `[unverified]`); `iam.ts:452` grants `ec2:DescribeNetworkInterfaces` although the handler makes no EC2 call (ENI ID comes from task attachments, `shared/src/aws/ecsTask.ts:53-55`).
 9. **Duplicated region fallback chain**: `handler.ts:53-61` repeats the `AWS_REGION_ → AWS_REGION → AWS_DEFAULT_REGION → us-east-1` chain also present in the other Lambda handlers and shared/cloud-aws helpers (inventory findings digest); candidate for one shared helper.
 10. **`HealthCheckInvokeResult` duplicated by design**: `handler.ts:67-72` copies the health-check verdict shape rather than importing it so the two Lambda packages deploy independently; the comment documents the choice, but the two shapes can drift silently.
@@ -98,10 +98,9 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-runtime/watchdog/w
 None.
 
 ### Should Fix
-1. Chunk `DescribeTasks` into batches of 100 (finding 3). (specs: `RT-WATCHDOG-SCOPE-005`)
-2. Bound total health-check time per run (parallelise or budget against the 60 s timeout) (finding 5). (specs: `RT-WATCHDOG-HC-006`)
-3. Fix the stale `desktop-only-operator-surface` scenario and `docs/docs/app/settings.md:250` (findings 6, 7). (specs: `RT-WATCHDOG-DOC-002`)
+None.
 
 ### Nice to Have
-4. Drop the unused `client-route-53` devDep and the `ec2:DescribeNetworkInterfaces` grant if confirmed unused (finding 8).
-5. Extract the Lambda region fallback chain into one shared helper (finding 9).
+1. Fix the stale `desktop-only-operator-surface` scenario (finding 6).
+2. Drop the unused `client-route-53` devDep and the `ec2:DescribeNetworkInterfaces` grant if confirmed unused (finding 8).
+3. Extract the Lambda region fallback chain into one shared helper (finding 9).

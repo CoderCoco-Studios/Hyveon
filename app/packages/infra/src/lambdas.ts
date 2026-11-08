@@ -556,15 +556,13 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
         handler: LAMBDA_HANDLER,
         runtime: LAMBDA_RUNTIME,
         code: lambdaCode(bundlePath(lambdaBundlesDir, 'health-check')),
-        // Above every individual check's own timeoutMs ceiling (10s) to give
-        // headroom for the ECS DescribeTasks + Secrets Manager calls that
-        // precede the checked request itself.
+        // Above the secret-fetch deadline plus every check's own timeoutMs ceiling (10s).
         timeout: 30,
         vpcConfig: {
           subnetIds: publicSubnetIds,
           securityGroupIds: [healthCheckSg],
         },
-        environment: { variables: { AWS_REGION_: awsRegion, ECS_CLUSTER: ecsClusterName } },
+        environment: { variables: { AWS_REGION_: awsRegion } },
         tags: { Name: `${projectName}-health-check` },
       },
       { ...opts, dependsOn: [healthCheckLogGroup] },

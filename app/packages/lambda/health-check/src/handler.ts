@@ -1,9 +1,8 @@
 /**
  * Health-check Lambda — invoked synchronously by the watchdog for a game
  * that declares a `healthCheck`, in place of the Container Insights network-traffic
- * heuristic. Resolves the checked task's private address from ECS
- * (`DescribeTasks`), never from the declared configuration, so no
- * configuration value can redirect a check at a different host. Fetches the
+ * heuristic. Takes the checked task's private address from the invoke payload (resolved by the watchdog from ECS), never from
+ * the declared configuration, so no configuration value can redirect a check at a different host. Makes no ECS call. Fetches the
  * credential from Secrets Manager only when the declaration references one,
  * issues the declared request, and delegates the verdict to the pure
  * evaluation engine.
@@ -14,11 +13,10 @@
  * failure handles it, rather than relying on a lower layer that may never
  * run at all.
  */
-import { ECSClient, DescribeTasksCommand } from '@aws-sdk/client-ecs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import {
-  getTaskPrivateIp,
-  requireEnv,
+  HEALTH_CHECK_SECRET_DEADLINE_MS,
+  isPrivateIPv4,
   type GameServerHealthCheck,
   type GameServerHealthCheckAuth,
 } from '@hyveon/shared';
@@ -28,6 +26,8 @@ import { evaluateHealthCheck, type HealthCheckVerdict } from './engine.js';
 export interface HealthCheckEvent {
   game: string;
   taskArn: string;
+  /** The task's private IPv4 address as the watchdog resolved it; validated before use. */
+  privateIp: string;
   healthCheck: GameServerHealthCheck;
 }
 
@@ -37,8 +37,6 @@ function region(): string {
   return process.env['AWS_REGION_'] ?? process.env['AWS_REGION'] ?? process.env['AWS_DEFAULT_REGION'] ?? 'us-east-1';
 }
 
-const ECS_CLUSTER = requireEnv('ECS_CLUSTER');
-const ecs = new ECSClient({ region: region() });
 const secretsManager = new SecretsManagerClient({ region: region() });
 
 /** Structured single-line log, matching the repo-wide convention of never emitting a raw credential or response body. */
@@ -51,37 +49,69 @@ function log(level: 'debug' | 'warn', message: string, fields: Record<string, un
   }
 }
 
-// @spec RT-HEALTH-HTTP-002
 /**
- * Resolves a running task's private IPv4 address from its ECS attachment
- * details — the same attachment-walking shape the watchdog's own
- * `getEniId` uses, reading a different detail (`privateIPv4Address` rather
- * than `networkInterfaceId`). This is the sole source of the request's
- * destination host; the declared configuration never supplies one.
+ * Overall-deadline wrapper for the credential fetch: one abort signal covers the whole secret call,
+ * SDK retry attempts included, so an unreachable endpoint fails the check instead of running to the function timeout.
  */
-async function resolveTaskHost(taskArn: string): Promise<string> {
-  const resp = await ecs.send(new DescribeTasksCommand({ cluster: ECS_CLUSTER, tasks: [taskArn] }));
-  const task = resp.tasks?.[0];
-  if (!task) {
-    throw new Error(`ECS task ${taskArn} was not found`);
+async function fetchSecretString(secretArn: string): Promise<string> {
+  const controller = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`secret fetch exceeded ${HEALTH_CHECK_SECRET_DEADLINE_MS} ms`));
+    }, HEALTH_CHECK_SECRET_DEADLINE_MS);
+  });
+  try {
+    const resp = await Promise.race([
+      secretsManager.send(new GetSecretValueCommand({ SecretId: secretArn }), { abortSignal: controller.signal }),
+      deadline,
+    ]);
+    if (resp.SecretString === undefined) {
+      throw new Error('Secret has no string value');
+    }
+    return resp.SecretString;
+  } finally {
+    clearTimeout(timer);
   }
-  const host = getTaskPrivateIp(task);
-  if (!host) {
-    throw new Error(`No private IPv4 address found for task ${taskArn}`);
-  }
-  return host;
 }
 
 /** Resolves the declared credential's raw secret string, or `undefined` when the health check declares no `auth`. */
 async function resolveAuthSecretValue(healthCheck: GameServerHealthCheck): Promise<string | undefined> {
-  if (!healthCheck.auth) {
-    return undefined;
+  return healthCheck.auth ? fetchSecretString(healthCheck.auth.secretArn) : undefined;
+}
+
+// @spec RT-HEALTH-HTTP-002, RT-HEALTH-HTTP-007, RT-HEALTH-HTTP-008, RT-HEALTH-HTTP-010
+/**
+ * Validates the payload's `privateIp`, the sole source of the request's destination host.
+ *
+ * @remarks
+ * Accepts only an RFC 1918 IPv4 literal ({@link isPrivateIPv4}), applied to the value as received with no trimming, so
+ * loopback, link-local (including the instance metadata address), multicast, broadcast and public addresses are
+ * never request targets even from a direct invoker. The VPC CIDR is configuration, so the private ranges are the bound.
+ *
+ * @param privateIp - The payload field, which may be absent despite its type.
+ * @returns The validated IPv4 literal.
+ * @throws When the value is absent, is not a well-formed IPv4 literal, or is outside the RFC 1918 ranges.
+ */
+function requirePayloadHost(privateIp: string | null | undefined): string {
+  if (privateIp === undefined || privateIp === null) {
+    throw new Error('invoke payload has no privateIp');
   }
-  const resp = await secretsManager.send(new GetSecretValueCommand({ SecretId: healthCheck.auth.secretArn }));
-  if (resp.SecretString === undefined) {
-    throw new Error('Secret has no string value');
+  if (typeof privateIp !== 'string' || !isPrivateIPv4(privateIp)) {
+    throw new Error('invoke payload privateIp is not a private IPv4 address');
   }
-  return resp.SecretString;
+  return privateIp;
+}
+
+/** Builds the request URL so the declared `path` can never change the authority; the connect address stays `host`. */
+function buildRequestUrl(healthCheck: GameServerHealthCheck, host: string): string {
+  const base = new URL(`${healthCheck.scheme}://${host}:${healthCheck.port}/`);
+  const target = new URL(healthCheck.path, base);
+  if (target.host !== base.host) {
+    throw new Error('declared path changes the request authority');
+  }
+  return target.toString();
 }
 
 // @spec RT-HEALTH-AUTH-001, RT-HEALTH-AUTH-002, RT-HEALTH-AUTH-003, RT-HEALTH-AUTH-004
@@ -151,24 +181,25 @@ function logVerdict(game: string, healthCheck: GameServerHealthCheck, verdict: H
   log(verdict.failureDerived ? 'warn' : 'debug', 'health check verdict', fields);
 }
 
-// @spec RT-HEALTH-DECL-006, RT-HEALTH-HTTP-001, RT-HEALTH-HTTP-003, RT-HEALTH-HTTP-004, RT-HEALTH-FAIL-004
-// @spec RT-HEALTH-LOG-001, RT-HEALTH-LOG-004
+// @spec RT-HEALTH-DECL-006, RT-HEALTH-HTTP-001, RT-HEALTH-HTTP-003, RT-HEALTH-HTTP-006, RT-HEALTH-HTTP-009
+// @spec RT-HEALTH-HTTP-011, RT-HEALTH-FAIL-004, RT-HEALTH-FAIL-005, RT-HEALTH-FAIL-007, RT-HEALTH-LOG-001, RT-HEALTH-LOG-004
 /**
  * Invoked synchronously by the watchdog for a game with a declared health
- * check. Resolves the task's host from ECS, issues the declared request,
+ * check. Takes the task's host from the payload, issues the declared request,
  * and returns the verdict — fail-active for any transport, credential, or
  * response-shaped failure.
  */
 export const handler = async (event: HealthCheckEvent): Promise<HealthCheckVerdict> => {
-  const { game, taskArn, healthCheck } = event;
+  const { game, privateIp, healthCheck } = event;
   log('debug', 'health check invoked', { game, kind: healthCheck.kind, port: healthCheck.port });
 
   try {
-    const [host, secretValue] = await Promise.all([resolveTaskHost(taskArn), resolveAuthSecretValue(healthCheck)]);
+    const host = requirePayloadHost(privateIp);
+    const secretValue = await resolveAuthSecretValue(healthCheck);
     const authorizationValue =
       secretValue !== undefined && healthCheck.auth ? buildAuthorizationHeader(healthCheck.auth, secretValue) : undefined;
     const headers = buildHeaders(healthCheck, authorizationValue);
-    const url = `${healthCheck.scheme}://${host}:${healthCheck.port}${healthCheck.path}`;
+    const url = buildRequestUrl(healthCheck, host);
 
     const response = await fetch(url, {
       method: healthCheck.method,

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import type { GameServerConfig } from '@hyveon/shared';
+import { HEALTH_CHECK_SECRET_DEADLINE_MS, HEALTH_CHECK_TIMEOUT_MAX_MS, type GameServerConfig } from '@hyveon/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { defineEfs, type EfsResources } from './efs.js';
 import { defineIamRoles, type IamRoleResources } from './iam.js';
@@ -835,20 +835,20 @@ describe('defineLambdas', () => {
     });
 
     // @spec RT-HEALTH-PROV-003, RT-HEALTH-PROV-005, IAC-PROGRAM-LAMBDA-011
-    it('should provision every env var the health-check handler requires at module load', async () => {
+    it('should provision exactly the env vars the health-check handler reads, which is AWS_REGION_ only', async () => {
       const handlerSource = readFileSync(path.resolve(__dirname, '../../lambda/health-check/src/handler.ts'), 'utf8');
       const required = [...handlerSource.matchAll(/requireEnv\('([A-Z_]+)'\)/g)].map((match) => match[1]);
-      expect(required).toContain('ECS_CLUSTER');
+      expect(required).toEqual([]);
 
       const gameServers = gameServersWithHealthCheck();
       const { provider, roles, efs } = await arrangeDependencies(gameServers);
       await runDefineLambdas(buildArgs({ gameServers, roles, efs, provider, healthCheckSecurityGroupId: MOCK_HEALTH_CHECK_SECURITY_GROUP_ID }));
 
       const variables = (findByName(mocks.resources, 'hyveon-health-check').inputs.environment as { variables: Record<string, unknown> }).variables;
-      expect(Object.keys(variables)).toEqual(expect.arrayContaining(required));
+      expect(variables).toEqual({ AWS_REGION_: 'us-east-1' });
     });
 
-    // @spec RT-HEALTH-PROV-002, RT-HEALTH-NET-003
+    // @spec RT-HEALTH-PROV-002, RT-HEALTH-NET-003, IAC-PROGRAM-LAMBDA-017
     it('should declare the health-check function and log group, wired to the externally-supplied security group id and the same public subnets as every other Lambda', async () => {
       const gameServers = gameServersWithHealthCheck();
       const { provider, roles, efs } = await arrangeDependencies(gameServers);
@@ -867,11 +867,11 @@ describe('defineLambdas', () => {
       expect(fn.inputs.role).toBe(await promiseOf(roles.healthCheckLambdaRole!.arn));
       expect(fn.inputs.handler).toBe('handler.handler');
       expect(fn.inputs.runtime).toBe('nodejs24.x');
-      expect((fn.inputs.environment as { variables: Record<string, unknown> }).variables).toEqual({ AWS_REGION_: 'us-east-1', ECS_CLUSTER: MOCK_NETWORK_INPUTS.ecsClusterName });
+      expect((fn.inputs.environment as { variables: Record<string, unknown> }).variables).toEqual({ AWS_REGION_: 'us-east-1' });
+      // @spec RT-HEALTH-FAIL-005
+      expect((fn.inputs.timeout as number) * 1000).toBeGreaterThan(HEALTH_CHECK_SECRET_DEADLINE_MS + HEALTH_CHECK_TIMEOUT_MAX_MS);
 
-      // Same public subnets every other Lambda's `vpcConfig` uses (no NAT
-      // gateway or VPC endpoint needed for its ecs:DescribeTasks /
-      // secretsmanager:GetSecretValue calls — see securityGroups.ts/network.ts).
+      // Both public subnets, like every other Lambda's `vpcConfig`; the secret endpoint sits in subnet 0 only.
       expect(fn.inputs.vpcConfig).toEqual({
         subnetIds: MOCK_NETWORK_INPUTS.publicSubnetIds,
         securityGroupIds: [MOCK_HEALTH_CHECK_SECURITY_GROUP_ID],

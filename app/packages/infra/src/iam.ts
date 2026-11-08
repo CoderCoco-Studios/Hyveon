@@ -180,9 +180,8 @@ export interface DefineIamPoliciesArgs {
   /**
    * `aws_ecs_cluster.main.name` — scopes
    * {@link IamPolicyResources.fileBrowserSchedulerPolicy}'s `ecs:StopTask`
-   * grant, and {@link IamPolicyResources.healthCheckLambdaPolicy}'s
-   * `ecs:DescribeTasks` grant, to `arn:aws:ecs:*:*:task/${ecsClusterName}/*`
-   * rather than every task in the account. Threaded here as a required
+   * grant to `arn:aws:ecs:*:*:task/${ecsClusterName}/*` rather than every
+   * task in the account. Threaded here as a required
    * parameter because `ecs.ts`'s `defineEcs` owns that cluster; `program.ts`'s
    * `defineAll` passes `ecs.cluster.name`.
    */
@@ -248,6 +247,23 @@ export function gamesWithHealthChecks(gameServers: Record<string, GameServerConf
     }
   }
   return result;
+}
+
+/**
+ * The distinct `healthCheck.auth.secretArn` values declared across the game-server map, in first-seen order.
+ *
+ * @remarks
+ * One derivation backs both the health-check policy's `secretsmanager:GetSecretValue` statement and the Secrets
+ * Manager interface endpoint (`secretsEndpoint.ts`), so the endpoint exists exactly when the policy can use it.
+ *
+ * @param gameServers - The configured game-server map.
+ * @returns The distinct secret ARNs; empty when no health check declares `auth`.
+ */
+export function healthCheckSecretArns(gameServers: Record<string, GameServerConfig>): string[] {
+  const arns = Object.values(gamesWithHealthChecks(gameServers))
+    .map((config) => config.healthCheck?.auth?.secretArn)
+    .filter((arn): arn is string => arn != null);
+  return [...new Set(arns)];
 }
 
 /**
@@ -604,9 +620,7 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
   // than re-deriving the set here keeps this policy from ever drifting from
   // the role `defineIamRoles` actually created, the same discipline the
   // per-game EFS-seeder policies above follow.
-  const healthCheckSecretArns = Object.values(gamesWithHealthChecks(gameServers))
-    .map((config) => config.healthCheck?.auth?.secretArn)
-    .filter((arn): arn is string => arn != null);
+  const secretArns = healthCheckSecretArns(gameServers);
 
   const healthCheckLambdaPolicy = roles.healthCheckLambdaRole
     ? new aws.iam.RolePolicy(
@@ -619,13 +633,8 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
             Statement: [
               logStatement(),
               vpcNetworkingStatement(),
-              {
-                Effect: 'Allow',
-                Action: ['ecs:DescribeTasks'],
-                Resource: pulumi.interpolate`arn:aws:ecs:*:*:task/${ecsClusterName}/*`,
-              },
-              ...(healthCheckSecretArns.length > 0
-                ? [{ Effect: 'Allow', Action: ['secretsmanager:GetSecretValue'], Resource: healthCheckSecretArns }]
+              ...(secretArns.length > 0
+                ? [{ Effect: 'Allow', Action: ['secretsmanager:GetSecretValue'], Resource: secretArns }]
                 : []),
             ],
           }),

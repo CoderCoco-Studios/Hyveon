@@ -96,7 +96,7 @@ touches Route 53 itself, `update-dns` reacts to the resulting `STOPPED`
 event. How "idle" is decided is per-game: a game with no declared
 `healthCheck` falls back to the Container Insights check, mean inbound `NetworkRxBytes` below `watchdogMinBytesPerSecond`;
 a game that declares one delegates the verdict to the health-check Lambda
-instead, invoked over the network via the IAM identity-policy grant described
+instead. The watchdog reads the task's private IP from its own `DescribeTasks` result and passes it in the invoke payload, so the health-check Lambda makes no ECS call; a check that declares a credential reads it through a Secrets Manager interface endpoint that exists only while some game declares one. The invoke is authorized by the IAM identity-policy grant described
 in [Infra program](/components/infra#health-check-network-confinement-is-port-level-not-game-level).
 
 ![Control loops](/diagrams/control-loops.svg)

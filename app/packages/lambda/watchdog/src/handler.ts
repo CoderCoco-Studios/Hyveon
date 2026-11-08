@@ -24,19 +24,26 @@ import {
   StopTaskCommand,
   TagResourceCommand,
   ListTagsForResourceCommand,
+  type Task,
 } from '@aws-sdk/client-ecs';
 import {
   CloudWatchClient,
   GetMetricStatisticsCommand,
 } from '@aws-sdk/client-cloudwatch';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { isIPv4 } from 'node:net';
 import {
+  HEALTH_CHECK_RUN_BUDGET_MS,
   familyToGameMap,
   gameNamesFromEnv,
+  getTaskPrivateIp,
   parseGameMapEnv,
   requireEnv,
   type GameServerHealthCheck,
 } from '@hyveon/shared';
+
+/** `DescribeTasks` accepts at most this many task ARNs per call. */
+const DESCRIBE_TASKS_BATCH_SIZE = 100;
 
 // @spec RT-WATCHDOG-CFG-001, RT-WATCHDOG-CFG-002, RT-WATCHDOG-CFG-007, RT-WATCHDOG-STATE-001, RT-WATCHDOG-STOP-002
 // @spec RT-WATCHDOG-STOP-003
@@ -119,33 +126,63 @@ async function getRxBytesPerSecond(family: string): Promise<number | null> {
   }
 }
 
+/** Builds the failure-derived active verdict the watchdog records itself when no check can be made. */
+function failureVerdict(reason: string): HealthCheckInvokeResult {
+  return { active: true, reason: `health check failed: ${reason}`, failureDerived: true };
+}
+
 // @spec RT-WATCHDOG-HC-001, RT-WATCHDOG-HC-002, RT-WATCHDOG-HC-003, RT-WATCHDOG-HC-004, RT-WATCHDOG-HC-005
-// @spec RT-WATCHDOG-LOG-005
+// @spec RT-WATCHDOG-HC-006, RT-WATCHDOG-HC-007, RT-WATCHDOG-HC-008, RT-WATCHDOG-HC-009, RT-WATCHDOG-LOG-005
 /**
- * Invokes the health-check Lambda synchronously for a game with a declared
+ * Invokes the health-check Lambda synchronously for a RUNNING task of a game with a declared
  * health check, and normalizes its result. A failed invoke — throttled,
  * the function absent, a timeout, or a malformed response — is fail-active,
  * the same treatment {@link getRxBytesPerSecond} gives a failed CloudWatch
  * query: the failure that matters most (the function is unreachable) is
  * exactly the one where no lower layer runs at all, so this layer must
  * handle it rather than assume the health-check Lambda already did.
+ *
+ * @remarks
+ * The task's private IPv4 address comes from the same `DescribeTasks` result the run already holds and travels in
+ * the payload, so the health-check Lambda needs no ECS access. A task whose address is absent, empty or not accepted
+ * by `net.isIPv4` as received is never invoked: the verdict is failure-derived active. The invoke is aborted when the
+ * run's remaining health-check budget elapses.
+ *
+ * @param game - The task's game.
+ * @param task - The described task.
+ * @param healthCheck - The game's declared health check, forwarded verbatim.
+ * @param remainingMs - Health-check time left in this run.
  */
 async function invokeHealthCheck(
   game: string,
-  taskArn: string,
+  task: Task,
   healthCheck: GameServerHealthCheck,
+  remainingMs: number,
 ): Promise<HealthCheckInvokeResult> {
+  const taskArn = task.taskArn;
+  const privateIp = getTaskPrivateIp(task);
+  if (privateIp === null || !isIPv4(privateIp)) {
+    console.warn(`${game}: task has no readable private IP — assuming active`);
+    return failureVerdict('the task private IP is missing or unreadable');
+  }
+  if (remainingMs <= 0) {
+    console.warn(`${game}: health-check run budget exhausted — assuming active`);
+    return failureVerdict('the health-check run time budget was exhausted');
+  }
   if (!HEALTH_CHECK_FUNCTION_NAME) {
     console.warn(`${game}: health check declared but no health-check function is configured — assuming active`);
     return { active: true, reason: 'health check invocation failed: no health-check function configured', failureDerived: true };
   }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), remainingMs);
   try {
     const resp = await lambda.send(
       new InvokeCommand({
         FunctionName: HEALTH_CHECK_FUNCTION_NAME,
         InvocationType: 'RequestResponse',
-        Payload: Buffer.from(JSON.stringify({ game, taskArn, healthCheck })),
+        Payload: Buffer.from(JSON.stringify({ game, taskArn, privateIp, healthCheck })),
       }),
+      { abortSignal: controller.signal },
     );
     if (resp.FunctionError) {
       throw new Error(`health-check function returned ${resp.FunctionError}`);
@@ -160,6 +197,8 @@ async function invokeHealthCheck(
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`${game}: health check invocation failed — assuming active`, { err: message });
     return { active: true, reason: `health check invocation failed: ${message}`, failureDerived: true };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -203,7 +242,34 @@ async function listAllRunningTaskArns(): Promise<string[]> {
   return arns;
 }
 
-// @spec RT-WATCHDOG-SCHED-005, RT-WATCHDOG-SCOPE-002, RT-WATCHDOG-SCOPE-003, RT-WATCHDOG-SCOPE-004
+// @spec RT-WATCHDOG-SCOPE-005
+/** Describes `arns` in sequential batches of at most {@link DESCRIBE_TASKS_BATCH_SIZE}, as `DescribeTasks` allows. */
+async function describeAllTasks(arns: string[]): Promise<Task[]> {
+  const tasks: Task[] = [];
+  for (let i = 0; i < arns.length; i += DESCRIBE_TASKS_BATCH_SIZE) {
+    const resp = await ecs.send(
+      new DescribeTasksCommand({ cluster: ECS_CLUSTER, tasks: arns.slice(i, i + DESCRIBE_TASKS_BATCH_SIZE) }),
+    );
+    for (const failure of resp.failures ?? []) {
+      console.warn(`DescribeTasks could not describe ${failure.arn ?? 'a task'}`, { reason: failure.reason });
+    }
+    tasks.push(...(resp.tasks ?? []));
+  }
+  return tasks;
+}
+
+// @spec RT-WATCHDOG-STATE-007
+/**
+ * Rotates `tasks` left by the current check-window number modulo the task count, so a task listed after slow checks
+ * still reaches the front on some run instead of always meeting an exhausted health-check budget.
+ */
+function rotateByWindow(tasks: Task[]): Task[] {
+  if (tasks.length === 0) return tasks;
+  const offset = Math.floor(Date.now() / (CHECK_WINDOW_MINUTES * 60_000)) % tasks.length;
+  return [...tasks.slice(offset), ...tasks.slice(0, offset)];
+}
+
+// @spec RT-WATCHDOG-SCHED-005, RT-WATCHDOG-SCOPE-002, RT-WATCHDOG-SCOPE-003, RT-WATCHDOG-HC-010, RT-WATCHDOG-HC-011, RT-WATCHDOG-SCOPE-004
 // @spec RT-WATCHDOG-SCOPE-006, RT-WATCHDOG-ROUTE-001, RT-WATCHDOG-ROUTE-002, RT-WATCHDOG-ROUTE-003
 // @spec RT-WATCHDOG-CW-002, RT-WATCHDOG-CW-004, RT-WATCHDOG-CW-007, RT-WATCHDOG-STATE-003, RT-WATCHDOG-STATE-004
 // @spec RT-WATCHDOG-STATE-005, RT-WATCHDOG-STATE-007, RT-WATCHDOG-STOP-001, RT-WATCHDOG-STOP-004, RT-WATCHDOG-LOG-001, RT-WATCHDOG-LOG-002
@@ -227,10 +293,11 @@ export const handler = async (): Promise<{ checked: number }> => {
     return { checked: 0 };
   }
 
-  const desc = await ecs.send(new DescribeTasksCommand({ cluster: ECS_CLUSTER, tasks: arns }));
+  const described = await describeAllTasks(arns);
   let checked = 0;
+  let healthCheckSpentMs = 0;
 
-  for (const task of desc.tasks ?? []) {
+  for (const task of rotateByWindow(described)) {
     if (task.lastStatus !== 'RUNNING' || !task.taskArn) continue;
     const family = (task.group ?? '').replace('family:', '');
     const game = FAMILY_TO_GAME[family];
@@ -241,11 +308,20 @@ export const handler = async (): Promise<{ checked: number }> => {
     const declaredHealthCheck = HEALTH_CHECKS[game];
     let idleThisCheck: boolean;
     let verdictDetail: string;
+    let failureDerived = false;
 
     if (declaredHealthCheck) {
-      const verdict = await invokeHealthCheck(game, task.taskArn, declaredHealthCheck);
+      const startedAt = Date.now();
+      const verdict = await invokeHealthCheck(
+        game,
+        task,
+        declaredHealthCheck,
+        HEALTH_CHECK_RUN_BUDGET_MS - healthCheckSpentMs,
+      );
+      healthCheckSpentMs += Date.now() - startedAt;
       idleThisCheck = !verdict.active;
       verdictDetail = verdict.reason;
+      failureDerived = verdict.failureDerived === true;
       if (verdict.failureDerived) {
         console.warn(`${game}: health check is failure-derived — treating as active (${verdict.reason})`);
       }
@@ -278,7 +354,7 @@ export const handler = async (): Promise<{ checked: number }> => {
       } else {
         await setIdleCount(task.taskArn, idleCount);
       }
-    } else {
+    } else if (!failureDerived) {
       if (idleCount > 0) {
         console.log(`${game}: activity detected (${verdictDetail}), resetting idle counter.`);
         await setIdleCount(task.taskArn, 0);

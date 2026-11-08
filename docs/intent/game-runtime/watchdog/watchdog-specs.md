@@ -17,7 +17,7 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 - [x] **RT-WATCHDOG-SCOPE-002**: When the watchdog's `ListTasks` pass returns no task ARNs, the watchdog shall return `{ checked: 0 }` without calling `DescribeTasks`. (observed)
 - [x] **RT-WATCHDOG-SCOPE-003**: When evaluating described tasks, the watchdog shall skip any task whose `lastStatus` is not `RUNNING` or that has no task ARN. (observed)
 - [x] **RT-WATCHDOG-SCOPE-004**: The watchdog shall evaluate only tasks whose `group` is `family:{game}-server` for a game listed in `GAME_NAMES`, and shall skip every other task in the cluster, including helper tasks and families that match an inherited `Object.prototype` key. (observed)
-- [ ] **RT-WATCHDOG-SCOPE-005**: When more than 100 RUNNING tasks are listed in `ECS_CLUSTER`, the watchdog shall describe them in batches of at most 100 so that every listed task is evaluated in that run. (observed) (gap: `app/packages/lambda/watchdog/src/handler.ts:200` passes every ARN to one `DescribeTasks` call)
+- [x] **RT-WATCHDOG-SCOPE-005**: When more than 100 RUNNING tasks are listed in `ECS_CLUSTER`, the watchdog shall describe them in batches of at most 100 so that every listed task is evaluated in that run. (observed)
 - [x] **RT-WATCHDOG-SCOPE-006**: The watchdog shall treat an HTTPS game's `{game}-server` task exactly like any other game's task for idle evaluation and shutdown. (observed)
 
 ## Verdict source routing
@@ -38,12 +38,17 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 
 ## Health-check verdict
 
-- [x] **RT-WATCHDOG-HC-001**: When the watchdog evaluates a task of a game with a declared health check, it shall invoke `HEALTH_CHECK_FUNCTION_NAME` synchronously (`RequestResponse`) with the payload `{ game, taskArn, healthCheck }`, forwarding the declaration verbatim. (observed)
+- [x] **RT-WATCHDOG-HC-001**: When the watchdog evaluates a task whose `lastStatus` is `RUNNING` and whose game declares a health check, it shall invoke `HEALTH_CHECK_FUNCTION_NAME` synchronously (`RequestResponse`) with the payload `{ game, taskArn, privateIp, healthCheck }`, forwarding the declaration verbatim.
 - [x] **RT-WATCHDOG-HC-002**: When the health-check Lambda returns a well-formed verdict to the watchdog, the watchdog shall treat the task as idle for that window exactly when the verdict's `active` is `false`. (observed)
 - [x] **RT-WATCHDOG-HC-003**: If a game declares a health check but `HEALTH_CHECK_FUNCTION_NAME` is empty or unset, then the watchdog shall treat that game's task as active with a failure-derived reason, without attempting an invoke.
 - [x] **RT-WATCHDOG-HC-004**: If the watchdog's health-check invoke throws, returns a `FunctionError`, returns an unparseable payload, or returns a payload without a boolean `active` and a string `reason`, then the watchdog shall treat the task as active with a failure-derived reason naming the failure.
 - [x] **RT-WATCHDOG-HC-005**: The watchdog shall never resolve a health check's `auth.secretArn` itself; secret resolution is left to the health-check Lambda. (observed)
-- [ ] **RT-WATCHDOG-HC-006**: While a watchdog run is evaluating several games with declared health checks, the watchdog shall bound the total time spent on health-check invokes so that slow or hung checks cannot exhaust the watchdog's 60 s timeout before every remaining task is evaluated. (observed) (gap: `handler.ts:203-255` invokes sequentially with `RequestResponse`; the health-check function's 30 s timeout at `app/packages/infra/src/lambdas.ts:547` allows two hung checks to exceed the watchdog's 60 s at `lambdas.ts:568`)
+- [x] **RT-WATCHDOG-HC-006**: While a watchdog run is evaluating several games with declared health checks, the watchdog shall bound the total time spent on health-check invokes so that slow or hung checks cannot exhaust the watchdog's 60 s timeout before every remaining task is evaluated. (observed)
+- [x] **RT-WATCHDOG-HC-007**: When the watchdog builds a health-check invoke payload for a task, it shall set `privateIp` to the `privateIPv4Address` detail of that task's `ElasticNetworkInterface` attachment as returned by the `DescribeTasks` calls of the same watchdog run.
+- [x] **RT-WATCHDOG-HC-008**: If the `privateIPv4Address` detail of a RUNNING health-checked task's `ElasticNetworkInterface` attachment is absent (`undefined` or `null`), empty, or a value that Node's `net.isIPv4` does not accept when applied to the value as received, without trimming, then the watchdog shall not invoke the health-check Lambda for that task.
+- [x] **RT-WATCHDOG-HC-009**: If the `privateIPv4Address` detail of a RUNNING health-checked task's `ElasticNetworkInterface` attachment is absent (`undefined` or `null`), empty, or a value that Node's `net.isIPv4` does not accept when applied to the value as received, without trimming, then the watchdog shall take for that task the verdict `active: true`, `failureDerived: true`, and a reason prefixed `health check failed:` stating that the task's private IP is missing or unreadable.
+- [x] **RT-WATCHDOG-HC-010**: If the `privateIPv4Address` detail of a RUNNING health-checked task's `ElasticNetworkInterface` attachment is absent (`undefined` or `null`), empty, or a value that Node's `net.isIPv4` does not accept when applied to the value as received, without trimming, then the watchdog shall leave that task's idle count untouched, exactly as for a failure-derived active health-check verdict under `RT-WATCHDOG-STATE-007`.
+- [x] **RT-WATCHDOG-HC-011**: The watchdog shall not invoke the health-check Lambda for a task whose `lastStatus` is not `RUNNING`.
 
 ## Idle-count state
 
@@ -53,7 +58,7 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 - [x] **RT-WATCHDOG-STATE-004**: When a game-server task is active for the current window and its idle count is greater than 0, the watchdog shall reset the task's `idle_checks` tag to 0. (observed)
 - [x] **RT-WATCHDOG-STATE-005**: When a game-server task is active for the current window and its idle count is already 0, the watchdog shall not write the `idle_checks` tag. (observed)
 - [x] **RT-WATCHDOG-STATE-006**: If writing a game-server task's `idle_checks` tag fails, then the watchdog shall log a warning and continue evaluating the remaining tasks in that run. (observed)
-- [x] **RT-WATCHDOG-STATE-007**: When a game-server task's failure-derived health-check verdict is reported as active, the watchdog shall not increment that task's idle count.
+- [x] **RT-WATCHDOG-STATE-007**: When a game-server task's health-check verdict is failure-derived, including a verdict forced by an exhausted run budget, a missing or unreadable private IP, or a failed invoke, the watchdog shall neither increment nor reset that task's idle count, and shall start each run's task loop at an offset derived from the current check-window number so that a task listed late is checked on some run.
 
 ## Shutdown
 
@@ -93,5 +98,5 @@ EARS requirements for the idle watchdog, prefix `RT-WATCHDOG`; design in `docs/i
 ## Documentation
 
 - [x] **RT-WATCHDOG-DOC-001**: `docs/docs/guides/user.md` and `docs/diagrams/control-loops.d2` shall describe the watchdog as issuing `StopTask` only, with update-dns removing the DNS record on the resulting `STOPPED` event.
-- [ ] **RT-WATCHDOG-DOC-002**: No page under `docs/docs/**` shall describe the watchdog as writing or deleting DNS records. (gap: `docs/docs/app/settings.md:250` says DNS TTL applies to "records the watchdog Lambda writes")
+- [x] **RT-WATCHDOG-DOC-002**: No page under `docs/docs/**` shall describe the watchdog as writing or deleting DNS records.
 - [x] **RT-WATCHDOG-DOC-003**: `docs/docs/guides/user.md`'s watchdog section shall describe both verdict sources, the health-check route and the Container Insights traffic route. (observed)

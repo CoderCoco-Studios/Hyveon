@@ -456,9 +456,9 @@ describe('defineIamPolicies', () => {
     expect(policies.healthCheckLambdaPolicy).toBeUndefined();
   });
 
-  // @spec IAC-PROGRAM-IAM-009
+  // @spec IAC-PROGRAM-IAM-009, IAC-PROGRAM-IAM-011
   // @spec RT-HEALTH-NET-002
-  it('should grant the health-check policy ec2/ecs access plus secretsmanager scoped to exactly the referenced secret ARNs', async () => {
+  it('should grant the health-check policy ec2 ENI access plus secretsmanager scoped to exactly the referenced secret ARNs', async () => {
     const { provider, roles } = await arrangeRoles(GAME_SERVERS_WITH_HEALTH_CHECK);
     const policies = await runDefineIamPolicies({
       projectName: 'hyveon',
@@ -482,11 +482,6 @@ describe('defineIamPolicies', () => {
         },
         {
           Effect: 'Allow',
-          Action: ['ecs:DescribeTasks'],
-          Resource: `arn:aws:ecs:*:*:task/${DEFERRED_ARN_VALUES.ecsClusterName}/*`,
-        },
-        {
-          Effect: 'Allow',
           Action: ['secretsmanager:GetSecretValue'],
           Resource: [GAME_SERVERS_WITH_HEALTH_CHECK.echo.healthCheck!.auth!.secretArn],
         },
@@ -494,7 +489,29 @@ describe('defineIamPolicies', () => {
     });
   });
 
-  // @spec RT-HEALTH-NET-002
+  // @spec IAC-PROGRAM-IAM-012, RT-HEALTH-NET-008
+  it.each([
+    ['with a credential', GAME_SERVERS_WITH_HEALTH_CHECK],
+    [
+      'without a credential',
+      {
+        ...FIXTURE_GAME_SERVERS,
+        echo: {
+          ...GAME_SERVERS_WITH_HEALTH_CHECK.echo,
+          healthCheck: { ...GAME_SERVERS_WITH_HEALTH_CHECK.echo.healthCheck!, auth: undefined },
+        },
+      } satisfies Record<string, GameServerConfig>,
+    ],
+  ])('should grant the health-check policy no ecs: action %s', async (_label, gameServers) => {
+    const { provider, roles } = await arrangeRoles(gameServers);
+    await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS, gameServers });
+
+    const policy = findByName(mocks.resources, 'hyveon-health-check-lambda-policy');
+    const actions = (parsedPolicy(policy, 'policy') as { Statement: { Action: string[] }[] }).Statement.flatMap((s) => s.Action);
+    expect(actions.filter((action) => action.startsWith('ecs:'))).toEqual([]);
+  });
+
+  // @spec IAC-PROGRAM-IAM-013, RT-HEALTH-NET-009
   it('should omit the secretsmanager statement from the health-check policy when no opted-in game references a credential', async () => {
     const gameServers: Record<string, GameServerConfig> = {
       ...FIXTURE_GAME_SERVERS,

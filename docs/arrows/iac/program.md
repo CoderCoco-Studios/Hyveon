@@ -6,7 +6,7 @@ The description of every AWS resource Hyveon creates (network, cluster, task def
 
 **MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
 
-Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the conditional health-check Lambda is deployed without an env var its handler requires at init, and several specs and doc comments have drifted from the code.
+Inline Pulumi program in `@hyveon/infra` is well-tested per module, and the conditional health-check Lambda now needs no ECS access and reaches Secrets Manager through a conditional interface endpoint; several doc comments have drifted from the code.
 
 ## References
 
@@ -111,28 +111,28 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 | Workspace and Packaging | `IAC-PROGRAM-WS-001` to `IAC-PROGRAM-WS-006` | 6 | 0 | 0 |
 | Composition and Providers | `IAC-PROGRAM-COMP-001` to `IAC-PROGRAM-COMP-005` | 5 | 0 | 0 |
 | Per-Game Fan-Out | `IAC-PROGRAM-FANOUT-001` to `IAC-PROGRAM-FANOUT-004` | 4 | 0 | 0 |
-| Network | `IAC-PROGRAM-NET-001` to `IAC-PROGRAM-NET-002` | 2 | 0 | 0 |
-| Security Groups | `IAC-PROGRAM-SG-001` to `IAC-PROGRAM-SG-013` | 13 | 0 | 0 |
-| IAM | `IAC-PROGRAM-IAM-001` to `IAC-PROGRAM-IAM-010` | 10 | 0 | 0 |
+| Network | `IAC-PROGRAM-NET-001` to `IAC-PROGRAM-NET-006` | 6 | 0 | 0 |
+| Security Groups | `IAC-PROGRAM-SG-001` to `IAC-PROGRAM-SG-020` | 20 | 0 | 0 |
+| IAM | `IAC-PROGRAM-IAM-001` to `IAC-PROGRAM-IAM-013` | 13 | 0 | 0 |
 | EFS | `IAC-PROGRAM-EFS-001` to `IAC-PROGRAM-EFS-004` | 4 | 0 | 0 |
 | ECS Task Definitions | `IAC-PROGRAM-ECS-001` to `IAC-PROGRAM-ECS-008` | 8 | 0 | 0 |
 | In-Task TLS (Caddy Sidecar) | `IAC-PROGRAM-TLS-001` to `IAC-PROGRAM-TLS-010` | 10 | 0 | 0 |
 | Environment Tokens and Boot Wrapper | `IAC-PROGRAM-TOKEN-001` to `IAC-PROGRAM-TOKEN-007` | 7 | 0 | 0 |
 | Pinned Hostname | `IAC-PROGRAM-HOST-001` to `IAC-PROGRAM-HOST-008` | 8 | 0 | 0 |
-| Lambda Wiring | `IAC-PROGRAM-LAMBDA-001` to `IAC-PROGRAM-LAMBDA-016` | 15 | 0 | 1 |
+| Lambda Wiring | `IAC-PROGRAM-LAMBDA-001` to `IAC-PROGRAM-LAMBDA-017` | 17 | 0 | 0 |
 | Lambda Environment Wire Format | `IAC-PROGRAM-ENV-001` to `IAC-PROGRAM-ENV-007` | 7 | 0 | 0 |
 | Data Tables and Discord Seed Rows | `IAC-PROGRAM-DATA-001` to `IAC-PROGRAM-DATA-005` | 5 | 0 | 0 |
 | Secrets | `IAC-PROGRAM-SECRET-001` to `IAC-PROGRAM-SECRET-005` | 4 | 1 | 0 |
 | DNS and Discord Domain | `IAC-PROGRAM-DNS-001` to `IAC-PROGRAM-DNS-004` | 4 | 0 | 0 |
 | Stack Outputs | `IAC-PROGRAM-OUT-001` to `IAC-PROGRAM-OUT-008` | 8 | 0 | 0 |
-| EFS Seeding During Apply | `IAC-PROGRAM-SEED-001` to `IAC-PROGRAM-SEED-005` | 4 | 0 | 1 |
-| Lambda Runtime and Bundling | `IAC-PROGRAM-RUNTIME-001` to `IAC-PROGRAM-RUNTIME-006` | 5 | 1 | 0 |
+| EFS Seeding During Apply | `IAC-PROGRAM-SEED-001` to `IAC-PROGRAM-SEED-005` | 3 | 1 | 1 |
+| Lambda Runtime and Bundling | `IAC-PROGRAM-RUNTIME-001` to `IAC-PROGRAM-RUNTIME-006` | 5 | 0 | 0 |
 
-**Summary:** 128 of 132 active specs implemented; 2 deferred; 2 gaps.
+**Summary:** 144 of 147 active specs implemented; 2 deferred; 1 gaps.
 
 ## Key Findings
 
-1. **Health-check Lambda cannot reach the ECS and Secrets Manager APIs** (the missing `ECS_CLUSTER` env var is fixed, `IAC-PROGRAM-LAMBDA-011`; the original finding read): `app/packages/infra/src/lambdas.ts:568` gives the function only `{ AWS_REGION_ }`, but `lambda/health-check/src/handler.ts:40` calls `requireEnv('ECS_CLUSTER')` at module load, which throws (`app/packages/shared/src/env.ts:17-20`). `app/packages/infra/src/lambdas.test.ts:832` pins the env to exactly `{ AWS_REGION_ }`, locking the bug in. Sweep-8 also reports the health-check SG has only per-port egress to the game SG (`securityGroups.ts:430-446`), so even with the env fixed it has no path to the ECS or Secrets Manager APIs from a public subnet without a public IP (verified the egress rules; reachability is `[inferred]`). The watchdog treats invoke failures as active, so the symptom is "games with a health check never idle out".
+1. **(Resolved, `IAC-PROGRAM-LAMBDA-011`, `-012`) Health-check Lambda reachability.** The function's env is `{ AWS_REGION_ }` only and its policy has no `ecs:` action, because the watchdog passes the task's private IP in the payload. `secretsEndpoint.ts` declares a Secrets Manager interface endpoint (subnet 0, private DNS), its standalone-rule security group and the health-check group's 443 egress rule only while a game declares `healthCheck.auth.secretArn`; without `auth` the program declares none of them.
 2. **Stack outputs now cover every volume; the efs-seeder still does not**: `buildStackOutputs` builds a per-game, per-volume map from `efs.gameAccessPoints[accessPointKey(game, volume.name)]` and exports it as `efsVolumeAccessPoints` (`program.ts:477-494,511`; typed at `shared/src/stackOutputs.ts:79-83`, projected with a `{}` default by `iac/engine` at `PulumiService.ts:1042`). The older `efsAccessPoints` is kept and still carries only `volumes[0]` (`program.ts:493,510`). The helper task mounts every volume from the new map; the efs-seeder Lambda still mounts only the first volume (`lambdas.ts:718-745`), so deploy-time seeding remains first-volume-only.
 4. **efs-seeder is conditional, spec says always-on**: `lambdas.ts:398` iterates `roles.efsSeederRoles`, which only exist for games with `file_seeds` (`iam.ts:222-226`). `lambda-runtime-currency` lists efs-seeder among "always-provisioned functions". CLAUDE.md ("four always-on, two conditional") matches the code.
 5. **ACM certificate exists despite "no ACM certificate anywhere"**: `discordDomain.ts:117-150` declares an ACM certificate and validation, unconditionally (`discordDomain.ts:14-15`). CLAUDE.md's TLS invariant and `in-task-tls-termination` say no ACM certificate exists; the spec scopes this to "the game-servers stack", which this single stack also is. Needs an explicit carve-out in the invariant.
@@ -146,8 +146,7 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, but the cond
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/iac/program/program-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-1. Give the health-check Lambda's SG/subnet a route to the ECS and Secrets Manager APIs (finding 1). (specs: `IAC-PROGRAM-LAMBDA-012`)
-2. Let the efs-seeder target any volume, or document first-volume-only seeding as a hard limit; per-volume access points are already in the stack outputs (finding 2). (specs: `IAC-PROGRAM-SEED-004`)
+1. Let the efs-seeder target any volume, or document first-volume-only seeding as a hard limit; per-volume access points are already in the stack outputs (finding 2). (specs: `IAC-PROGRAM-SEED-004`)
 
 ### Should Fix
 4. Reconcile `lambda-runtime-currency` (efs-seeder conditional; target lives in `buildLambda.mjs`) and the ACM invariant wording in CLAUDE.md and `in-task-tls-termination` with the code (findings 4, 5).

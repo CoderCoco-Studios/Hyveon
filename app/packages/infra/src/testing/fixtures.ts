@@ -53,6 +53,36 @@ export const FIXTURE_GAME_SERVERS: Record<string, GameServerConfig> = {
   },
 };
 
+/** Secret ARN {@link buildHealthCheckGame} gives an authenticated health check unless overridden. */
+export const FIXTURE_HEALTH_CHECK_SECRET_ARN = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-echo-token-AbCdEf';
+
+/**
+ * Builds a game declaring an HTTP `healthCheck`, authenticated when `secretArn` is given.
+ *
+ * @param options - `port` is both the game's TCP port and the health-check port (default 8211); `secretArn` adds `auth`.
+ * @returns A `GameServerConfig` with a `healthCheck`.
+ */
+export function buildHealthCheckGame(options: { port?: number; secretArn?: string } = {}): GameServerConfig {
+  const port = options.port ?? 8211;
+  return {
+    image: 'example/echo:latest',
+    cpu: 1024,
+    memory: 2048,
+    ports: [{ container: port, protocol: 'tcp' }],
+    volumes: [{ name: 'saves', container_path: '/data' }],
+    healthCheck: {
+      kind: 'http',
+      scheme: 'http',
+      port,
+      path: '/status',
+      method: 'GET',
+      timeoutMs: 2000,
+      ...(options.secretArn ? { auth: { secretArn: options.secretArn } } : {}),
+      activeWhen: { jsonPath: 'players.online', operator: 'greaterThan', value: 0 },
+    },
+  };
+}
+
 /**
  * Builds a representative, fully-populated {@link DeploymentConfig} for
  * tests, defaulting to {@link FIXTURE_GAME_SERVERS} and

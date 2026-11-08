@@ -10,10 +10,15 @@ EARS requirements for prefix `RT-HEALTH`; design in `health-check-design.md` (sa
 ## HTTP request
 
 - [x] **RT-HEALTH-HTTP-001**: When the health-check Lambda runs an `http`-kind check, it shall issue one HTTP request to `{scheme}://{taskPrivateIp}:{port}{path}` using the declared method, the declared headers, and the declared `timeoutMs` as a single wall-clock budget for the whole request.
-- [x] **RT-HEALTH-HTTP-002**: When the health-check Lambda runs an `http`-kind check, it shall take the destination host only from the checked task's private IPv4 address as reported by ECS `DescribeTasks`, and no `healthCheck` field shall be capable of supplying or overriding the host.
+- [x] **RT-HEALTH-HTTP-002**: When the health-check Lambda runs an `http`-kind check, it shall take the destination host only from the `privateIp` field of its invoke payload.
 - [x] **RT-HEALTH-HTTP-003**: The health-check Lambda shall not follow HTTP redirects when issuing an `http`-kind check, so a 3xx response is evaluated as a non-successful status.
-- [x] **RT-HEALTH-HTTP-004**: When the health-check Lambda resolves the host and the credential for one check, it shall perform the ECS lookup and the Secrets Manager lookup concurrently. (observed)
-- [ ] **RT-HEALTH-HTTP-005**: Where an `http`-kind check declares `scheme: 'https'`, the health-check Lambda shall complete the TLS handshake with the task's Caddy sidecar despite addressing the task by private IP rather than by its certificate hostname. (gap: `app/packages/lambda/health-check/src/handler.ts:165-172` sends the request to an IP with default certificate validation; untested and appears to fail hostname verification)
+- [D] **RT-HEALTH-HTTP-005**: Where an `http`-kind check declares `scheme: 'https'`, the health-check Lambda shall complete the TLS handshake with the task's Caddy sidecar despite addressing the task by private IP rather than by its certificate hostname. (deferred: the request addresses the task by private IP with default certificate validation, so an `https` check is not expected to complete the handshake with a hostname-issued Caddy certificate and reads fail-active; see Decisions & Alternatives, HTTPS health-check target)
+- [x] **RT-HEALTH-HTTP-006**: No `healthCheck` declaration field shall be capable of supplying or overriding the destination host of a health-check request, where the destination host is the connect address in the authority of the request URL.
+- [x] **RT-HEALTH-HTTP-007**: If the `privateIp` field of the health-check Lambda's invoke payload is absent (`undefined` or `null`), then the Lambda shall return `active: true`, `failureDerived: true`, and a reason prefixed `health check failed:`, without issuing an HTTP request.
+- [x] **RT-HEALTH-HTTP-008**: If the `privateIp` field of the health-check Lambda's invoke payload is present and is a value that Node's `net.isIPv4` does not accept when applied to the value as received, without trimming, then the Lambda shall return `active: true`, `failureDerived: true`, and a reason prefixed `health check failed:`, without issuing an HTTP request.
+- [x] **RT-HEALTH-HTTP-010**: If the `privateIp` field of the health-check Lambda's invoke payload is a well-formed IPv4 literal that lies outside the RFC 1918 private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), including loopback, `0.0.0.0/8`, link-local, multicast, broadcast and public addresses, then the Lambda shall return `active: true`, `failureDerived: true`, and a reason prefixed `health check failed:`, without issuing an HTTP request.
+- [x] **RT-HEALTH-HTTP-009**: The health-check Lambda shall make no ECS API call.
+- [x] **RT-HEALTH-HTTP-011**: The health-check Lambda shall build the request URL so that the declared `path` cannot change the URL's authority.
 
 ## Credential injection
 
@@ -41,24 +46,31 @@ EARS requirements for prefix `RT-HEALTH`; design in `health-check-design.md` (sa
 - [x] **RT-HEALTH-FAIL-001**: If a health-check response status is outside 200-299, then the verdict engine shall return a failure-derived active verdict.
 - [x] **RT-HEALTH-FAIL-002**: If a health-check response body is not valid JSON, then the verdict engine shall return a failure-derived active verdict.
 - [x] **RT-HEALTH-FAIL-003**: If, for any operator other than `exists`, the declared `jsonPath` resolves no value, resolves an object or array, or resolves a value the operator cannot compare, then the verdict engine shall return a failure-derived active verdict.
-- [x] **RT-HEALTH-FAIL-004**: If the health-check Lambda's ECS lookup, secret fetch, credential construction, connection, or request timeout fails, then the Lambda shall return `active: true`, `failureDerived: true`, and a reason prefixed `health check failed:`.
+- [x] **RT-HEALTH-FAIL-004**: If the health-check Lambda's payload-host validation, secret fetch, credential construction, connection, or request timeout fails, then the Lambda shall return `active: true`, `failureDerived: true`, and a reason prefixed `health check failed:`.
+- [x] **RT-HEALTH-FAIL-005**: The health-check Lambda shall bound each Secrets Manager `GetSecretValue` call, including all SDK retry attempts, with one overall deadline shorter than the health-check Lambda's function timeout.
+- [x] **RT-HEALTH-FAIL-006**: The overall deadline on the health-check Lambda's `GetSecretValue` call plus the check's declared `timeoutMs` shall fit within the per-run total time budget for health-check invokes that the watchdog applies under `RT-WATCHDOG-HC-006`.
+- [x] **RT-HEALTH-FAIL-007**: If the health-check Lambda's `GetSecretValue` call exceeds its overall deadline, then the Lambda shall return `active: true`, `failureDerived: true`, and a reason prefixed `health check failed:`, without issuing an HTTP request.
 
 ## Provisioning and runtime environment
 
 - [x] **RT-HEALTH-PROV-001**: While no game in `deployment-config.json` declares `healthCheck`, infra shall declare no health-check Lambda, log group, IAM role, IAM policy, or security group, and shall grant the watchdog no `lambda:InvokeFunction` statement.
 - [x] **RT-HEALTH-PROV-002**: While at least one game declares `healthCheck`, infra shall declare exactly one `{projectName}-health-check` Lambda, one role, and one security group serving every opted-in game.
-- [x] **RT-HEALTH-PROV-003**: While at least one game declares `healthCheck`, infra shall provide the health-check Lambda with every environment variable its handler requires at module load, including `ECS_CLUSTER`. (observed)
-- [ ] **RT-HEALTH-PROV-004**: While at least one game declares `healthCheck`, the deployed health-check Lambda shall have a network path and security-group egress to the ECS and Secrets Manager APIs from its VPC placement. (observed) (gap: `app/packages/infra/src/lambdas.ts:548-551` places it in public subnets with no NAT or endpoints in `app/packages/infra/src/network.ts`; its SG egress is only game ports toward `gameServersSg`, `app/packages/infra/src/securityGroups.ts:430-446`)
+- [x] **RT-HEALTH-PROV-003**: While at least one game declares `healthCheck`, infra shall provide the health-check Lambda with every environment variable its handler requires at module load or reads at invoke time. (observed)
+- [x] **RT-HEALTH-PROV-004**: While at least one game declares `healthCheck.auth.secretArn`, the deployed health-check Lambda shall have a network path to the Secrets Manager API through the Secrets Manager interface VPC endpoint.
 - [x] **RT-HEALTH-PROV-005**: The health-check package's tests shall fail when the handler requires an env var that infra does not provision. (observed)
 - [x] **RT-HEALTH-PROV-006**: The health-check Lambda shall read its region from `AWS_REGION_` (trailing underscore), falling back to `AWS_REGION`, `AWS_DEFAULT_REGION`, then `us-east-1`. (observed; CLAUDE.md invariant)
 
 ## Network and permission confinement
 
-- [x] **RT-HEALTH-NET-001**: While at least one game declares `healthCheck`, the health-check security group shall carry one TCP egress rule per distinct declared health-check port toward `gameServersSg` and no other egress, and `gameServersSg` shall carry a matching ingress rule from the health-check security group per port.
-- [x] **RT-HEALTH-NET-002**: The health-check Lambda's IAM policy shall grant `ecs:DescribeTasks` only on tasks in the deployment's ECS cluster and `secretsmanager:GetSecretValue` only on the `auth.secretArn` values persisted by opted-in games, plus logging and VPC ENI permissions.
+- [x] **RT-HEALTH-NET-001**: While at least one game declares `healthCheck`, the health-check security group shall carry one TCP egress rule toward `gameServersSg` for each distinct declared health-check port.
+- [x] **RT-HEALTH-NET-002**: The health-check Lambda's IAM policy shall grant `secretsmanager:GetSecretValue` only on the `auth.secretArn` values persisted by opted-in games.
 - [x] **RT-HEALTH-NET-003**: The health-check Lambda shall have no Function URL, and the only `lambda:InvokeFunction` grant on it shall be in the watchdog's role policy.
 - [x] **RT-HEALTH-NET-004**: The watchdog Lambda shall have no VPC attachment and no Secrets Manager permission for health-check credentials.
 - [x] **RT-HEALTH-NET-005**: The persisted `healthCheck.auth` in `deployment-config.json` shall carry only a `type` and a Secrets Manager `secretArn`, never a credential value.
+- [x] **RT-HEALTH-NET-006**: While at least one game declares `healthCheck`, `gameServersSg` shall carry one TCP ingress rule from the health-check security group for each distinct declared health-check port.
+- [x] **RT-HEALTH-NET-007**: The health-check security group shall carry no egress rule other than its per-port TCP rules toward `gameServersSg` and, while at least one game declares `healthCheck.auth.secretArn`, one TCP 443 rule toward the Secrets Manager endpoint security group.
+- [x] **RT-HEALTH-NET-008**: The health-check Lambda's IAM policy shall grant no action in the `ecs:` namespace.
+- [x] **RT-HEALTH-NET-009**: While no game declares `healthCheck.auth.secretArn`, the health-check Lambda's IAM policy shall contain no statement granting a `secretsmanager:` action.
 
 ## Save-time validation
 
@@ -83,7 +95,7 @@ EARS requirements for prefix `RT-HEALTH`; design in `health-check-design.md` (sa
 - [x] **RT-HEALTH-REDACT-001**: When a game with a `healthCheck` is sent to the renderer, `redactGameServer` shall replace `healthCheck.auth` with `secretSet` (whether a credential is configured) and `authType` (the credential type, `raw` when absent), and shall send no ARN, username, password, or token.
 - [x] **RT-HEALTH-REDACT-002**: While the add/edit-game wizard shows a game whose health check has `secretSet: true`, the wizard's health-check fields shall indicate that a credential is set and leave the credential inputs empty, so a blank input keeps the existing credential.
 - [x] **RT-HEALTH-REDACT-003**: The wizard's health-check fields shall offer auth types `none`, `raw`, `basic` and `bearer`, render the password and token inputs as masked fields, and offer the game's `webPort` as a selectable target port ahead of its extra TCP ports. (observed)
-- [ ] **RT-HEALTH-REDACT-004**: When a save is rejected with an issue at `healthCheck.timeoutMs`, the wizard's health-check fields shall display that issue's message beside the timeout input. (observed) (gap: `app/packages/web/src/components/add-game-wizard/health-check-fields.component.tsx:122` passes no `errors` prop to the timeout `FormField`)
+- [x] **RT-HEALTH-REDACT-004**: When a save is rejected with an issue at `healthCheck.timeoutMs`, the wizard's health-check fields shall display that issue's message beside the timeout input. (observed)
 
 ## App-owned credential lifecycle
 
