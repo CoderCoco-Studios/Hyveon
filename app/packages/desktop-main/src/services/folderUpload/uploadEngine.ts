@@ -22,6 +22,8 @@ export interface UploadEngineOptions {
   maxAttempts: number;
   /** Waits `ms`, rejecting early when `signal` aborts. */
   sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /** Awaited before every attempt to write a file; rejecting stops the run before that file, without a retry. */
+  beforeFile?: () => Promise<void>;
 }
 
 // @spec HELPER-RESUME-007
@@ -243,6 +245,8 @@ async function uploadOne(
 ): Promise<void> {
   for (let attempt = 1; ; attempt += 1) {
     throwIfAborted(signal);
+    await opts.beforeFile?.();
+    throwIfAborted(signal);
     let counted = 0;
     let source: ReturnType<typeof createReadStream> | undefined;
     try {
@@ -278,7 +282,8 @@ async function uploadOne(
  *
  * @param remoteSizes - `remotePath -> size` from {@link listRemoteSizes}; matching files are counted as done, anything
  * else (including a partially written file) is re-sent with `override=true`.
- * @throws UploadCancelledError when `signal` aborts; UploadFileError for the first file to exhaust its attempts.
+ * @throws UploadCancelledError when `signal` aborts; UploadFileError for the first file to exhaust its attempts;
+ * whatever {@link UploadEngineOptions.beforeFile} rejects with, unchanged.
  */
 export async function uploadAll(
   client: VolumeFileBackend,

@@ -25,6 +25,7 @@ import { configAndSavesVolumes, deploymentConfigStub, gameServer } from '../test
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { fakeBackend, type FakeBackend } from '../testing/fake-volume-backend.js';
 import { buildHelperVolumeLayout, type HelperVolumeLayout } from './volumeFiles/helperVolumeLayout.js';
+import { UploadReservations } from './volumeFiles/uploadReservations.js';
 
 let root: string;
 let scans: FolderScanService;
@@ -56,6 +57,7 @@ interface Harness {
   beforeStop: (game: string) => void;
   ecs: { findRunningTaskOrThrow: ReturnType<typeof vi.fn> };
   store: ElectronStoreService;
+  reservations: UploadReservations;
   progress: FolderUploadProgress[];
 }
 
@@ -100,6 +102,7 @@ function harness(
   };
   const ecs = { findRunningTaskOrThrow: vi.fn().mockResolvedValue(null) };
   const store = new ElectronStoreService(new SafeStorageService());
+  const reservations = new UploadReservations();
   const svc = new FolderUploadService(
     configServiceStub({ outputs }),
     deploymentConfigStub({ declared: [gameServer('minecraft', { volumes })] }),
@@ -114,11 +117,13 @@ function harness(
         return () => undefined;
       },
     } as Partial<HelperSessionRegistry> as HelperSessionRegistry,
+    reservations,
   );
   svc.engine.sleep = async () => undefined;
+  svc.timings.serverRecheckMs = 0;
   const progress: FolderUploadProgress[] = [];
   svc.onProgress((p) => progress.push(p));
-  return { svc, client, fm, ecs, store, progress, registry, beforeStop: (game) => beforeStop(game) };
+  return { svc, client, fm, ecs, store, reservations, progress, registry, beforeStop: (game) => beforeStop(game) };
 }
 
 /** Waits until the terminal progress snapshot for a run has been published. */
@@ -313,6 +318,41 @@ describe('FolderUploadService guards', () => {
     });
   });
 
+  // @spec HELPER-UPLOAD-013
+  describe('cancel while the start guards run', () => {
+    it('should prevent the run from starting when the operator cancels during preparation', async () => {
+      const h = harness();
+      let release!: (task: null) => void;
+      h.ecs.findRunningTaskOrThrow.mockReturnValueOnce(new Promise<null>((resolve) => { release = resolve; }));
+      const starting = h.svc.startUpload(await request(['Config']));
+      expect(h.svc.cancel('minecraft')).toEqual({ cancelled: true });
+      release(null);
+      expect(await starting).toMatchObject({ started: false, error: expect.stringMatching(/cancelled/i) });
+      expect(h.registry.acquire).not.toHaveBeenCalled();
+      expect(h.svc.getSelection('minecraft')).toBeNull();
+    });
+
+    it('should not carry an idle cancel over to the next start', async () => {
+      const h = harness();
+      expect(h.svc.cancel('minecraft')).toEqual({ cancelled: false });
+      expect(await h.svc.startUpload(await request(['Config']))).toMatchObject({ started: true });
+      await settled(h);
+    });
+
+    it('should not carry a preparation-time cancel over to the next start', async () => {
+      const h = harness();
+      let release!: (task: null) => void;
+      h.ecs.findRunningTaskOrThrow.mockReturnValueOnce(new Promise<null>((resolve) => { release = resolve; }));
+      const req = await request(['Config']);
+      const starting = h.svc.startUpload(req);
+      h.svc.cancel('minecraft');
+      release(null);
+      await starting;
+      expect(await h.svc.startUpload(req)).toMatchObject({ started: true });
+      await settled(h);
+    });
+  });
+
   // @spec HELPER-UPLOAD-012
   it('should refuse a second concurrent run for the same game', async () => {
     const h = harness();
@@ -335,7 +375,7 @@ describe('FolderUploadService runs', () => {
     const last = await settled(h);
     expect(last).toMatchObject({ phase: 'done', filesDone: 2, filesTotal: 2, bytesDone: 12, bytesTotal: 12 });
     expect(h.client.uploads.sort()).toEqual(['/saves/Config/a.json', '/saves/Data/b.db']);
-    expect(h.registry.acquire).toHaveBeenCalledWith('minecraft', `upload:${runId}`, { tags: UPLOAD_TAGS, runId });
+    expect(h.registry.acquire).toHaveBeenCalledWith('minecraft', `upload:${runId}`, { tags: UPLOAD_TAGS, runId, requireAutoStop: true });
     expect(h.registry.release).toHaveBeenCalledWith('minecraft', `upload:${runId}`);
     expect(h.svc.getSelection('minecraft')).toMatchObject({ include: ['Config', 'Data'], destination: '/data', lastRun: { status: 'done', files: 2, bytes: 12 } });
     expect(h.progress.map((p) => p.phase)).toEqual(expect.arrayContaining(['starting-helper', 'uploading', 'verifying', 'done']));
@@ -412,6 +452,138 @@ describe('FolderUploadService runs', () => {
     await h.svc.startUpload(await request(['Config', 'Data']));
     const last = await settled(h);
     expect(last).toMatchObject({ phase: 'failed', error: expect.stringContaining('Data/b.db (missing)') });
+  });
+
+  // @spec HELPER-UPLOAD-018
+  describe('re-checking the server while writing', () => {
+    it('should stop before the next file when the game server task has started', async () => {
+      const h = harness();
+      h.svc.engine.concurrency = 1;
+      // Preflight and the guard before the first file see no task; the guard before the second file does.
+      h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValue({ taskArn: 'task' });
+      await h.svc.startUpload(await request(['Config', 'Data']));
+      const last = await settled(h);
+      expect(last).toMatchObject({ phase: 'failed', error: expect.stringMatching(/started while the upload was running/) });
+      expect(h.client.uploads).toHaveLength(1);
+      expect(h.registry.release).toHaveBeenCalledTimes(1);
+    });
+
+    it('should stop before the next file when the server state can no longer be confirmed', async () => {
+      const h = harness();
+      h.svc.engine.concurrency = 1;
+      h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockRejectedValue(new Error('ThrottlingException'));
+      await h.svc.startUpload(await request(['Config', 'Data']));
+      const last = await settled(h);
+      expect(last).toMatchObject({ phase: 'failed', error: expect.stringMatching(/confirm.*still stopped/) });
+      expect(last.error).not.toContain('ThrottlingException');
+      expect(h.client.uploads).toHaveLength(1);
+    });
+
+    it('should write nothing when the server started between preflight and the first file', async () => {
+      const h = harness();
+      h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce(null).mockResolvedValue({ taskArn: 'task' });
+      await h.svc.startUpload(await request(['Config']));
+      expect((await settled(h)).phase).toBe('failed');
+      expect(h.client.uploads).toHaveLength(0);
+    });
+
+    it('should share one check between files inside the recheck window', async () => {
+      const h = harness();
+      h.svc.timings.serverRecheckMs = 60_000;
+      await h.svc.startUpload(await request(['Config', 'Data', 'Logs']));
+      expect((await settled(h)).phase).toBe('done');
+      // One preflight check plus one guard check for the whole run.
+      expect(h.ecs.findRunningTaskOrThrow).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // @spec HELPER-LAUNCH-005
+  it('should require the auto-stop backstop and surface its absence as the run failure', async () => {
+    const h = harness({ acquired: { ok: false, code: 'failed', message: 'The upload was not started because the helper has no auto-stop schedule.' } });
+    await h.svc.startUpload(await request(['Config']));
+    const last = await settled(h);
+    expect(last).toMatchObject({ phase: 'failed', error: expect.stringContaining('no auto-stop schedule') });
+    expect(h.registry.acquire).toHaveBeenCalledWith('minecraft', expect.any(String), expect.objectContaining({ requireAutoStop: true }));
+    expect(h.registry.release).toHaveBeenCalledTimes(1);
+    expect(h.client.uploads).toHaveLength(0);
+  });
+
+  // @spec HELPER-RSV-005
+  describe('path reservations', () => {
+    const ref = { game: 'minecraft', volume: 'saves' };
+
+    it('should hold the planned paths while writing and release them when the run ends', async () => {
+      const h = harness();
+      let during: ReturnType<UploadReservations['tryReserve']> | undefined;
+      const original = h.client.writeStream;
+      h.client.writeStream = async (path, source, options) => {
+        during ??= h.reservations.tryReserve(ref, ['/Config/a.json']);
+        return original(path, source, options);
+      };
+      await h.svc.startUpload(await request(['Config']));
+      await settled(h);
+      expect(during).toEqual({ ok: false, conflict: '/Config/a.json' });
+      expect(h.reservations.tryReserve(ref, ['/Config/a.json']).ok).toBe(true);
+    });
+
+    it('should refuse the run naming the file when another operation holds one of its paths', async () => {
+      const h = harness();
+      h.reservations.tryReserve(ref, ['/Config/a.json']);
+      const res = await h.svc.startUpload(await request(['Config']));
+      expect(res).toMatchObject({ started: false, error: expect.stringContaining('Config/a.json') });
+      expect(h.registry.acquire).not.toHaveBeenCalled();
+      expect(h.svc.getSelection('minecraft')).toBeNull();
+    });
+
+    it('should release the reservation when the run fails', async () => {
+      const h = harness({ client: fakeBackend({ writeStream: async () => { throw new Error('socket hang up'); } }) });
+      await h.svc.startUpload(await request(['Config']));
+      await settled(h);
+      expect(h.reservations.tryReserve(ref, ['/Config/a.json']).ok).toBe(true);
+    });
+
+    it('should not hold a reservation after a start refused by a failed guard', async () => {
+      const h = harness();
+      h.ecs.findRunningTaskOrThrow.mockResolvedValueOnce({ taskArn: 'x' });
+      await h.svc.startUpload(await request(['Config']));
+      expect(h.reservations.tryReserve(ref, ['/Config/a.json']).ok).toBe(true);
+    });
+  });
+
+  // @spec HELPER-IPC-004
+  describe('structured error codes', () => {
+    it('should code a refusal caused by an unmanaged open helper as helper-open', async () => {
+      const h = harness();
+      h.registry.status.mockResolvedValue(snapshot('orphaned'));
+      expect(await h.svc.startUpload(await request(['Config']))).toMatchObject({ started: false, code: 'helper-open' });
+    });
+
+    it('should leave other refusals without a code', async () => {
+      const h = harness();
+      expect(await h.svc.startUpload(await request([]))).not.toHaveProperty('code');
+    });
+
+    it('should code a verification failure and carry the failing paths instead of a message to parse', async () => {
+      const client = fakeBackend();
+      const original = client.writeStream;
+      client.writeStream = async (path, source, options) => {
+        if (path.endsWith('b.db')) return options.onBytes?.(options.size);
+        return original(path, source, options);
+      };
+      const h = harness({ client });
+      await h.svc.startUpload(await request(['Config', 'Data']));
+      const last = await settled(h);
+      expect(last).toMatchObject({ phase: 'failed', errorCode: 'verification-failed', failedPaths: ['Data/b.db (missing)'] });
+      expect(last.failedMoreCount).toBeUndefined();
+    });
+
+    it('should not code an ordinary run failure', async () => {
+      const h = harness({ client: fakeBackend({ writeStream: async () => { throw new Error('socket hang up'); } }) });
+      await h.svc.startUpload(await request(['Config']));
+      const last = await settled(h);
+      expect(last.phase).toBe('failed');
+      expect(last.errorCode).toBeUndefined();
+    });
   });
 
   // @spec HELPER-PROG-005, HELPER-STRAY-002, HELPER-STRAY-006

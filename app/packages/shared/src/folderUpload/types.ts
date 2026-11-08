@@ -49,6 +49,12 @@ export interface FolderUploadProgress {
   etaSeconds?: number;
   /** Normalized failure message when `phase` is `failed`, or the reason a run was cancelled by the app. */
   error?: string;
+  /** Machine-readable failure kind when `phase` is `failed`; absent for a failure the renderer shows only as `error`. */
+  errorCode?: FolderUploadRunErrorCode;
+  /** With `errorCode: 'verification-failed'`: the first paths that did not land, each with its reason. */
+  failedPaths?: string[];
+  /** With `failedPaths`: how many further failing paths are not listed; absent when all are listed. */
+  failedMoreCount?: number;
   /** Present while `phase` is `awaiting-confirmation`: the files the upload would overwrite. */
   overwrite?: OverwriteSummary;
 }
@@ -116,8 +122,19 @@ export interface FolderUploadStoredState {
   lastRun?: FolderUploadLastRun;
 }
 
-/** Result of asking main to start an upload; the run's progress then arrives on the progress event channel. */
-export type FolderUploadStartResult = { started: true; runId: string } | { started: false; error: string };
+/** Why a folder-upload run failed, for the failures the renderer presents specially. */
+export type FolderUploadRunErrorCode = 'verification-failed';
+
+/** Why a folder-upload start was refused, for the refusals the renderer acts on. */
+export type FolderUploadStartErrorCode = 'helper-open';
+
+/**
+ * Result of asking main to start an upload; the run's progress then arrives on the progress event channel.
+ * A refusal carries `code` only for the kinds the renderer acts on; `error` is always the operator-facing message.
+ */
+export type FolderUploadStartResult =
+  | { started: true; runId: string }
+  | { started: false; error: string; code?: FolderUploadStartErrorCode };
 
 /** One helper task stopped by the stray-helper sweep. */
 export interface StrayHelperStopped {
