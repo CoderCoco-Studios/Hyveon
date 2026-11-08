@@ -202,6 +202,33 @@ describe('registerIpcMainBridges', () => {
     expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
   });
 
+  // @spec APP-IPC-CALL-010
+  it.each([...SELF_BRIDGED_PATTERNS])('should skip self-bridged pattern "%s" and still bridge its sibling', async (pattern) => {
+    const { transport } = makeTransport([pattern, 'games.list']);
+
+    await registerIpcMainBridges(transport);
+
+    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith(pattern);
+    expect(mockIpcMainHandle).not.toHaveBeenCalledWith(pattern, expect.any(Function));
+    expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
+  });
+
+  it('should list exactly the nine self-bridged channels', () => {
+    expect([...SELF_BRIDGED_PATTERNS].sort()).toEqual(
+      [
+        'iac.apply',
+        'iac.destroy',
+        'iac.plan',
+        'iac.rollback.confirm',
+        'iac.runs.logs',
+        'iac.settings.autoUpdate.download',
+        'iac.stack.initialize',
+        'logs.lambda.stream',
+        'logs.stream',
+      ],
+    );
+  });
+
   it('should be a no-op when the transport has no registered handlers', async () => {
     const { transport } = makeTransport([]);
 

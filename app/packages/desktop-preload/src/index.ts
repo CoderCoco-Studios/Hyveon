@@ -53,6 +53,7 @@ export type {
   CloudHealthFixOutcome,
   CloudHealthFixResult,
   OpenConsoleResult,
+  RedactedDiscordConfig,
 } from './hyveon-api.js';
 
 export { GUIDED_PROFILE_NAME } from './hyveon-api.js';

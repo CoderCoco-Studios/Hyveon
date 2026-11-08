@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { BadRequestException } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { RpcErrorMessageFilter } from './rpc-error-message.filter.js';
 
@@ -33,5 +34,15 @@ describe('RpcErrorMessageFilter', () => {
     const result = filter.catch('a bare string rejection', host);
 
     await expect(firstValueFrom(result)).rejects.toThrow('a bare string rejection');
+  });
+
+  // @spec APP-IPC-ERR-004
+  it('should surface the field error of an object-body BadRequestException, not "Bad Request Exception"', async () => {
+    const result = filter.catch(
+      new BadRequestException({ success: false, error: 'include must be an array of strings' }),
+      host,
+    );
+
+    await expect(firstValueFrom(result)).rejects.toThrow('include must be an array of strings');
   });
 });

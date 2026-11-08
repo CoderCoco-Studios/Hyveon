@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api.service.js';
+import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
 
 /**
  * Builds a fresh `window.hyveon` IPC-bridge double. Every namespace method is a
@@ -354,11 +355,12 @@ describe('IPC bridge delegation', () => {
 describe('missing IPC bridge', () => {
   it('should throw a descriptive error when window.hyveon is unavailable', async () => {
     vi.stubGlobal('hyveon', undefined);
-    await expect(api.env()).rejects.toThrow('window.hyveon IPC bridge is unavailable');
+    // @spec APP-IPC-CONTRACT-004
+    await expect(api.env()).rejects.toThrow(BRIDGE_UNAVAILABLE);
   });
 
   it('should reject api.drift() with a descriptive error when window.hyveon is unavailable', async () => {
     vi.stubGlobal('hyveon', undefined);
-    await expect(api.drift()).rejects.toThrow('window.hyveon IPC bridge is unavailable');
+    await expect(api.drift()).rejects.toThrow(BRIDGE_UNAVAILABLE);
   });
 });

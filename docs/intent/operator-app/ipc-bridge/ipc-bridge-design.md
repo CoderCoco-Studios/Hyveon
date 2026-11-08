@@ -20,7 +20,7 @@ What this leaf owns:
 - **Preload**: the mock-aware `invoke` (`preload.ts:196-206`), the push `subscribe` helper (`preload.ts:216-220`), the five buffered streams (`stream-bridge.ts:91`, `preload.ts:229-350`), the stream handle wrapper (`preload.ts:369-392`) and `exposeInMainWorld('hyveon', …)` (`preload.ts:686`).
 - **Main-to-renderer push**: `forwardToWindows` (`desktop-main/src/ipc-broadcast.ts:16-29`).
 - **Main side**: `BridgedElectronIPCTransport` and `registerIpcMainBridges` (`desktop-main/src/ipc-main-bridge.ts:49,124`), the `SELF_BRIDGED_PATTERNS` skip list (`ipc-main-bridge.ts:27-37`), `RpcErrorMessageFilter` (`desktop-main/src/rpc-error-message.filter.ts:25`) and the payload guards in `controllers/validation.ts`.
-- **Test seams**: `window.hyveon.__test` (`preload.ts:659-684`), `expectChannels` (`desktop-main/src/testing/message-pattern.test-utils.ts:18`), the secret-shape check `findSecretFields` / `expectNoSecretFields` (`shared/src/testing/secretFields.ts:29`, `desktop-main/src/testing/no-secret-fields.ts:10`) and the unused `test-mock-registry.ts`.
+- **Test seams**: `window.hyveon.__test` (`preload.ts:659-684`), `expectChannels` (`desktop-main/src/testing/message-pattern.test-utils.ts:18`), the secret-shape check `findSecretFields` / `expectNoSecretFields` (`shared/src/testing/secretFields.ts:29`, `desktop-main/src/testing/no-secret-fields.ts:10`) and the per-channel `mockRegistry` in `preload.ts`.
 
 What it deliberately does not own:
 
@@ -79,25 +79,20 @@ The list is hand-synced with those registrations; all nine currently match, and 
 
 ## Error Path
 
-The intended rule is that whatever a handler throws, the renderer receives a plain `Error` whose `.message` is the handler's real message.
-Two pieces make that true for generic-bridge channels, and neither runs for self-bridged ones.
+Whatever a handler throws, the renderer receives a plain `Error` whose `.message` is the handler's real message.
+All message extraction goes through one function, `ipcErrorMessage` (`desktop-main/src/ipc-handlers.ts`): an `HttpException` yields the text of its body (`message`, else `error`, so `BadRequestException({ success: false, error: '<field> must be an array of strings' })` reaches the operator as the field error rather than "Bad Request Exception"), anything else yields its `.message`, and a non-object throw yields `String(err)`.
 
-**`RpcErrorMessageFilter`** is a global `@Catch()` filter (`rpc-error-message.filter.ts:25`, registered at `main.ts:49`).
-Without it, Nest's `BaseRpcExceptionFilter` replaces any non-`RpcException` message with `'Internal server error'` (`rpc-error-message.filter.ts:10-20`).
-The filter re-emits `new Error(errMessage(exception))` as an erroring Observable (`rpc-error-message.filter.ts:35-38`).
+**`RpcErrorMessageFilter`** is a global `@Catch()` filter (registered in `main.ts`).
+Without it, Nest's `BaseRpcExceptionFilter` replaces any non-`RpcException` message with `'Internal server error'`.
+The filter re-emits `new Error(ipcErrorMessage(exception))` as an erroring Observable.
 
-**The bridge `catch`** handles the two ways an error reaches it: a rejected promise, and a resolved Observable built by Nest's `RpcProxy` from `throwError(...)`, which `firstValueFrom` turns back into a rejection (`ipc-main-bridge.ts:108-117,141`).
-It normalises the error to a message string, logs `ipc-main-bridge: handler for "<pattern>" failed` at `error` with the stack, and rethrows `new Error(message)` (`ipc-main-bridge.ts:142-153`).
-The reason given is structured clone: a raw AWS SDK error with `$metadata` or symbol-keyed fields fails to marshal and the renderer sees "object could not be cloned" instead of the message (`ipc-main-bridge.ts:98-106`).
+**The generic bridge `catch`** handles the two ways an error reaches it: a rejected promise, and a resolved Observable built by Nest's `RpcProxy` from `throwError(...)`, which `firstValueFrom` turns back into a rejection.
+It logs `ipc-main-bridge: handler for "<pattern>" failed` at `error` with the stack and rethrows a new plain `Error` carrying only the message (`toIpcError`).
+The reason is structured clone: a raw AWS SDK error with `$metadata` or symbol-keyed fields fails to marshal and the renderer would see "object could not be cloned" instead of the message.
 
-Where current behaviour differs from that intent:
+**Self-bridged channels** (the nine `SELF_BRIDGED_PATTERNS`) are registered by their controllers' `onModuleInit` through one helper, `registerSelfBridgedHandlers`, which does the `process.versions.electron` guard, `removeHandler` then `handle` for each channel, and wraps the handler in the same `toIpcError` normalisation, so a throw before the ack is logged and rejected as a plain `Error` exactly like a generic-bridge failure.
 
-- **`BadRequestException` bodies are lost.** `requireStringArray` throws `new BadRequestException({ success: false, error: '<field> must be an array of strings' })` (`validation.ts:21-24`). For an object-body `HttpException`, Nest sets `.message` to the class-derived `"Bad Request Exception"`, and the filter reads only `.message`, so the field error never reaches the renderer. Several controllers throw the same shape inline, for example `iac-runs.controller.ts:213-216,265-268`.
-- **Self-bridged channels bypass both normalisers.** They call the controller method directly (`iac.controller.ts:577-579` and the rest of the table above), so neither the filter nor the bridge `catch` runs, and nothing logs the failure at the bridge. A throw before the ack, such as the `BadRequestException` at `iac-runs.controller.ts:265-268`, rejects straight into Electron's `ipcMain.handle`; what the renderer then sees depends on Electron's own error serialisation `[inferred]`.
-- **Two comments describe a different system.** `ipc-main-bridge.ts:99-100` says the app has "no NestJS exception filter anywhere" while the same comment (`:117`) and `main.ts:49` rely on one. `validation.ts:14-16` says Nest maps the exception to "a 400 with the same shape the legacy Express handlers used"; there is no HTTP and no 400.
-
-Stream failures use a different path: the main side sends `{ error: String(err) }` on the end channel (`logs.controller.ts:186`, `iac-runs.controller.ts:295`), and the preload throws `new Error(endError)` from the generator (`stream-bridge.ts:195,242`).
-Because `String(err)` of an `Error` is `"Error: <message>"`, stream errors reach the renderer with an extra `Error: ` prefix that invoke errors do not carry.
+Stream failures use the same message function: the main side sends `{ error: <message> }` on the end channel and the preload throws `new Error(endError)` from the generator, so a stream error carries no `Error: ` prefix that an invoke error lacks.
 
 ## Streaming Across the Context Bridge
 
@@ -111,34 +106,37 @@ Every streaming channel is therefore two layers (`preload.ts:26-44`):
 |---|---|---|---|---|
 | `logs.stream(game)` | `logs.stream` | per-call | `logs.stream.<id>.chunk` / `.end` | Yes, `logs.stream.<id>.cancel` (`preload.ts:229-239`) |
 | `logs.lambda.stream(key)` | `logs.lambda.stream` | per-call | `logs.lambda.stream.<id>.chunk` / `.end` | Yes, `.cancel` (`preload.ts:248-258`) |
-| `iac.stack.initialize()` | `iac.stack.initialize` | shared | fixed `iac.stack.initialize.chunk` / `.end` | No (`preload.ts:278-292`) |
-| `iac.settings.autoUpdateDownload()` | `iac.settings.autoUpdate.download` | shared | fixed `….download.chunk` / `.end` | No (`preload.ts:307-322`) |
-| `iac.runs.logs(runId)` | `iac.runs.logs` | shared | fixed `iac.runs.logs.chunk` / `.end` | No (`preload.ts:339-350`) |
+| `iac.stack.initialize()` | `iac.stack.initialize` | shared | fixed `iac.stack.initialize.chunk` / `.end` | No; runs to completion |
+| `iac.settings.autoUpdateDownload()` | `iac.settings.autoUpdate.download` | shared | fixed `….download.chunk` / `.end` | No; runs to completion |
+| `iac.runs.logs(runId)` | `iac.runs.logs` | shared | fixed `iac.runs.logs.chunk` / `.end` | No; tail ends with the run |
 
-**Per-call style.** The invoke ack carries a `streamId` minted by the controller (`logs.controller.ts:151`); the preload derives unique chunk/end/cancel channel names from it and attaches listeners after the ack resolves (`stream-bridge.ts:212-230`).
-Abort sends the cancel message; leaving the loop early also sends it from `finally` (`stream-bridge.ts:216,227,253-255`).
-On the main side, a one-shot `ipcMain.once(cancelChannel)` aborts the source, the fire-and-forget loop pushes each line with `sender.send`, and the cancel listener is removed when the loop ends (`logs.controller.ts:162-194`).
-The main loop starts before the ack is returned (`logs.controller.ts:170-196`) while the preload attaches its listeners only after receiving the ack, so a chunk or immediate error `end` sent in between would be dropped and the iteration would hang `[inferred]`; this has not been reproduced.
+**Per-call style.** The invoke ack carries a `streamId` minted by the controller; the preload derives unique chunk/end/cancel channel names from it and attaches listeners after the ack resolves (`stream-bridge.ts`).
+Electron delivers the invoke reply and `webContents.send` pushes over separate paths with no ordering guarantee, so the protocol does not depend on it: once its listeners are attached the preload sends `<prefix><id>.ready`, and `LogsController.openStream` starts its loop (`pump`) only on receiving it, so no chunk or `end` can precede the listeners.
+Abort sends the cancel message; leaving the iteration early closes the generator (the bridge handle's `return()`), whose `finally` removes the listeners and sends the cancel message too.
+On the main side, one-shot `ipcMain.once` listeners on the cancel and ready channels start or abort the source, the loop pushes each line with `sender.send`, and both listeners are removed when the loop ends; a cancel before `ready` sends `end` without starting the source.
 
 **Shared side-channel style.** Chunk and end channels are fixed constants shared by every concurrent call, so the preload attaches listeners before invoking, buffers raw events until the ack reveals its own `streamId`, then replays and filters out foreign ids (`stream-bridge.ts:126-201`).
 The end listener uses `.on` rather than `.once` because another call's end can arrive first (`stream-bridge.ts:165-169`).
 `iac.stack.initialize` acks `{ started: false, error }` when the shared workspace is busy, and `checkAck` throws immediately (`preload.ts:273-289`).
-Abort only stops the local drain loop (`stream-bridge.ts:24-26,160-163`); there is no cancel message, and the main side of `iac.runs.logs` aborts only when the `WebContents` is destroyed (`iac-runs.controller.ts:273-276`).
-This diverges from the `desktop-only-operator-surface` scenario "Cancellation stops the stream", which says the main process tears the stream down when the renderer abandons it, and from `HyveonStreamHandle.cancel`'s own doc, which hedges with "where applicable" (`hyveon-api.ts:198-205`).
+Abort only stops the local drain loop: the preload sends no message and removes its listeners.
+The main-process work behind these channels deliberately runs to completion, because closing a viewer must not abort provisioning (`iac.stack.initialize`) or an update download half way.
+The `iac.runs.logs` tail is a read of a run's output, ends when the output ends, and is also aborted when the `WebContents` is destroyed (`iac-runs.controller.ts`); `HyveonStreamHandle.cancel` is documented accordingly.
+Only the per-call style tears the main-side source down on abandon.
 
 ## Contract and Types
 
-`hyveon-api.ts` (2,698 lines) is the full hand-written contract: `HyveonApi` (`:2651`), `HyveonTestApi` (`:2608`), `HyveonStreamHandle` (`:186`) and the payload/result types of every namespace.
+`hyveon-api.ts` (about 2,170 lines) is the full renderer-facing contract: `HyveonApi`, `HyveonTestApi`, `HyveonStreamHandle` and the payload/result types of every namespace.
 `index.ts` re-exports those types and `GUIDED_PROFILE_NAME`, and is the single declaration of `Window.hyveon?: HyveonApi` (`index.ts:1-62`), satisfying APP-IPC-NAME-005.
 The global is optional because the bridge is absent in a plain browser (`web/src/globals.d.ts:1-9`).
 
-The contract is mirrored rather than derived.
-Some types come from `@hyveon/shared`, but many are re-declared and have drifted: `GameServerPort` lacks `visibility` (`hyveon-api.ts:289-292` vs `shared/src/gameServerConfig.ts:50`), `GameServer` lacks `webPort` and `command` (`hyveon-api.ts:418-432` vs `gameServerConfig.ts:243,254`), and `LogChunk` is `string` here (`hyveon-api.ts:157`) but an interface in `shared/src/cloud.ts:26`.
-The redacted Discord config is declared in `shared/src/types.ts:47`, `hyveon-api.ts:231-242` and `api.service.ts:225`, and `GUIDED_PROFILE_NAME` is duplicated with `GuidedIamService.ts:94`.
+Where `@hyveon/shared` defines a type that crosses the bridge, the contract re-exports it rather than copying it: the game server, game write, drift, audit, run-history and Discord admin shapes and `GameStatus`/`StartResult` come from `@hyveon/shared` unchanged (`shared-types.test.ts` asserts each equality at typecheck time, run by `typecheck:tests` through `tsconfig.test.json`, because the build config excludes tests), and `RedactedDiscordConfig` is the shared redacted shape intersected with the bridge-only `interactionsEndpointUrl` that the Discord controller reads from stack outputs; the renderer's `DiscordConfigRedacted` is an alias of it.
+Types defined only in `@hyveon/desktop-main` (the add-game wizard draft mirrors `ElectronStoreService`'s, the `Iac*` acks and payloads mirror the controllers', the log pages mirror `LogsService`'s, the wizard types mirror the services') remain hand-mirrored with a "keep in sync" note, because the preload cannot import main-process modules.
+The preload's `LogChunk` (a streamed log line, `string`) is unrelated to the shared `LogChunk` (`{ message, timestamp }`, the cloud provider's stream element), which main flattens to a line before it crosses the bridge.
 Nothing type-checks the preload contract against controller return types; the channel string is the only checked link (`message-pattern.test-utils.ts`).
 
-**Renderer facades.** `api.service.ts` wraps nine namespaces (games, costs, folderUpload, volumeFiles, discord, diagnostics, drift, audit, cloudHealth) behind `hyveon()`, which throws a descriptive error when the bridge is missing; every method is `async` so that throw surfaces as a rejection (`api.service.ts:252-276`).
-The rest of the renderer, including all of `iac.*`, `logs.*`, `wizard.*` and `window.*`, calls `window.hyveon` directly and uses the `BRIDGE_UNAVAILABLE` / `SETTINGS_BRIDGE_UNAVAILABLE` strings (`bridge.utils.ts:1-8`), giving three wordings for one condition.
+**Renderer facades.** `api.service.ts` wraps nine namespaces (games, costs, folderUpload, volumeFiles, discord, diagnostics, drift, audit, cloudHealth) behind `hyveon()`, which throws when the bridge is missing; every method is `async` so that throw surfaces as a rejection.
+The rest of the renderer, including all of `iac.*`, `logs.*`, `wizard.*` and `window.*`, calls `window.hyveon` directly.
+Both report a missing bridge with the one `BRIDGE_UNAVAILABLE` string from `bridge.utils.ts`.
 
 **Secrets.** Discord and health-check secrets cross only as set/unset booleans (`hyveon-api.ts:238-239`).
 No channel returns a helper credential any more: the `files` namespace and its one-time FileBrowser credential (`FileMgrCredentials`) were removed from `hyveon-api.ts`, `preload.ts` and `api.service.ts`, and the `volumeFiles` namespace returns only session state, listings, text content, transfer ids and `VolumeResult` codes (`hyveon-api.ts:1570`, `preload.ts:488-526`).
@@ -150,12 +148,13 @@ The guarantee is proven by tests, not checked at runtime: `findSecretFields` mat
 A registered stream mock is called with `(arg, signal)` or `(signal)` and its `AsyncIterable` is yielded instead of touching IPC (`stream-bridge.ts:103-109`).
 The production build never exposes `__test`, as `preload-bridge-naming` requires.
 
-Because a stream mock short-circuits before any IPC, `streaming-handle-roundtrip.spec.ts` proves the handle survives the clone but not that a real main-process stream reaches the renderer: every case registers a mock first (`streaming-handle-roundtrip.spec.ts:43,86,137,192`).
-The only unmocked electron roundtrip is `env.get` (`electron-ipc-roundtrip.spec.ts:21`), so the requirement that a test guard the real bridge boundary with no mock registered (APP-IPC-STREAM-011) is not met.
+Because a stream mock short-circuits before any IPC, `streaming-handle-roundtrip.spec.ts` proves the handle survives the clone but not that a real main-process stream reaches the renderer.
+`desktop-main/src/ipc-stream-roundtrip.test.ts` covers that: it loads the real preload bridge and the real `LogsController` over an in-process IPC bus that structured-clones every payload, reply and push, with no mock registered, and checks delivery, error text and cancellation for `logs.stream`.
+The unmocked electron roundtrip in Playwright remains `env.get` (`electron-ipc-roundtrip.spec.ts`).
 
-**`test-mock-registry.ts`.** Exports namespace-level `register` / `lookup` / `clear` / `buildMockHyveon` at `@hyveon/desktop-preload/test-mock-registry` and says `@hyveon/web` tests use it (`test-mock-registry.ts:9-11`); the only references are its own test.
+**One mock registry.** `window.hyveon.__test` over the per-channel `mockRegistry` in `preload.ts` is the only test-mode registry the preload ships.
 
-**Build.** `desktop-preload/tsconfig.json` includes `src/**/*` and excludes only `dist` and `node_modules`, so the two preload test files are emitted into `dist`.
+**Build.** `desktop-preload/tsconfig.json` excludes `src/**/*.test.ts`, so the preload build emits no test files into `dist`.
 
 ## Decisions & Alternatives
 
@@ -166,13 +165,19 @@ The only unmocked electron roundtrip is `env.get` (`electron-ipc-roundtrip.spec.
 | Main-side dispatch | One generic `registerIpcMainBridges` loop over Nest's handler map | Per-controller `ipcMain.handle`; patching `nestjs-electron-ipc-transport` | Transport never calls `ipcMain.handle`, so channels hung (`ipc-main-bridge.ts:91-94`); subclass avoids `as unknown as` casts (`ipc-main-bridge.ts:39-48`). |
 | Long-running channels | Self-bridged in their controllers, listed in `SELF_BRIDGED_PATTERNS` | Route through the generic bridge | Need `evt.sender` for side-channel pushes, and Nest drops the undecorated `ctx` for some handlers (`ipc-main-bridge.ts:11-22`). |
 | Error shape across IPC | Plain `Error` with `.message` only, via a global RPC filter plus bridge rethrow | Let Nest's base filter run; structured error objects | Base filter yields "Internal server error" (`rpc-error-message.filter.ts:10-20`); raw SDK errors fail structured clone (`ipc-main-bridge.ts:98-106`). |
-| Payload validation errors | `BadRequestException` with an object body | Plain `Error`; `RpcException` | Carried over from the Express-era handlers per `validation.ts:14-16` `[inferred]`; it no longer produces the intended message (see Deferred). |
+| Payload validation errors | `BadRequestException` with an object body, read through `ipcErrorMessage` | Plain `Error` at each throw site; `RpcException` | One extraction function covers `requireStringArray` and every inline `BadRequestException({ success: false, error })` throw, including on self-bridged channels where the filter never runs, without touching each call site. |
 | Bridge surface construction | Static object literal of named methods | Proxy or generated surface | Only own-enumerable, statically named properties cross `contextBridge` (`preload.ts:45-48`, `stream-bridge.ts:9-11`). |
 | Stream shape | Preload-internal generator wrapped in a plain `HyveonStreamHandle` | Return an `AsyncGenerator`; accept a renderer `AbortSignal` | Neither survives structured clone; the handle shape was "empirically verified" (`preload.ts:17-43`). |
-| Two stream styles | Per-call channels for log tails; fixed shared channels with `streamId` filtering for IaC and update streams | One style for all | Per-call needs a main-side loop to cancel; shared style assumes "no per-call main-process run to tear down early" (`stream-bridge.ts:15-26`). The assumption does not hold for `iac.runs.logs` `[inferred]`. |
+| Two stream styles | Per-call channels for log tails; fixed shared channels with `streamId` filtering for IaC and update streams | One style for all | Per-call has a cancellable main-side loop. Shared-style work (stack initialization, update download) must not be aborted by closing a viewer, and the run-output tail ends with the run, so no cancel message exists for them. |
+| Shared side-channel cancel | No cancel message from the preload; main-side work runs to completion | A `.cancel` message for the shared channels, as per-call streams have | Intentional narrowing of required behaviour (`APP-IPC-STREAM-009`): closing a viewer must not abort stack initialization or an update download, so the main side keeps running the shared work and the preload only stops its local drain loop. |
+| Self-bridged registration | One `registerSelfBridgedHandlers` helper used by the four owning controllers | Nine hand-written `removeHandler` + `handle` blocks | The blocks had no error normalisation or logging; one helper gives the generic bridge's behaviour to every channel and removes the repeated guard. |
+| Per-call stream start | Ready handshake: the preload sends `.ready` after attaching listeners and main starts the loop on receipt | Client-minted `streamId` sent with the invoke (no extra message, but changes every stream's payload shape); `setImmediate` deferral after the ack | Electron gives no ordering between the invoke reply and `webContents.send` pushes, so deferral can lose events; the handshake needs no payload change. |
+| Stream end error text | `ipcErrorMessage(err)` | `String(err)` | `String(err)` of an `Error` adds `Error: `, which invoke errors do not carry. |
+| End-to-end stream test | Vitest over an in-process structured-cloning IPC bus, real preload + real controller | Playwright electron spec | Runs in the unit tier with no packaged app; it covers the preload/main protocol and serialization, while `streaming-handle-roundtrip.spec.ts` covers the `contextBridge` handle clone. |
+| Preload `LogChunk` vs shared `LogChunk` | Keep distinct | Re-point the preload at the shared interface | They are different types: a streamed line versus the cloud provider's `{ message, timestamp }`; the name collision is not drift. |
 | Single payload argument | Every write method passes one payload object | Positional arguments | The transport delivers only the first argument to `@Payload` (`preload.ts:426-428`). |
 | Contract source | Hand-written `hyveon-api.ts` mirroring shared and controller types | Import from `@hyveon/shared`; generate from controllers | `[inferred]` keeps the preload free of main-process imports; cost is the drift recorded under "Contract and Types". |
-| Test seam | Per-channel `mockRegistry` in preload, gated on `HYVEON_TEST_MODE=1` | Namespace-level `test-mock-registry.ts`; Playwright IPC interception | `preload-bridge-naming` requires the `__test` seam under the bridge name and absent in production; why the namespace registry was abandoned is unknown. |
+| Test seam | Per-channel `mockRegistry` in preload, gated on `HYVEON_TEST_MODE=1` | Namespace-level `test-mock-registry.ts` (deleted: no consumer); Playwright IPC interception | `preload-bridge-naming` requires the `__test` seam under the bridge name and absent in production; the namespace registry had no consumer outside its own test, so shipping two registries only invited drift. |
 | Channel-name guard | Reflect-metadata `expectChannels` per controller test | Shared channel-name constants used by both sides | Calling a method directly passes whatever string is registered (`message-pattern.test-utils.ts:4-9`); constants not chosen, reason unknown `[inferred]`. |
 | Renderer facade | `api.service.ts` for nine namespaces; direct `window.hyveon` elsewhere | One facade for all namespaces | Unknown; appears to be incremental growth `[inferred]`. |
 | Non-Electron behaviour | Bridge registration silently skipped when `process.versions.electron` is unset | Throw; inject a fake `ipcMain` | Lets the plain-Node integration harness and CI load controllers without `electron` (`ipc-main-bridge.ts:119-122`). |
@@ -185,19 +190,11 @@ The only unmocked electron roundtrip is `env.get` (`electron-ipc-roundtrip.spec.
 
 ### Deferred
 
-1. Should `requireStringArray` and the inline `BadRequestException({ success: false, error })` throws reach the renderer with their field message, by throwing a plain `Error` or by teaching `RpcErrorMessageFilter` to read `getResponse()`? Today the operator sees "Bad Request Exception" (`validation.ts:21-24`, `rpc-error-message.filter.ts:36`, `iac-runs.controller.ts:213-216`).
-2. Should self-bridged registrations go through one shared helper that applies the same normalisation and logging as the generic bridge, replacing nine hand-written blocks (`iac.controller.ts:576-614`, `logs.controller.ts:43-50`, `iac-runs.controller.ts:182-185`, `iac-settings.controller.ts:116-119`)?
-3. Should shared side-channel streams get a main-side cancel, or should the cancellation requirement (APP-IPC-STREAM-009) be narrowed to the per-call style (`stream-bridge.ts:24-26`, `iac-runs.controller.ts:273-276`)?
-4. Does Electron's ordering guarantee that per-call chunks sent before the invoke reply are delivered after it, or is the listener-after-ack window real (`stream-bridge.ts:212-230`, `logs.controller.ts:170-196`)?
-5. Which test should drive a streaming channel end to end with no mock, to satisfy "A test guards the real bridge boundary" (`streaming-handle-roundtrip.spec.ts:43`, `electron-ipc-roundtrip.spec.ts:21`)? `logs.lambda.stream` and `iac.settings.autoUpdate.download` are not driven at all.
-6. Should preload types be imported from `@hyveon/shared` wherever a shared type exists, starting with `GameServerPort`, `GameServer`, `RedactedDiscordConfig` and `LogChunk` (`hyveon-api.ts:157,231-242,289-292,418-432`), and should `GameWizardDraft`'s drift that `api.service.ts:357` casts around be fixed with them (`hyveon-api.ts:650-679`)?
-7. Should stream end errors drop the `Error: ` prefix that `String(err)` adds (`logs.controller.ts:186`, `iac-runs.controller.ts:295`)?
-8. Should all renderer callers move behind `api.service.ts`, and should the three bridge-unavailable wordings collapse to one (`api.service.ts:260-261`, `bridge.utils.ts:2,8`)?
-9. Delete or adopt `test-mock-registry.ts` (`test-mock-registry.ts:9-11`), and exclude `*.test.ts` from `desktop-preload/tsconfig.json`?
-10. Add skip-case tests for `logs.lambda.stream`, `iac.apply`, `iac.destroy` and `iac.runs.logs` in `ipc-main-bridge.test.ts`, or derive `SELF_BRIDGED_PATTERNS` from the controllers so it cannot drift (`ipc-main-bridge.ts:27-37`)?
-11. Should `findSecretFields` also run against every IPC result in one generic test (for example over the integration harness), rather than only the volume-files results it guards today (`volume-files.controller.test.ts:292`, `VolumeFilesService.test.ts:526,553,649`)? Its IPv4 and `cert` patterns would also flag legitimate values such as a game's public IP, so a generic use needs an allowlist.
-12. Fix the stale comments: `ipc-main-bridge.ts:99-100` ("no NestJS exception filter anywhere"), `validation.ts:14-16` ("legacy Express 400"), `stream-bridge.ts:7-13,80` (four calls, actually five), `preload.ts:362` ("three generators"), `preload.ts:383` (omits `streamUpdateDownload`), `hyveon-api.ts:2645` (import path not in the `exports` map), `electron-ipc-roundtrip.spec.ts:10-12` (a preload invoke timeout that does not exist), and "tfstate" wording in `hyveon-api.ts:464-478,697-716,2143,2668`.
-13. The chromium e2e tier installs an HTTP-forwarding `window.hyveon` over a fictional `/api/*` map (`web/e2e/fixtures/hyveon-http-bridge.ts:44`), and renderer code carries guards that exist only for it (`app.component.tsx:34-43`). The spec keeps those five chromium specs for now; when they move to the electron project, can the shim and its guards go?
+1. Should the types that exist only in `@hyveon/desktop-main` (the add-game wizard draft, which drifts from the shared `GameServer` by lacking `webPort` and `command`, the controller acks and the service result types) move into `@hyveon/shared` so the preload can derive them, and `GameWizardDraft`'s drift that `api.service.ts` casts around be fixed with them?
+2. Should all renderer callers move behind `api.service.ts`, now that the bridge-unavailable wording is one string?
+3. Should `findSecretFields` also run against every IPC result in one generic test (for example over the integration harness), rather than only the volume-files results it guards today (`volume-files.controller.test.ts`, `VolumeFilesService.test.ts`)? Its IPv4 and `cert` patterns would also flag legitimate values such as a game's public IP, so a generic use needs an allowlist.
+4. Fix the remaining stale doc comments: `preload.ts` "three generators" and `openBufferedStream`'s `@param` list, the `@hyveon/desktop-preload/hyveon-api` import path in `hyveon-api.ts` that the `exports` map does not provide, a preload invoke timeout that `electron-ipc-roundtrip.spec.ts` cites but does not exist, and "tfstate" wording in `hyveon-api.ts`.
+5. The chromium e2e tier installs an HTTP-forwarding `window.hyveon` over a fictional `/api/*` map (`web/e2e/fixtures/hyveon-http-bridge.ts`), and renderer code carries guards that exist only for it (`app.component.tsx`). The spec keeps those five chromium specs for now; when they move to the electron project, can the shim and its guards go?
 
 ## References
 

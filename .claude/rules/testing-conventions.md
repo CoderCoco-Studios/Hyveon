@@ -47,7 +47,7 @@ Three complementary tiers — pick based on what changed, not by default:
 3. Tier-2 specs live in `e2e/integration-specs/` and import
    `{ test, expect }` from `./index.js` (not `@playwright/test`) so they get
    the `ipc` and `serverMocks` fixtures.
-4. The `window.hyveon.__test.mock()` seam and the two mock surfaces are
+4. The `window.hyveon.__test.mock()` seam is
    documented in `docs/docs/components/integration-tests.md` — read it before
    adding a spec that needs a new mock.
 

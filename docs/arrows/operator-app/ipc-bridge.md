@@ -4,8 +4,8 @@ The typed, secret-free channel between the window and the back end: the `window.
 
 ## Status
 
-**MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
-Working transport with one generic bridge plus nine self-bridged streaming channels; its contract is hand-mirrored in three places and has drifted, and two error paths (BadRequest bodies, self-bridged channels) do not behave the way the comments claim.
+**MAPPED** — mapped 2026-10-30 (SHA `5c55a380`), gap specs closed since.
+Working transport with one generic bridge plus nine self-bridged streaming channels that share one error-normalisation helper; error text, stream ordering and the shared-type contract is specified and type-checked for every shape `@hyveon/shared` defines. The preload types defined only in `@hyveon/desktop-main` remain hand-mirrored and are tracked in the design doc's deferred questions.
 
 ## References
 
@@ -24,7 +24,8 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 - `app/packages/desktop-main/src/ipc-main-bridge.test.ts`
 - `app/packages/desktop-main/src/rpc-error-message.filter.test.ts`
 - `app/packages/desktop-preload/src/preload.test.ts`
-- `app/packages/desktop-preload/src/test-mock-registry.test.ts`
+- `app/packages/desktop-main/src/ipc-handlers.test.ts`
+- `app/packages/desktop-main/src/ipc-stream-roundtrip.test.ts`
 - `app/packages/shared/src/testing/secretFields.test.ts`
 - `app/packages/web/e2e/specs/electron-ipc-roundtrip.spec.ts`
 - `app/packages/web/e2e/specs/ipc-mock.spec.ts`
@@ -36,6 +37,7 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 **desktop-main**
 - `app/packages/desktop-main/src/ipc-main-bridge.ts`
 - `app/packages/desktop-main/src/ipc-broadcast.ts`
+- `app/packages/desktop-main/src/ipc-handlers.ts`
 - `app/packages/desktop-main/src/rpc-error-message.filter.ts`
 - `app/packages/desktop-main/src/controllers/validation.ts`
 - `app/packages/desktop-main/src/testing/message-pattern.test-utils.ts`
@@ -51,7 +53,6 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 - `app/packages/desktop-preload/src/stream-bridge.ts`
 - `app/packages/desktop-preload/src/hyveon-api.ts`
 - `app/packages/desktop-preload/src/index.ts`
-- `app/packages/desktop-preload/src/test-mock-registry.ts`
 
 **web**
 - `app/packages/web/src/api.service.ts`
@@ -80,15 +81,15 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 1. `preload.ts`: builds the `HyveonApi` object literal (`preload.ts:419-652`) over a mock-aware `invoke` (`preload.ts:192-202`) and exposes it with `contextBridge.exposeInMainWorld('hyveon', …)` (`preload.ts:686`); attaches `__test.mock/clearMocks/reset` only when `HYVEON_TEST_MODE=1` (`preload.ts:659-684`).
 2. `stream-bridge.ts`: `createBufferedStream` (`stream-bridge.ts:91`), the shared generator factory for the two stream styles: per-call channels with a `.cancel` message (`logs.stream`, `logs.lambda.stream`) and fixed shared side channels filtered by `streamId` (`iac.stack.initialize`, `iac.runs.logs`, `iac.settings.autoUpdate.download`).
 3. `bridgeStream` / `openBufferedStream` (`preload.ts:369-392`): wrap each internal generator in a plain `HyveonStreamHandle` (`next`, `cancel`, `[Symbol.asyncIterator]`) so it survives the clone boundary.
-4. `hyveon-api.ts`: the full hand-written IPC contract (`HyveonApi`, `HyveonTestApi`, ~2,700 lines, 142 "Mirrors / keep in sync" markers) plus `GUIDED_PROFILE_NAME` (`hyveon-api.ts:2107`).
+4. `hyveon-api.ts`: the full hand-written IPC contract (`HyveonApi`, `HyveonTestApi`, ~2,170 lines, 49 "Mirrors / keep in sync" markers, all for main-only types) plus `GUIDED_PROFILE_NAME`.
 5. `index.ts`: type-only barrel and the single `declare global { interface Window { hyveon?: HyveonApi } }` (`index.ts:58-62`); `app/packages/web/src/globals.d.ts:10` pulls it in by side-effect import.
 6. `ipc-main-bridge.ts`: `BridgedElectronIPCTransport` (`:49`) exposes Nest's protected handler map; `registerIpcMainBridges` (`:124`) puts every pattern not in `SELF_BRIDGED_PATTERNS` (`:27-37`) onto `ipcMain.handle`, unwraps Observable rejections, and rethrows `new Error(message)` (`:138-155`).
-7. `rpc-error-message.filter.ts`: global `@Catch()` filter (`:25`) that replaces Nest's "Internal server error" with `errMessage(exception)`; registered at `main.ts:49`.
+7. `rpc-error-message.filter.ts`: global `@Catch()` filter (`:25`) that replaces Nest's "Internal server error" with `ipcErrorMessage(exception)`; registered at `main.ts:49`.
 8. `validation.ts`: `isNonEmptyString` and `requireStringArray` (`:18`), the payload guards controllers throw `BadRequestException` from.
 9. `api.service.ts`: renderer `api.*` facade (`:276`) over a throwing `hyveon()` accessor (`:257-265`) for games, costs, folderUpload, volumeFiles, discord, diagnostics, drift, audit, cloudHealth; declares web-only DTOs.
-10. `bridge.utils.ts`: `BRIDGE_UNAVAILABLE` / `SETTINGS_BRIDGE_UNAVAILABLE` strings for direct `window.hyveon` callers.
+10. `bridge.utils.ts`: the single `BRIDGE_UNAVAILABLE` string shared by direct `window.hyveon` callers and `api.service.ts`.
 11. `message-pattern.test-utils.ts`: `expectChannels` (`:18`), the reflect-metadata guard that a controller method's `@MessagePattern` string is the channel the preload calls; used in 17 test files.
-12. `test-mock-registry.ts`: namespace-level `register/lookup/clear/buildMockHyveon` (`:44-77`), exported at `@hyveon/desktop-preload/test-mock-registry`.
+12. `ipc-handlers.ts`: `ipcErrorMessage` (one message extractor that reads `HttpException` bodies), `toIpcError` (log and plain-`Error` normalisation) and `registerSelfBridgedHandlers` (the single registration path for the nine self-bridged channels).
 13. `ipc-broadcast.ts`: `forwardToWindows` (`:16-29`), the main-to-renderer push helper that subscribes to an event source and `webContents.send`s each event to every non-destroyed window; returns `null` without subscribing outside Electron. The preload side is one `subscribe` helper (`preload.ts:216-220`) shared by all four push subscriptions.
 14. `secretFields.ts` + `no-secret-fields.ts`: `findSecretFields` (`shared/src/testing/secretFields.ts:29-33`) walks a payload for keys or string values matching a credential/token/cert/fingerprint/URL/IPv4 pattern (`:2`); `expectNoSecretFields` (`desktop-main/src/testing/no-secret-fields.ts:10-12`) is its vitest wrapper. Test-only enforcement of the secret-free bridge for helper results.
 
@@ -98,52 +99,37 @@ Working transport with one generic bridge plus nine self-bridged streaming chann
 |---|---|---|---|---|
 | Bridge naming (NAME) | `APP-IPC-NAME-001` to `APP-IPC-NAME-007` | 7 | 0 | 0 |
 | No HTTP transport (XPORT) | `APP-IPC-XPORT-001` to `APP-IPC-XPORT-006` | 6 | 0 | 0 |
-| Request/response dispatch (CALL) | `APP-IPC-CALL-001` to `APP-IPC-CALL-013` | 12 | 0 | 1 |
-| Error path (ERR) | `APP-IPC-ERR-001` to `APP-IPC-ERR-008` | 5 | 0 | 3 |
-| Streaming across the context bridge (STREAM) | `APP-IPC-STREAM-001` to `APP-IPC-STREAM-015` | 12 | 0 | 3 |
-| Contract and types (CONTRACT) | `APP-IPC-CONTRACT-001` to `APP-IPC-CONTRACT-004` | 2 | 0 | 2 |
+| Request/response dispatch (CALL) | `APP-IPC-CALL-001` to `APP-IPC-CALL-013` | 13 | 0 | 0 |
+| Error path (ERR) | `APP-IPC-ERR-001` to `APP-IPC-ERR-008` | 8 | 0 | 0 |
+| Streaming across the context bridge (STREAM) | `APP-IPC-STREAM-001` to `APP-IPC-STREAM-015` | 15 | 0 | 0 |
+| Contract and types (CONTRACT) | `APP-IPC-CONTRACT-001` to `APP-IPC-CONTRACT-004` | 4 | 0 | 0 |
 | Secrets (SEC) | `APP-IPC-SEC-001` to `APP-IPC-SEC-003` | 3 | 0 | 0 |
-| Test-mode mock seam (SEAM) | `APP-IPC-SEAM-001` to `APP-IPC-SEAM-007` | 5 | 0 | 2 |
+| Test-mode mock seam (SEAM) | `APP-IPC-SEAM-001` to `APP-IPC-SEAM-007` | 7 | 0 | 0 |
 | Test harnesses without HTTP (HARN) | `APP-IPC-HARN-001` to `APP-IPC-HARN-004` | 4 | 0 | 0 |
 
-**Summary:** 56 of 67 active specs implemented; 0 deferred; 11 gaps.
+**Summary:** 67 of 67 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 
-1. **`RpcErrorMessageFilter` flattens `BadRequestException` bodies to "Bad Request Exception"**: `validation.ts:21-24` throws `new BadRequestException({ success: false, error: '<field> must be an array of strings' })`; the filter returns `errMessage(exception)` (`rpc-error-message.filter.ts:36`), and for an object-body `HttpException` Nest sets `.message` to the class-derived string. Verified with `@nestjs/common` in this tree: `new BadRequestException({success:false,error:'…'}).message === "Bad Request Exception"`. Discord admin/permission writes (`discord.controller.ts:159-194`) and folder-upload selection (`folder-upload.controller.ts:146`) therefore show the operator a generic string, not the field error. Sweep marked this unverified at runtime; the message value is confirmed, the end-to-end UI text is `[inferred]`.
-2. **Self-bridged channels bypass both error normalisers**: the nine `SELF_BRIDGED_PATTERNS` (`ipc-main-bridge.ts:27-37`) are registered by their controllers with bare `ipcMain.handle(channel, (evt, p) => this.method(p, { evt }))` (`iac.controller.ts:577-614`, `logs.controller.ts:44-51`, `iac-settings.controller.ts:117`, `iac-runs.controller.ts:183`). They call the method directly, so neither `RpcErrorMessageFilter` nor the bridge's `catch` (`ipc-main-bridge.ts:142-153`) runs; a raw SDK error thrown before the ack would hit the structured-clone failure the bridge comment describes. The same three-line `removeHandler` + `handle` block is repeated five times in `iac.controller.ts` alone.
-3. **Stale comment: "no NestJS exception filter anywhere"**: `ipc-main-bridge.ts:99-100` says so, while `:117` of the same comment and `main.ts:49` register `RpcErrorMessageFilter`.
-4. **Stale comment: "legacy Express 400"**: `validation.ts:14-16` says Nest maps the exception to a 400 with the Express handlers' shape; there is no HTTP transport and no 400 (see finding 1).
-5. **Shared-side-channel streams never tell main to stop**: `stream-bridge.ts:24-26,160-163`: aborting `iac.stack.initialize`, `iac.runs.logs` or `iac.settings.autoUpdate.download` only stops the renderer-side drain loop; no cancel message exists. The spec scenario "Cancellation stops the stream ... the main process tears the underlying stream down" holds only for the per-call style (`stream-bridge.ts:216,227,255`).
-6. **Per-call streams attach listeners after the ack**: `stream-bridge.ts:212-230` awaits `invoke` before `ipcRenderer.on(chunk)` / `.once(end)`, while `LogsController` starts its fire-and-forget loop before returning the ack (`logs.controller.ts:169-196`). A chunk or an immediate error `end` sent before the invoke reply is processed would be dropped and the stream would hang. `[inferred]` race; not reproduced.
-7. **No unmocked streaming test**: every case in `streaming-handle-roundtrip.spec.ts` registers `__test.mock` for its channel first (`:43,86,137,192`), and `createBufferedStream` short-circuits to the mock before any IPC (`stream-bridge.ts:103-109`). The handle's clone survival is proven, but the spec scenario "drives a streaming channel end to end through the real preload bridge with no mock registered" is not; `logs.lambda.stream` and `iac.settings.autoUpdate.download` are not driven at all. The only unmocked e2e is `env.get` (`electron-ipc-roundtrip.spec.ts:21`).
-8. **Two IPC facades in the renderer**: `api.service.ts:276-414` wraps nine namespaces; about 26 non-test renderer files reach `window.hyveon` directly, including all of `iac.*`, `logs.*`, `wizard.*`, `iac.settings.*` and `window.*`. Three "bridge unavailable" wordings exist (`bridge.utils.ts:2,8`, `api.service.ts:260-261`).
-9. **Hand-mirrored contract has drifted**: `hyveon-api.ts` imports some types from `@hyveon/shared` (`:35,44`) but re-declares many: `GameServerPort` lacks `visibility` (`hyveon-api.ts:289-292` vs `app/packages/shared/src/gameServerConfig.ts:50`); `GameServer` lacks `webPort` and `command` (`hyveon-api.ts:418-432` vs `gameServerConfig.ts:243,254`); `GameWizardDraft` lacks both and makes `visibility` optional (`hyveon-api.ts:650-679`), which `api.service.ts:357` papers over with a cast; `LogChunk = string` (`hyveon-api.ts:157`) vs shared `LogChunk` interface (`app/packages/shared/src/cloud.ts:26`). The redacted Discord config is declared three times (`app/packages/shared/src/types.ts:47`, `hyveon-api.ts:231-242`, `api.service.ts:225`). `GUIDED_PROFILE_NAME` duplicated with `GuidedIamService.ts:94` (`hyveon-api.ts:2100-2107`).
-10. **`test-mock-registry.ts` has no consumer**: its doc says it is used by `@hyveon/web` tests (`test-mock-registry.ts:9-11`), but the only references are its own test and a comment in `hyveon-api.ts`. The live test seam is the per-channel `mockRegistry` in `preload.ts:174-202`.
-11. **Preload build compiles tests into `dist`**: `app/packages/desktop-preload/tsconfig.json` includes `app/packages/web/src/**/*` and excludes only `dist`/`node_modules`, so `preload.test.ts` and `test-mock-registry.test.ts` are emitted.
-12. **`SELF_BRIDGED_PATTERNS` is a hand-synced list**: `ipc-main-bridge.ts:27-37` must match each controller's `onModuleInit` registration; all nine currently do. `ipc-main-bridge.test.ts:123-198` covers skip cases for five of nine; `logs.lambda.stream`, `iac.apply`, `iac.destroy` and `iac.runs.logs` have none.
-13. **Stale counts and references in doc comments**: `stream-bridge.ts:7-13,80` says `createBufferedStream` is called four times (it is five; `preload.ts:45` is right); `preload.ts:362` says "three generators"; `openBufferedStream`'s `@param` (`preload.ts:383`) omits `streamUpdateDownload`; `hyveon-api.ts:2645` shows an `@hyveon/desktop-preload/hyveon-api` import path the `package.json` exports map does not provide; `electron-ipc-roundtrip.spec.ts:10-12` cites a preload invoke timeout that does not exist; "tfstate" wording in `hyveon-api.ts:464-478,697-716,2143,2668`.
-14. **Secrets-to-renderer invariant now holds without exception**: Discord and health-check secrets cross only as `botTokenSet` / `publicKeySet` / `secretSet` booleans (`hyveon-api.ts:238-239`). The former `files` namespace, whose `files.start` returned plaintext FileBrowser credentials for one-time display, is gone from `preload.ts`, `hyveon-api.ts` and `api.service.ts`; its replacement `volumeFiles` (`hyveon-api.ts:1570`, `preload.ts:488-526`) returns only session state, listings, text content and transfer ids. The guarantee is enforced by tests only (`expectNoSecretFields` / `findSecretFields`, a regex over keys and string values, `secretFields.ts:2`), not by a runtime check at the bridge.
-15. **Chromium tier fakes `window.hyveon` over a fictional `/api/*` map**: `app/packages/web/e2e/fixtures/hyveon-http-bridge.ts:44` installs an HTTP-forwarding `window.hyveon`; renderer code carries guards that exist only for that stub (`app.component.tsx:34-43`). Consistent with the spec, which keeps the five chromium specs on this shim.
-16. **Dropped files reach main as paths resolved in preload**: `volumeFiles.uploadDropped` maps each renderer `File` through `webUtils.getPathForFile` inside preload (`preload.ts:513-521`) so the renderer never handles local path strings, and the push channel names are string literals in preload because the sandboxed preload cannot load `@hyveon/shared/volumeFiles` at runtime (`preload.ts:143-148`); `preload.test.ts:340-341` pins them to the shared constants.
+1. **One message path for every failure**: `ipcErrorMessage` (`desktop-main/src/ipc-handlers.ts`) reads `HttpException` bodies, so `requireStringArray` and inline `BadRequestException({ success: false, error })` throws reach the renderer with their field text. `RpcErrorMessageFilter`, the generic bridge and every self-bridged channel use it.
+2. **Self-bridged channels share one registration helper**: `registerSelfBridgedHandlers` registers all nine `SELF_BRIDGED_PATTERNS` from the four owning controllers' `onModuleInit` and applies the generic bridge's log-and-rethrow-plain-`Error` normalisation.
+3. **Shared side-channel streams are not cancelled from the renderer, by design**: abandoning `iac.stack.initialize`, `iac.runs.logs` or `iac.settings.autoUpdate.download` stops only the local drain loop; provisioning and the download run to completion and the run-output tail ends with the run.
+4. **Per-call streams cannot lose early events**: the preload attaches listeners then sends `.ready`, and `LogsController.openStream` starts its loop only on that message, so reply/push ordering is irrelevant. Leaving a `for await` early closes the generator (`return()`), removing listeners and sending cancel for per-call streams.
+5. **Streaming is tested without a mock**: `ipc-stream-roundtrip.test.ts` drives the real preload bridge against the real `LogsController` over a structured-cloning in-process bus that delays every invoke reply so a push can arrive before it. The Playwright `streaming-handle-roundtrip.spec.ts` still registers a mock for every case and proves only that the handle survives `contextBridge`.
+6. **Contract drift is closed for shared types**: every preload type with a `@hyveon/shared` counterpart (game server and write shapes, drift, audit, run history, `GameStatus`, `StartResult`, Discord admins and permissions) is re-exported directly, and `shared-types.test.ts` fails `typecheck:tests` if one stops equalling its shared type. `RedactedDiscordConfig` is the one extension: the shared type plus the bridge-only `interactionsEndpointUrl`, so it has no equality assertion. The preload tests are excluded from the build but typechecked by `tsconfig.test.json`, wired into `app:typecheck`. The `Iac*` acks and payloads, the log pages and the wizard service types are defined only in `@hyveon/desktop-main` and remain hand-mirrored. The preload `LogChunk` (a line) is a different type from the shared `LogChunk` and is not a mirror.
+7. **Two IPC facades in the renderer**: `api.service.ts` wraps nine namespaces; about 26 non-test renderer files reach `window.hyveon` directly. Both report a missing bridge with the single `BRIDGE_UNAVAILABLE` string.
+8. **One preload test-mock registry**: the per-channel `mockRegistry` behind `window.hyveon.__test`; the unused namespace registry is gone, and the preload build excludes `*.test.ts`.
+9. **`SELF_BRIDGED_PATTERNS` is a hand-synced list**: it must match each controller's registration. `ipc-main-bridge.test.ts` skips-tests every entry by iterating the set.
+10. **Remaining stale doc comments**: `preload.ts` "three generators" and `openBufferedStream`'s `@param` list, the `@hyveon/desktop-preload/hyveon-api` import path in `hyveon-api.ts`, a preload invoke timeout cited by `electron-ipc-roundtrip.spec.ts`, and "tfstate" wording in `hyveon-api.ts`.
+11. **Secrets-to-renderer invariant now holds without exception**: Discord and health-check secrets cross only as `botTokenSet` / `publicKeySet` / `secretSet` booleans (`hyveon-api.ts:238-239`). The former `files` namespace, whose `files.start` returned plaintext FileBrowser credentials for one-time display, is gone from `preload.ts`, `hyveon-api.ts` and `api.service.ts`; its replacement `volumeFiles` (`hyveon-api.ts:1570`, `preload.ts:488-526`) returns only session state, listings, text content and transfer ids. The guarantee is enforced by tests only (`expectNoSecretFields` / `findSecretFields`, a regex over keys and string values, `secretFields.ts:2`), not by a runtime check at the bridge.
+12. **Chromium tier fakes `window.hyveon` over a fictional `/api/*` map**: `app/packages/web/e2e/fixtures/hyveon-http-bridge.ts:44` installs an HTTP-forwarding `window.hyveon`; renderer code carries guards that exist only for that stub (`app.component.tsx:34-43`). Consistent with the spec, which keeps the five chromium specs on this shim.
+13. **Dropped files reach main as paths resolved in preload**: `volumeFiles.uploadDropped` maps each renderer `File` through `webUtils.getPathForFile` inside preload (`preload.ts:513-521`) so the renderer never handles local path strings, and the push channel names are string literals in preload because the sandboxed preload cannot load `@hyveon/shared/volumeFiles` at runtime (`preload.ts:143-148`); `preload.test.ts:340-341` pins them to the shared constants.
 
 ## Work Required
 
-Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/ipc-bridge/ipc-bridge-specs.md`; items with no matching gap spec carry none.
+No open gap specs. Items without a spec:
 
-### Must Fix
-1. Make `requireStringArray` failures reach the renderer with their field message (throw a plain `Error` or teach `RpcErrorMessageFilter` to read `getResponse()`), and add a filter test for an object-body `BadRequestException` (finding 1). (specs: `APP-IPC-ERR-004`)
-2. Route self-bridged `ipcMain.handle` registrations through the same normalisation as the generic bridge, ideally one shared helper instead of nine hand-written registrations (finding 2). (specs: `APP-IPC-ERR-005`)
-
-### Should Fix
-3. Add one unmocked streaming e2e through the real main process (for example `logs.lambda.stream` or `iac.runs.logs` against a finished run) to satisfy the requirement (finding 7). (specs: `APP-IPC-STREAM-011`)
-4. Decide whether shared-side-channel streams need a main-side cancel, or narrow the cancellation scenario to the per-call style (finding 5). (specs: `APP-IPC-STREAM-009`)
-5. Close the per-call listener-after-ack window, or confirm Electron ordering makes it impossible (finding 6). (specs: `APP-IPC-STREAM-013`)
-6. Replace hand-mirrored preload types with `@hyveon/shared` imports where a shared type exists, starting with `GameServerPort`, `GameServer`, `RedactedDiscordConfig`, `LogChunk` (finding 9). (specs: `APP-IPC-CONTRACT-003`)
-7. Fix the stale comments in `ipc-main-bridge.ts:99-100` and `validation.ts:14-16` (findings 3, 4).
-
-### Nice to Have
-8. Delete `test-mock-registry.ts` or adopt it; exclude `*.test.ts` from the preload `tsconfig.json` (findings 10, 11). (specs: `APP-IPC-SEAM-006`, `APP-IPC-SEAM-007`)
-9. Add skip-case tests for the four uncovered `SELF_BRIDGED_PATTERNS` entries (finding 12). (specs: `APP-IPC-CALL-010`)
-10. Consolidate the bridge-unavailable strings and decide whether direct `window.hyveon` callers should move behind `api.service.ts` (finding 8). (specs: `APP-IPC-CONTRACT-004`)
-11. Sweep the stale counts and references in finding 13.
+1. Move the main-only types (the `Iac*` acks and payloads, log pages, wizard service types) into `@hyveon/shared` so the preload can derive them.
+2. Decide whether direct `window.hyveon` callers should move behind `api.service.ts`.
+3. Sweep the stale doc comments in finding 10.
+4. Remove the chromium-tier `window.hyveon` shim and its guards once those specs move to the electron project.

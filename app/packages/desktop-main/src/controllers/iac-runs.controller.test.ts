@@ -412,6 +412,7 @@ describe('IacRunsController.logs', () => {
     expect(endCalls).toEqual([['iac.runs.logs.end', { streamId }]]);
   });
 
+  // @spec APP-IPC-ERR-007
   it('should send exactly one iac.runs.logs.end message with an error when the stream throws', async () => {
     async function* throwsError(): AsyncGenerator<PulumiRunChunk> {
       yield { stream: 'stdout', line: 'partial' };
@@ -429,7 +430,7 @@ describe('IacRunsController.logs', () => {
     expect(endCalls).toHaveLength(1);
     const [, message] = endCalls[0] as [string, { streamId: string; error?: string }];
     expect(message.streamId).toBe(streamId);
-    expect(message.error).toContain('no run found for runId "run-1"');
+    expect(message.error).toBe('no run found for runId "run-1"');
   });
 
   it('should stop sending chunks once the WebContents is destroyed mid-stream', async () => {

@@ -91,9 +91,11 @@ anything that isn't itself an `RpcException` is reduced to the generic string
 the handler's real message before it ever reaches `ipc-main-bridge.ts`'s
 `firstValueFrom` unwrapping — no amount of unwrapping downstream can recover
 text that's already gone. The filter re-emits the exception as a rejected
-Observable carrying only its real `.message` (via `@hyveon/shared`'s
-`errMessage`), so the operator/renderer see the actual failure instead of a
-generic one. `registerIpcMainBridges` is still the structural choke point that
+Observable carrying only its real message (via `ipcErrorMessage` in
+`src/ipc-handlers.ts`), so the operator/renderer see the actual failure instead of a
+generic one. `ipcErrorMessage` reads the body of an `HttpException`, so a payload guard's
+`BadRequestException({ success: false, error: '<field> must be an array of strings' })`
+reaches the renderer as that field error rather than "Bad Request Exception". `registerIpcMainBridges` is still the structural choke point that
 turns that rejection into a plain `Error` object safe for Electron's
 structured-clone (a raw SDK/Node error carrying non-plain fields like
 `$metadata` otherwise fails the clone, surfacing as `Error: An object could
@@ -598,6 +600,12 @@ tokens, never on a concrete class from here. Extracted as its own workspace
 package (rather than living inside `desktop-main`) so a future non-AWS cloud
 provider package can sit alongside it without `desktop-main` depending on
 either concrete implementation.
+
+The nine channels in `SELF_BRIDGED_PATTERNS` (`logs.stream`, `logs.lambda.stream`, `iac.plan`, `iac.apply`, `iac.destroy`, `iac.rollback.confirm`, `iac.runs.logs`, `iac.stack.initialize`, `iac.settings.autoUpdate.download`) need the invoke event's sender, so their owning controllers register them from `onModuleInit` through one helper, `registerSelfBridgedHandlers` (`src/ipc-handlers.ts`).
+It skips registration outside Electron, calls `removeHandler` before each `handle`, and wraps every handler with the generic bridge's normalisation: a throw before the ack is logged at `error` and rejected as a plain `Error` carrying only the message.
+A stream failure is sent on the stream's end channel as the same message, with no `Error:` prefix.
+For the per-call log streams (`logs.stream`, `logs.lambda.stream`) the controller starts pushing chunks only when the preload sends `<channel>.<streamId>.ready` after attaching its listeners, so the protocol does not depend on whether the invoke reply or the first push reaches the renderer first. Breaking out of the `for await` closes the stream and sends the cancel message.
+Abandoning a shared side-channel stream (`iac.stack.initialize`, `iac.runs.logs`, `iac.settings.autoUpdate.download`) only stops the preload's local loop: provisioning and the update download run to completion, and the run-output tail ends with the run.
 
 ## `@hyveon/desktop-preload`
 

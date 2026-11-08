@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
+import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import {
   computeRunDetailStatus,
   errMessage,
@@ -18,6 +18,7 @@ import {
 import { RunLockChangedError, RunLockClearNotConfirmedError, RunService } from '../services/RunService.js';
 import { RunRecordService, type ListRunsOpts } from '../services/RunRecordService.js';
 import { logger } from '../logger.js';
+import { ipcErrorMessage, registerSelfBridgedHandlers } from '../ipc-handlers.js';
 
 /** Every {@link RunStatus} value — used to validate {@link IacRunsController.list}'s `status` filter. */
 const RUN_STATUSES: readonly RunStatus[] = ['success', 'failed', 'aborted'];
@@ -183,24 +184,12 @@ export class IacRunsController implements OnModuleInit {
    * chunk/end messages over side channels for the duration of a run's output
    * rather than resolving a single value.
    *
-   * Only runs inside a real Electron main process. In plain-Node runtimes
-   * (integration test server, Docker, CI) `process.versions.electron` is
-   * undefined and importing `electron` would throw, so the bridge is skipped
-   * entirely rather than guessing which error means "no Electron" from the
-   * message.
+   * Registration goes through `registerSelfBridgedHandlers`, which is a no-op outside Electron.
    */
   async onModuleInit(): Promise<void> {
-    if (!process.versions.electron) {
-      // Not running inside the Electron main process — ipcMain bridge skipped.
-      return;
-    }
-    const { ipcMain } = (await import('electron')) as unknown as { ipcMain: IpcMain };
-    // Remove any existing handler first so hot-reload re-registration does
-    // not throw "IPC channel already registered".
-    ipcMain.removeHandler('iac.runs.logs');
-    ipcMain.handle('iac.runs.logs', (evt, payload: IacRunsLogsPayload) =>
-      this.logs(payload, { evt: evt as IpcMainInvokeEvent }),
-    );
+    await registerSelfBridgedHandlers({
+      'iac.runs.logs': (payload, ctx) => this.logs(payload as IacRunsLogsPayload, ctx),
+    });
   }
 
   // @spec IAC-RUN-IPC-009
@@ -317,7 +306,7 @@ export class IacRunsController implements OnModuleInit {
       } catch (err) {
         logger.error('iac.runs.logs error', { err, runId, streamId });
         if (!sender.isDestroyed()) {
-          const message: IacRunsLogsEndMessage = { streamId, error: String(err) };
+          const message: IacRunsLogsEndMessage = { streamId, error: ipcErrorMessage(err) };
           sender.send(LOGS_END_CHANNEL, message);
         }
       } finally {

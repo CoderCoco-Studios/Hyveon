@@ -9,11 +9,12 @@ import { BadRequestException } from '@nestjs/common';
 export const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0;
 
+// @spec APP-IPC-ERR-004
 /**
  * Verify a body field is either missing or an array of strings. Returns the
  * validated array (empty if the field was omitted), or throws
- * `BadRequestException` which Nest maps to a 400 with the same shape the
- * legacy Express handlers used.
+ * `BadRequestException` whose field message reaches the renderer through
+ * `ipcErrorMessage`.
  */
 export function requireStringArray(field: string, value: unknown): string[] {
   if (value === undefined) return [];

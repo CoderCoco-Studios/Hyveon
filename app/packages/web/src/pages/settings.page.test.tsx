@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { AwsProfileSummary } from '@hyveon/desktop-preload';
+import { BRIDGE_UNAVAILABLE } from '../lib/bridge.utils.js';
 import { toStreamHandleMock } from '../test-utils/stream-handle.test-utils.js';
 
 const apiMock = vi.hoisted(() => ({
@@ -366,6 +367,20 @@ describe('SettingsPage', () => {
 
       expect(await screen.findByText('Unable to reach the update service.')).toBeInTheDocument();
       expectManualDownloadLink();
+    });
+
+    // @spec APP-IPC-CONTRACT-004
+    it('should show the shared bridge-unavailable message when window.hyveon is absent', async () => {
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+      const button = await screen.findByRole('button', { name: /check for updates/i });
+
+      vi.stubGlobal('hyveon', undefined);
+      try {
+        await userEvent.click(button);
+        expect(await screen.findByText(BRIDGE_UNAVAILABLE)).toBeInTheDocument();
+      } finally {
+        vi.stubGlobal('hyveon', hyveonMock);
+      }
     });
 
     it('should work regardless of the enableAutoUpdate toggle value', async () => {

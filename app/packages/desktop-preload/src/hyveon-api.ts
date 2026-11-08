@@ -55,6 +55,7 @@ import type {
   UpdateDownloadResult,
   UpdateInstallResult,
   OpType,
+  RedactedDiscordConfig as SharedRedactedDiscordConfig,
   PulumiEngineVersionResult,
   RendererConsoleLevel,
   RendererLogEntry,
@@ -63,6 +64,21 @@ import type {
   StartResult,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
+  DiscordAdmins,
+  DiscordGamePermission,
+  DriftKind,
+  DriftChangedField,
+  DriftEntry,
+  DriftReport,
+  AuditAction,
+  AuditEntry,
+  AuditPageResult,
+  RunDetailStatus,
+  RunStatus as RunHistoryStatus,
+  RunRecord as RunHistoryRecord,
+  RunPageResult as RunHistoryPageResult,
+  RunKind as IacRunKind,
+  WizardStep as WizardStepName,
 } from '@hyveon/shared';
 import type {
   FolderOverwriteDecisionResult,
@@ -154,6 +170,21 @@ export type {
   StartResult,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
+  DiscordAdmins,
+  DiscordGamePermission,
+  DriftKind,
+  DriftChangedField,
+  DriftEntry,
+  DriftReport,
+  AuditAction,
+  AuditEntry,
+  AuditPageResult,
+  RunDetailStatus,
+  RunHistoryStatus,
+  RunHistoryRecord,
+  RunHistoryPageResult,
+  IacRunKind,
+  WizardStepName,
 };
 
 /**
@@ -226,48 +257,26 @@ export interface HyveonStreamHandle<T> {
    */
   next: () => Promise<{ done?: false; value: T } | { done: true; value?: undefined }>;
   /**
-   * Stops consuming the stream: tells the main process to tear down the
-   * underlying tail/run early (where applicable — see each streaming
-   * method's own doc comment for exactly what tearing down early means for
-   * that channel). Safe to call more than once and safe to call after the
+   * Stops consuming the stream. A per-call log stream (`logs.stream`, `logs.lambda.stream`) also tells the main
+   * process to abort its source; a shared side-channel stream (`iac.stack.initialize`, `iac.runs.logs`,
+   * `iac.settings.autoUpdate.download`) only stops the local drain, and the main-process work runs to completion.
+   * Safe to call more than once and safe to call after the
    * stream has already ended on its own.
    */
   cancel: () => void;
+  /** Closes the stream; a `for await` loop calls it when the consumer breaks out early, with the same effect as {@link cancel}. */
+  return?: () => Promise<{ done: true; value?: undefined }>;
   /** Returns itself, so the handle is directly usable in a `for await (const chunk of handle)` loop. */
   [Symbol.asyncIterator]: () => HyveonStreamHandle<T>;
 }
 
-/** Admin user/role ID lists. */
-export interface DiscordAdmins {
-  userIds: string[];
-  roleIds: string[];
-}
-
-/** Permission entry for a single game. */
-export interface DiscordGamePermission {
-  userIds: string[];
-  roleIds: string[];
-  /** Action names from the `DiscordAction` union ('start' | 'stop' | 'status'). */
-  actions: string[];
-}
-
 /**
- * Discord config returned to the renderer — secrets are redacted to
- * presence booleans so the raw bot token and public key are never sent
- * over IPC.
+ * Discord config returned to the renderer: the shared redacted shape (secrets as `botTokenSet` / `publicKeySet`
+ * booleans) plus the interactions Function URL the controller reads from Pulumi stack outputs (`null` before apply).
  */
-export interface RedactedDiscordConfig {
-  clientId: string;
-  allowedGuilds: string[];
-  admins: DiscordAdmins;
-  gamePermissions: Record<string, DiscordGamePermission>;
-  baseAllowedGuilds: string[];
-  baseAdmins: DiscordAdmins;
-  botTokenSet: boolean;
-  publicKeySet: boolean;
-  /** Function URL for the interactions Lambda, copied from Pulumi stack outputs. Null if not yet applied. */
+export type RedactedDiscordConfig = SharedRedactedDiscordConfig & {
   interactionsEndpointUrl: string | null;
-}
+};
 
 /** Result of a guild allowlist mutation. */
 export interface GuildListResult {
@@ -309,108 +318,6 @@ export interface EnvInfo {
 }
 
 /**
- * Category of mismatch between a game's declared (deployment config) and
- * deployed (tfstate) state.
- *
- * Mirrors `DriftKind` in `@hyveon/shared/src/drift.ts` — that file is the
- * source of truth; keep this copy in sync with it.
- */
-export type DriftKind = 'pending_create' | 'pending_delete' | 'config_drift';
-
-/**
- * Name of a top-level game server config field that can differ between the
- * declared (deployment config) and deployed (tfstate) configuration for a
- * `'config_drift'` finding.
- *
- * Mirrors `DriftChangedField` in `@hyveon/shared/src/drift.ts` — that file
- * is the source of truth; keep this copy in sync with it.
- */
-export type DriftChangedField = 'ports' | 'image' | 'cpu' | 'memory' | 'volumes';
-
-/**
- * A single per-game drift finding, produced by comparing a game's declared
- * configuration against its live tfstate configuration.
- *
- * Mirrors `DriftEntry` in `@hyveon/shared/src/drift.ts` — that file is the
- * source of truth; keep this copy in sync with it.
- */
-export interface DriftEntry {
-  game: string;
-  kind: DriftKind;
-  changedFields?: DriftChangedField[];
-}
-
-/**
- * Aggregate drift report returned by the `drift.get` IPC channel. Lists
- * every game that is out of sync between its declared and deployed
- * configuration; games that are in sync are omitted entirely.
- *
- * Mirrors `DriftReport` in `@hyveon/shared/src/drift.ts` — that file is the
- * source of truth; keep this copy in sync with it.
- */
-export interface DriftReport {
-  entries: DriftEntry[];
-}
-
-/**
- * The kind of mutation an {@link AuditEntry} records, plus `plan` for a
- * dry-run `pulumi preview` invocation that touched no infrastructure.
- *
- * Mirrors `AuditAction` in `@hyveon/shared/src/audit.ts` — that file is the
- * source of truth; keep this copy in sync with it.
- */
-export type AuditAction =
-  | 'add'
-  | 'edit'
-  | 'remove'
-  | 'plan'
-  | 'approve'
-  | 'apply'
-  | 'destroy'
-  | 'rollback';
-
-/**
- * A single row in the DynamoDB audit log, recording who changed a game
- * server's configuration, what changed, and the resulting deployment
- * config S3 object version.
- *
- * Mirrors `AuditEntry` in `@hyveon/shared/src/audit.ts` — that file is the
- * source of truth; keep this copy in sync with it.
- */
-export interface AuditEntry {
-  /** Sort key: `<ISO timestamp>#<ULID>`. */
-  sk: string;
-  /** ISO-8601 timestamp of the mutation. */
-  timestamp: string;
-  /** Identifier of the user or system that performed the mutation. */
-  actor: string;
-  /** The kind of mutation performed. */
-  action: AuditAction;
-  /** The `game_servers` map key the mutation applied to. */
-  game: string;
-  /** The game's configuration before the mutation, or `null` for `add`. */
-  before: RedactedGameServer | null;
-  /** The game's configuration after the mutation, or `null` for `remove`. */
-  after: RedactedGameServer | null;
-  /** S3 object version id of the deployment config produced by the write, if known. */
-  versionId?: string;
-}
-
-/**
- * A page of audit entries, newest-first, plus an optional cursor for
- * fetching the next page. Returned by the `audit.list` IPC channel.
- *
- * Mirrors `AuditPageResult` in `@hyveon/shared/src/audit.ts` — that file is
- * the source of truth; keep this copy in sync with it.
- */
-export interface AuditPageResult {
-  /** The page of entries, newest-first. */
-  entries: AuditEntry[];
-  /** Cursor (an {@link AuditEntry.sk} value) to pass as `before` to fetch the next, older page. Absent on the last page. */
-  nextBefore?: string;
-}
-
-/**
  * A single line of output from a streamed Pulumi run, tagged with the stream
  * it came from.
  *
@@ -449,19 +356,6 @@ export interface StackInitPhaseEvent {
   phase: StackInitPhase;
   status: StackInitPhaseStatus;
 }
-
-/**
- * Which subcommand produced a {@link IacRunRecord}. Named for the
- * pre-migration IaC CLI's subcommands (`plan`/`apply`/`destroy`) —
- * Pulumi's equivalent Automation API calls are `preview`/`up`/`destroy`, but
- * this value is a persisted-record discriminant, not a currently-running
- * operation name, so it keeps its original vocabulary.
- *
- * Mirrors the `kind` field of `PulumiRunRecord` in
- * `@hyveon/desktop-main/src/services/PulumiService.ts` — that file is the
- * source of truth; keep this copy in sync with it.
- */
-export type IacRunKind = 'plan' | 'apply' | 'destroy';
 
 /**
  * Persisted local run record for a finished plan/apply/destroy run — a
@@ -520,19 +414,6 @@ export interface IacRunRecord {
 }
 
 /**
- * Lifecycle status surfaced by the run-detail view — a superset of the
- * persisted `success` / `failed` / `aborted` run status with two additional,
- * non-persisted values computed at read time: `running` (no
- * {@link IacRunRecord} exists yet because the run hasn't finished) and
- * `awaiting_approval` (a `plan` run finished successfully but its `.tfplan`
- * artifact still exists on disk, awaiting an operator's explicit apply).
- *
- * Mirrors `RunDetailStatus` in `@hyveon/shared/src/runs.ts` — that file is
- * the source of truth; keep this copy in sync with it.
- */
-export type RunDetailStatus = 'success' | 'failed' | 'aborted' | 'running' | 'awaiting_approval';
-
-/**
  * Result of the `iac.runs.get` IPC channel: `found: false` when the
  * requested `runId` is neither the currently in-flight run nor a persisted
  * {@link IacRunRecord} on disk. `found: true` always carries the
@@ -555,85 +436,6 @@ export type IacRunsGetResult =
  * truth.
  */
 export type IacRunsRecordResult = { found: false } | { found: true; record: RunHistoryRecord };
-
-/**
- * Lifecycle status of a {@link RunHistoryRecord}.
- *
- * Mirrors `RunStatus` in `@hyveon/shared/src/runs.ts` — that file is the
- * source of truth; keep this copy in sync with it.
- */
-export type RunHistoryStatus = 'success' | 'failed' | 'aborted';
-
-/**
- * A single row in the DynamoDB-persisted run-history table — the shape
- * `iac.runs.list` returns pages of. Distinct from the local-disk
- * {@link IacRunRecord} that `iac.runs.get`/`streamLogs` operate
- * on: this record additionally carries `sk`, `status`, `approvedBy`/
- * `approvedAt`, and the offloaded-log fields.
- *
- * Mirrors `RunRecord` in `@hyveon/shared/src/runs.ts` — that file is the
- * source of truth; keep this copy in sync with it.
- */
-export interface RunHistoryRecord {
-  /** Sort key: `<startedAt>#<runId>`. */
-  sk: string;
-  /** Unique identifier for the run. */
-  runId: string;
-  /** Which subcommand produced this record. */
-  kind: IacRunKind;
-  /** Lifecycle status. */
-  status: RunHistoryStatus;
-  /** ISO-8601 timestamp captured immediately before the process was spawned. */
-  startedAt: string;
-  /** ISO-8601 timestamp captured immediately after the process closed. */
-  completedAt: string;
-  /** The process's exit code, or `null` if it never reported one. */
-  exitCode: number | null;
-  /** The configuration version id the run was executed against, if the caller supplied one. */
-  configVersionId?: string;
-  /** Hash of the plan artifact this record's run produced or was gated against. */
-  planHash?: string;
-  /** Opaque identifier of the admin who approved this plan run for apply. Set only on approved `plan` records. */
-  approvedBy?: string;
-  /** ISO-8601 timestamp the run was approved at. */
-  approvedAt?: string;
-  /** The run's captured log text, embedded directly on the record when small enough. Mutually exclusive with `logS3Key`. */
-  logInline?: string;
-  /** Key identifying where the run's captured log was offloaded to, once too large to embed. Mutually exclusive with `logInline`. */
-  logS3Key?: string;
-  /** The `runId` of the `apply` run this plan rolled back, if started via the rollback flow. */
-  rolledBackFrom?: string;
-  /**
-   * Structured resource-change summary the Pulumi engine reported for this
-   * run. See {@link IacRunRecord.changeSummary}'s doc comment for the
-   * `{}`-does-not-mean-"no changes" sharp edge — it applies identically here.
-   */
-  changeSummary?: ChangeSummary;
-  /** The Pulumi engine version this run executed against. */
-  engineVersion?: string;
-  /**
-   * `true` when the run's Pulumi engine settled with some resources already
-   * mutated before the failure/abort. See
-   * {@link IacRunRecord.partialApply}'s doc comment for the full
-   * semantics — identical here.
-   */
-  partialApply?: boolean;
-}
-
-/**
- * A page of {@link RunHistoryRecord}s, newest-first, plus an optional cursor
- * for fetching the next page. Returned by the `iac.runs.list` IPC
- * channel.
- *
- * Mirrors `RunPageResult` in `@hyveon/shared/src/runs.ts` — that file is the
- * source of truth; keep this copy in sync with it.
- */
-export interface RunHistoryPageResult {
-  /** The page of records, newest-first. */
-  records: RunHistoryRecord[];
-  /** Cursor (a {@link RunHistoryRecord.sk} value) to pass as `before` to fetch the next, older page. Absent on the last page. */
-  nextBefore?: string;
-}
 
 /** Options accepted by the `iac.runs.list` IPC channel. */
 export interface IacRunsListOpts {
@@ -1469,9 +1271,6 @@ export interface IamCheckResult {
   blocking: boolean;
 }
 
-/** A single first-run wizard step name, in wizard order. Mirrors `WIZARD_STEPS` in `@hyveon/shared`'s `wizardSteps.ts` (re-exported by `@hyveon/web`'s `wizard.utils.ts`). */
-export type WizardStepName = 'pick-cloud' | 'guided-iam' | 'credentials' | 'bootstrap' | 'stack-init';
-
 /**
  * Sub-state of the guided-IAM step's internal flow. Only meaningful when
  * `step === 'guided-iam'` — a documented convention, not a type-level
@@ -2224,18 +2023,9 @@ export type HyveonMockNamespaces = {
 /**
  * Test-only API surface injected under `window.hyveon.__test`.
  *
- * Present in two distinct scenarios:
- *
- * 1. **Vitest / jsdom unit tests** — the test harness replaces the entire
- *    `window.hyveon` object with a mock built from `test-mock-registry`; the mock
- *    object includes this property so individual test cases can register
- *    per-channel overrides via `window.hyveon.__test.mock(channel, handler)`.
- *
- * 2. **Electron preload at runtime** — when the app is launched with
- *    `HYVEON_TEST_MODE=1` (set by the Playwright integration-test harness),
- *    `preload.ts` appends `__test` to the real `window.hyveon` bridge so that
- *    Playwright page scripts can inject IPC mocks without touching the real
- *    Electron IPC layer.
+ * Present only when the Electron preload runs with `HYVEON_TEST_MODE=1` (set by the Playwright
+ * harness): `preload.ts` appends `__test` to the real `window.hyveon` bridge so page scripts can inject IPC
+ * mocks without touching the real IPC layer. Vitest/jsdom tests stub the namespace methods with `vi.fn()` instead.
  *
  * Production code must **never** reference this property — guard every access
  * with an `if (window.hyveon?.__test)` check or, better, avoid it entirely outside

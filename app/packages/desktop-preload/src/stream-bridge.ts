@@ -4,25 +4,26 @@
  * Every streaming channel in `preload.ts` follows the same shape: `invoke` a channel to open a
  * stream, listen on derived chunk/end IPC channels, buffer incoming chunks behind a `wake`
  * resolver, and drain them through an `async function*` until an end event (or abort) closes the
- * loop. {@link createBufferedStream} extracts that machinery once; `preload.ts` calls it four
- * times to produce four separately-named generator factories (`streamLogs`, `streamLambdaLogs`,
- * `streamStackInitialize`, `streamIacRunLogs`) — it is never used to build the exposed
+ * loop. {@link createBufferedStream} extracts that machinery once; `preload.ts` calls it five
+ * times to produce five separately-named generator factories (`streamLogs`, `streamLambdaLogs`,
+ * `streamStackInitialize`, `streamUpdateDownload`, `streamIacRunLogs`) — it is never used to build the exposed
  * `window.hyveon` API object itself, since a `contextBridge`-safe surface can only be built from
  * statically named, own-enumerable properties (see `preload.ts`'s module doc comment).
  *
- * Two channel shapes exist among the four streams, both handled here:
+ * Two channel shapes exist among the five streams, both handled here:
  *
  * - **Per-call channels** (`streamLogs`, `streamLambdaLogs`): the chunk/end channel names embed
  *   the `streamId` minted by the `invoke` ack, so they're unique to this call and listeners attach
  *   only once that ack resolves. Cancellation sends a dedicated `.cancel` message and waits for the
  *   main process to ack it with its own `.end` event before the generator's `finally` block runs.
  *   Selected when `chunkChannel`/`endChannel` are passed as functions of `streamId`.
- * - **Shared side channels** (`streamStackInitialize`, `streamIacRunLogs`): the chunk/end channels
+ * - **Shared side channels** (`streamStackInitialize`, `streamUpdateDownload`, `streamIacRunLogs`): the chunk/end channels
  *   are fixed constants reused by every concurrent call, so listeners attach *before* invoking (to
  *   never drop an event sent right after the ack) and every event is tagged with its own
  *   `streamId`, filtered against this call's `ownStreamId`, and buffered raw until that id is
  *   known. Cancellation has no dedicated channel — aborting just stops the local drain loop
- *   immediately, since there is no per-call main-process run to tear down early. Selected when
+ *   immediately; the main-process work behind these channels (stack provisioning, the update download, a run's
+ *   output tail) deliberately runs to completion. Selected when
  *   `chunkChannel`/`endChannel` are passed as plain strings.
  */
 
@@ -55,6 +56,8 @@ export interface BufferedStreamConfig<TArg, TWire, TOut> {
   endChannel: string | ((streamId: string) => string);
   /** Per-call style only: cancel-channel name sent on abort. Omit for the shared-side-channel style, which has none. */
   cancelChannel?: (streamId: string) => string;
+  /** Per-call style only: ready-channel name the preload sends once its listeners are attached, which starts the main-process source. */
+  readyChannel?: (streamId: string) => string;
   /** Maps a raw wire chunk to the value the generator yields. */
   mapChunk: (raw: TWire) => TOut;
   /** Extracts this call's `streamId` from a raw wire chunk — shared-side-channel style only, used to filter foreign events. */
@@ -76,10 +79,10 @@ export interface BufferedStreamDeps {
 }
 
 // @spec APP-IPC-STREAM-008, APP-IPC-STREAM-010, APP-IPC-STREAM-012, APP-IPC-STREAM-014, APP-IPC-ERR-006
-// @spec APP-IPC-SEAM-005
+// @spec APP-IPC-SEAM-005, APP-IPC-STREAM-009, APP-IPC-STREAM-013
 /**
  * Builds a preload-internal `async function*` implementing one buffered IPC stream — the shared
- * body behind `streamLogs`, `streamLambdaLogs`, `streamStackInitialize`, and `streamIacRunLogs`.
+ * body behind `streamLogs`, `streamLambdaLogs`, `streamStackInitialize`, `streamUpdateDownload`, and `streamIacRunLogs`.
  * See the module doc comment for the two channel styles this handles.
  *
  * The returned generator first checks `deps.mockRegistry` for `config.invokeChannel` (test mode
@@ -94,7 +97,7 @@ export function createBufferedStream<TArg, TWire, TOut>(
   config: BufferedStreamConfig<TArg, TWire, TOut>,
   deps: BufferedStreamDeps,
 ): (arg: TArg, signal?: AbortSignal) => AsyncGenerator<TOut> {
-  const { invokeChannel, chunkChannel, endChannel, cancelChannel, mapChunk, getStreamId, checkAck, toInvokeArgs } =
+  const { invokeChannel, chunkChannel, endChannel, cancelChannel, readyChannel, mapChunk, getStreamId, checkAck, toInvokeArgs } =
     config;
   const shared = typeof chunkChannel === 'string';
   if (shared && !getStreamId) {
@@ -230,6 +233,8 @@ export function createBufferedStream<TArg, TWire, TOut>(
 
     ipcRenderer.on(derivedChunkChannel, onChunk);
     ipcRenderer.once(derivedEndChannel, onEnd);
+    // The main process starts its source only on this message, so no push can precede the listeners above.
+    if (readyChannel) ipcRenderer.send(readyChannel(streamId));
     if (signal) {
       if (signal.aborted) sendCancel();
       else signal.addEventListener('abort', onAbort, { once: true });

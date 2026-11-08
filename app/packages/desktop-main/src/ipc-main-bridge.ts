@@ -1,8 +1,8 @@
 import type { MessageHandler } from '@nestjs/microservices';
-import type { IpcMain, IpcMainInvokeEvent } from 'electron';
+import type { IpcMain } from 'electron';
 import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
 import { firstValueFrom, isObservable } from 'rxjs';
-import { logger } from './logger.js';
+import { bindIpcHandler } from './ipc-handlers.js';
 
 // @spec IAC-RUN-IPC-005
 /**
@@ -99,9 +99,10 @@ export class BridgedElectronIPCTransport extends ElectronIPCTransport {
  * "Attempted to register a second handler for '<channel>'".
  *
  * A rejected handler promise is caught and normalized to a plain `Error`
- * carrying only `.message` before it is rethrown. This app has no NestJS
- * exception filter anywhere, and this bridge is the one structural choke
- * point every `@MessagePattern` handler passes through — without this
+ * carrying only `.message` before it is rethrown. The
+ * global {@link RpcErrorMessageFilter} preserves real messages, and this
+ * bridge is the one structural choke point every generic
+ * `@MessagePattern` handler passes through — without this
  * normalization, a handler that lets a raw SDK/Node error escape (e.g. an
  * AWS SDK exception with non-plain fields like `$metadata` or symbol-keyed
  * internals) fails Electron's structured-clone when the rejection is
@@ -137,24 +138,9 @@ export async function registerIpcMainBridges(transport: BridgedElectronIPCTransp
       continue;
     }
 
-    ipcMain.removeHandler(pattern);
-    ipcMain.handle(pattern, async (evt: IpcMainInvokeEvent, payload: unknown) => {
-      try {
-        const result = await handler(payload, { evt });
-        return isObservable(result) ? await firstValueFrom(result) : result;
-      } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : typeof err === 'object' && err !== null && 'message' in err
-              ? String((err as { message: unknown }).message)
-              : String(err);
-        logger.error(`ipc-main-bridge: handler for "${pattern}" failed: ${message}`, {
-          pattern,
-          stack: err instanceof Error ? err.stack : undefined,
-        });
-        throw new Error(message);
-      }
+    bindIpcHandler(ipcMain, pattern, async (payload, ctx) => {
+      const result = await handler(payload, ctx);
+      return isObservable(result) ? await firstValueFrom(result) : result;
     });
   }
 }

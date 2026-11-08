@@ -330,15 +330,16 @@ the `if (isTestMode)` branch in the preload is never entered and
 only ever exposes the production API namespaces. There is no path by which end
 users can reach the mock registry.
 
-### Two mock surfaces — choose the right one
+### One preload mock registry
 
-| Surface | File | When to use |
-|---------|------|-------------|
-| `window.hyveon.__test.mock(channel, handler)` | `desktop-preload/src/preload.ts` | Playwright Electron e2e specs (`electron` project) that need to control IPC responses without running the Nest server. Called via `win.evaluate(...)` inside each test body (or a `beforeEach` when all tests in a describe share the same mock). When tests share a single `ElectronApplication`, call `win.evaluate(() => window.hyveon.__test.clearMocks())` (alias: `reset()`) in `afterEach` so stale mock handlers don't bleed into later tests. |
-| `register(namespace, mock)` from `@hyveon/desktop-preload/test-mock-registry` | `desktop-preload/src/test-mock-registry.ts` | Vitest unit tests running under jsdom. Build a partial namespace stub with `vi.fn()`, call `register('games', stub)`, then `vi.stubGlobal('hyveon', buildMockHyveon())` so the component under test gets a fully-typed `window.hyveon`. Call `clear()` in `afterEach`. |
+`window.hyveon.__test.mock(channel, handler)` in `desktop-preload/src/preload.ts` is the only test-mode mock registry the preload ships.
+Use it from Playwright Electron e2e specs (`electron` project) that need to control IPC responses.
+Electron still boots the Nest app (`bootstrap()` in `electron-entry.ts`) before it opens the window, so the registry does not replace the main process: it intercepts only the channels a spec registers, and every unmocked call reaches the real IPC handlers.
+Mock each channel the page under test calls (and any it calls on load) or the call runs against real services and AWS.
+Call it via `win.evaluate(...)` inside each test body (or a `beforeEach` when all tests in a describe share the same mock).
+When tests share a single `ElectronApplication`, call the `clearElectronMocks(win)` helper from `app/packages/web/e2e/fixtures/electron-mock.ts` (it runs `window.hyveon.__test.clearMocks()` in the renderer behind a typed cast; `reset()` is an alias) in `afterEach` so stale mock handlers don't bleed into later tests.
 
-The `test-mock-registry` module is **not** imported by the preload script or any
-production code; it exists only for jsdom-environment test helpers.
+Vitest unit tests under jsdom do not use a preload registry: they stub `window.hyveon` directly with `vi.fn()` namespace stubs (see the jsdom component conventions below).
 
 ### Alternative pattern: fresh `ElectronApplication` per test
 

@@ -1,0 +1,13 @@
+{
+  // Typechecks the preload sources and tests without emitting; the build config excludes tests so they never reach dist.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmit": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules"]
+}

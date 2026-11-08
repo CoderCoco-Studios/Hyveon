@@ -11,14 +11,11 @@
     "./preload": {
       "types": "./dist/preload.d.ts",
       "default": "./dist/preload.js"
-    },
-    "./test-mock-registry": {
-      "types": "./dist/test-mock-registry.d.ts",
-      "default": "./dist/test-mock-registry.js"
     }
   },
   "scripts": {
     "build": "tsc -b",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {

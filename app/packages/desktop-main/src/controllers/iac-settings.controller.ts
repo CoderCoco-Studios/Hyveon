@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
+import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import type {
   AutoUpdateSettingGetResult,
   AutoUpdateSettingUpdatePayload,
@@ -16,6 +16,7 @@ import type {
 } from '@hyveon/shared';
 import { OptimisticLockError, errMessage, validateDeploymentSettingsPatch } from '@hyveon/shared';
 import { logger } from '../logger.js';
+import { registerSelfBridgedHandlers } from '../ipc-handlers.js';
 import { readAppVersion } from '../app-version.js';
 import { checkForUpdatesNow, downloadUpdateNow, installDownloadedUpdate } from '../updater.js';
 import {
@@ -122,12 +123,9 @@ export class IacSettingsController implements OnModuleInit {
    * Skipped outside a real Electron main process (`process.versions.electron` unset).
    */
   async onModuleInit(): Promise<void> {
-    if (!process.versions.electron) return;
-    const { ipcMain } = (await import('electron')) as unknown as { ipcMain: IpcMain };
-    ipcMain.removeHandler('iac.settings.autoUpdate.download');
-    ipcMain.handle('iac.settings.autoUpdate.download', (evt) =>
-      this.downloadAutoUpdate({ evt: evt as IpcMainInvokeEvent }),
-    );
+    await registerSelfBridgedHandlers({
+      'iac.settings.autoUpdate.download': (_payload, ctx) => this.downloadAutoUpdate(ctx),
+    });
   }
 
   // @spec CONFIG-SET-001, CONFIG-SET-002, CONFIG-SET-003, CONFIG-SET-009, CONFIG-SET-010, CONFIG-FORM-007

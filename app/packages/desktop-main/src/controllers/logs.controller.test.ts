@@ -78,6 +78,14 @@ function makeCtx(isDestroyed = false) {
   };
 }
 
+/** Fires the most recently registered per-stream `.ready` listener, as the preload does once its listeners are attached. */
+function fireReady(): void {
+  const readyCall = mockIpcMainOnce.mock.calls.findLast(([channel]) => String(channel).endsWith('.ready')) as
+    | [string, () => void]
+    | undefined;
+  readyCall?.[1]();
+}
+
 /** Flush the microtask queue so async fire-and-forget loops fully settle. */
 function flushPromises(): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -284,6 +292,8 @@ describe('LogsController', () => {
 
       const { streamId } = await new LogsController(logs).streamLogs('minecraft', ctx);
 
+      fireReady();
+
       expect(mockIpcMainOnce).toHaveBeenCalledWith(
         `logs.stream.${streamId}.cancel`,
         expect.any(Function),
@@ -301,6 +311,8 @@ describe('LogsController', () => {
       const { ctx, sender } = makeCtx();
 
       const { streamId } = await new LogsController(logs).streamLogs('minecraft', ctx);
+
+      fireReady();
       await flushPromises();
 
       expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.chunk`, 'hello');
@@ -315,6 +327,8 @@ describe('LogsController', () => {
       const { ctx, sender } = makeCtx();
 
       const { streamId } = await new LogsController(logs).streamLogs('minecraft', ctx);
+
+      fireReady();
       await flushPromises();
 
       expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.end`, {});
@@ -331,6 +345,8 @@ describe('LogsController', () => {
       const { ctx, sender } = makeCtx();
 
       const { streamId } = await new LogsController(logs).streamLogs('minecraft', ctx);
+
+      fireReady();
       await flushPromises();
 
       expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.end`, {});
@@ -350,6 +366,8 @@ describe('LogsController', () => {
       const { ctx, sender } = makeCtx();
 
       const { streamId } = await new LogsController(logs).streamLogs('minecraft', ctx);
+
+      fireReady();
       await flushPromises();
 
       const endCall = sender.send.mock.calls.find(([ch]) => ch === `logs.stream.${streamId}.end`);
@@ -357,11 +375,51 @@ describe('LogsController', () => {
       expect(String(endCall?.[1]?.error)).toContain('CloudWatch throttled');
     });
 
+    // @spec APP-IPC-ERR-007
+    it('should send the handler error message on the end channel with no "Error: " prefix', async () => {
+      async function* throwsNonAbort(): AsyncGenerator<string> {
+        yield 'partial';
+        throw new Error('CloudWatch throttled');
+      }
+      const logs = makeLogs();
+      vi.mocked(logs.streamLogs).mockImplementation(throwsNonAbort);
+      const { ctx, sender } = makeCtx();
+
+      const { streamId } = await new LogsController(logs).streamLogs('minecraft', ctx);
+
+      fireReady();
+      await flushPromises();
+
+      expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.end`, { error: 'CloudWatch throttled' });
+    });
+
+    // @spec APP-IPC-STREAM-013
+    it('should not start the source or send any chunk or end event until the preload sends ready', async () => {
+      async function* failsImmediately(): AsyncGenerator<string> {
+        await Promise.reject(new Error('no such log group'));
+        yield 'unreachable';
+      }
+      const logs = makeLogs();
+      vi.mocked(logs.streamLogs).mockImplementation(failsImmediately);
+      const { ctx, sender } = makeCtx();
+
+      const { streamId } = await new LogsController(logs).streamLogs('minecraft', ctx);
+
+      await flushPromises();
+      expect(sender.send).not.toHaveBeenCalled();
+
+      fireReady();
+      await flushPromises();
+      expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.end`, { error: 'no such log group' });
+    });
+
     it('should create its own AbortController and pass the signal to LogsService.streamLogs', async () => {
       const logs = makeLogs();
       const { ctx } = makeCtx();
 
       await new LogsController(logs).streamLogs('minecraft', ctx);
+
+      fireReady();
       await flushPromises();
 
       // The signal passed to streamLogs must be an AbortSignal created by the controller.
@@ -390,6 +448,8 @@ describe('LogsController', () => {
 
       await new LogsController(logs).streamLogs('minecraft', ctx);
 
+      fireReady();
+
       // Retrieve the cancel handler registered via ipcMain.once and invoke it.
       const [, cancelHandler] = mockIpcMainOnce.mock.calls[0] as [string, () => void];
       cancelHandler();
@@ -397,6 +457,21 @@ describe('LogsController', () => {
       await flushPromises();
 
       expect(capturedSignal?.aborted).toBe(true);
+    });
+
+    // @spec APP-IPC-STREAM-013
+    it('should end the stream without starting the source when cancel arrives before ready', async () => {
+      const logs = makeLogs();
+      const { ctx, sender } = makeCtx();
+
+      const { streamId } = await new LogsController(logs).streamLogs('minecraft', ctx);
+      const [, cancelHandler] = mockIpcMainOnce.mock.calls.find(([ch]) => String(ch).endsWith('.cancel')) as [string, () => void];
+      cancelHandler();
+      fireReady();
+      await flushPromises();
+
+      expect(sender.send).toHaveBeenCalledWith(`logs.stream.${streamId}.end`, {});
+      expect(logs.streamLogs).not.toHaveBeenCalled();
     });
 
     // @spec APP-LOGS-IPC-008
@@ -407,6 +482,8 @@ describe('LogsController', () => {
       const { ctx } = makeCtx();
 
       const { streamId } = await new LogsController(logs).streamLogs('minecraft', ctx);
+
+      fireReady();
       await flushPromises();
 
       expect(mockIpcMainRemoveAllListeners).toHaveBeenCalledWith(`logs.stream.${streamId}.cancel`);
@@ -421,6 +498,8 @@ describe('LogsController', () => {
       const { ctx, sender } = makeCtx(true);
 
       await new LogsController(logs).streamLogs('minecraft', ctx);
+
+      fireReady();
       await flushPromises();
 
       expect(sender.send).not.toHaveBeenCalled();
@@ -523,6 +602,8 @@ describe('LogsController', () => {
 
       const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
 
+      fireReady();
+
       expect(mockIpcMainOnce).toHaveBeenCalledWith(
         `logs.lambda.stream.${streamId}.cancel`,
         expect.any(Function),
@@ -540,6 +621,8 @@ describe('LogsController', () => {
       const { ctx, sender } = makeCtx();
 
       const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+
+      fireReady();
       await flushPromises();
 
       expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.chunk`, 'hello');
@@ -554,6 +637,8 @@ describe('LogsController', () => {
       const { ctx, sender } = makeCtx();
 
       const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+
+      fireReady();
       await flushPromises();
 
       expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.end`, {});
@@ -570,6 +655,8 @@ describe('LogsController', () => {
       const { ctx, sender } = makeCtx();
 
       const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+
+      fireReady();
       await flushPromises();
 
       expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.end`, {});
@@ -589,6 +676,8 @@ describe('LogsController', () => {
       const { ctx, sender } = makeCtx();
 
       const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+
+      fireReady();
       await flushPromises();
 
       const endCall = sender.send.mock.calls.find(([ch]) => ch === `logs.lambda.stream.${streamId}.end`);
@@ -601,6 +690,8 @@ describe('LogsController', () => {
       const { ctx } = makeCtx();
 
       await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+
+      fireReady();
       await flushPromises();
 
       expect(logs.streamLambdaLogs).toHaveBeenCalledWith('watchdog', expect.any(AbortSignal));
@@ -626,6 +717,8 @@ describe('LogsController', () => {
 
       await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
 
+      fireReady();
+
       const [, cancelHandler] = mockIpcMainOnce.mock.calls[0] as [string, () => void];
       cancelHandler();
 
@@ -642,6 +735,8 @@ describe('LogsController', () => {
       const { ctx } = makeCtx();
 
       const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+
+      fireReady();
       await flushPromises();
 
       expect(mockIpcMainRemoveAllListeners).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.cancel`);
@@ -655,6 +750,8 @@ describe('LogsController', () => {
       const { ctx, sender } = makeCtx(true);
 
       await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+
+      fireReady();
       await flushPromises();
 
       expect(sender.send).not.toHaveBeenCalled();

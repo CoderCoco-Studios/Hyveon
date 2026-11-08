@@ -881,11 +881,7 @@ describe('preload dispatcher', () => {
         capturedChunkListener.current?.({}, 'first-chunk');
         await firstNext;
 
-        // `cancel()` is the bridge handle's only early-stop signal — unlike the
-        // old raw-generator shape, the handle exposes no `return()` for a
-        // `for await` `break` to call automatically, so cancellation is always
-        // explicit. It should send the cancel IPC message synchronously,
-        // exactly like an aborted `AbortSignal` used to.
+        // `cancel()` sends the cancel IPC message synchronously, exactly like an aborted `AbortSignal` used to.
         handle.cancel();
         expect(ipcSend).toHaveBeenCalledWith(cancelChannel);
 
@@ -899,6 +895,52 @@ describe('preload dispatcher', () => {
         expect(ipcRemoveListener).toHaveBeenCalledWith(chunkChannel, expect.any(Function));
         expect(ipcRemoveListener).toHaveBeenCalledWith(endChannel, expect.any(Function));
       }, 10_000);
+
+      // @spec APP-IPC-STREAM-013
+      it('should send the ready message only after both listeners are attached', async () => {
+        ipcInvoke.mockResolvedValue({ streamId: 'sid-ready' });
+        const chunkListener: { current: ((_evt: unknown, chunk: string) => void) | null } = { current: null };
+        ipcOn.mockImplementation((channel: string, listener: (_evt: unknown, chunk: string) => void) => {
+          if (channel === 'logs.stream.sid-ready.chunk') chunkListener.current = listener;
+        });
+
+        const logs = bridge['logs'] as { stream: (game: string) => HyveonStreamHandle<string> };
+        const handle = logs.stream('minecraft');
+        const first = handle.next();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(ipcSend).toHaveBeenCalledWith('logs.stream.sid-ready.ready');
+        const readyOrder = ipcSend.mock.invocationCallOrder[0] ?? 0;
+        expect(Math.max(...ipcOn.mock.invocationCallOrder, ...ipcOnce.mock.invocationCallOrder)).toBeLessThan(readyOrder);
+
+        chunkListener.current?.({}, 'line');
+        await expect(first).resolves.toEqual({ done: false, value: 'line' });
+        handle.cancel();
+      });
+
+      // @spec APP-IPC-STREAM-008, APP-IPC-STREAM-010
+      it('should send cancel and remove listeners when the consumer breaks out of for-await', async () => {
+        ipcInvoke.mockResolvedValue({ streamId: 'sid-break' });
+        const chunkListener: { current: ((_evt: unknown, chunk: string) => void) | null } = { current: null };
+        ipcOn.mockImplementation((channel: string, listener: (_evt: unknown, chunk: string) => void) => {
+          if (channel === 'logs.stream.sid-break.chunk') chunkListener.current = listener;
+        });
+
+        const logs = bridge['logs'] as { stream: (game: string) => HyveonStreamHandle<string> };
+        const consume = (async () => {
+          for await (const chunk of logs.stream('minecraft')) {
+            expect(chunk).toBe('first');
+            break;
+          }
+        })();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        chunkListener.current?.({}, 'first');
+        await consume;
+
+        expect(ipcSend).toHaveBeenCalledWith('logs.stream.sid-break.cancel');
+        expect(ipcRemoveListener).toHaveBeenCalledWith('logs.stream.sid-break.chunk', expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith('logs.stream.sid-break.end', expect.any(Function));
+      });
     });
   });
 
@@ -1326,6 +1368,32 @@ describe('preload dispatcher', () => {
         ]);
       });
 
+      // @spec APP-IPC-STREAM-009, APP-IPC-STREAM-010
+      it('should remove the fixed-channel listeners and send nothing when the consumer breaks out of for-await', async () => {
+        ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
+        const capturedChunkListener: { current: ChunkListener | null } = { current: null };
+        ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
+          if (channel === 'iac.stack.initialize.chunk') capturedChunkListener.current = listener as ChunkListener;
+        });
+
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
+        };
+        const consume = (async () => {
+          for await (const event of iac.stack.initialize()) {
+            expect(event.phase).toBe('engine');
+            break;
+          }
+        })();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        capturedChunkListener.current?.({}, { streamId: STREAM_ID, phase: 'engine', status: 'start' });
+        await consume;
+
+        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.chunk', expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
+        expect(ipcSend).not.toHaveBeenCalled();
+      });
+
       // @spec APP-IPC-STREAM-014
       it('should ignore chunk/end events tagged with a foreign streamId so a rejected concurrent call cannot cross-terminate this stream', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
@@ -1444,7 +1512,7 @@ describe('preload dispatcher', () => {
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
       });
 
-      // @spec APP-IPC-STREAM-010
+      // @spec APP-IPC-STREAM-010, APP-IPC-STREAM-009
       it('should stop the stream and clean up listeners when cancelled mid-stream', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
@@ -1482,6 +1550,7 @@ describe('preload dispatcher', () => {
         const second = await handle.next();
 
         expect(second.done).toBe(true);
+        expect(ipcSend).not.toHaveBeenCalled();
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.chunk', expect.any(Function));
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
       }, 10_000);
