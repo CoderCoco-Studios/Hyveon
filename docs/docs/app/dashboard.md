@@ -221,7 +221,7 @@ The `LIVE` pill next to it summarises the same health across all pollers.
 The top bar doubles as the app's window title bar — drag any empty area of it to move the window, and on Linux it shows in-app minimize/maximize/close buttons since the OS title bar is hidden.
 
 Note that the underlying per-game cost estimates (`costs.estimate`) are
-fetched once on mount, not part of that 20-second cycle — see
+fetched at app start and when you open the Costs page, not part of that 20-second cycle — see
 [The KPI strip](#the-kpi-strip) above. The **Current run rate** and
 **Est. month cap** tiles still change every poll, though, since they're
 recomputed from the current run state each time. The pending-changes banner

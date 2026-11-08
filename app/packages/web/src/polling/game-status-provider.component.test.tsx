@@ -184,6 +184,33 @@ describe('GameStatusProvider', () => {
     expect(toastMock.error).toHaveBeenCalledWith('Could not load cost estimates', { description: 'describe denied' });
   });
 
+  // @spec RT-TASK-UI-004
+  it('should reload estimates on demand, clearing a previous failure', async () => {
+    apiMock.costsEstimate.mockRejectedValueOnce(new Error('describe denied')).mockResolvedValueOnce(ESTIMATES);
+
+    render(
+      <PollingProvider>
+        <GameStatusProvider>
+          <ReloadEstimatesProbe />
+        </GameStatusProvider>
+      </PollingProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('estimates-error')).toHaveTextContent('describe denied');
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('reload-estimates'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('estimates-error')).toHaveTextContent('-');
+    expect(screen.getByTestId('hourly')).toHaveTextContent('0.08');
+  });
+
   // @spec RT-TASK-UI-005
   it('should insert a game status that the last full poll did not include when refreshing that game', async () => {
     apiMock.status.mockResolvedValue([STOPPED]);
@@ -225,6 +252,20 @@ function RefreshGameProbe() {
       <div data-testid="games">{statuses.map((s) => `${s.game}:${s.state}`).join(',')}</div>
       <button data-testid="refresh-valheim" onClick={() => void refreshGame('valheim')}>
         refresh
+      </button>
+    </div>
+  );
+}
+
+/** Exposes estimates, their failure state, and a button that reloads them. */
+function ReloadEstimatesProbe() {
+  const { estimates, estimatesError, reloadEstimates } = useGameStatus();
+  return (
+    <div>
+      <div data-testid="estimates-error">{estimatesError ? estimatesError.message : '-'}</div>
+      <div data-testid="hourly">{estimates ? String(estimates.totalPerHourIfAllOn) : '-'}</div>
+      <button data-testid="reload-estimates" onClick={() => void reloadEstimates()}>
+        reload
       </button>
     </div>
   );

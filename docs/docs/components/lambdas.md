@@ -189,7 +189,8 @@ Failure modes:
   up but unreachable by DNS until another `RUNNING`/`STOPPED` state-change
   event fires for it (e.g. the task is stopped and started again).
 - UPSERT fails → PATCH an error status to any pending interaction, then fail
-  the invocation so EventBridge retries it.
+  the invocation so Lambda's asynchronous invoke retries run. The pending row
+  is kept so a successful retry overwrites the error message and deletes the row.
 - Route 53 DELETE fails → log, continue. There is no retry and no backstop —
   the watchdog only issues `StopTask`, it never touches Route 53 — so a
   stale record persists until another `RUNNING`/`STOPPED` event fires for

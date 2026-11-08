@@ -69,4 +69,15 @@ describe('CostsPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not load cost estimates: describe denied');
   });
+
+  // @spec RT-TASK-UI-004
+  it('should reload estimates on mount so a failed or stale app-start fetch recovers', async () => {
+    apiMock.costsEstimate.mockRejectedValueOnce(new Error('describe denied')).mockResolvedValue(ESTIMATES);
+
+    renderPage(<CostsPage />, { initialEntries: ['/costs'] });
+
+    expect(await screen.findByRole('cell', { name: 'minecraft' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(apiMock.costsEstimate).toHaveBeenCalledTimes(2);
+  });
 });

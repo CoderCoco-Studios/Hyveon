@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Search } from 'lucide-react';
 import { type CostEstimates, type GameEstimate } from '../api.service.js';
 import { Card, CardContent } from '@/components/ui/card.component';
@@ -171,7 +171,11 @@ function EstimateTableRow({ row, color }: { row: EstimateRow; color: string }) {
  * for real billed spend. The app makes no AWS Cost Explorer API calls, ever.
  */
 export function CostsPage() {
-  const { estimates, estimatesError } = useGameStatus();
+  const { estimates, estimatesError, reloadEstimates } = useGameStatus();
+
+  useEffect(() => {
+    void reloadEstimates();
+  }, [reloadEstimates]);
 
   const games = useMemo(
     () => (estimates ? Object.keys(estimates.games).sort() : []),

@@ -182,14 +182,15 @@ async function deleteDns(dnsName: string): Promise<void> {
 }
 
 /** What the pending Discord interaction should be told: the resolved address, or why the task never became reachable. */
-type PendingOutcome = { publicIp: string } | { error: string };
+type PendingOutcome = { publicIp: string } | { error: string; keepRow?: boolean };
 
 // @spec RT-TASK-NOTIFY-001, RT-TASK-NOTIFY-002, RT-TASK-NOTIFY-003, RT-TASK-NOTIFY-004
 // @spec RT-TASK-NOTIFY-005, RT-TASK-NOTIFY-006
 // @spec DISCORD-MSG-006
 /**
  * If a Discord interaction is pending for this task, PATCH it with the resolved
- * hostname/IP (or the error text of a failed outcome) and delete the pending row.
+ * hostname/IP (or the error text of a failed outcome) and delete the pending row, unless the outcome sets
+ * `keepRow` so a retried invocation can still overwrite the message and clear the row.
  */
 async function notifyDiscordIfPending(
   taskArn: string,
@@ -209,6 +210,7 @@ async function notifyDiscordIfPending(
           )
         : formatGameStatus({ game, state: 'error', message: outcome.error, taskArn });
     await patchInteractionOriginal(pending.applicationId, pending.interactionToken, message);
+    if ('error' in outcome && outcome.keepRow) return;
     await deletePending(TABLE_NAME, taskArn);
   } catch (err) {
     console.error('Discord followup notification failed', { error: errMessage(err), taskArn });
@@ -250,7 +252,10 @@ async function handleDirect(
       await upsertDns(dnsName, ip);
     } catch (err) {
       console.error('DNS upsert failed', { dnsName, error: errMessage(err) });
-      await notifyDiscordIfPending(taskArn, game, { error: 'Could not publish a DNS record for this task.' });
+      await notifyDiscordIfPending(taskArn, game, {
+        error: 'Could not publish a DNS record for this task.',
+        keepRow: true,
+      });
       throw err;
     }
     await notifyDiscordIfPending(taskArn, game, { publicIp: ip });

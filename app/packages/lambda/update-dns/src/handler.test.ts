@@ -285,7 +285,7 @@ describe('update-dns handler: pending interaction on failure paths', () => {
   });
 
   // @spec RT-TASK-NOTIFY-006
-  it('should PATCH an error then fail the invocation when the UPSERT throws', async () => {
+  it('should PATCH an error, keep the row, then fail the invocation when the UPSERT throws', async () => {
     stubTaskWithEni();
     ec2Mock.on(DescribeNetworkInterfacesCommand).resolves({
       NetworkInterfaces: [{ Association: { PublicIp: '1.2.3.4' } }],
@@ -298,7 +298,7 @@ describe('update-dns handler: pending interaction on failure paths', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toContain('**palworld**: error');
-    expect(deletePendingMock).toHaveBeenCalledWith('test-discord', 'arn:task/abc');
+    expect(deletePendingMock).not.toHaveBeenCalled();
     err.mockRestore();
   });
 });

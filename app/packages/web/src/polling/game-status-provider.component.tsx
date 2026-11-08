@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -33,7 +34,7 @@ export const GAME_STATUS_INTERVAL_MS = (() => {
 interface GameStatusContextValue {
   statuses: GameStatus[];
   estimates: CostEstimates | null;
-  /** Set when the one-time `costs.estimate` fetch rejected; estimates stay `null`. */
+  /** Set when the latest `costs.estimate` fetch rejected; cleared by the next successful fetch. */
   estimatesError: Error | null;
   loading: boolean;
   /** Set when the most recent `fetchStatuses` call rejected; cleared on the next successful poll. */
@@ -42,6 +43,8 @@ interface GameStatusContextValue {
   refresh: () => Promise<void>;
   /** Re-fetch a single game's status — used by `GameCard` after Start/Stop. */
   refreshGame: (game: string) => Promise<void>;
+  /** Re-fetch `costs.estimate`; the Costs page calls it on mount so estimates reflect the latest apply. */
+  reloadEstimates: () => Promise<void>;
 }
 
 const GameStatusCtx = createContext<GameStatusContextValue | null>(null);
@@ -56,7 +59,7 @@ const GameStatusCtx = createContext<GameStatusContextValue | null>(null);
  * Internally registers a `status` poller with the shared polling registry so
  * the top-bar Refresh button can trigger it alongside any other active poll.
  *
- * Cost estimates are fetched once on mount rather than on every poll —
+ * Cost estimates are fetched once at mount and again on demand through `reloadEstimates` rather than on every poll —
  * the `costs.estimate` IPC channel loops over every configured game and calls
  * `EcsService.getTaskDefinition()` per game, so polling it every 20s on every
  * route would add steady ECS API traffic for data that only changes on
@@ -88,22 +91,28 @@ export function GameStatusProvider({ children }: { children: ReactNode }) {
 
   const { refresh } = usePoller(GAME_STATUS_POLLER, fetchStatuses, GAME_STATUS_INTERVAL_MS);
 
-  useEffect(() => {
-    let cancelled = false;
-    api.costsEstimate()
-      .then((est) => {
-        if (!cancelled) setEstimates(est);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        const failure = err instanceof Error ? err : new Error(String(err));
-        setEstimatesError(failure);
-        toast.error('Could not load cost estimates', { description: failure.message });
-      });
-    return () => {
-      cancelled = true;
-    };
+  const mountedRef = useRef(true);
+  const reloadEstimates = useCallback(async () => {
+    try {
+      const est = await api.costsEstimate();
+      if (!mountedRef.current) return;
+      setEstimates(est);
+      setEstimatesError(null);
+    } catch (err: unknown) {
+      if (!mountedRef.current) return;
+      const failure = err instanceof Error ? err : new Error(String(err));
+      setEstimatesError(failure);
+      toast.error('Could not load cost estimates', { description: failure.message });
+    }
   }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void reloadEstimates();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [reloadEstimates]);
 
   const refreshGame = useCallback(async (game: string) => {
     const s = await api.statusGame(game);
@@ -113,8 +122,8 @@ export function GameStatusProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<GameStatusContextValue>(
-    () => ({ statuses, estimates, estimatesError, loading, error, refresh, refreshGame }),
-    [statuses, estimates, estimatesError, loading, error, refresh, refreshGame],
+    () => ({ statuses, estimates, estimatesError, loading, error, refresh, refreshGame, reloadEstimates }),
+    [statuses, estimates, estimatesError, loading, error, refresh, refreshGame, reloadEstimates],
   );
 
   return <GameStatusCtx.Provider value={value}>{children}</GameStatusCtx.Provider>;
