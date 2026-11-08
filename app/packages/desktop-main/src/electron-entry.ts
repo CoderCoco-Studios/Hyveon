@@ -49,7 +49,9 @@ export function resolveWindowIcon(): string | undefined {
  * @param err - The value the failing step rejected with.
  */
 function logStartupFailure(what: string, err: unknown): void {
-  logger.error(`[desktop-main] ${what}: ${ipcErrorMessage(err)}`);
+  logger.error(`[desktop-main] ${what}: ${ipcErrorMessage(err)}`, {
+    stack: err instanceof Error ? err.stack : undefined,
+  });
 }
 
 // @spec APP-SHELL-BOOT-010

@@ -464,7 +464,10 @@ describe('electron-entry', () => {
 
       await runStartup();
 
-      expect(mockLoggerError).toHaveBeenCalledWith(expect.stringContaining('IPC init failure'));
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.stringContaining('IPC init failure'),
+        expect.objectContaining({ stack: expect.stringContaining('IPC init failure') }),
+      );
     });
 
     it('should log the failure to winston when the renderer fails to load', async () => {
@@ -472,7 +475,7 @@ describe('electron-entry', () => {
 
       await runStartup();
 
-      expect(mockLoggerError).toHaveBeenCalledWith(expect.stringContaining('renderer bundle missing'));
+      expect(mockLoggerError).toHaveBeenCalledWith(expect.stringContaining('renderer bundle missing'), expect.anything());
     });
 
     it('should log the failure to winston when the updater init rejects', async () => {
@@ -480,7 +483,7 @@ describe('electron-entry', () => {
 
       await runStartup();
 
-      expect(mockLoggerError).toHaveBeenCalledWith(expect.stringContaining('updater boom'));
+      expect(mockLoggerError).toHaveBeenCalledWith(expect.stringContaining('updater boom'), expect.anything());
     });
 
     it('should log the failure to winston when opening an external URL rejects', async () => {
@@ -492,7 +495,7 @@ describe('electron-entry', () => {
       await flushPromises();
 
       expect(result).toEqual({ action: 'deny' });
-      expect(mockLoggerError).toHaveBeenCalledWith(expect.stringContaining('no browser'));
+      expect(mockLoggerError).toHaveBeenCalledWith(expect.stringContaining('no browser'), expect.anything());
     });
   });
 
