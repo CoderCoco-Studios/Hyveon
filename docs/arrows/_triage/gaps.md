@@ -249,15 +249,15 @@ Specs: `docs/intent/operator-app/app-update-and-release/app-update-and-release-s
 
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
-| `APP-UPDATE-FALL-007` | closed | - | Fixed (was): fetched `per_page=10` only. The lookup pages 100 at a time until a short page |
+| `APP-UPDATE-FALL-007` | closed | - | Fixed (was): fetched `per_page=10` only. The lookup pages 100 at a time, up to 10 pages, stopping at the first page with an eligible release |
 | `APP-UPDATE-DL-005` | closed | - | Fixed (was): compared the rejection text `Please check update first`. Download re-checks from tracked `updateState.checkCached` |
 | `APP-UPDATE-DL-009` | closed | - | Fixed (was): `quitAndInstall` called unconditionally. Install returns `{ ok: false }` unless a download finished in this process |
 | `APP-UPDATE-IPC-009` | closed | - | Fixed (was): channel names declared in controller and preload. One declaration in `@hyveon/shared/updateChannels` |
-| `APP-UPDATE-PKG-004` | d | - | Updater feeds and Settings link now derive from `RELEASE_REPO` (`@hyveon/shared`); `electron-builder.yml` `publish` remains a literal copy guarded by `packaging-manifest-pins.test.ts`. Needs a decision on an `electron-builder` JS config |
-| `APP-UPDATE-PKG-005` | d | - | Matrix still written in `package.yml` and `release.yml`; `ci-workflows.test.ts` fails on drift. Needs a decision on a single shared definition (reusable workflow changes required-check names) |
+| `APP-UPDATE-PKG-004` | closed | - | Reworded: the `publish` block is held equal to `RELEASE_REPO` by `packaging-manifest-pins.test.ts` (a YAML file cannot import a constant) |
+| `APP-UPDATE-PKG-005` | closed | - | Reworded: the matrix is held equal across both workflows by `ci-workflows.test.ts` (a reusable workflow would change required-check names) |
 | `APP-UPDATE-PKG-006` | closed | - | Fixed (was): hard-coded `@tailwindcss/oxide@4.3.0`. `build-package` reads the lockfile version |
 | `APP-UPDATE-PKG-008` | closed | - | Fixed (was): no guard on the `files` closure. `packaging-files-closure.test.ts` walks the externalized packages' runtime closure |
-| `APP-UPDATE-DRAFT-004` | closed | - | Fixed (was): incomplete draft left behind. A final `if: failure()` step deletes the draft by id |
+| `APP-UPDATE-DRAFT-004` | closed | - | Fixed (was): incomplete draft left behind. A final `if: failure()` step deletes the draft by id or, failing that, by tag, and only while it is still a draft |
 
 ### `desktop-shell`
 
