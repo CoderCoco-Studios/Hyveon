@@ -19,7 +19,7 @@ Impact applies to class **b** (and is noted on a few **c** items): **high** = op
 
 ## Summary
 
-No `[ ]` spec is implemented-but-unmarked: every gap note still describes the current code. 132 are real gaps (6 since closed: `DISCORD-RUN-010`, `DISCORD-RUN-011`, `DISCORD-RUN-014`, `APP-WIZARD-RECONF-009`, `APP-WIZARD-ROTATE-008`, `RT-TASK-LAUNCH-010`), 28 should be deferred and 26 need their spec text fixed.
+No `[ ]` spec is implemented-but-unmarked: every gap note still describes the current code. 132 are real gaps (7 since closed: `IAC-RUN-HIST-004`, `DISCORD-RUN-010`, `DISCORD-RUN-011`, `DISCORD-RUN-014`, `APP-WIZARD-RECONF-009`, `APP-WIZARD-ROTATE-008`, `RT-TASK-LAUNCH-010`), 28 should be deferred and 26 need their spec text fixed.
 
 The 6 remaining high-impact specs reduce to 4 root causes: one single-spec one (`APP-DIAG-SCRUB-003`), the health-check Lambda environment (`RT-HEALTH-PROV-003`, `IAC-PROGRAM-LAMBDA-011`), and the health-check Lambda network path (`RT-HEALTH-PROV-004`, `IAC-PROGRAM-LAMBDA-012`). The install-region set of five (`IAC-ENGINE-REGION-001`, `CONFIG-SET-012`, `CONFIG-FORM-003`, `CONFIG-FORM-007`, `APP-WIZARD-REGLOCK-001`) has since closed. The Reconfigure credential set (`APP-WIZARD-RECONF-009`, `APP-WIZARD-ROTATE-008`) has also closed, as has the start race (`RT-TASK-LAUNCH-010`).
 
@@ -27,7 +27,7 @@ Totals count specs, one class per spec. `APP-WIZARD-HEALTH-008` is counted once,
 
 | Segment | Specs file | a | b (high / med / low) | c | d | Total |
 |---|---|---|---|---|---|---|
-| `run` | `docs/intent/iac/run/run-specs.md` | 0 | 10 (1 / 6 / 3) | 3 | 4 | 17 |
+| `run` | `docs/intent/iac/run/run-specs.md` | 0 | 5 (0 / 3 / 2) | 3 | 4 | 12 |
 | `engine` | `docs/intent/iac/engine/engine-specs.md` | 0 | 13 (1 / 5 / 7) | 2 | 0 | 15 |
 | `program` | `docs/intent/iac/program/program-specs.md` | 0 | 10 (2 / 1 / 7) | 1 | 2 | 13 |
 | `task-and-dns` | `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md` | 0 | 10 (1 / 3 / 6) | 1 | 3 | 14 |
@@ -43,7 +43,7 @@ Totals count specs, one class per spec. `APP-WIZARD-HEALTH-008` is counted once,
 | `deployment-config` | `docs/intent/deployment-config/deployment-config-specs.md` | 0 | 9 (3 / 2 / 4) | 2 | 0 | 11 |
 | `discord-bot` | `docs/intent/discord-bot/discord-bot-specs.md` | 0 | 9 (0 / 5 / 4) | 1 | 1 | 11 |
 | `helper-task` | `docs/intent/helper-task/helper-task-specs.md` | 0 | 8 (0 / 3 / 5) | 2 | 0 | 10 |
-| **Total** | | **0** | **134** (13 / 41 / 80) | **28** | **26** | **188** |
+| **Total** | | **0** | **129** (12 / 38 / 79) | **28** | **26** | **183** |
 
 ## Top 10 real gaps by user impact
 
@@ -62,7 +62,7 @@ Ranked by consequence to an operator. Several rank entries group specs that desc
 | 9 | update-dns can orphan or delete the wrong record | `RT-TASK-DNS-009`, `RT-TASK-DNS-010`, `RT-TASK-NOTIFY-005` | After a `dnsTtl` change the STOPPED DELETE fails and the A record dangles; a late STOPPED for an old task deletes a live task's record; a task that dies before RUNNING leaves its Discord message stuck on "starting". | DELETE sends current `DNS_TTL` (`app/packages/lambda/update-dns/src/handler.ts:162`), failure swallowed (`:170-172`); no IP ownership check (`:144-149,240-243`). |
 | 10 | ~~Watchdog aborts its run when one `StopTask` fails~~ (resolved: `StopTask` is now caught per task) | `RT-WATCHDOG-STOP-004` | A persistently failing `StopTask` for one idle task throws out of the handler, so every task evaluated after it in that run is never checked or stopped and keeps billing; the failure recurs on each scheduled run. | `StopTask` awaited with no `try`/`catch` inside the per-task loop (`app/packages/lambda/watchdog/src/handler.ts:267-273`). Of the med gaps this one has the largest cost consequence, which is why it ranks here. |
 
-Next in line (all **med**): helper upload not re-checking for a server start mid-write and the unused auto-stop warning (`HELPER-UPLOAD-018`, `HELPER-LAUNCH-005`, `HELPER-LAUNCH-006`); the Lambda live tail replaying the whole retained log history on open, about 50k lines observed, which reads as the Lambda firing several times a second but is noise with no data or cost effect (`APP-LOGS-TAIL-005`); a failed save leaving a changed health-check secret live, and cross-game checks run against an empty list after a failed read (`GAME-WRITE-004`, `GAME-WRITE-006`); history status filter using the DynamoDB reserved word `status` without an attribute name (`IAC-RUN-HIST-004`, not checked against live AWS); seeds under any volume but the first failing the apply (`IAC-PROGRAM-SEED-004`); no cancel channel or quit-time abort for IaC runs (`IAC-ENGINE-LIFE-006`, `-007`, `-009`, `IAC-RUN-DSTR-011`).
+Next in line (all **med**): helper upload not re-checking for a server start mid-write and the unused auto-stop warning (`HELPER-UPLOAD-018`, `HELPER-LAUNCH-005`, `HELPER-LAUNCH-006`); the Lambda live tail replaying the whole retained log history on open, about 50k lines observed, which reads as the Lambda firing several times a second but is noise with no data or cost effect (`APP-LOGS-TAIL-005`); a failed save leaving a changed health-check secret live, and cross-game checks run against an empty list after a failed read (`GAME-WRITE-004`, `GAME-WRITE-006`); seeds under any volume but the first failing the apply (`IAC-PROGRAM-SEED-004`); no cancel channel or quit-time abort for IaC runs (`IAC-ENGINE-LIFE-006`, `-007`, `-009`, `IAC-RUN-DSTR-011`).
 
 ### Palworld ICMP (`add-icmp-ingress`)
 
@@ -102,11 +102,10 @@ Specs: `docs/intent/iac/run/run-specs.md` · Arrow doc: `docs/arrows/iac/run.md`
 | `IAC-RUN-STORE-009` | b | low | Raw err still logged at RunRecordService.ts:339,354,385 and RunService.ts:244 |
 | `IAC-RUN-LOCK-009` | b | med | RunService createRun/releaseRun/lock lookup use only getStackOutputs().runsTableName (RunService.ts:181,234,275) vs RunRecordService fallback resolvePreApplyRunsTableName (RunRecordService.ts:268-272); first apply has only in-memory lock |
 | `IAC-RUN-LOCK-010` | c | - | iac.runs.get checks only in-memory lock (controllers/iac-runs.controller.ts:223-226). But after restart the run's engine process is dead, so "running" from a stale durable lock would be wrong; needs a decision (multi-instance only) |
-| `IAC-RUN-LCLR-008` | b | low | No LockClearConfirmationGate.test.ts beside desktop-main/src/services/LockClearConfirmationGate.ts; test-coverage gap only |
 | `IAC-RUN-APPR-006` | d | - | Renderer-local APPROVAL_WINDOW_MS/isApprovalExpired still at web/src/pages/iac.page.tsx:48-53 (shared already imported :6); pure dedupe, no behaviour, belongs in LLD Work Required |
 | `IAC-RUN-DSTR-011` | b | med | No shutdown hook for IaC runs (only helper quit hook, helper-quit-hook.ts:34); lock release relies on WebContents destroy abort racing exit, then 1h TTL. Overlaps IAC-ENGINE-LIFE-009 (same fix) |
 | `IAC-RUN-DSTR-014` | d | - | Hand-rolled destroy token still at PulumiService.ts:2750 (mintDestroyConfirmationToken) beside LockClearConfirmationGate; pure dedupe/refactor, no behaviour change; belongs in LLD Work Required |
-| `IAC-RUN-HIST-004` | b | med | Status-filtered query uses KeyConditionExpression 'status = :status' with no ExpressionAttributeNames (cloud-aws/src/AwsRunRecordStore.ts:305); STATUS is a DynamoDB reserved word, so real DynamoDB rejects it and the history status filter fails |
+| `IAC-RUN-HIST-004` (CLOSED) | b | med | Was a status-filtered query with `KeyConditionExpression` 'status = :status' and no ExpressionAttributeNames (cloud-aws/src/AwsRunRecordStore.ts:305); `status` is a DynamoDB reserved word, so real DynamoDB rejected it. The key condition is now `#status = :status` with `ExpressionAttributeNames` |
 | `IAC-RUN-DETL-004` | b | low | Run detail resolves runId by scanning newest 200 records of iac.runs.list (web/src/pages/iac-run-detail.page.tsx:22,50); older runs render not-found |
 | `IAC-RUN-RBK-010` | b | med | confirmRollback runs previewCore tagged plan (PulumiService.ts:3656), then iac.page.tsx:130-135 auto-submits a second tagged plan on arrival (nav from iac-history.page.tsx:48), so two plan runs per rollback |
 | `IAC-RUN-IPC-008` | d | - | Three hand-rolled stream loops still in iac.controller.ts (plan :721, apply :825, destroy :986 handlers); pure dedupe refactor, no behaviour, belongs in LLD Work Required |
