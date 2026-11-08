@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as aws from '@pulumi/aws';
 import type { GameServerConfig } from '@hyveon/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -389,27 +390,22 @@ describe('defineEfsSeederInvocations', () => {
     expect(thirdHash).toBe(firstHash);
   });
 
-  // @spec IAC-PROGRAM-SEED-003
-  it('should change the seedsHash trigger when only the seeded volume container_path changes', async () => {
+  it('should keep seedsHash a SHA-256 of the file_seeds JSON alone, so an unchanged config never re-seeds', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const fn = new aws.lambda.Function('hyveon-efs-seeder-echo', { role: 'arn:aws:iam::123456789012:role/mock' }, { provider });
     const policy = new aws.iam.RolePolicy('hyveon-efs-seeder-echo-policy', { role: 'mock-role', policy: '{}' }, { provider });
-    const hashFor = async (game: GameServerConfig): Promise<string> => {
-      const invocations = defineEfsSeederInvocations({
-        projectName: 'hyveon',
-        provider,
-        gameServers: { echo: game },
-        efsSeederFunctions: { echo: fn },
-        efsSeederPolicies: { echo: policy },
-      });
-      await promiseOf(invocations.echo.id);
-      const latest = mocks.resources.filter((resource) => resource.name === 'hyveon-efs-seeder-echo-invocation').at(-1)!;
-      return (latest.inputs.triggers as Record<string, string>).seedsHash;
-    };
+    const invocations = defineEfsSeederInvocations({
+      projectName: 'hyveon',
+      provider,
+      gameServers: { echo: SEEDED_GAME },
+      efsSeederFunctions: { echo: fn },
+      efsSeederPolicies: { echo: policy },
+    });
+    await promiseOf(invocations.echo.id);
+    const latest = mocks.resources.filter((resource) => resource.name === 'hyveon-efs-seeder-echo-invocation').at(-1)!;
 
-    const moved: GameServerConfig = { ...SEEDED_GAME, volumes: [{ ...SEEDED_GAME.volumes[0], container_path: '/elsewhere' }] };
-
-    expect(await hashFor(moved)).not.toBe(await hashFor(SEEDED_GAME));
+    const expected = createHash('sha256').update(JSON.stringify(SEEDED_GAME.file_seeds)).digest('hex');
+    expect((latest.inputs.triggers as Record<string, string>).seedsHash).toBe(expected);
   });
 
   // @spec IAC-PROGRAM-SEED-001
