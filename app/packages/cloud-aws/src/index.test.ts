@@ -17,7 +17,7 @@ import {
  * those assertions use `expect(() => ...).toThrow(...)` rather than
  * `.rejects.toThrow(...)`. `AwsCloudProvider`'s workload and cost-estimate
  * methods (`startWorkload`/`stopWorkload`/`getWorkloadStatus`/
- * `streamWorkloadLogs`/`getCostEstimate`) are real `async`/async-generator
+ * `streamWorkloadLogs`) are real `async`/async-generator
  * implementations, so their "no config supplied" branch is asserted via
  * `.rejects`/`.resolves` instead.
  * `AwsSecretsStore` is likewise a real Secrets-Manager-backed implementation
@@ -64,14 +64,6 @@ describe('cloud-aws barrel export', () => {
         }
       })(),
     ).rejects.toThrow('Infrastructure is not deployed. Run Apply on the IaC page first.');
-  });
-
-  it('should return a zeroed CostBreakdown when getCostEstimate is called without config', async () => {
-    await expect(new AwsCloudProvider().getCostEstimate()).resolves.toEqual({
-      total: 0,
-      currency: 'USD',
-      breakdown: {},
-    });
   });
 
   it('should export AwsDiscordEventReceiver as a constructible class', () => {

@@ -1078,6 +1078,7 @@ describe('gameServerPortSchema', () => {
   });
 });
 
+// @spec RT-TASK-COST-010
 describe('estimateFargateHourlyCost', () => {
   it('should compute the Fargate hourly cost for 1 vCPU + 2 GiB', () => {
     // 1 * 0.04048 + 2 * 0.004445 = 0.04937

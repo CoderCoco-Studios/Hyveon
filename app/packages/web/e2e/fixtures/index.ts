@@ -3,7 +3,7 @@ import type {
   GameStatus,
   CostEstimates,
   EnvInfo,
-  ActionResult,
+  StartResult,
   DiscordConfigRedacted,
   GameListEntry,
   DriftReport,
@@ -25,7 +25,7 @@ export type {
   GameStatus,
   CostEstimates,
   EnvInfo,
-  ActionResult,
+  StartResult,
   DiscordConfigRedacted,
   GameListEntry,
   DriftReport,
@@ -57,7 +57,7 @@ export interface StubOptions {
   /** Env info returned by `GET /api/env`. */
   env?: EnvInfo;
   /** Override for `POST /api/start/:game` response. */
-  startResult?: ActionResult;
+  startResult?: StartResult;
   /**
    * Discord config returned by `GET /api/discord/config`. Defaults to
    * `CONFIGURED_DISCORD_CONFIG` so non-Discord specs hitting `/discord` (e.g.
@@ -131,7 +131,7 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
   const statuses = opts.statuses ?? [STOPPED_GAME];
   const costs = opts.costs ?? COST_DATA;
   const env = opts.env ?? ENV_DATA;
-  const startResult: ActionResult = opts.startResult ?? { success: true, message: 'Started' };
+  const startResult: StartResult = opts.startResult ?? { success: true, message: 'Started' };
   const discord = opts.discord ?? CONFIGURED_DISCORD_CONFIG;
   const games = opts.games ?? statuses.map((s) => s.game);
   const drift: DriftReport = opts.drift ?? { entries: [] };
@@ -184,7 +184,7 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
   await page.route('**/api/start/*', (route) => route.fulfill({ json: startResult }));
 
   await page.route('**/api/stop/*', (route) =>
-    route.fulfill({ json: { success: true, message: 'Stopped' } as ActionResult })
+    route.fulfill({ json: { success: true, message: 'Stopped' } as StartResult })
   );
 
   // Discord — read endpoint plus permissive write endpoints. Specs that need

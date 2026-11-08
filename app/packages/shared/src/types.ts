@@ -57,6 +57,7 @@ export interface RedactedDiscordConfig {
   publicKeySet: boolean;
 }
 
+// @spec RT-TASK-STATUS-008
 /** Game status reported via `/server-status`, `/server-list`, and the web UI. */
 export interface GameStatus {
   game: string;
@@ -72,6 +73,21 @@ export interface StartResult {
   success: boolean;
   message: string;
   taskArn?: string;
+}
+
+/** Per-game Fargate cost projection derived from its CPU/memory spec. */
+export interface GameEstimate {
+  vcpu: number;
+  memoryGb: number;
+  costPerHour: number;
+  costPerDay24h: number;
+  costPerMonth4hpd: number;
+}
+
+/** Per-game estimates plus the cost if every game were running simultaneously; the `costs.estimate` payload. */
+export interface CostEstimates {
+  games: Record<string, GameEstimate>;
+  totalPerHourIfAllOn: number;
 }
 
 /**

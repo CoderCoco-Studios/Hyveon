@@ -93,10 +93,10 @@ Two further caveats:
   another region, the estimates will be off by that region's premium.
 
 If a game's task definition cannot be read, the estimate falls back to 2 vCPU
-/ 8 GB — with no indication in the table that it is a fallback. A row showing
+/ 8 GB, the same figures every estimate path uses — with no indication in the table that it is a fallback. A row showing
 exactly `2` vCPU and `8 GB` when you declared something else is the tell.
 
-Estimates are fetched once when the page loads.
+Estimates are fetched when the app starts and again each time you open this page, so a game added or resized by an apply shows up without restarting the app; the dashboard shares the same data. If a fetch fails, the app shows a `Could not load cost estimates` toast and this page shows the same message in a red banner above the table until a later fetch succeeds.
 
 When there is nothing to show: `No estimates available.`
 

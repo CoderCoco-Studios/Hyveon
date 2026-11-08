@@ -39,6 +39,10 @@ import type {
   AuditAction,
   AuditEntry,
   AuditPageResult,
+  CostEstimates,
+  GameEstimate,
+  GameStatus,
+  StartResult,
 } from '@hyveon/shared';
 import type {
   FolderOverwriteDecisionResult,
@@ -96,6 +100,10 @@ export type {
   AuditAction,
   AuditEntry,
   AuditPageResult,
+  CostEstimates,
+  GameEstimate,
+  GameStatus,
+  StartResult,
   CloudHealthCheckStatus,
   CloudHealthCheckSummary,
   CloudHealthFixOutcome,
@@ -116,38 +124,6 @@ export type {
   VolumeTextFile,
   VolumeTransferProgress,
 };
-
-/** Live status for a single game, as returned by the `games.status` and `games.getStatus` IPC channels. */
-export interface GameStatus {
-  game: string;
-  state: 'running' | 'starting' | 'stopped' | 'not_deployed' | 'error';
-  publicIp?: string;
-  hostname?: string;
-  taskArn?: string;
-  message?: string;
-}
-
-/** Result envelope for mutation endpoints (start/stop), with a user-facing message. */
-export interface ActionResult {
-  success: boolean;
-  message: string;
-  taskArn?: string;
-}
-
-/** Per-game Fargate cost breakdown used by `CostsPage` and `GameCard` to surface hourly/monthly estimates. */
-export interface GameEstimate {
-  vcpu: number;
-  memoryGb: number;
-  costPerHour: number;
-  costPerDay24h: number;
-  costPerMonth4hpd: number;
-}
-
-/** Aggregate cost estimates returned by the `costs.estimate` IPC channel. */
-export interface CostEstimates {
-  games: Record<string, GameEstimate>;
-  totalPerHourIfAllOn: number;
-}
 
 /**
  * In-progress add-game wizard field values.
@@ -279,8 +255,8 @@ export const api = {
   games: async (): Promise<{ games: GameListEntry[] }> => hyveon().games.list(),
   status: async (): Promise<GameStatus[]> => hyveon().games.status(),
   statusGame: async (game: string): Promise<GameStatus> => hyveon().games.getStatus(game),
-  start: async (game: string): Promise<ActionResult> => hyveon().games.start(game),
-  stop: async (game: string): Promise<ActionResult> => hyveon().games.stop(game),
+  start: async (game: string): Promise<StartResult> => hyveon().games.start(game),
+  stop: async (game: string): Promise<StartResult> => hyveon().games.stop(game),
   costsEstimate: async (): Promise<CostEstimates> => hyveon().costs.estimate(),
   folderPick: async (): Promise<FolderScanResult | null> => hyveon().folderUpload.pickFolder(),
   folderRescan: async (game: string): Promise<FolderScanResult | null> => hyveon().folderUpload.rescanSelection(game),

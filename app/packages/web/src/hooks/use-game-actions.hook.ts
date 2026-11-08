@@ -12,7 +12,7 @@ export interface UseGameActionsResult {
   stop: () => void;
 }
 
-// @spec RT-TASK-UI-008, RT-TASK-UI-009
+// @spec RT-TASK-UI-008, RT-TASK-UI-009, RT-TASK-UI-010
 /**
  * Start/Stop orchestration for a single game's card: calls the API, shows a toast (with an
  * Undo action on a successful stop), and schedules a delayed `onRefresh` so the backend has
@@ -88,19 +88,23 @@ export function useGameActions(game: string, onRefresh: (game: string) => void):
           action: {
             label: 'Undo',
             onClick: () => {
+              if (refreshTimeoutRef.current !== null) {
+                clearTimeout(refreshTimeoutRef.current);
+                refreshTimeoutRef.current = null;
+              }
+              setBusy(true);
               void api.start(game)
                 .then((undoRes) => {
                   if (!undoRes.success) {
                     toast.error(`Failed to undo stop of ${game}`, { description: undoRes.message });
-                    return;
                   }
-                  scheduleRefresh();
                 })
                 .catch((err: unknown) => {
                   toast.error(`Failed to undo stop of ${game}`, {
                     description: err instanceof Error ? err.message : 'An unknown error occurred',
                   });
-                });
+                })
+                .finally(scheduleRefresh);
             },
           },
         });

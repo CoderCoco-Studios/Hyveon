@@ -416,24 +416,39 @@ export const FARGATE_VCPU_PER_HOUR = 0.04048;
 /** Fargate on-demand price per GB-hour (us-east-1), see {@link FARGATE_VCPU_PER_HOUR}. */
 export const FARGATE_GB_PER_HOUR = 0.004445;
 
+/** CPU units assumed for a game whose task definition cannot be read or lacks a `cpu` value (2 vCPU). */
+export const FALLBACK_TASK_CPU = 2048;
+
+/** Memory in MiB assumed for a game whose task definition cannot be read or lacks a `memory` value. */
+export const FALLBACK_TASK_MEMORY = 8192;
+
+/**
+ * Unrounded hourly Fargate cost for a `cpu`/`memory` pairing, in USD.
+ *
+ * The one place the on-demand pricing formula lives; {@link estimateFargateHourlyCost} rounds it for display and
+ * `CostService` derives its daily and monthly figures from the unrounded value.
+ *
+ * @param cpu - Fargate CPU units (1024 = 1 vCPU).
+ * @param memory - Task memory in MiB.
+ * @returns The estimated hourly cost in USD, unrounded.
+ */
+export function fargateHourlyCostRaw(cpu: number, memory: number): number {
+  return (cpu / 1024) * FARGATE_VCPU_PER_HOUR + (memory / 1024) * FARGATE_GB_PER_HOUR;
+}
+
+// @spec RT-TASK-COST-010
 /**
  * Projected hourly Fargate cost for a `cpu`/`memory` pairing, in USD.
  *
- * Pure arithmetic, safe to call on every UI event (e.g. a slider drag) with
- * no debounce. Uses the same formula and rounding as
- * `CostService.estimateForSpec`'s `costPerHour` field, so the wizard's live
- * estimate and the Costs page's per-game table never disagree for the same
- * (cpu, memory) pair.
+ * Pure arithmetic, safe to call on every UI event (e.g. a slider drag) with no debounce. The wizard's live estimate and
+ * `CostService`'s per-game table share {@link fargateHourlyCostRaw}, so they never disagree for the same pair.
  *
  * @param cpu - Fargate CPU units (1024 = 1 vCPU).
  * @param memory - Task memory in MiB.
  * @returns The estimated hourly cost in USD, rounded to at most 4 decimal places.
  */
 export function estimateFargateHourlyCost(cpu: number, memory: number): number {
-  const vcpu = cpu / 1024;
-  const memoryGb = memory / 1024;
-  const hourly = vcpu * FARGATE_VCPU_PER_HOUR + memoryGb * FARGATE_GB_PER_HOUR;
-  return Math.round(hourly * 10000) / 10000;
+  return Math.round(fargateHourlyCostRaw(cpu, memory) * 10000) / 10000;
 }
 
 /** Human-readable description of the valid memory values/range for a given Fargate `cpu` tier. */

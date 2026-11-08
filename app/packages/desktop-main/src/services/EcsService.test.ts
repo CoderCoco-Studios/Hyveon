@@ -25,7 +25,7 @@ import { logger } from '../logger.js';
 import type { ConfigService } from './ConfigService.js';
 import type { Ec2Service } from './Ec2Service.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
-import type { StackOutputs } from '@hyveon/shared';
+import { FALLBACK_TASK_CPU, FALLBACK_TASK_MEMORY, type StackOutputs } from '@hyveon/shared';
 import { stackOutputs } from '../testing/stack-outputs.fixture.js';
 import { configServiceStub } from '../testing/config-service.fixture.js';
 
@@ -378,6 +378,17 @@ describe('EcsService', () => {
       expect(result.message).toContain('throttled');
     });
 
+    // @spec RT-TASK-LAUNCH-014
+    it('should log the normalised error message rather than the raw error object when RunTask throws', async () => {
+      ecsMock.on(ListTasksCommand).resolves({ taskArns: [] });
+      ecsMock.on(RunTaskCommand).rejects(new Error('throttled'));
+      await makeService(makeConfig(), makeEc2()).start('minecraft');
+      expect(logger.error).toHaveBeenCalledWith('Exception starting game server', {
+        error: 'throttled',
+        game: 'minecraft',
+      });
+    });
+
     // @spec RT-TASK-LAUNCH-013
     it('should surface AWS SDK exception name in the failure message', async () => {
       // Mirrors the shape thrown by the real AWS SDK — `name` is set to the
@@ -438,6 +449,11 @@ describe('EcsService', () => {
       const result = await service.stop('minecraft');
       expect(result.success).toBe(false);
       expect(result.message).toContain('stop-error');
+      // @spec RT-TASK-LAUNCH-014
+      expect(logger.error).toHaveBeenCalledWith('Exception stopping game server', {
+        error: 'stop-error',
+        game: 'minecraft',
+      });
     });
   });
 
@@ -459,14 +475,15 @@ describe('EcsService', () => {
       });
     });
 
-    it('should apply default cpu and memory when fields are absent', async () => {
+    // @spec RT-TASK-COST-011
+    it('should apply the shared fallback cpu and memory when fields are absent', async () => {
       ecsMock.on(DescribeTaskDefinitionCommand).resolves({
         taskDefinition: { executionRoleArn: 'arn:...' },
       });
       const service = makeService(makeConfig(), makeEc2());
       const td = await service.getTaskDefinition('minecraft');
-      expect(td?.cpu).toBe(1024);
-      expect(td?.memory).toBe(2048);
+      expect(td?.cpu).toBe(FALLBACK_TASK_CPU);
+      expect(td?.memory).toBe(FALLBACK_TASK_MEMORY);
     });
 
     it('should return null when no taskDefinition is returned', async () => {

@@ -4,9 +4,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { toast } from 'sonner';
 import { api, type GameStatus, type CostEstimates } from '../api.service.js';
 import { usePoller } from './polling-provider.component.js';
 
@@ -32,6 +34,8 @@ export const GAME_STATUS_INTERVAL_MS = (() => {
 interface GameStatusContextValue {
   statuses: GameStatus[];
   estimates: CostEstimates | null;
+  /** Set when the latest `costs.estimate` fetch rejected; cleared by the next successful fetch. */
+  estimatesError: Error | null;
   loading: boolean;
   /** Set when the most recent `fetchStatuses` call rejected; cleared on the next successful poll. */
   error: Error | null;
@@ -39,11 +43,13 @@ interface GameStatusContextValue {
   refresh: () => Promise<void>;
   /** Re-fetch a single game's status — used by `GameCard` after Start/Stop. */
   refreshGame: (game: string) => Promise<void>;
+  /** Re-fetch `costs.estimate`; the Costs page calls it on mount so estimates reflect the latest apply. */
+  reloadEstimates: () => Promise<void>;
 }
 
 const GameStatusCtx = createContext<GameStatusContextValue | null>(null);
 
-// @spec RT-TASK-UI-001, RT-TASK-UI-002, RT-TASK-UI-003
+// @spec RT-TASK-UI-001, RT-TASK-UI-002, RT-TASK-UI-003, RT-TASK-UI-004, RT-TASK-UI-005
 /**
  * Top-level provider for the dashboard's status + cost-estimate state. Lives
  * above the router so polling continues even when the user navigates to /logs
@@ -53,15 +59,17 @@ const GameStatusCtx = createContext<GameStatusContextValue | null>(null);
  * Internally registers a `status` poller with the shared polling registry so
  * the top-bar Refresh button can trigger it alongside any other active poll.
  *
- * Cost estimates are fetched once on mount rather than on every poll —
+ * Cost estimates are fetched once at mount and again on demand through `reloadEstimates` rather than on every poll —
  * the `costs.estimate` IPC channel loops over every configured game and calls
  * `EcsService.getTaskDefinition()` per game, so polling it every 20s on every
  * route would add steady ECS API traffic for data that only changes on
- * a Pulumi apply.
+ * a Pulumi apply. A failed fetch is exposed as `estimatesError` and toasted once, so the dashboard and the Costs page
+ * never silently show empty estimates.
  */
 export function GameStatusProvider({ children }: { children: ReactNode }) {
   const [statuses, setStatuses] = useState<GameStatus[]>([]);
   const [estimates, setEstimates] = useState<CostEstimates | null>(null);
+  const [estimatesError, setEstimatesError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -83,18 +91,40 @@ export function GameStatusProvider({ children }: { children: ReactNode }) {
 
   const { refresh } = usePoller(GAME_STATUS_POLLER, fetchStatuses, GAME_STATUS_INTERVAL_MS);
 
-  useEffect(() => {
-    void api.costsEstimate().then(setEstimates).catch(() => undefined);
+  const mountedRef = useRef(true);
+  const reloadEstimates = useCallback(async () => {
+    try {
+      const est = await api.costsEstimate();
+      if (!mountedRef.current) return;
+      setEstimates(est);
+      setEstimatesError(null);
+    } catch (err: unknown) {
+      if (!mountedRef.current) return;
+      const failure = err instanceof Error ? err : new Error(String(err));
+      setEstimatesError(failure);
+      toast.error('Could not load cost estimates', { description: failure.message });
+    }
   }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- setState runs after the awaited fetch, not synchronously
+    void reloadEstimates();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [reloadEstimates]);
 
   const refreshGame = useCallback(async (game: string) => {
     const s = await api.statusGame(game);
-    setStatuses((prev) => prev.map((x) => (x.game === game ? s : x)));
+    setStatuses((prev) =>
+      prev.some((x) => x.game === game) ? prev.map((x) => (x.game === game ? s : x)) : [...prev, s],
+    );
   }, []);
 
   const value = useMemo<GameStatusContextValue>(
-    () => ({ statuses, estimates, loading, error, refresh, refreshGame }),
-    [statuses, estimates, loading, error, refresh, refreshGame],
+    () => ({ statuses, estimates, estimatesError, loading, error, refresh, refreshGame, reloadEstimates }),
+    [statuses, estimates, estimatesError, loading, error, refresh, refreshGame, reloadEstimates],
   );
 
   return <GameStatusCtx.Provider value={value}>{children}</GameStatusCtx.Provider>;

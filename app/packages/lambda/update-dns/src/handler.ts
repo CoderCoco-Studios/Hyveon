@@ -22,6 +22,7 @@ import {
 } from '@aws-sdk/client-route-53';
 import {
   deletePending,
+  errMessage,
   familyToGameMap,
   formatGameStatus,
   gameNamesFromEnv,
@@ -91,7 +92,7 @@ async function resolvePublicIp(taskArn: string, clusterArn: string): Promise<str
       );
       if (ip) return ip;
     } catch (err) {
-      console.error(`IP resolution attempt ${attempt} failed`, { err });
+      console.error(`IP resolution attempt ${attempt} failed`, { error: errMessage(err) });
     }
     await sleep(3000);
   }
@@ -120,7 +121,12 @@ async function upsertDns(dnsName: string, ip: string): Promise<void> {
   );
 }
 
-async function currentRecordIp(dnsName: string): Promise<string | null> {
+interface StoredRecord {
+  ip: string;
+  ttl: number;
+}
+
+async function currentRecord(dnsName: string): Promise<StoredRecord | null> {
   try {
     const resp = await route53.send(
       new ListResourceRecordSetsCommand({
@@ -132,18 +138,21 @@ async function currentRecordIp(dnsName: string): Promise<string | null> {
     );
     for (const rrs of resp.ResourceRecordSets ?? []) {
       if (rrs.Name?.replace(/\.$/, '') === dnsName.replace(/\.$/, '') && rrs.Type === 'A') {
-        return rrs.ResourceRecords?.[0]?.Value ?? null;
+        const ip = rrs.ResourceRecords?.[0]?.Value;
+        return ip ? { ip, ttl: rrs.TTL ?? DNS_TTL } : null;
       }
     }
   } catch (err) {
-    console.warn('Could not look up current record', { dnsName, err });
+    console.warn('Could not look up current record', { dnsName, error: errMessage(err) });
   }
   return null;
 }
 
+// @spec RT-TASK-DNS-009
+/** DELETE the game's A record, echoing the stored TTL and value because Route 53 rejects a DELETE that does not match exactly. */
 async function deleteDns(dnsName: string): Promise<void> {
-  const ip = await currentRecordIp(dnsName);
-  if (!ip) {
+  const record = await currentRecord(dnsName);
+  if (!record) {
     console.log(`No DNS record exists for ${dnsName} — nothing to delete.`);
     return;
   }
@@ -159,8 +168,8 @@ async function deleteDns(dnsName: string): Promise<void> {
               ResourceRecordSet: {
                 Name: dnsName,
                 Type: 'A',
-                TTL: DNS_TTL,
-                ResourceRecords: [{ Value: ip }],
+                TTL: record.ttl,
+                ResourceRecords: [{ Value: record.ip }],
               },
             },
           ],
@@ -168,37 +177,43 @@ async function deleteDns(dnsName: string): Promise<void> {
       }),
     );
   } catch (err) {
-    console.warn('Could not delete DNS record', { dnsName, err });
+    console.warn('Could not delete DNS record', { dnsName, error: errMessage(err) });
   }
 }
 
+/** What the pending Discord interaction should be told: the resolved address, or why the task never became reachable. */
+type PendingOutcome = { publicIp: string } | { error: string; keepRow?: boolean };
+
 // @spec RT-TASK-NOTIFY-001, RT-TASK-NOTIFY-002, RT-TASK-NOTIFY-003, RT-TASK-NOTIFY-004
+// @spec RT-TASK-NOTIFY-005, RT-TASK-NOTIFY-006
 // @spec DISCORD-MSG-006
 /**
  * If a Discord interaction is pending for this task, PATCH it with the resolved
- * hostname/IP (or an error message when `publicIp` is `null`) and delete the pending row.
+ * hostname/IP (or the error text of a failed outcome) and delete the pending row, unless the outcome sets
+ * `keepRow` so a retried invocation can still overwrite the message and clear the row.
  */
 async function notifyDiscordIfPending(
   taskArn: string,
   game: string,
-  publicIp: string | null,
+  outcome: PendingOutcome,
 ): Promise<void> {
   if (!TABLE_NAME) return;
   try {
     const pending = await getPending(TABLE_NAME, taskArn);
     if (!pending) return;
     const message =
-      publicIp !== null
+      'publicIp' in outcome
         ? formatGameStatus(
-            { game, state: 'running', publicIp, hostname: `${game}.${DOMAIN_NAME}`, taskArn },
+            { game, state: 'running', publicIp: outcome.publicIp, hostname: `${game}.${DOMAIN_NAME}`, taskArn },
             CONNECT_MESSAGES[game],
             GAME_PORTS[game],
           )
-        : formatGameStatus({ game, state: 'error', message: 'Could not resolve a public IP for this task.', taskArn });
+        : formatGameStatus({ game, state: 'error', message: outcome.error, taskArn });
     await patchInteractionOriginal(pending.applicationId, pending.interactionToken, message);
+    if ('error' in outcome && outcome.keepRow) return;
     await deletePending(TABLE_NAME, taskArn);
   } catch (err) {
-    console.error('Discord followup notification failed', { err, taskArn });
+    console.error('Discord followup notification failed', { error: errMessage(err), taskArn });
   }
 }
 
@@ -230,22 +245,32 @@ async function handleDirect(
     const ip = await resolvePublicIp(taskArn, clusterArn);
     if (!ip) {
       console.warn(`Could not resolve public IP for ${taskArn}`);
-      await notifyDiscordIfPending(taskArn, game, null);
+      await notifyDiscordIfPending(taskArn, game, { error: 'Could not resolve a public IP for this task.' });
       return { status: 'error', reason: 'no_ip' };
     }
-    await upsertDns(dnsName, ip);
-    await notifyDiscordIfPending(taskArn, game, ip);
+    try {
+      await upsertDns(dnsName, ip);
+    } catch (err) {
+      console.error('DNS upsert failed', { dnsName, error: errMessage(err) });
+      await notifyDiscordIfPending(taskArn, game, {
+        error: 'Could not publish a DNS record for this task.',
+        keepRow: true,
+      });
+      throw err;
+    }
+    await notifyDiscordIfPending(taskArn, game, { publicIp: ip });
     return { status: 'upserted', game, ip };
   }
   if (lastStatus === 'STOPPED') {
     await deleteDns(dnsName);
+    await notifyDiscordIfPending(taskArn, game, { error: 'The task stopped before it reached RUNNING.' });
     return { status: 'deleted', game };
   }
   return { status: 'no_action', lastStatus };
 }
 
 // @spec RT-TASK-DNS-001, RT-TASK-DNS-003, RT-TASK-DNS-005, RT-TASK-DNS-006, RT-TASK-DNS-007, RT-TASK-DNS-008
-// @spec RT-TASK-DNS-011
+// @spec RT-TASK-DNS-011, RT-TASK-DNS-014
 /**
  * Fired by an EventBridge rule on `ECS Task State Change`. UPSERTs a Route 53 record
  * for `{game}.{hosted_zone_name}` on RUNNING and DELETEs on STOPPED — DNS is owned by
@@ -256,13 +281,13 @@ async function handleDirect(
  * so the user sees the resolved address in the same message they clicked on.
  */
 export const handler = async (event: EcsStateChangeEvent): Promise<HandlerResult> => {
-  console.log('DNS updater triggered', JSON.stringify(event));
   const detail = event.detail ?? {};
   const lastStatus = detail.lastStatus ?? '';
   const taskArn = detail.taskArn ?? '';
   const clusterArn = detail.clusterArn ?? '';
   const family = (detail.group ?? '').replace('family:', '');
   const game = FAMILY_TO_GAME[family];
+  console.log('DNS updater triggered', { taskArn, family, lastStatus });
 
   if (!game) {
     console.log(`Task family ${family} is not a known game server — skipping.`);

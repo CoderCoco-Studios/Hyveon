@@ -29,7 +29,7 @@ and the current run state — **the app makes no AWS Cost Explorer API calls,
 ever**. There is no "no data" em-dash state for these tiles the way the old
 actuals-driven tiles had, because there is no external call that can fail:
 the underlying estimate is either available (from `costs.estimate`) or
-defaults to `$0.00`.
+defaults to `$0.00`. If the estimate fetch itself fails, a `Could not load cost estimates` toast appears and the cost stats stay at their empty values.
 
 **Servers running** shows an em-dash when no games are declared at all.
 **Active alerts** always shows a real number, including `0`.
@@ -135,7 +135,7 @@ only recorded if you actually confirm.
 
 Every successful stop produces a neutral toast reading `minecraft stopped`
 with an **Undo** action, visible for five seconds. Pressing **Undo** issues a
-start for the same game and schedules a status refresh. It appears whether the
+start for the same game and schedules a status refresh. The game card keeps its Start and Stop buttons disabled until that start settles and the refresh runs. It appears whether the
 stop went through the dialog or the suppressed fast path.
 
 ## Files
@@ -221,7 +221,7 @@ The `LIVE` pill next to it summarises the same health across all pollers.
 The top bar doubles as the app's window title bar — drag any empty area of it to move the window, and on Linux it shows in-app minimize/maximize/close buttons since the OS title bar is hidden.
 
 Note that the underlying per-game cost estimates (`costs.estimate`) are
-fetched once on mount, not part of that 20-second cycle — see
+fetched at app start and when you open the Costs page, not part of that 20-second cycle — see
 [The KPI strip](#the-kpi-strip) above. The **Current run rate** and
 **Est. month cap** tiles still change every poll, though, since they're
 recomputed from the current run state each time. The pending-changes banner

@@ -4,7 +4,6 @@ import {
   ECSClient,
   ListTasksCommand,
   DescribeTasksCommand,
-  DescribeTaskDefinitionCommand,
   RunTaskCommand,
   StopTaskCommand,
 } from '@aws-sdk/client-ecs';
@@ -17,11 +16,6 @@ import {
   WorkloadLaunchError,
   type AwsCloudProviderConfig,
 } from './AwsCloudProvider.js';
-import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR } from './AwsCloudProvider.js';
-import {
-  FARGATE_VCPU_PER_HOUR as SHARED_VCPU_PER_HOUR,
-  FARGATE_GB_PER_HOUR as SHARED_GB_PER_HOUR,
-} from '@hyveon/shared/gameServerValidator';
 
 /** Typed stand-in for the AWS ECS SDK client. */
 const ecsMock = mockClient(ECSClient);
@@ -589,108 +583,6 @@ describe('AwsCloudProvider', () => {
     });
   });
 
-  describe('getCostEstimate', () => {
-    it('should return a zeroed breakdown when no config is available', async () => {
-      const provider = makeProvider(null);
-      await expect(provider.getCostEstimate()).resolves.toEqual({
-        total: 0,
-        currency: 'USD',
-        breakdown: {},
-      });
-    });
-
-    it('should return a zeroed breakdown when config.gameNames is missing', async () => {
-      const provider = makeProvider({ ...DEFAULT_CONFIG, gameNames: undefined });
-      await expect(provider.getCostEstimate()).resolves.toEqual({
-        total: 0,
-        currency: 'USD',
-        breakdown: {},
-      });
-    });
-
-    it('should return a zeroed breakdown when config.gameNames is empty', async () => {
-      const provider = makeProvider({ ...DEFAULT_CONFIG, gameNames: [] });
-      await expect(provider.getCostEstimate()).resolves.toEqual({
-        total: 0,
-        currency: 'USD',
-        breakdown: {},
-      });
-    });
-
-    it('should key the breakdown by game name using each game\'s task definition CPU/memory', async () => {
-      ecsMock
-        .on(DescribeTaskDefinitionCommand, { taskDefinition: 'minecraft-server' })
-        .resolves({ taskDefinition: { cpu: '1024', memory: '2048' } });
-      ecsMock
-        .on(DescribeTaskDefinitionCommand, { taskDefinition: 'valheim-server' })
-        .resolves({ taskDefinition: { cpu: '2048', memory: '4096' } });
-
-      const provider = makeProvider({ ...DEFAULT_CONFIG, gameNames: ['minecraft', 'valheim'] });
-      const result = await provider.getCostEstimate();
-
-      // minecraft: 1 vcpu * 0.04048 + 2 GiB * 0.004445 = 0.04937 -> rounds to 0.0494
-      expect(result.breakdown['minecraft']).toBeCloseTo(0.0494, 4);
-      // valheim: 2 vcpu * 0.04048 + 4 GiB * 0.004445 = 0.09874 -> rounds to 0.0987
-      expect(result.breakdown['valheim']).toBeCloseTo(0.0987, 4);
-      expect(result.currency).toBe('USD');
-      expect(result.total).toBeCloseTo(0.1481, 4);
-    });
-
-    it('should fall back to 2048 cpu / 8192 memory when DescribeTaskDefinition fails', async () => {
-      ecsMock.on(DescribeTaskDefinitionCommand).rejects(new Error('task definition not found'));
-
-      const provider = makeProvider({ ...DEFAULT_CONFIG, gameNames: ['minecraft'] });
-      const result = await provider.getCostEstimate();
-
-      // fallback 2 vcpu * 0.04048 + 8 GiB * 0.004445 = 0.11652 -> rounds to 0.1165
-      expect(result.breakdown['minecraft']).toBeCloseTo(0.1165, 4);
-      expect(result.total).toBeCloseTo(0.1165, 4);
-    });
-
-    it('should fall back to 2048 cpu / 8192 memory when DescribeTaskDefinition resolves with no cpu/memory', async () => {
-      ecsMock.on(DescribeTaskDefinitionCommand).resolves({ taskDefinition: {} });
-
-      const provider = makeProvider({ ...DEFAULT_CONFIG, gameNames: ['minecraft'] });
-      const result = await provider.getCostEstimate();
-
-      // fallback 2 vcpu * 0.04048 + 8 GiB * 0.004445 = 0.11652 -> rounds to 0.1165
-      expect(result.breakdown['minecraft']).toBeCloseTo(0.1165, 4);
-      expect(result.total).toBeCloseTo(0.1165, 4);
-    });
-
-    it('should log the swallowed error via the injected logger when DescribeTaskDefinition fails', async () => {
-      const describeError = new Error('task definition not found');
-      ecsMock.on(DescribeTaskDefinitionCommand).rejects(describeError);
-      const logger = { error: vi.fn() };
-
-      const provider = new AwsCloudProvider(
-        () => ({ ...DEFAULT_CONFIG, gameNames: ['minecraft'] }),
-        logger,
-      );
-      await provider.getCostEstimate();
-
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('minecraft'),
-        describeError,
-      );
-    });
-
-    it('should round the total to at most 4 decimal places', async () => {
-      ecsMock
-        .on(DescribeTaskDefinitionCommand)
-        .resolves({ taskDefinition: { cpu: '256', memory: '512' } });
-
-      const provider = makeProvider({
-        ...DEFAULT_CONFIG,
-        gameNames: ['minecraft', 'valheim', 'terraria'],
-      });
-      const result = await provider.getCostEstimate();
-
-      const decimals = result.total.toString().split('.')[1] ?? '';
-      expect(decimals.length).toBeLessThanOrEqual(4);
-    });
-  });
-
   // @spec RT-TASK-COST-002
   it('should not expose a getActualCosts method', () => {
     const provider = makeProvider();
@@ -784,13 +676,6 @@ describe('AwsCloudProvider', () => {
 
       expect(observed[0]).toMatchObject({ accessKeyId: 'AKIA-old', secretAccessKey: 'secret-old' });
       expect(observed[1]).toMatchObject({ accessKeyId: 'AKIA-new', secretAccessKey: 'secret-new' });
-    });
-  });
-
-  describe('AwsCloudProvider pricing constants', () => {
-    it('should re-export the same Fargate pricing constants as @hyveon/shared', () => {
-      expect(FARGATE_VCPU_PER_HOUR).toBe(SHARED_VCPU_PER_HOUR);
-      expect(FARGATE_GB_PER_HOUR).toBe(SHARED_GB_PER_HOUR);
     });
   });
 });

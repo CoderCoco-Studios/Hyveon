@@ -59,7 +59,7 @@ Ranked by consequence to an operator. Several rank entries group specs that desc
 | 6 | Diagnostics bundle leaks JSON-shaped secrets | `APP-DIAG-SCRUB-003` | A secret logged as `"botToken":"…"` or `"apiKey": "…"` reaches the exported bundle unredacted. | The closing quote after the label defeats `LABELED_SECRET_VALUE_PATTERN` (`app/packages/desktop-main/src/services/diagnosticsLogScrubber.ts:15-16`); verified by running the regex. Resolved: the pattern now accepts quoted labels and values. |
 | 7 | Closed: durable partial-apply marker round-trips | `IAC-RUN-STORE-007`, `IAC-RUN-PART-004`, `IAC-RUN-PART-005` | After an interrupted apply, history shows the partial badge and the retry gate refuses with `PulumiPartialApplyRetryBlockedError`. | `AwsRunRecordStore.putRecord` writes `partialApply` (`app/packages/cloud-aws/src/AwsRunRecordStore.ts:209`) and `toRunRecord` reads it (`:377`). |
 | 8 | Closed: Discord follow-up Lambda leaks the token and hangs commands | `DISCORD-RUN-011`, `DISCORD-RUN-010`, `DISCORD-RUN-014` | The interaction token (valid 15 min) is written to CloudWatch; a config-read or network failure leaves the command on "thinking", and async retries re-run the handler. | Whole event logged (`app/packages/lambda/followup/src/handler.ts:277`); config read outside `try` (`:249`); `fetch` not wrapped despite its TSDoc (`app/packages/shared/src/discord/patchOriginal.ts:24`). |
-| 9 | update-dns can orphan or delete the wrong record | `RT-TASK-DNS-009`, `RT-TASK-DNS-010`, `RT-TASK-NOTIFY-005` | After a `dnsTtl` change the STOPPED DELETE fails and the A record dangles; a late STOPPED for an old task deletes a live task's record; a task that dies before RUNNING leaves its Discord message stuck on "starting". | DELETE sends current `DNS_TTL` (`app/packages/lambda/update-dns/src/handler.ts:162`), failure swallowed (`:170-172`); no IP ownership check (`:144-149,240-243`). |
+| 9 | update-dns can orphan or delete the wrong record | `RT-TASK-DNS-009` (CLOSED), `RT-TASK-DNS-010`, `RT-TASK-NOTIFY-005` (CLOSED) | After a `dnsTtl` change the STOPPED DELETE fails and the A record dangles; a late STOPPED for an old task deletes a live task's record; a task that dies before RUNNING leaves its Discord message stuck on "starting". | DELETE sends current `DNS_TTL` (`app/packages/lambda/update-dns/src/handler.ts:162`), failure swallowed (`:170-172`); no IP ownership check (`:144-149,240-243`). |
 | 10 | ~~Watchdog aborts its run when one `StopTask` fails~~ (resolved: `StopTask` is now caught per task) | `RT-WATCHDOG-STOP-004` | A persistently failing `StopTask` for one idle task throws out of the handler, so every task evaluated after it in that run is never checked or stopped and keeps billing; the failure recurs on each scheduled run. | `StopTask` awaited with no `try`/`catch` inside the per-task loop (`app/packages/lambda/watchdog/src/handler.ts:267-273`). Of the med gaps this one has the largest cost consequence, which is why it ranks here. |
 
 Next in line (all **med**): helper upload not re-checking for a server start mid-write and the unused auto-stop warning (`HELPER-UPLOAD-018`, `HELPER-LAUNCH-005`, `HELPER-LAUNCH-006`); the Lambda live tail replaying the whole retained log history on open, about 50k lines observed, which reads as the Lambda firing several times a second but is noise with no data or cost effect (`APP-LOGS-TAIL-005`); a failed save leaving a changed health-check secret live, and cross-game checks run against an empty list after a failed read (`GAME-WRITE-004`, `GAME-WRITE-006`); seeds under any volume but the first failing the apply (`IAC-PROGRAM-SEED-004`); no cancel channel or quit-time abort for IaC runs (`IAC-ENGINE-LIFE-006`, `-007`, `-009`, `IAC-RUN-DSTR-011`).
@@ -161,19 +161,19 @@ Specs: `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md` · Arrow do
 | Spec | Class | Impact | Evidence |
 |---|---|---|---|
 | `RT-TASK-LAUNCH-010` (CLOSED) | b | high | Was CONFIRMED: withGameLock in-process only (cloud-aws/src/AwsCloudProvider.ts:330,427); followup runStart check-then-RunTask unguarded (lambda/followup/src/handler.ts:126-138), no clientToken -> duplicate paid tasks |
-| `RT-TASK-LAUNCH-014` | b | low | desktop-main/src/services/EcsService.ts:332,355 still log { err } raw (also :380,:480) |
-| `RT-TASK-STATUS-008` | d | - | pure dedupe/type-hygiene, not behaviour; shared/src/types.ts:61,71 exist but redeclared EcsService.ts:148,162, CostService.ts:14, hyveon-api.ts:100,110,126, api.service.ts:121,147 -> LLD Work Required |
-| `RT-TASK-DNS-009` | b | med | lambda/update-dns/src/handler.ts:162 DELETE uses current DNS_TTL; Route53 DELETE needs exact TTL -> fails after dnsTtl change, swallowed :170-172, dangling A record to a released IP |
-| `RT-TASK-DNS-010` | b | med | update-dns/src/handler.ts:240-243 STOPPED deletes whatever record exists, no IP ownership check (deleteDns :144-149) -> late/duplicate-task STOPPED removes live record |
-| `RT-TASK-DNS-014` | b | low | update-dns/src/handler.ts:259 logs JSON.stringify(event) (full event, no secrets) |
-| `RT-TASK-NOTIFY-005` | b | med | update-dns/src/handler.ts:240-243 STOPPED path never reads PENDING row -> Discord /server-start message stuck on 'starting' when task dies before RUNNING |
-| `RT-TASK-NOTIFY-006` | b | low | update-dns/src/handler.ts:236 upsertDns un-guarded; throw skips notifyDiscordIfPending :237 (async retries may recover) |
-| `RT-TASK-COST-010` | d | - | refactor wish: three copies (gameServerValidator.ts:432-436, CostService.ts:34-42, AwsCloudProvider.ts:313-317) share the same constants and give identical results -> Work Required |
-| `RT-TASK-COST-011` | c | low | divergence only when TD lacks cpu/memory (EcsService.ts:375-376 1024/2048 vs AwsCloudProvider.ts:298-299); Fargate TDs always carry both; describe-failure path already consistent (costs.controller.ts:41) |
-| `RT-TASK-COST-012` | d | - | structural/dead-code cleanup, not behaviour: getCostEstimate (shared/src/cloud.ts:55, AwsCloudProvider.ts:612) has no production caller -> Work Required |
-| `RT-TASK-UI-004` | b | low | web/src/polling/game-status-provider.component.tsx:87 .catch(() => undefined); web/src/pages/costs.page.tsx:178 swallows -> silent empty estimates |
-| `RT-TASK-UI-005` | b | low | game-status-provider.component.tsx:92 refreshGame maps existing entries only, never inserts |
-| `RT-TASK-UI-010` | b | low | web/src/hooks/use-game-actions.hook.ts:91 Undo calls api.start without setBusy(true); desktop withGameLock prevents a duplicate task |
+| `RT-TASK-LAUNCH-014` (CLOSED) | b | low | Closed: implemented or reconciled in the task-and-dns gap pass. |
+| `RT-TASK-STATUS-008` (CLOSED) | d | - | Closed: implemented or reconciled in the task-and-dns gap pass. |
+| `RT-TASK-DNS-009` (CLOSED) | b | med | Closed: implemented or reconciled in the task-and-dns gap pass. |
+| `RT-TASK-DNS-010` (CLOSED) | c | med | Deferred: the STOPPED event carries no public IP and the update-dns role stays at `ecs:DescribeTasks`; see the task-and-dns design Decisions. |
+| `RT-TASK-DNS-014` (CLOSED) | b | low | Closed: implemented or reconciled in the task-and-dns gap pass. |
+| `RT-TASK-NOTIFY-005` (CLOSED) | b | med | Closed: implemented or reconciled in the task-and-dns gap pass. |
+| `RT-TASK-NOTIFY-006` (CLOSED) | b | low | Closed: implemented or reconciled in the task-and-dns gap pass. |
+| `RT-TASK-COST-010` (CLOSED) | d | - | Closed: implemented or reconciled in the task-and-dns gap pass. |
+| `RT-TASK-COST-011` (CLOSED) | c | low | Closed: implemented or reconciled in the task-and-dns gap pass. |
+| `RT-TASK-COST-012` (CLOSED) | d | - | Closed: implemented or reconciled in the task-and-dns gap pass. |
+| `RT-TASK-UI-004` (CLOSED) | b | low | Closed: implemented or reconciled in the task-and-dns gap pass. |
+| `RT-TASK-UI-005` (CLOSED) | b | low | Closed: implemented or reconciled in the task-and-dns gap pass. |
+| `RT-TASK-UI-010` (CLOSED) | b | low | Closed: implemented or reconciled in the task-and-dns gap pass. |
 
 ### `watchdog`
 

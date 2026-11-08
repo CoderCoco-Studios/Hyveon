@@ -13,7 +13,7 @@ What it owns:
 
 - The `CloudProvider` contract for workloads (`app/packages/shared/src/cloud.ts:50-56`) and its AWS implementation: start, stop, status, log streaming and cost estimate (`AwsCloudProvider.ts:437-665`).
 - The Nest facade `EcsService` that maps provider results onto the app's `GameStatus`/`StartResult` shapes (`app/packages/desktop-main/src/services/EcsService.ts:295-356`), plus raw ECS helpers it exposes to other leaves.
-- The update-dns Lambda: UPSERT on `RUNNING`, DELETE on `STOPPED`, and the RUNNING-side Discord follow-up PATCH (`update-dns/src/handler.ts:71-240`).
+- The update-dns Lambda: UPSERT on `RUNNING`, DELETE on `STOPPED`, and the RUNNING-side Discord follow-up PATCH.
 - The shared ENI helpers `getTaskEniId`, `getTaskPrivateIp`, `resolveEniPublicIp` (`app/packages/shared/src/aws/ecsTask.ts:53-107`).
 - The `costs.estimate` channel and `CostService` arithmetic (`app/packages/desktop-main/src/controllers/costs.controller.ts:28-48`, `app/packages/desktop-main/src/services/CostService.ts:31-42`).
 - The renderer side: `GameStatusProvider` polling, the dashboard cards and KPI strip, `useGameActions`, and the Costs page.
@@ -25,13 +25,13 @@ What it deliberately does not own:
 - **Stack outputs and region.** `ConfigService.getStackOutputs()`/`getRegion()` belong to `iac/engine`; this leaf only reads them.
 - **The Discord start path.** `/server-start` issues its own `RunTask` from the followup Lambda (`app/packages/lambda/followup/src/handler.ts:117-147`) and writes the `PENDING#{taskArn}` row; both are `discord-bot`. This leaf only consumes that row on RUNNING.
 - **Idle shutdown.** The watchdog (`game-runtime/watchdog`) stops tasks; DNS cleanup then flows through this leaf's STOPPED path.
-- **The wizard's live estimate.** `estimateFargateHourlyCost` (`app/packages/shared/src/gameServerValidator.ts:426-431`) is `game-server`.
+- **The wizard's live estimate.** The Resources step renders `estimateFargateHourlyCost` (`app/packages/shared/src/gameServerValidator.ts`), which is `game-server`'s; this leaf's `CostService` calls the same pricing function.
 
 CLAUDE.md invariants that live here:
 
 - **No persistent ECS Service.** Holds: the only launch is `RunTaskCommand` with `count: 1` (`AwsCloudProvider.ts:466-477`); the class doc restates it (`EcsService.ts:175-177`).
-- **DNS records are Lambda-managed.** Holds: `stopWorkload` does no DNS work and defers to the STOPPED event (`AwsCloudProvider.ts:495-496`); the Lambda owns UPSERT/DELETE (`update-dns/src/handler.ts:98-170`).
-- **TLS terminates in-task; no ALB.** Holds: update-dns has one path for every game, HTTPS or not (`update-dns/src/handler.ts:6-9,217-240`), as the in-task TLS invariant requires: an HTTPS game needs no load balancer registration or separate DNS step.
+- **DNS records are Lambda-managed.** Holds: `stopWorkload` does no DNS work and defers to the STOPPED event (`AwsCloudProvider.ts:495-496`); the Lambda owns UPSERT/DELETE.
+- **TLS terminates in-task; no ALB.** Holds: update-dns has one path for every game, HTTPS or not, as the in-task TLS invariant requires: an HTTPS game needs no load balancer registration or separate DNS step.
 - **Lambda env vars use `AWS_REGION_`.** Holds: `region()` reads `AWS_REGION_` first (`update-dns/src/handler.ts:51-59`) and the infra program sets it (`lambdas.ts:646`).
 - **`@hyveon/shared` stays free of SDK imports.** Holds for this leaf's shared code: `ecsTask.ts` uses hand-rolled structural types and a caller-supplied describe callback (`ecsTask.ts:1-16,68-107`).
 
@@ -39,13 +39,13 @@ CLAUDE.md invariants that live here:
 
 ### Desktop call chain
 
-The renderer calls `api.start(game)` / `api.stop(game)`; `GamesController` forwards to `EcsService.start`/`stop`, which call the injected `CLOUD_PROVIDER` (`EcsService.ts:316-356`). The provider is built once from `buildProviderConfig`, which returns `null` until stack outputs exist and otherwise takes the region from `ConfigService.getRegion()` (the install's one region, never `outputs.awsRegion`) and fills credentials, cluster, subnets, security group, domain and game names from those outputs (`EcsService.ts:64-81,104-106`).
+The renderer calls `api.start(game)` / `api.stop(game)`; `GamesController` forwards to `EcsService.start`/`stop`, which call the injected `CLOUD_PROVIDER` (`EcsService.ts:316-356`). The provider is built once from `buildProviderConfig`, which returns `null` until stack outputs exist and otherwise takes the region from `ConfigService.getRegion()` (the install's one region, never `outputs.awsRegion`) and fills credentials, cluster, subnets, security group and domain from those outputs (`EcsService.ts:64-81,104-106`).
 
 `startWorkload` runs inside `withGameLock(game)`, a promise chain keyed by game that serialises start/stop for one game within the process while leaving different games concurrent. Inside the lock it calls `startWithLease` (`shared/src/aws/startLease.ts`), the same helper the followup Lambda's `runStart` uses, so a desktop Start and a Discord `/server-start` are serialised across processes. The helper takes a start lease by a conditional put of `LAUNCH#{game}` / `LOCK` with an `expiresAt` 120 seconds out into the Discord single-table, accepted only when no row exists or the existing `expiresAt` has passed (`attribute_not_exists(pk) OR expiresAt < :now`). A held lease refuses with `WorkloadGuardError("A start for {game} is already in progress.")` (Discord shows the same text after the failure marker). With the lease held it re-checks for a non-stopped task with `ListTasks(family, desiredStatus: RUNNING)` plus `DescribeTasks` through a strict variant that propagates SDK errors, refuses with `WorkloadGuardError("{game} is already running.")` if one exists, then sends `RunTask` with `FARGATE`, the stack's subnets and security group, `assignPublicIp: ENABLED`, `propagateTags: 'TASK_DEFINITION'`, and the lease id as `clientToken`. An empty `tasks` array becomes `WorkloadLaunchError("Failed to start {game}: {reason}")`. The lease is left to expire after a successful launch and released (an unconditional put of an already-expired row, so no `DeleteItem` grant) only when the pre-check refuses or the launch fails. A DynamoDB or pre-check error fails the start closed without calling `RunTask`. `ListTasks` is eventually consistent, so the lease, not the read, is what prevents duplicate starts. The table name comes from the `TABLE_NAME` env var in the Lambda and from `outputs.discordTableName` through `buildProviderConfig` on the desktop; a stack without it refuses the Start with an "out of date" guard error. The lease is not watchdog state (that lives in ECS task tags); it is a short-lived row beside the Discord pending rows and relies on the table's existing `expiresAt` TTL.
 
 `stopWorkload` mirrors it: lock, find the task, refuse with `"{game} is not currently running."` if none, `StopTask` with reason `Stopped via management app` (`:462-484`).
 
-`EcsService` turns these into `StartResult`: success messages `"{game} is starting. It may take 2–5 minutes."` and `"{game} is stopping."`; on failure `describeError` returns the guard/launch message unprefixed and `String(err)` for everything else (`EcsService.ts:122-125,321-332,347-354`). Guard refusals log at `warn`, other errors at `error` (`:327-331,349-353`). The provider's comments call these message strings part of the UI contract (`AwsCloudProvider.ts:429-430,494-495`).
+`EcsService` turns these into `StartResult` (declared once in `@hyveon/shared`, with `GameStatus`, `GameEstimate` and `CostEstimates`; the preload bridge and the renderer re-export them): success messages `"{game} is starting. It may take 2–5 minutes."` and `"{game} is stopping."`; on failure `describeError` returns the guard/launch message unprefixed and `String(err)` for everything else (`EcsService.ts:122-125,321-332,347-354`). Guard refusals log at `warn`, other errors at `error`, and every `EcsService` log carries the normalised message (`errMessage`) rather than the raw error object (`:327-331,349-353`). The provider's comments call these message strings part of the UI contract (`AwsCloudProvider.ts:429-430,494-495`).
 
 ### Status states
 
@@ -69,9 +69,9 @@ Every ECS call this leaf makes in the desktop app resolves its region through `C
 
 ### Renderer polling and actions
 
-`GameStatusProvider` sits above the router and registers the `status` poller at `GAME_STATUS_INTERVAL_MS` (20 s, overridable by `VITE_STATUS_POLL_MS` with a 1 s floor) so polling continues on every route (`app/packages/web/src/polling/game-status-provider.component.tsx:22-29,45-53,82`). A poll failure sets `error` and re-throws so the polling registry records it (`:66-80`). `refreshGame` replaces one entry in the existing list and cannot add a game that the last full poll did not return (`:88-91`).
+`GameStatusProvider` sits above the router and registers the `status` poller at `GAME_STATUS_INTERVAL_MS` (20 s, overridable by `VITE_STATUS_POLL_MS` with a 1 s floor) so polling continues on every route (`app/packages/web/src/polling/game-status-provider.component.tsx:22-29,45-53,82`). A poll failure sets `error` and re-throws so the polling registry records it (`:66-80`). `refreshGame` replaces one entry in the list, or appends it when the last full poll did not return that game. The one-time `costs.estimate` fetch exposes its failure as `estimatesError` and toasts it once; the Costs page reads the provider's estimates and renders the failure as an inline banner, so neither screen silently shows empty estimates.
 
-`useGameActions` sets `busy`, calls start or stop, toasts the result, and always schedules a single-game refresh 3 s later that also clears `busy` (`app/packages/web/src/hooks/use-game-actions.hook.ts:6,43-52,54-114`). A successful Stop shows a 5 s toast with an Undo action that calls `api.start` without setting `busy` (`:85-104`).
+`useGameActions` sets `busy`, calls start or stop, toasts the result, and always schedules a single-game refresh 3 s later that also clears `busy` (`app/packages/web/src/hooks/use-game-actions.hook.ts:6,43-52,54-114`). A successful Stop shows a 5 s toast with an Undo action that calls `api.start` with `busy` set until that start settles and its refresh runs, so the card cannot launch or stop the game meanwhile.
 
 ## DNS Lifecycle (update-dns Lambda)
 
@@ -84,7 +84,7 @@ The EventBridge rule `${projectName}-task-state-change` matches `aws.ecs` / `ECS
 | `HOSTED_ZONE_ID` | hosted-zone lookup | target zone (`handler.ts:37`) |
 | `DOMAIN_NAME` | hosted-zone name, trailing dot stripped | record name `{game}.{DOMAIN_NAME}` (`:38,265`) |
 | `GAME_NAMES` | CSV of `gameServers` keys | family-to-game map (`:39,49`) |
-| `DNS_TTL` | `DeploymentConfig.dnsTtl` (default 30, `shared/src/deploymentConfig.ts:80,239`) | TTL on UPSERT and DELETE (`:40,110,159`) |
+| `DNS_TTL` | `DeploymentConfig.dnsTtl` (default 30, `shared/src/deploymentConfig.ts:80,239`) | TTL on UPSERT (a DELETE echoes the stored record's TTL) (`:40,110`) |
 | `AWS_REGION_` | stack region | ECS/EC2 clients (`:51-62`) |
 | `TABLE_NAME` | Discord DynamoDB table | pending-interaction lookup; empty disables it (`:41,181`) |
 | `CONNECT_MESSAGES`, `GAME_PORTS` | per-game maps from `gameServers` | Discord connect message (`:44,47,187-191`) |
@@ -93,11 +93,11 @@ The EventBridge rule `${projectName}-task-state-change` matches `aws.ecs` / `ECS
 
 The handler strips `family:` from `detail.group` and looks it up in `FAMILY_TO_GAME` (`{game}-server` to `{game}`, `shared/src/env.ts:64-66`); unknown families, including the helper task's, return `skipped` (`handler.ts:257-263`).
 
-On `RUNNING`, `resolvePublicIp` tries up to five times with 3 s sleeps: `DescribeTasks`, pull the ENI from the task's attachments, `DescribeNetworkInterfaces`, take the public IP (`handler.ts:71-96`). Each attempt's errors are caught and logged. If no IP is found the handler PATCHes any pending Discord interaction with an error message and returns `no_ip` without touching DNS (`:224-230`). Otherwise it UPSERTs an A record with `DNS_TTL` (`:98-118,231`), then PATCHes the pending interaction with the formatted running status and deletes the row (`:176-198,232`). Discord failures are logged and swallowed (`:195-197`). An UPSERT failure is not caught and fails the invocation [inferred: no try at `:98-118` or `:231`].
+On `RUNNING`, `resolvePublicIp` tries up to five times with 3 s sleeps: `DescribeTasks`, pull the ENI from the task's attachments, `DescribeNetworkInterfaces`, take the public IP. Each attempt's errors are caught and logged. If no IP is found the handler PATCHes any pending Discord interaction with an error message and returns `no_ip` without touching DNS. Otherwise it UPSERTs an A record with `DNS_TTL`, then PATCHes the pending interaction with the formatted running status and deletes the row. Discord failures are logged and swallowed. An UPSERT failure PATCHes any pending interaction with an error status, then fails the invocation so Lambda's asynchronous invoke retries run; the pending row is kept so a successful retry overwrites the error message and deletes the row.
 
-On `STOPPED`, `deleteDns` reads the current A record with `ListResourceRecordSets` (`:120-139`); if none exists it logs and returns. Otherwise it sends DELETE with the current record's IP but the Lambda's current `DNS_TTL` (`:141-166`), and a failure is logged as a warning (`:167-169`). Route 53 requires a DELETE to match the existing record set exactly, so a `dnsTtl` change applied between a task's start and stop leaves the record in place [inferred from Route 53 DELETE semantics; not reproduced]. The delete also does not compare the record's IP with the stopping task's IP, so a late STOPPED for an old task could remove a newer task's record [inferred; not reproduced]. The pending Discord row is never consulted on STOPPED (`:235-238`).
+On `STOPPED`, `deleteDns` reads the current A record with `ListResourceRecordSets`; if none exists it logs and returns. Otherwise it sends DELETE echoing the stored record's TTL and IP, because Route 53 requires a DELETE to match the existing record set exactly and a `dnsTtl` change between a task's start and stop must not leave the record behind; a failure is logged as a warning. The delete does not compare the record with the stopping task's identity, so a late STOPPED for an old task could remove a newer task's record (an open question below). After the DELETE it consults the `PENDING#{taskArn}` row: a row still present means the task stopped before reaching RUNNING, so the Lambda PATCHes the interaction with an error status and deletes the row.
 
-Other statuses return `no_action` (`:239`), though the rule already filters them out. The handler logs the full event JSON on every invocation (`:252`).
+Other statuses return `no_action` (`:239`), though the rule already filters them out. The handler logs the task ARN, family and `lastStatus` on every invocation, never the full event.
 
 ## Cost Estimates
 
@@ -113,11 +113,11 @@ The live path is `costs.estimate`: read `gameNames` from stack outputs (zeros if
 | `costPerMonth4hpd` | hourly × 4 × 30, 2 decimals |
 | `totalPerHourIfAllOn` | sum of `costPerHour` (`costs.controller.ts:42-47`) |
 
-Missing data is handled at two levels with different numbers: a task definition without `cpu`/`memory` defaults to 1024/2048 (`EcsService.ts:372-373`), while a failed describe defaults to 2048/8192 in the controller (`costs.controller.ts:39`).
+Missing data uses one fallback: a task definition without `cpu`/`memory`, or a failed describe, estimates at `FALLBACK_TASK_CPU` / `FALLBACK_TASK_MEMORY` (2048 CPU units, 8192 MiB) from `@hyveon/shared`, deliberately the conservative (higher) figure for a cost display. `CostService` derives every figure from `fargateHourlyCostRaw`, the one place the pricing formula lives; `estimateFargateHourlyCost` rounds the same value for the wizard.
 
-The dashboard derives its KPI tiles from the same estimate: "Current run rate" sums `costPerHour` over `running` games and "Est. month cap" is `totalPerHourIfAllOn × 24 × days in the current month` (`app/packages/web/src/components/kpi-strip.component.tsx:58-69`), using only free data. The Costs page's "$/month" column is the 4 h/day projection, so the two "month" numbers measure different things by design. `GameStatusProvider` fetches the estimate once on mount because polling it would add steady ECS traffic (`game-status-provider.component.tsx:54-58,84-86`); the Costs page fetches it again on its own mount (`costs.page.tsx:172-180`). Both swallow errors.
+The dashboard derives its KPI tiles from the same estimate: "Current run rate" sums `costPerHour` over `running` games and "Est. month cap" is `totalPerHourIfAllOn × 24 × days in the current month` (`app/packages/web/src/components/kpi-strip.component.tsx:58-69`), using only free data. The Costs page's "$/month" column is the 4 h/day projection, so the two "month" numbers measure different things by design. `GameStatusProvider` fetches the estimate once on mount because polling it would add steady ECS traffic (`game-status-provider.component.tsx`); the Costs page reads that same result rather than fetching again.
 
-A second implementation exists on the provider: `getCostEstimate` describes each task definition with a 2048/8192 fallback and its own copy of the hourly formula (`AwsCloudProvider.ts:291-330,645-665`). It returns a `CostBreakdown` (`shared/src/cloud.ts:37-43`) and is not called by any production path; `costs.estimate` bypasses it.
+`CloudProvider` carries no cost-estimate method: `costs.estimate` is the only per-game estimate path, so there is one implementation to keep correct.
 
 ## Decisions & Alternatives
 
@@ -132,10 +132,16 @@ A second implementation exists on the provider: `getCostEstimate` describes each
 | Public IP lookup | ENI from task attachments, then `DescribeNetworkInterfaces`, via a shared callback helper | Each caller re-implements; `shared` imports the EC2 SDK | Keeps `shared` free of SDK dependencies and lets each caller choose error handling (`ecsTask.ts:1-16,82-100`). |
 | ENI-lag handling in update-dns | 5 attempts, 3 s apart, then give up | Longer backoff; re-queue the event | ENI association lags the RUNNING event (`update-dns/src/handler.ts:67-70`); the budget fits the 60 s timeout [inferred]. |
 | Cost data source | Task-definition CPU/memory times static Fargate prices | Cost Explorer `GetCostAndUsage` | The app makes no Cost Explorer calls, so it needs no billed-cost data and no Cost Explorer permission; real billed spend is one click away because the Costs page links out to the AWS console. Cost Explorer calls are billed per request [inferred]. |
-| Estimate refresh cadence | Once per mount | Every status poll | Avoids per-game `DescribeTaskDefinition` traffic every 20 s for data that only changes on apply (`game-status-provider.component.tsx:54-58`). |
+| Estimate refresh cadence | At app start and each time the Costs page mounts | Every status poll | Avoids per-game `DescribeTaskDefinition` traffic every 20 s for data that only changes on apply (`GameStatusProvider`). |
 | Status poll cadence | 20 s, build-time override, 1 s floor | Push via EventBridge to the app | The app has no inbound transport (desktop-only, no HTTP) [inferred]; override documented at `game-status-provider.component.tsx:16-21`. |
 | Region for the provider | `ConfigService.getRegion()`, the install's one region | `outputs.awsRegion`; a game region from `DeploymentConfig.awsRegion` separate from the wizard region | One region per install (`docs/high-level-design.md`, decision 10); the outputs echo the same region because the program takes it from the wizard, so reading them would add a second source for one value (`IAC-ENGINE-REGION-002`). |
 | Message strings as contract | Guard/launch errors carry operator-facing text, passed through unprefixed | Error codes mapped in the renderer | Preserves the pre-provider `EcsService` message contract (`EcsService.ts:108-125`; `AwsCloudProvider.ts:428-430`). |
+| Where cost estimation lives | `costs.estimate` and `CostService` only, over one shared pricing function and one fallback pair | A `CloudProvider.getCostEstimate` method beside the IPC channel | The provider method had no production caller and its own copies of the formula and a second fallback; removing it leaves one path. A conservative 2048/8192 fallback was chosen over 1024/2048 so a missing task-definition value never understates cost. |
+| Pending Discord row on STOPPED | After the DELETE, a surviving `PENDING#{taskArn}` row gets an error PATCH and is deleted | Leave the row to expire; clear it silently | A task that stopped before RUNNING otherwise leaves the user's message on "starting" until the 15-minute token lapses. The row is normally deleted on RUNNING, so a row on STOPPED usually means the task never ran; it can also survive a RUNNING whose Discord PATCH or row delete failed (logged and swallowed) or whose UPSERT failed, in which case the STOPPED message reports the task as stopped before reaching RUNNING. |
+| UPSERT failure | Error PATCH to a pending interaction, keep the `PENDING#` row, then rethrow | Swallow the failure and retry silently; delete the row with the error PATCH | The invocation still fails so Lambda's asynchronous invoke retries can recover, and the operator who clicked `/server-start` is told the DNS record was not published rather than waiting. The row is kept so a successful retry overwrites the error message with the running status and deletes the row; deleting it would leave the user on the error message after the retry succeeds. |
+| Late STOPPED and a newer task's record (`RT-TASK-DNS-010`) | Deferred: DELETE does not compare the stopping task with the record's owner | (a) grant the update-dns role `ecs:ListTasks` and skip the DELETE while another non-stopped task of the family exists; (b) write the owning task ARN to DynamoDB at RUNNING and compare at STOPPED | The STOPPED event carries no public IP and the stopped task's ENI is gone, so ownership cannot be proved without (a) or (b). (a) widens the update-dns IAM role, which is not widened; (b) adds a write and a read path for a narrow race. The 120 s start lease already bars a Start inside the window in which a late STOPPED could arrive. Un-defer if a late STOPPED is observed removing a live record, or if the lease is shortened or removed. |
+| DELETE shape | Echo the stored TTL and IP from `ListResourceRecordSets` | Send the current `DNS_TTL` | Route 53 rejects a DELETE that differs from the stored record set, so a changed `dnsTtl` would orphan a record pointing at a released IP. |
+| Shared payload types | `GameStatus`, `StartResult`, `GameEstimate`, `CostEstimates` declared in `@hyveon/shared`; preload and web re-export | Per-package copies | Four copies had to be edited together for any field change and could drift silently. |
 
 ## Open Questions & Future Decisions
 
@@ -143,25 +149,16 @@ A second implementation exists on the provider: `getCostEstimate` describes each
 
 1. ✅ Cost Explorer is not used; estimates are static and the console link covers billed spend (the Costs page links out to the AWS console for billed spend).
 2. ✅ Running tasks carry the `Game` tag through `propagateTags: 'TASK_DEFINITION'` on both start paths (`AwsCloudProvider.ts:476`, `followup/src/handler.ts:150`).
-3. ✅ HTTPS games use the shared Lambda DNS lifecycle with no load balancer (`update-dns/src/handler.ts:6-9,217-240`).
+3. ✅ HTTPS games use the shared Lambda DNS lifecycle with no load balancer.
 4. ✅ Every desktop ECS call, the provider's start, stop and status included, takes its region from `ConfigService.getRegion()`, not `outputs.awsRegion` (`IAC-ENGINE-REGION-002`; `docs/high-level-design.md`, decision 10).
 
-### Deferred
+### Open
 
-1. Should update-dns DELETE send the stored record's TTL from `ListResourceRecordSets` rather than the current `DNS_TTL`, so an operator `dnsTtl` change cannot orphan a record (`update-dns/src/handler.ts:130-133,159`)?
-2. Should DELETE skip when the record's IP is not the stopping task's IP, to protect a newer task's record from a late STOPPED event (`update-dns/src/handler.ts:141-166,235-238`)?
-3. Should the STOPPED path clear, or PATCH with an error, a `PENDING#{taskArn}` row left by a task that never reached RUNNING (`update-dns/src/handler.ts:224-238`)?
-4. Should the Fargate formula collapse onto `estimateFargateHourlyCost` (`gameServerValidator.ts:426-431`) instead of three copies (`CostService.ts:31-42`, `AwsCloudProvider.ts:325-330`)?
-5. Should `costs.estimate` route through `CloudProvider.getCostEstimate`, or should that method be dropped from the interface (`shared/src/cloud.ts:55`, `costs.controller.ts:37-39`)?
-6. Which fallback is correct for missing task-definition data: 1024/2048 (`EcsService.ts:372-373`) or 2048/8192 (`costs.controller.ts:39`, `AwsCloudProvider.ts:310-311,315`)?
-7. Should `GameStatus`, `StartResult` and `CostEstimates` live only in `@hyveon/shared` instead of being redeclared in `EcsService.ts:148,162`, `CostService.ts:14`, `desktop-preload/src/hyveon-api.ts:100,126` and `web/src/api.service.ts:121,147`?
-8. Should the followup Lambda's `findRunningTask`/`getStatus`/`runStart` share code with `AwsCloudProvider` rather than duplicate it (`followup/src/handler.ts:79-147`)?
-9. `EcsService` logs raw `{ err }` objects (`EcsService.ts:330,352,377`) and update-dns logs the full event (`update-dns/src/handler.ts:252`), against `.claude/rules/logging.md`; normalise to messages?
-10. Remove `EcsService.findRunningTask` (`EcsService.ts:281-287`, no production caller; the helper task uses the fail-closed `findRunningTaskOrThrow` at `:242-268`), the unused `_ec2` parameter (`:197-200`) and the dynamic import in `registerTaskDefinition` (`:388-390`)?
-11. Should a status read that fails inside `findRunningTask` surface as `error` rather than `stopped` (`AwsCloudProvider.ts:372-375`)?
-12. Should an UPSERT failure in update-dns be caught so the pending Discord message still gets an error PATCH (`update-dns/src/handler.ts:231-232`)?
-13. Fix stale references: the retired `remove-cost-explorer-calls` change name cited in code comments at `CostService.ts:23`, `costs.controller.ts:13`, `shared/src/cloud.ts:35`, `AwsCloudProvider.ts:183`, `kpi-strip.component.tsx:57`, `costs.page.tsx:167,190` and `costs.spec.ts:18` (restate the rationale in the comment instead); "tfstate" in `costs.controller.ts:25-26`; `update_dns.py` in `update-dns/src/handler.ts:69`; the `CostsPage` page object's sidebar note (`app/packages/web/e2e/pages/CostsPage.ts:12,22-23`).
-14. Renderer gaps: cost-fetch failures are silent and fetched twice (`game-status-provider.component.tsx:85`, `costs.page.tsx:172-180`); `refreshGame` cannot add a missing game (`game-status-provider.component.tsx:88-91`); Undo does not set `busy` (`use-game-actions.hook.ts:89-97`); the card's clipboard write is fire-and-forget (`game-card.component.tsx:195`).
+1. A RUNNING invocation can spend up to 15 s on IP retries while a STOPPED event for the same task clears the pending row, after which RUNNING UPSERTs a record for a dead task. The window is small and the next STOPPED or start cycle replaces the record; it is not guarded.
+2. Should the followup Lambda's `findRunningTask`/`getStatus`/`runStart` share code with `AwsCloudProvider` rather than duplicate it (`followup/src/handler.ts:79-147`)?
+3. Remove `EcsService.findRunningTask` (no production caller; the helper task uses the fail-closed `findRunningTaskOrThrow`), the unused `_ec2` parameter and the dynamic import in `registerTaskDefinition`?
+4. Should a status read that fails inside `findRunningTask` surface as `error` rather than `stopped` (`AwsCloudProvider.ts:372-375`)?
+5. Fix stale references: the retired `remove-cost-explorer-calls` change name cited in code comments (`CostService.ts`, `costs.controller.ts`, `shared/src/cloud.ts`, `AwsCloudProvider.ts`, `kpi-strip.component.tsx`, `costs.page.tsx`, `costs.spec.ts`), "tfstate" in `costs.controller.ts`, `update_dns.py` in `update-dns/src/handler.ts`, and the `CostsPage` page object's sidebar note; and the game card's fire-and-forget clipboard write (`game-card.component.tsx:195`).
 
 ## References
 

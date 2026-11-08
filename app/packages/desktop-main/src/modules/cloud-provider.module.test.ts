@@ -19,7 +19,6 @@ import type {
   WorkloadHandle,
   WorkloadStatus,
   LogChunk,
-  CostBreakdown,
   AuditEntry,
   AuditPageResult,
   RunRecord,
@@ -84,9 +83,6 @@ class FakeCloudProvider implements CloudProvider {
     throw new Error('not implemented in fake');
   }
   streamWorkloadLogs(_game: string, _signal: AbortSignal): AsyncIterable<LogChunk> {
-    throw new Error('not implemented in fake');
-  }
-  getCostEstimate(): Promise<CostBreakdown> {
     throw new Error('not implemented in fake');
   }
 }

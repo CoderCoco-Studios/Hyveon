@@ -5,7 +5,6 @@ import { dirname, resolve } from 'node:path';
 import { RemoteFileConflictError } from './cloud.js';
 import type {
   CloudProvider,
-  CostBreakdown,
   DiscordEventReceiver,
   LogChunk,
   RemoteFileStore,
@@ -20,6 +19,15 @@ import type { RunLock, RunRecord } from './runs.js';
 const dir = dirname(fileURLToPath(import.meta.url));
 
 describe('cloud.ts interface file', () => {
+  // @spec RT-TASK-COST-012
+  it('should declare no cost-estimate method on CloudProvider', () => {
+    const src = readFileSync(resolve(dir, 'cloud.ts'), 'utf8');
+    const iface = src.slice(src.indexOf('export interface CloudProvider'));
+    const body = iface.slice(0, iface.indexOf('\n}\n'));
+    expect(body).toMatch(/startWorkload/);
+    expect(body).not.toMatch(/cost/i);
+  });
+
   it('should import nothing from @aws-sdk/*', () => {
     const src = readFileSync(resolve(dir, 'cloud.ts'), 'utf8');
     expect(src).not.toMatch(/from ['"]@aws-sdk\//);
@@ -27,7 +35,8 @@ describe('cloud.ts interface file', () => {
 });
 
 describe('CloudProvider', () => {
-  it('should be implementable with a plain object satisfying all five methods', () => {
+  // @spec RT-TASK-COST-012
+  it('should be implementable with a plain object satisfying all four methods', () => {
     /**
      * Compile-time check: this object must satisfy CloudProvider or tsc/vitest
      * will fail. The runtime assertion just confirms the object is truthy.
@@ -41,9 +50,6 @@ describe('CloudProvider', () => {
         return { state: 'stopped' };
       },
       async *streamWorkloadLogs(_game: string, _signal: AbortSignal): AsyncIterable<LogChunk> {},
-      async getCostEstimate(): Promise<CostBreakdown> {
-        return { total: 0, currency: 'USD', breakdown: {} };
-      },
     } satisfies CloudProvider;
 
     expect(provider).toBeDefined();

@@ -221,3 +221,84 @@ describe('update-dns handler: Discord follow-up', () => {
     expect(deletePendingMock).not.toHaveBeenCalled();
   });
 });
+
+/** A pending `/server-start` row for `arn:task/abc`. */
+const pendingRow = {
+  taskArn: 'arn:task/abc',
+  applicationId: 'app',
+  interactionToken: 'tok1',
+  userId: 'U1',
+  guildId: 'G1',
+  game: 'palworld',
+  action: 'start',
+  expiresAt: Math.floor(Date.now() / 1000) + 600,
+};
+
+describe('update-dns handler: stored-record DELETE', () => {
+  // @spec RT-TASK-DNS-009
+  it('should send the stored TTL and value, not the current DNS_TTL', async () => {
+    route53Mock.on(ListResourceRecordSetsCommand).resolves({
+      ResourceRecordSets: [
+        { Name: 'palworld.example.com.', Type: 'A', ResourceRecords: [{ Value: '9.9.9.9' }], TTL: 300 },
+      ],
+    });
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
+
+    await handler(stateChange({ game: 'palworld', lastStatus: 'STOPPED' }));
+
+    const rrs = route53Mock.commandCalls(ChangeResourceRecordSetsCommand)[0]!.args[0]!.input.ChangeBatch!.Changes![0]!
+      .ResourceRecordSet!;
+    expect(rrs.TTL).toBe(300);
+    expect(rrs.ResourceRecords).toEqual([{ Value: '9.9.9.9' }]);
+  });
+});
+
+describe('update-dns handler: event logging', () => {
+  // @spec RT-TASK-DNS-014
+  it('should log task identifiers rather than the full event JSON', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const event = { ...stateChange({ game: 'palworld', lastStatus: 'STOPPED' }), secret: 'do-not-log' };
+    route53Mock.on(ListResourceRecordSetsCommand).resolves({ ResourceRecordSets: [] });
+
+    await handler(event);
+
+    const logged = JSON.stringify(log.mock.calls);
+    expect(logged).toContain('arn:task/abc');
+    expect(logged).toContain('palworld-server');
+    expect(logged).toContain('STOPPED');
+    expect(logged).not.toContain('do-not-log');
+    log.mockRestore();
+  });
+});
+
+describe('update-dns handler: pending interaction on failure paths', () => {
+  // @spec RT-TASK-NOTIFY-005
+  it('should PATCH an error and delete the row when a task stops before RUNNING', async () => {
+    route53Mock.on(ListResourceRecordSetsCommand).resolves({ ResourceRecordSets: [] });
+    getPendingMock.mockResolvedValue(pendingRow);
+
+    await handler(stateChange({ game: 'palworld', lastStatus: 'STOPPED' }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toContain('**palworld**: error');
+    expect(deletePendingMock).toHaveBeenCalledWith('test-discord', 'arn:task/abc');
+  });
+
+  // @spec RT-TASK-NOTIFY-006
+  it('should PATCH an error, keep the row, then fail the invocation when the UPSERT throws', async () => {
+    stubTaskWithEni();
+    ec2Mock.on(DescribeNetworkInterfacesCommand).resolves({
+      NetworkInterfaces: [{ Association: { PublicIp: '1.2.3.4' } }],
+    });
+    route53Mock.on(ChangeResourceRecordSetsCommand).rejects(new Error('throttled'));
+    getPendingMock.mockResolvedValue(pendingRow);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(handler(stateChange({ game: 'palworld', lastStatus: 'RUNNING' }))).rejects.toThrow('throttled');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toContain('**palworld**: error');
+    expect(deletePendingMock).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+});

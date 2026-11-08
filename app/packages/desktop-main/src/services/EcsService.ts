@@ -17,8 +17,8 @@ import {
   type AwsCloudProviderConfig,
   type AwsCloudProviderLogger,
 } from '@hyveon/cloud-aws';
-import { getTaskEniId } from '@hyveon/shared';
-import type { CloudProvider } from '@hyveon/shared';
+import { FALLBACK_TASK_CPU, FALLBACK_TASK_MEMORY, getTaskEniId, errMessage } from '@hyveon/shared';
+import type { CloudProvider, GameStatus, StartResult } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { Ec2Service } from './Ec2Service.js';
@@ -26,7 +26,6 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsClientCredentialsWithSignature, type AwsClientCredentials } from './awsCredentialSource.js';
 import { createCachedAwsClient } from './awsClientCache.js';
 import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
-import { errMessage } from '@hyveon/shared';
 
 /** `DescribeTasks` accepts at most 100 task ARNs per call. */
 const DESCRIBE_TASKS_BATCH = 100;
@@ -74,7 +73,6 @@ export async function buildProviderConfig(
     securityGroupId: outputs.securityGroupId,
     discordTableName: outputs.discordTableName,
     domainName: outputs.domainName,
-    gameNames: outputs.gameNames,
   };
 }
 
@@ -88,7 +86,7 @@ export async function buildProviderConfig(
  * `AwsCloudProvider` instance.
  */
 export const awsCloudProviderLogger: AwsCloudProviderLogger = {
-  error: (message: string, err: unknown) => logger.error(message, { err }),
+  error: (message: string, err: unknown) => logger.error(message, { error: errMessage(err) }),
 };
 
 /**
@@ -135,32 +133,6 @@ function describeError(err: unknown): string {
  */
 function isGuardRefusal(err: unknown): err is WorkloadGuardError {
   return err instanceof WorkloadGuardError;
-}
-
-/**
- * Snapshot of a game's current state as surfaced to the UI/Discord. The
- * `state` distinguishes "running" (task `RUNNING`, IP resolved) from
- * "starting" (task exists but still provisioning) so the UI can show a
- * spinner rather than an unreachable hostname.
- */
-export interface GameStatus {
-  game: string;
-  state: 'running' | 'starting' | 'stopped' | 'not_deployed' | 'error';
-  publicIp?: string;
-  hostname?: string;
-  taskArn?: string;
-  message?: string;
-}
-
-/**
- * Result shape for start/stop operations. Reused for both because the UI
- * treats them symmetrically (success toast on happy path, error toast on the
- * `message` otherwise).
- */
-export interface StartResult {
-  success: boolean;
-  message: string;
-  taskArn?: string;
 }
 
 /**
@@ -304,7 +276,7 @@ export class EcsService {
     };
   }
 
-  // @spec RT-TASK-LAUNCH-012, RT-TASK-LAUNCH-013
+  // @spec RT-TASK-LAUNCH-012, RT-TASK-LAUNCH-013, RT-TASK-LAUNCH-014
   /**
    * Launch a one-off Fargate task from the game's `{game}-server` task
    * definition. Delegates to {@link AwsCloudProvider.startWorkload}, which
@@ -327,13 +299,13 @@ export class EcsService {
       if (isGuardRefusal(err)) {
         logger.warn('Refused to start game server', { game, message: describeError(err) });
       } else {
-        logger.error('Exception starting game server', { err, game });
+        logger.error('Exception starting game server', { error: errMessage(err), game });
       }
       return { success: false, message: describeError(err) };
     }
   }
 
-  // @spec RT-TASK-LAUNCH-012, RT-TASK-LAUNCH-013
+  // @spec RT-TASK-LAUNCH-012, RT-TASK-LAUNCH-013, RT-TASK-LAUNCH-014
   /**
    * Stop the active task for `game`. Delegates to
    * {@link AwsCloudProvider.stopWorkload}, which throws the same message
@@ -350,7 +322,7 @@ export class EcsService {
       if (isGuardRefusal(err)) {
         logger.warn('Refused to stop game server', { game, message: describeError(err) });
       } else {
-        logger.error('Exception stopping game server', { err, game });
+        logger.error('Exception stopping game server', { error: errMessage(err), game });
       }
       return { success: false, message: describeError(err) };
     }
@@ -370,12 +342,12 @@ export class EcsService {
       const td = resp.taskDefinition;
       if (!td) return null;
       return {
-        cpu: parseInt(td.cpu ?? '1024', 10),
-        memory: parseInt(td.memory ?? '2048', 10),
+        cpu: td.cpu ? parseInt(td.cpu, 10) : FALLBACK_TASK_CPU,
+        memory: td.memory ? parseInt(td.memory, 10) : FALLBACK_TASK_MEMORY,
         executionRoleArn: td.executionRoleArn ?? '',
       };
     } catch (err) {
-      logger.error('Failed to describe task definition', { err, game });
+      logger.error('Failed to describe task definition', { error: errMessage(err), game });
       return null;
     }
   }
@@ -395,7 +367,7 @@ export class EcsService {
       logger.info('Registered task definition', { family: params.family, arn });
       return arn;
     } catch (err) {
-      logger.error('Failed to register task definition', { err, family: params.family });
+      logger.error('Failed to register task definition', { error: errMessage(err), family: params.family });
       return null;
     }
   }
@@ -475,7 +447,7 @@ export class EcsService {
         ) ?? []
       );
     } catch (err) {
-      logger.error('Failed to list tasks by startedBy', { err, startedBy });
+      logger.error('Failed to list tasks by startedBy', { error: errMessage(err), startedBy });
       return [];
     }
   }

@@ -7,6 +7,8 @@ const apiMock = vi.hoisted(() => ({
   costsEstimate: vi.fn(),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
+const toastMock = vi.hoisted(() => ({ error: vi.fn() }));
+vi.mock('sonner', () => ({ toast: toastMock }));
 
 import { PollingProvider, usePollingState } from './polling-provider.component.js';
 import { GameStatusProvider, GAME_STATUS_POLLER, useGameStatus } from './game-status-provider.component.js';
@@ -160,4 +162,111 @@ describe('GameStatusProvider', () => {
     expect(screen.getByTestId('error')).toHaveTextContent('-');
     expect(screen.getByTestId('poller-error')).toHaveTextContent('-');
   });
+
+  // @spec RT-TASK-UI-004
+  it('should expose and toast a failed costs.estimate fetch instead of leaving estimates silently empty', async () => {
+    apiMock.costsEstimate.mockRejectedValueOnce(new Error('describe denied'));
+
+    render(
+      <PollingProvider>
+        <GameStatusProvider>
+          <EstimatesErrorProbe />
+        </GameStatusProvider>
+      </PollingProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('estimates-error')).toHaveTextContent('describe denied');
+    expect(toastMock.error).toHaveBeenCalledWith('Could not load cost estimates', { description: 'describe denied' });
+  });
+
+  // @spec RT-TASK-UI-004
+  it('should reload estimates on demand, clearing a previous failure', async () => {
+    apiMock.costsEstimate.mockRejectedValueOnce(new Error('describe denied')).mockResolvedValueOnce(ESTIMATES);
+
+    render(
+      <PollingProvider>
+        <GameStatusProvider>
+          <ReloadEstimatesProbe />
+        </GameStatusProvider>
+      </PollingProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('estimates-error')).toHaveTextContent('describe denied');
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('reload-estimates'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('estimates-error')).toHaveTextContent('-');
+    expect(screen.getByTestId('hourly')).toHaveTextContent('0.08');
+  });
+
+  // @spec RT-TASK-UI-005
+  it('should insert a game status that the last full poll did not include when refreshing that game', async () => {
+    apiMock.status.mockResolvedValue([STOPPED]);
+    apiMock.statusGame.mockResolvedValue({ game: 'valheim', state: 'running' });
+
+    render(
+      <PollingProvider>
+        <GameStatusProvider>
+          <RefreshGameProbe />
+        </GameStatusProvider>
+      </PollingProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('refresh-valheim'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('games')).toHaveTextContent('minecraft:stopped,valheim:running');
+  });
 });
+
+/** Exposes the costs.estimate failure state. */
+function EstimatesErrorProbe() {
+  const { estimatesError } = useGameStatus();
+  return <div data-testid="estimates-error">{estimatesError ? estimatesError.message : '-'}</div>;
+}
+
+/** Lists every status and offers a button that refreshes a game absent from the initial poll. */
+function RefreshGameProbe() {
+  const { statuses, refreshGame } = useGameStatus();
+  return (
+    <div>
+      <div data-testid="games">{statuses.map((s) => `${s.game}:${s.state}`).join(',')}</div>
+      <button data-testid="refresh-valheim" onClick={() => void refreshGame('valheim')}>
+        refresh
+      </button>
+    </div>
+  );
+}
+
+/** Exposes estimates, their failure state, and a button that reloads them. */
+function ReloadEstimatesProbe() {
+  const { estimates, estimatesError, reloadEstimates } = useGameStatus();
+  return (
+    <div>
+      <div data-testid="estimates-error">{estimatesError ? estimatesError.message : '-'}</div>
+      <div data-testid="hourly">{estimates ? String(estimates.totalPerHourIfAllOn) : '-'}</div>
+      <button data-testid="reload-estimates" onClick={() => void reloadEstimates()}>
+        reload
+      </button>
+    </div>
+  );
+}
