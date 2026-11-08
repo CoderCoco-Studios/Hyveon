@@ -96,12 +96,18 @@ export class GameWizardDraftService {
     }
   }
 
-  /** Deletes the saved draft, if any. A no-op (still logged on failure) if none was saved. */
-  clear(): void {
+  /**
+   * Deletes the saved draft, if any. Never throws; a storage failure is logged and reported through the result.
+   *
+   * @returns `true` when the draft is gone (or none was saved), `false` when the delete failed.
+   */
+  clear(): boolean {
     try {
       this.store.delete('addGameWizardDraft');
+      return true;
     } catch (err) {
       logger.warn(`GameWizardDraftService: failed to clear draft (${errorMessage(err)})`);
+      return false;
     }
   }
 }

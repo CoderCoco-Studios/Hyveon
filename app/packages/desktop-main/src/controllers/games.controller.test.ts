@@ -83,7 +83,7 @@ function makeGameWizardDraft(): GameWizardDraftService {
   return {
     get: vi.fn().mockReturnValue(null),
     save: vi.fn(),
-    clear: vi.fn(),
+    clear: vi.fn().mockReturnValue(true),
   } as Partial<GameWizardDraftService> as GameWizardDraftService;
 }
 
@@ -422,5 +422,14 @@ describe('games.draft.* handlers', () => {
     controller.clearDraft();
 
     expect(draftService.clear).toHaveBeenCalled();
+  });
+
+  // @spec GAME-DRAFT-008
+  it('should reject games.draft.clear when the draft could not be deleted', () => {
+    const draftService = makeGameWizardDraft();
+    vi.mocked(draftService.clear).mockReturnValue(false);
+    const controller = new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeGamesWrite(), draftService, makeRegistry());
+
+    expect(() => controller.clearDraft()).toThrow(/discard the saved draft/);
   });
 });

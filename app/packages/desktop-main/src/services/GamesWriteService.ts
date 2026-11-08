@@ -594,7 +594,7 @@ export class GamesWriteService {
       }
       const secretArn = await upsertHealthCheckAuthSecret(gameId, secretValue);
       const change: SecretChange = {
-        rollback: () => this.restoreAppOwnedSecret(gameId, ownedBefore, previousValue),
+        rollback: () => this.restoreAppOwnedSecret(gameId, previousValue),
         commit: async () => undefined,
       };
       return { config: { ...config, healthCheck: { ...healthCheckRest, auth: { type, secretArn } } }, change };
@@ -609,12 +609,15 @@ export class GamesWriteService {
   }
 
   // @spec GAME-WRITE-004
-  /** Undoes an app-owned secret upsert after a failed config write: restores `previousValue` when the secret existed before, else deletes the secret this save created. Logs, never throws. */
-  private async restoreAppOwnedSecret(gameId: string, existedBefore: boolean, previousValue: string | null): Promise<void> {
+  /**
+   * Undoes an app-owned secret upsert after a failed config write: restores `previousValue` when a value was read
+   * before the upsert, else deletes the secret this save created or revived. Logs, never throws.
+   */
+  private async restoreAppOwnedSecret(gameId: string, previousValue: string | null): Promise<void> {
     try {
-      if (!existedBefore) {
+      if (previousValue === null) {
         await deleteHealthCheckAuthSecret(gameId);
-      } else if (previousValue !== null) {
+      } else {
         await upsertHealthCheckAuthSecret(gameId, previousValue);
       }
     } catch (err) {

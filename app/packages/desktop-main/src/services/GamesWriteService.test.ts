@@ -822,6 +822,23 @@ describe('GamesWriteService', () => {
     });
 
     // @spec GAME-WRITE-004
+    it('should delete the secret on rollback when an owned secret was missing before the failed update', async () => {
+      vi.mocked(upsertHealthCheckAuthSecret).mockResolvedValue(ARN);
+      vi.mocked(readHealthCheckAuthSecret).mockResolvedValue(null);
+      const { service, deploymentConfig } = makeService({ existingGameServers: [ownedBefore()] });
+      vi.mocked(deploymentConfig.updateGameServer).mockRejectedValue(new Error('S3 down'));
+
+      const result = await service.updateGame({
+        name: 'minecraft',
+        config: makeConfig({ healthCheck: makeHealthCheck({ auth: { type: 'bearer', token: 'new-token' } }) }),
+      });
+
+      expect(result).toMatchObject({ ok: false, code: 'error' });
+      expect(vi.mocked(upsertHealthCheckAuthSecret).mock.calls).toEqual([['minecraft', 'new-token']]);
+      expect(deleteHealthCheckAuthSecret).toHaveBeenCalledWith('minecraft');
+    });
+
+    // @spec GAME-WRITE-004
     it('should not delete the app-owned secret when the config write of an auth clear fails', async () => {
       const { service, deploymentConfig } = makeService({ existingGameServers: [ownedBefore('basic')] });
       vi.mocked(deploymentConfig.updateGameServer).mockRejectedValue(new OptimisticLockError('a', 'b'));

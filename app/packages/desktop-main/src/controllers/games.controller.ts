@@ -210,13 +210,17 @@ export class GamesController {
     this.gameWizardDraft.updateStepIndex(payload.stepIndex);
   }
 
+  // @spec GAME-DRAFT-008
   /**
    * Clears the saved add-game wizard draft.
    *
+   * @throws Error when the draft could not be deleted, so the games page can tell the operator it is still saved.
    */
   @MessagePattern('games.draft.clear')
   clearDraft(): void {
     logger.debug('GamesController: games.draft.clear invoked');
-    this.gameWizardDraft.clear();
+    if (!this.gameWizardDraft.clear()) {
+      throw new Error('Could not discard the saved draft; it is still stored.');
+    }
   }
 }

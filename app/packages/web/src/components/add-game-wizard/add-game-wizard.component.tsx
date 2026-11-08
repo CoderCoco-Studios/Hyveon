@@ -278,7 +278,11 @@ export function AddGameWizard({
         // a fast reload of `/games` (or the games-page resume banner's own
         // `getGameDraft()` effect) could race the clear and briefly still
         // see the just-submitted draft as "unfinished".
-        await api.clearGameDraft();
+        try {
+          await api.clearGameDraft();
+        } catch {
+          // A failed clear is logged in main and must not block closing after a successful create.
+        }
         applyOpen(false);
         navigate(`/games/${payload.name}`);
         return;

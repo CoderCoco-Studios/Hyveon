@@ -513,6 +513,18 @@ describe('AddGameWizard — draft autosave', () => {
     await waitFor(() => expect(apiMock.clearGameDraft).toHaveBeenCalled());
   });
 
+  // @spec GAME-DRAFT-013
+  it('should still close the wizard after a successful submit when clearing the draft fails', async () => {
+    apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
+    apiMock.clearGameDraft.mockRejectedValueOnce(new Error('locked'));
+    await openWizard();
+    await fillHappyPathToReview();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Submit' })).not.toBeInTheDocument());
+  });
+
   it('should not clear the saved draft on a failed submit', async () => {
     apiMock.createGame.mockResolvedValue({ ok: false, code: 'error', message: 'boom' });
     await openWizard();
