@@ -45,15 +45,16 @@ Discord POSTs to `https://discord.{zone}/`. CloudFront forwards every method wit
 
 ### Interactions Lambda
 
-The handler runs these steps in order (`interactions/src/handler.ts:268-304`):
+The handler runs these steps in order (`interactions/src/handler.ts:303-340`):
 
-1. Reject with 401 unless both `x-signature-ed25519` and `x-signature-timestamp` headers are present (`:269-271`).
+1. Reject with 401 unless both `x-signature-ed25519` and `x-signature-timestamp` headers are present (`:304`).
 2. Read the raw body, base64-decoding if needed, and never re-stringify it, because the signature covers the raw bytes (`:132-136`, `:273`).
 3. Load the Ed25519 public key from Secrets Manager; a missing or placeholder value returns 401 (`:275-277`, `secretsStore.ts:71-76`). The key is cached per warm container for 5 minutes (`secretsStore.ts:43-54`).
-4. Verify `timestamp + rawBody` with `@noble/ed25519`; any parse or verify error is a 401 (`:79-93`, `:279-280`). There is no freshness check on the timestamp.
-5. Parse JSON (400 on failure), answer PING with PONG (`:282-291`). PING never reads the config table.
-6. Read the effective config (`:293-294`, see "Configuration Model" below). This happens on every non-PING interaction; there is no cache.
-7. Dispatch autocomplete (type 4) or application command (type 2); anything else gets an ephemeral "Unsupported interaction type." (`:296-303`).
+4. Verify `timestamp + rawBody` with `@noble/ed25519`; any parse or verify error is a 401 (`:79-93`, `:312-313`).
+5. Validate timestamp freshness on the now-verified timestamp: reject with 401 a timestamp that is not a non-negative integer, or that differs from the Lambda clock by more than 30 seconds in either direction (`:269-290`, `:314`). Replay of a captured request inside that window remains possible.
+6. Parse JSON (400 on failure), answer PING with PONG (`:316-325`). PING never reads the config table.
+7. Read the effective config (`:327-328`, see "Configuration Model" below). This happens on every non-PING interaction; there is no cache.
+8. Dispatch autocomplete (type 4) or application command (type 2); anything else gets an ephemeral "Unsupported interaction type." (`:296-303`).
 
 Autocomplete filters the `GAME_NAMES` env list by substring, then by `canRun` for the command's action, caps at 25 and answers in-band (`:152-178`). Because `canRun`'s first step is the guild allowlist, an unlisted guild sees an empty picker. The game list is the deploy-time snapshot, not a live read.
 
@@ -211,7 +212,7 @@ None recorded before this document was written.
 5. Should the followup stop logging the whole event, which contains the 15-minute `interactionToken` (`followup/src/handler.ts:268`)?
 6. Should user-facing replies carry a generic message instead of `String(err)` (`followup/src/handler.ts:114`, `:146`, `:160`)?
 7. Is awaiting the async invoke inside the 3-second budget acceptable (`interactions/src/handler.ts:198-236`, `:249-258`), and should the module header's claim at `:13-15` be corrected or the ack decoupled?
-8. Should the interactions Lambda reject stale `x-signature-timestamp` values (`interactions/src/handler.ts:269-280`)? Replay of a captured signed request is currently bounded only by Discord's token expiry.
+8. Resolved: the interactions Lambda rejects `x-signature-timestamp` values more than 30 seconds from its clock, in either direction, after signature verification (`interactions/src/handler.ts:314`; see the "Interaction timestamp freshness" row in the Decisions table). Replay of a captured request inside the 30-second window remains possible.
 9. Resolved: concurrent starts are guarded by the DynamoDB start lease and the `RunTask` `clientToken` (`followup/src/handler.ts:134-146`; `RT-TASK-LAUNCH-015`).
 10. Which of the two `DiscordEventReceiver` implementations survives, and should the `DISCORD_RECEIVER` binding and the duplicate `discordInteractionsUrl` stack output be removed (`awsLambdaDiscordReceiver.ts:32`, `AwsDiscordEventReceiver.ts:44-45`, `cloud-provider.module.ts:204`, `stackOutputs.ts:147-156`)?
 11. Should `FollowupPayload` and `FollowupEvent` become one shared type, and should the Lambda use `actionForCommand` instead of its own `actionFor` (`interactions/src/handler.ts:138-150`, `:239-247`, `followup/src/handler.ts:40-48`, `commands.ts:10-20`)?
