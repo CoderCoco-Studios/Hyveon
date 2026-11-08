@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { errMessage } from '@hyveon/shared';
 import {
   SchedulerClient,
   CreateScheduleCommand,
@@ -127,7 +128,7 @@ export class SchedulerService {
       logger.info('Created FileBrowser auto-stop schedule', { name: params.name, at: params.at.toISOString() });
       return true;
     } catch (err) {
-      logger.error('Failed to create FileBrowser auto-stop schedule', { err, name: params.name });
+      logger.error('Failed to create FileBrowser auto-stop schedule', { error: errMessage(err), name: params.name });
       return false;
     }
   }
@@ -148,7 +149,7 @@ export class SchedulerService {
       logger.debug('Deleted FileBrowser auto-stop schedule', { name });
     } catch (err) {
       if (err instanceof ResourceNotFoundException) return;
-      logger.error('Failed to delete FileBrowser auto-stop schedule', { err, name });
+      logger.error('Failed to delete FileBrowser auto-stop schedule', { error: errMessage(err), name });
     }
   }
 }

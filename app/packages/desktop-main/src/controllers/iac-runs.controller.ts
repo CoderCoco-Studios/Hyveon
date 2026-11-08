@@ -304,7 +304,7 @@ export class IacRunsController implements OnModuleInit {
           sender.send(LOGS_END_CHANNEL, message);
         }
       } catch (err) {
-        logger.error('iac.runs.logs error', { err, runId, streamId });
+        logger.error('iac.runs.logs error', { error: errMessage(err), runId, streamId });
         if (!sender.isDestroyed()) {
           const message: IacRunsLogsEndMessage = { streamId, error: ipcErrorMessage(err) };
           sender.send(LOGS_END_CHANNEL, message);

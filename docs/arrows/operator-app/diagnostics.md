@@ -107,7 +107,7 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 | Log Tail Reads | `APP-DIAG-TAIL-001` to `APP-DIAG-TAIL-006` | 6 | 0 | 0 |
 | Renderer Error Reporting | `APP-DIAG-RERR-001` to `APP-DIAG-RERR-009` | 9 | 0 | 0 |
 | Renderer Console Forwarding | `APP-DIAG-CONS-001` to `APP-DIAG-CONS-015` | 15 | 0 | 0 |
-| Service-Layer Logging | `APP-DIAG-SVC-001` to `APP-DIAG-SVC-005` | 4 | 0 | 1 |
+| Service-Layer Logging | `APP-DIAG-SVC-001` to `APP-DIAG-SVC-005` | 5 | 0 | 0 |
 | Diagnostics Panel | `APP-DIAG-PANEL-001` to `APP-DIAG-PANEL-010` | 10 | 0 | 0 |
 | ANSI Log Line Rendering | owned by `infra-logs` (`APP-LOGS-RENDER-001`, `-002`) | — | — | — |
 | Diagnostics Bundle Export | `APP-DIAG-BNDL-001` to `APP-DIAG-BNDL-018` | 18 | 0 | 0 |
@@ -116,7 +116,7 @@ All five `app-diagnostics-logging` requirements have working code and tests; the
 | Audit Trail Reading | `APP-DIAG-AUDR-001` to `APP-DIAG-AUDR-004` | 4 | 0 | 0 |
 | Audit Page | `APP-DIAG-AUDUI-001` to `APP-DIAG-AUDUI-008` | 8 | 0 | 0 |
 
-**Summary:** 100 of 101 active specs implemented; 0 deferred; 1 gap.
+**Summary:** 101 of 101 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 

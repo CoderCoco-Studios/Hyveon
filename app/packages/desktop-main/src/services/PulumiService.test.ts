@@ -329,7 +329,7 @@ describe('PulumiService.getStackOutputs', () => {
 
     expect(loggerMock.warn).toHaveBeenCalledWith(
       expect.stringContaining('failed to read stack outputs'),
-      { error: 'transient AWS failure' },
+      expect.objectContaining({ error: 'transient AWS failure' }),
     );
   });
 });

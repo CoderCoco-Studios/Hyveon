@@ -320,7 +320,7 @@ describe('GamesWriteService', () => {
         code: 'error',
         message: 'An unexpected error occurred while writing the game server configuration',
       });
-      expect(loggerErrorSpy).toHaveBeenCalledWith('Game server write failed', { error: 'disk full' });
+      expect(loggerErrorSpy).toHaveBeenCalledWith('Game server write failed', { error: originalError.message });
       expect(audit.record).not.toHaveBeenCalled();
     });
 

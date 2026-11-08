@@ -145,7 +145,7 @@ export class IacSettingsController implements OnModuleInit {
         logger.warn('Deployment settings read found no deployment-config.json', { err: err.message });
         return { ok: false, code: 'not_found', message: err.message };
       }
-      logger.error('Failed to read deployment settings', { err: errMessage(err) });
+      logger.error('Failed to read deployment settings', { error: errMessage(err) });
       return { ok: false, code: 'error', message: 'An unexpected error occurred while reading deployment settings.' };
     }
   }
@@ -209,7 +209,7 @@ export class IacSettingsController implements OnModuleInit {
         logger.warn('Deployment settings write found no deployment-config.json', { err: err.message });
         return { ok: false, code: 'not_found', message: err.message };
       }
-      logger.error('Failed to write deployment settings', { err: errMessage(err) });
+      logger.error('Failed to write deployment settings', { error: errMessage(err) });
       return { ok: false, code: 'error', message: 'An unexpected error occurred while writing deployment settings.' };
     }
   }
