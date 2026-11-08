@@ -264,7 +264,7 @@ server starts." Each row has:
 
 | Field | Purpose |
 |---|---|
-| **Path** | Absolute path inside the container, e.g. `/data/config.yml` |
+| **Path** | Absolute path inside the container, e.g. `/data/config.yml`. It must be a file under the first volume's path and may not contain `.`, `..` or empty (`//`) segments, or the save is refused |
 | **Content** | Plain-text file contents |
 | **Content (base64)** | Base64-encoded contents, for binary files |
 | **Mode** | Unix mode, e.g. `0644` |
@@ -565,7 +565,7 @@ If the page can't attach to the session at all, it shows the error with a **Retr
 
 Once the auto-stop countdown drops under 10 minutes, a "The session stops automatically soon." warning appears beside it.
 Long transfers can outlive the 2-hour auto-stop, so watch for it before starting a big upload or download.
-If the app could not create the session's auto-stop schedule, a warning under the session bar tells you to stop the session manually; a folder upload refuses to run on such a session.
+If the app could not create the session's auto-stop schedule, a warning under the session bar tells you to stop the session manually, and the countdown and the "stops automatically soon" warning are hidden because there is no deadline; a folder upload refuses to run on such a session.
 
 **Stop** asks for confirmation ("Stop the session? This cancels the running transfer.") whenever any upload or download is running, folder uploads included.
 Otherwise it stops immediately.

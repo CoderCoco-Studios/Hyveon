@@ -35,10 +35,9 @@ const FILEBROWSER_PASSWORD_BYTES = 18;
 const FILEBROWSER_BCRYPT_ROUNDS = 10;
 /**
  * How long a launched FileBrowser task is allowed to run before it is
- * auto-stopped via an EventBridge Scheduler one-time schedule — the fix for
- * "no auto-shutdown, a forgotten session runs (and bills) indefinitely"
- * (issue #350, folding in #346's watchdog-coverage gap: the watchdog Lambda
- * only ever looks at `{game}-server` tasks, never `filemgr-*` ones). Two
+ * auto-stopped via an EventBridge Scheduler one-time schedule, so a forgotten
+ * session cannot run (and bill) indefinitely; the watchdog Lambda only ever
+ * looks at `{game}-server` tasks, never `filemgr-*` ones. Two
  * hours is generous for an interactive file-browsing session while still
  * bounding the worst case if an operator forgets to click Stop.
  */
@@ -109,8 +108,7 @@ export interface FileMgrResult {
  * definition each time, and tags tasks with `startedBy: filemgr-{game}` so
  * we can find and stop them later.
  *
- * Two hardening measures beyond the base launch/stop flow (issue #350,
- * folding in #346):
+ * Two hardening measures beyond the base launch/stop flow:
  *
  *  - **Authentication.** Every launch generates a random password, bcrypt-
  *    hashes it, and passes the hash straight to FileBrowser's `--password`
