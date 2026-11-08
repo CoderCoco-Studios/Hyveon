@@ -171,19 +171,29 @@ describe('IacRunsController.get', () => {
     const result = await controller.get({ runId: 'run-live' });
 
     expect(result).toEqual({ found: true, status: 'running' });
-    expect(pulumi.readRunRecord).not.toHaveBeenCalled();
   });
 
   // @spec IAC-RUN-LOCK-010
   it('should report running for a run holding only the durable lock, as after an app restart', async () => {
     const runService = makeRunService();
     vi.mocked(runService.getHeldLock).mockResolvedValue(buildLock({ runId: 'run-restarted' }));
-    const pulumi = makePulumi(buildRecord({ runId: 'run-restarted', kind: 'apply', exitCode: null }));
+    const pulumi = makePulumi();
     const controller = new IacRunsController(pulumi, runService, makeRunRecordService());
 
     const result = await controller.get({ runId: 'run-restarted' });
 
     expect(result).toEqual({ found: true, status: 'running' });
+  });
+
+  // @spec IAC-RUN-LOCK-010
+  it('should report the settled status, not running, when the lock release failed for a finished run', async () => {
+    const record = buildRecord({ runId: 'run-done', kind: 'apply', exitCode: 0 });
+    const runService = makeRunService(buildLock({ runId: 'run-done' }));
+    const controller = new IacRunsController(makePulumi(record), runService, makeRunRecordService());
+
+    const result = await controller.get({ runId: 'run-done' });
+
+    expect(result).toEqual({ found: true, status: 'success', record });
   });
 
   it('should return found: true, status: success plus the record for a finished apply run', async () => {
