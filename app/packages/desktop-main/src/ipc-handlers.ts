@@ -17,7 +17,8 @@ export type SelfBridgedHandler = (payload: unknown, ctx: SelfBridgedContext) => 
  * @remarks
  * An `HttpException` built from an object body (`BadRequestException({ success: false, error })`)
  * carries a class-derived `.message` such as "Bad Request Exception"; its real text lives in
- * `getResponse()`, so that is read first. Everything else yields its `.message`, or `String(err)`
+ * `getResponse()`, so that is read first. Everything else yields its `.message` (an `Error`'s `.name` when the message
+ * is empty, so a stream end never reads as clean), or `String(err)`
  * for a non-object throw. Never returns the `Error: ` prefix `String(error)` would add.
  *
  * @param err - The value caught from a handler or stream source.
@@ -35,7 +36,7 @@ export function ipcErrorMessage(err: unknown): string {
     }
     return err.message;
   }
-  if (err instanceof Error) return err.message;
+  if (err instanceof Error) return err.message || err.name;
   if (typeof err === 'object' && err !== null && 'message' in err) {
     return String((err as { message: unknown }).message);
   }

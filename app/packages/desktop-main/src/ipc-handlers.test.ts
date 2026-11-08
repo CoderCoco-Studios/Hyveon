@@ -37,6 +37,12 @@ describe('ipcErrorMessage', () => {
     expect(ipcErrorMessage({ message: 'obj boom' })).toBe('obj boom');
     expect(ipcErrorMessage('bare')).toBe('bare');
   });
+
+  // @spec APP-IPC-ERR-006
+  it('should fall back to the error name for an Error with an empty message, so a stream end still reports a failure', () => {
+    expect(ipcErrorMessage(new Error())).toBe('Error');
+    expect(ipcErrorMessage(new TypeError(''))).toBe('TypeError');
+  });
 });
 
 // @spec APP-IPC-ERR-005, APP-IPC-CALL-009

@@ -210,7 +210,7 @@ arrows:
     blocks: [run, infra-logs, app-update-and-release, desktop-shell]
     blockedBy: []
     detail: operator-app/ipc-bridge.md
-    next: "Derive the hand-mirrored preload types (GameWizardDraft and the other \"Mirrors X\" declarations in hyveon-api.ts) from shared types."
+    next: "Move the main-only preload types (the Iac* acks and payloads, log pages, wizard service types) into @hyveon/shared, then derive the hand-mirrored declarations in hyveon-api.ts from them."
     drift: null
 
   # ---------------------------------------------------------------- standalone leaves
