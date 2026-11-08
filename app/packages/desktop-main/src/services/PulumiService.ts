@@ -1858,9 +1858,49 @@ export class PulumiService {
     }
   }
 
+  // @spec IAC-RUN-PART-004
+  /**
+   * Reads the newest run record for `planRunId` and validates it as an approved, unexpired, hash-matching plan
+   * (apply gate steps 1-5).
+   *
+   * A record of kind `apply` with `partialApply: true` means an earlier attempt already reached the pre-flight marker
+   * for this plan, so retry safety cannot be assumed; that refusal is checked before the wrong-kind refusal and never
+   * gated behind `status === 'failed'` (a cancelled-mid-apply run is `aborted`). Called both before and after the apply
+   * lock is acquired, because the second call is what closes the window between the first read and the lock.
+   *
+   * @param planRunId - Run id of the approved plan.
+   * @param planHash - Plan hash the caller submitted.
+   * @returns The validated plan record.
+   * @throws {@link PulumiPlanRunNotFoundError}, {@link PulumiPartialApplyRetryBlockedError},
+   *   {@link PulumiPlanRunWrongKindError}, {@link PulumiPlanNotApprovedError}, {@link PulumiApprovalExpiredError} or
+   *   {@link PulumiPlanHashMismatchError} when the record fails the matching check.
+   */
+  private async loadValidatedPlanRecord(planRunId: string, planHash: string): Promise<RunRecord> {
+    const record = await this.getRunRecordPersister().getByRunId(planRunId);
+    if (!record) {
+      throw new PulumiPlanRunNotFoundError(planRunId);
+    }
+    if (record.kind !== 'plan') {
+      if (record.kind === 'apply' && record.partialApply === true) {
+        throw new PulumiPartialApplyRetryBlockedError(planRunId, record.status);
+      }
+      throw new PulumiPlanRunWrongKindError(planRunId, record.kind);
+    }
+    if (!record.approvedBy || !record.approvedAt) {
+      throw new PulumiPlanNotApprovedError(planRunId);
+    }
+    if (isApprovalExpired(record.approvedAt)) {
+      throw new PulumiApprovalExpiredError(planRunId, record.approvedAt);
+    }
+    if (!record.planHash || record.planHash !== planHash) {
+      throw new PulumiPlanHashMismatchError(planRunId, record.planHash, planHash);
+    }
+    return record;
+  }
+
   // @spec IAC-RUN-GATE-003, IAC-RUN-GATE-004, IAC-RUN-GATE-005, IAC-RUN-GATE-006, IAC-RUN-GATE-007, IAC-RUN-GATE-008
   // @spec IAC-RUN-GATE-009, IAC-RUN-GATE-010, IAC-RUN-GATE-011, IAC-RUN-GATE-012, IAC-RUN-GATE-013, IAC-RUN-PART-001
-  // @spec IAC-RUN-PART-002, IAC-RUN-LOCK-007, IAC-RUN-RBK-008, IAC-RUN-REC-007
+  // @spec IAC-RUN-PART-002, IAC-RUN-PART-004, IAC-RUN-LOCK-007, IAC-RUN-RBK-008, IAC-RUN-REC-007
   // @spec IAC-ENGINE-LOCK-001, IAC-ENGINE-LOCK-002, IAC-ENGINE-LOCK-004, IAC-ENGINE-LOCK-005, IAC-ENGINE-LOCK-009,
   // @spec IAC-ENGINE-LIFE-005, IAC-ENGINE-OUT-006
   /**
@@ -2034,36 +2074,7 @@ export class PulumiService {
       }
 
       // --- Gate steps 1-5: pure record comparisons, no I/O beyond the lookup itself ---
-      const record = await this.getRunRecordPersister().getByRunId(planRunId);
-      if (!record) {
-        throw new PulumiPlanRunNotFoundError(planRunId);
-      }
-      if (record.kind !== 'plan') {
-        // Refined check FIRST (see PulumiPartialApplyRetryBlockedError's own
-        // doc comment): a record found here with `kind !== 'plan'` means
-        // SOME prior attempt already reached gate step 8 for this exact
-        // `planRunId` — either it settled normally (persisted via
-        // `persist()`) or it's still the durable pre-flight marker
-        // `writePreflightMarker` wrote before `stack.up()` ran (the
-        // settlement write having failed to overwrite it). Either way,
-        // `partialApply: true` means retry safety cannot be assumed —
-        // checked directly, never gated behind `record.status === 'failed'`
-        // first (see `RunRecord.partialApply`'s own doc comment for why that
-        // would silently miss the cancelled-mid-apply case).
-        if (record.kind === 'apply' && record.partialApply === true) {
-          throw new PulumiPartialApplyRetryBlockedError(planRunId, record.status);
-        }
-        throw new PulumiPlanRunWrongKindError(planRunId, record.kind);
-      }
-      if (!record.approvedBy || !record.approvedAt) {
-        throw new PulumiPlanNotApprovedError(planRunId);
-      }
-      if (isApprovalExpired(record.approvedAt)) {
-        throw new PulumiApprovalExpiredError(planRunId, record.approvedAt);
-      }
-      if (!record.planHash || record.planHash !== planHash) {
-        throw new PulumiPlanHashMismatchError(planRunId, record.planHash, planHash);
-      }
+      const record = await this.loadValidatedPlanRecord(planRunId, planHash);
       configVersionId = record.configVersionId;
       engineVersion = record.engineVersion;
 
@@ -2119,6 +2130,26 @@ export class PulumiService {
       // RunLockHeldError, propagated unwrapped.
       const initiator = PulumiService.resolveInitiator();
       await this.getRunLockService().createRun('apply', initiator, planRunId);
+
+      // Re-validate against the latest record now that this call owns the lock; a concurrent apply may have settled
+      // (and released the lock) between the pre-lock read and the acquisition above.
+      try {
+        await this.loadValidatedPlanRecord(planRunId, planHash);
+      } catch (err) {
+        logger.warn('pulumi apply: plan record failed re-validation after acquiring the apply lock', {
+          planRunId,
+          error: errMessage(err),
+        });
+        try {
+          await this.getRunLockService().releaseRun(planRunId);
+        } catch (releaseErr) {
+          logger.warn('pulumi apply: failed to release the durable apply lock after re-validation refused', {
+            planRunId,
+            error: errMessage(releaseErr),
+          });
+        }
+        throw err;
+      }
 
       // Re-check the shared local-workspace guard now that this call has
       // crossed the only genuinely async gap since the top-of-function

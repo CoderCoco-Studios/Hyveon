@@ -67,6 +67,7 @@ describe('RunHistoryRow', () => {
     expect(screen.queryByText('rollback')).not.toBeInTheDocument();
   });
 
+  // @spec IAC-RUN-PART-005
   it('should render a partial badge only when partialApply is true', () => {
     renderRow(makeRecord({ partialApply: true }));
 

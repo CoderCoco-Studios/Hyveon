@@ -254,6 +254,16 @@ describe('AwsRunRecordStore', () => {
       expect(input.ScanIndexForward).toBe(false);
     });
 
+    // @spec IAC-RUN-PART-004
+    it('should issue the base-table lookup as a strongly consistent read so the apply gate sees the latest record', async () => {
+      ddbMock.on(QueryCommand).resolves({ Items: [{ pk: 'RUN', ...makeRecord() }] });
+
+      await makeStore().getRecordByRunId('run-123');
+
+      const input = ddbMock.commandCalls(QueryCommand)[0]!.args[0].input;
+      expect(input.ConsistentRead).toBe(true);
+    });
+
     // @spec IAC-RUN-STORE-007
     it('should round-trip partialApply on an aborted pre-flight marker record', async () => {
       const marker = makeRecord({ status: 'aborted', exitCode: null, partialApply: true });
@@ -502,6 +512,15 @@ describe('AwsRunRecordStore', () => {
       const input = ddbMock.commandCalls(GetCommand)[0]!.args[0].input;
       expect(input.TableName).toBe('hyveon-runs');
       expect(input.Key).toEqual({ pk: 'LOCK', sk: 'CURRENT' });
+    });
+
+    // @spec IAC-RUN-LCLR-003
+    it('should read the lock item with a strongly consistent read so a lock-clear token binds to the live lock', async () => {
+      ddbMock.on(GetCommand).resolves({});
+
+      await makeStore().getRunLock();
+
+      expect(ddbMock.commandCalls(GetCommand)[0]!.args[0].input.ConsistentRead).toBe(true);
     });
 
     it('should return the parsed lock when a lock item exists', async () => {

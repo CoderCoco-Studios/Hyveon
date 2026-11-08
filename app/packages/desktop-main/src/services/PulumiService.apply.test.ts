@@ -377,6 +377,7 @@ describe('PulumiService.apply gate', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-PART-004
   it('should reject with PulumiPartialApplyRetryBlockedError, and never call getOrCreateStack, when a prior attempt left an apply-kind record with partialApply: true for this planRunId', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
     const runRecordPersister = makeRunRecordPersister(
@@ -543,6 +544,7 @@ describe('PulumiService.apply pre-flight marker (issue #399)', () => {
     expect(runRecordPersister.persist).not.toHaveBeenCalled();
   });
 
+  // @spec IAC-RUN-PART-004
   it('should refuse a second apply() call for the same planRunId once the pre-flight marker from a first attempt is the newest record — reproducing the exact persist-failure retry gap issue #399 fixes, and proving stack.up() is never reached on the retry', async () => {
     // A stateful fake standing in for the real RunRecordStore: writePreflightMarker
     // durably lands a record; persist() (the settlement write) simulates the
@@ -586,6 +588,37 @@ describe('PulumiService.apply pre-flight marker (issue #399)', () => {
       PulumiPartialApplyRetryBlockedError,
     );
     expect(workspace.getOrCreateStack).toHaveBeenCalledTimes(1);
+  });
+
+  // @spec IAC-RUN-PART-004
+  it('should re-read the record after acquiring the lock, refuse with PulumiPartialApplyRetryBlockedError, release the lock, and never call stack.up when a concurrent apply left a partial-apply record', async () => {
+    const plan = makeApprovedPlanRecord();
+    const concurrentApply: RunRecord = {
+      ...plan,
+      kind: 'apply',
+      status: 'aborted',
+      exitCode: null,
+      partialApply: true,
+    };
+    const getByRunId = vi.fn().mockResolvedValueOnce(plan).mockResolvedValueOnce(concurrentApply);
+    const runRecordPersister = {
+      getByRunId,
+      persist: vi.fn().mockResolvedValue(undefined),
+      writePreflightMarker: vi.fn().mockResolvedValue(undefined),
+    } as unknown as RunRecordPersister;
+    const workspace = makeWorkspace(makeHappyPathUp());
+    const runLockService = makeRunLockService();
+    const service = makeService({ workspace, runRecordPersister, runLockService });
+
+    await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toBeInstanceOf(
+      PulumiPartialApplyRetryBlockedError,
+    );
+
+    expect(getByRunId).toHaveBeenCalledTimes(2);
+    expect(runLockService.createRun).toHaveBeenCalledTimes(1);
+    expect(runLockService.releaseRun).toHaveBeenCalledWith(PLAN_RUN_ID);
+    expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
+    expect(runRecordPersister.writePreflightMarker).not.toHaveBeenCalled();
   });
 });
 
@@ -1487,9 +1520,9 @@ describe('PulumiService.apply concurrency guard', () => {
     // existed BEFORE apply() was even called.
     let resolveGetByRunId!: (record: RunRecord) => void;
     const runRecordPersister = makeRunRecordPersister();
-    runRecordPersister.getByRunId.mockImplementation(
-      () => new Promise<RunRecord>((resolve) => { resolveGetByRunId = resolve; }),
-    );
+    runRecordPersister.getByRunId
+      .mockImplementationOnce(() => new Promise<RunRecord>((resolve) => { resolveGetByRunId = resolve; }))
+      .mockResolvedValue(makeApprovedPlanRecord());
 
     let resolvePreview!: () => void;
     const previewMock = vi.fn().mockImplementation(
