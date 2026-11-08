@@ -76,7 +76,6 @@ type ManualCheckState =
   | { status: 'downloaded'; version: string }
   | { status: 'download-failed'; version: string; message: string };
 
-
 /** True once a manual check, download, or install failed (including the IPC-reject fallback message). */
 function manualCheckFailed(state: ManualCheckState): boolean {
   if (typeof state !== 'object') return false;

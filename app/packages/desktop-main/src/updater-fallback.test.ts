@@ -129,6 +129,25 @@ describe('resolveFallbackFeedUrl', () => {
   });
 
   // @spec APP-UPDATE-FALL-007
+  it('should stop paging at the first page that holds an eligible release', async () => {
+    const page = [...fullPage(99), release('v1.0.0', ['latest.yml'])];
+    stubFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve(page) }));
+
+    await expect(resolveFallbackFeedUrl('win32')).resolves.toBe(
+      'https://github.com/CoderCoco-Studios/Hyveon/releases/download/v1.0.0',
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  // @spec APP-UPDATE-FALL-007
+  it('should give up after 10 pages of feedless releases', async () => {
+    stubFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve(fullPage(100)) }));
+
+    await expect(resolveFallbackFeedUrl('win32')).resolves.toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(10);
+  });
+
+  // @spec APP-UPDATE-FALL-007
   it('should stop paging at the first short page', async () => {
     stubFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve(fullPage(3)) }));
 

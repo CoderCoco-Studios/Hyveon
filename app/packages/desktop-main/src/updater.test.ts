@@ -499,6 +499,16 @@ describe('downloadUpdateNow / installDownloadedUpdate', () => {
     expect(quitAndInstallMock).not.toHaveBeenCalled();
   });
 
+  // @spec APP-UPDATE-DL-009
+  it('should refuse to install after a failed download that follows a successful one', async () => {
+    await downloadUpdateNow(vi.fn());
+    downloadUpdateMock.mockRejectedValueOnce(new Error('network down'));
+    await downloadUpdateNow(vi.fn());
+
+    expect((await installDownloadedUpdate()).ok).toBe(false);
+    expect(quitAndInstallMock).not.toHaveBeenCalled();
+  });
+
   it('should report ok: false when quitAndInstall throws', async () => {
     await downloadUpdateNow(vi.fn());
     quitAndInstallMock.mockImplementationOnce(() => {

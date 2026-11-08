@@ -7,6 +7,9 @@ export const PRIMARY_FEED = { provider: 'github', ...RELEASE_REPO } as const;
 /** Releases per request; GitHub's maximum, so most repos resolve in one call. */
 const RELEASES_PAGE_SIZE = 100;
 
+/** Upper bound on pages fetched (1000 releases), so a feedless history cannot loop the unauthenticated API. */
+const MAX_RELEASE_PAGES = 10;
+
 const RELEASES_API_URL = `https://api.github.com/repos/${RELEASE_REPO_SLUG}/releases`;
 const RELEASE_DOWNLOAD_BASE_URL = `https://github.com/${RELEASE_REPO_SLUG}/releases/download`;
 const FETCH_TIMEOUT_MS = 10_000;
@@ -62,8 +65,9 @@ export function pickFallbackRelease(releases: readonly GithubRelease[], platform
  * Resolves a generic-provider feed URL pointing at the newest release that carries a feed file for `platform`.
  *
  * @remarks
- * Pages through the whole releases list (stopping at the first short page) so an eligible older release is found
- * even when the newest pages hold only feedless releases. Any failed page aborts the lookup.
+ * Pages through the releases list, up to {@link MAX_RELEASE_PAGES} pages, stopping at the first page that yields an
+ * eligible release or the first short page, so an eligible older release is found even when the newest pages hold
+ * only feedless releases. Any failed page aborts the lookup.
  *
  * @param platform - Node platform to resolve for.
  * @returns The release download base URL, or `null` when the lookup fails or no release qualifies.
@@ -71,7 +75,7 @@ export function pickFallbackRelease(releases: readonly GithubRelease[], platform
 export async function resolveFallbackFeedUrl(platform: NodeJS.Platform): Promise<string | null> {
   try {
     const releases: GithubRelease[] = [];
-    for (let page = 1; ; page++) {
+    for (let page = 1; page <= MAX_RELEASE_PAGES; page++) {
       const res = await fetch(`${RELEASES_API_URL}?per_page=${RELEASES_PAGE_SIZE}&page=${page}`, {
         headers: { Accept: 'application/vnd.github+json' },
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -83,7 +87,7 @@ export async function resolveFallbackFeedUrl(platform: NodeJS.Platform): Promise
       const body: unknown = await res.json();
       if (!Array.isArray(body)) return null;
       releases.push(...(body as GithubRelease[]));
-      if (body.length < RELEASES_PAGE_SIZE) break;
+      if (body.length < RELEASES_PAGE_SIZE || pickFallbackRelease(releases, platform)) break;
     }
     const release = pickFallbackRelease(releases, platform);
     return release ? `${RELEASE_DOWNLOAD_BASE_URL}/${release.tag_name}` : null;

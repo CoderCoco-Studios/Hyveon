@@ -218,6 +218,7 @@ export async function downloadUpdateNow(onProgress: (progress: UpdateDownloadPro
   }
 
   try {
+    updateState.downloaded = false;
     const autoUpdater = await loadAutoUpdater();
     let version = 'unknown';
     const onProgressEvent = (info: UpdateDownloadProgress) => {
