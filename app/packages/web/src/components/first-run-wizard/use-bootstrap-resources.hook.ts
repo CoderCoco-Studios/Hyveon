@@ -7,7 +7,7 @@
  * to gate whether Next is enabled on this step; everything else is consumed
  * by `BootstrapStep` alone.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { IamCheckResult } from '@hyveon/desktop-preload';
 import { defaultBootstrapResourceNames, type BootstrapResourceKey, type BootstrapResourceState } from './wizard.utils.js';
 import { BRIDGE_UNAVAILABLE } from '@/lib/bridge.utils';
@@ -46,6 +46,11 @@ export interface UseBootstrapResourcesResult {
   bootstrapping: boolean;
   /** True once both resources plus the run-history table and configuration seed have all reached `created`/`exists`. */
   complete: boolean;
+  /**
+   * True when the IAM-check gate lets the operator past this step: always for a non-guided install, and for a guided
+   * one only once a check has finished without error and is not blocking (a running or errored check is not a pass).
+   */
+  iamGateOpen: boolean;
   /** Invoked as the operator edits a resource's name field. */
   onNameChange: (resource: BootstrapResourceKey, name: string) => void;
   /**
@@ -62,14 +67,22 @@ export interface UseBootstrapResourcesResult {
   clearIamCheck: () => void;
 }
 
-// @spec APP-WIZARD-BOOT-013
+/** Options for {@link useBootstrapResources}. */
+export interface UseBootstrapResourcesOptions {
+  /** The active AWS credential came from guided provisioning, so the IAM check gates this step. */
+  guided?: boolean;
+  /** The bootstrap step is the one currently showing; a guided install runs a missing check on arrival. */
+  onBootstrapStep?: boolean;
+}
+
+// @spec APP-WIZARD-BOOT-013, APP-WIZARD-IAMCHK-009
 /**
  * Owns every piece of state the first-run wizard's bootstrap step needs:
  * editable resource names, per-resource creation status, the run-history
  * table and initial-configuration-seed side calls, and the IAM permission
  * dry-run — plus the IPC orchestration that drives all of it.
  */
-export function useBootstrapResources(): UseBootstrapResourcesResult {
+export function useBootstrapResources({ guided = false, onBootstrapStep = false }: UseBootstrapResourcesOptions = {}): UseBootstrapResourcesResult {
   const [names, setNames] = useState(defaultBootstrapResourceNames());
   const [statuses, setStatuses] = useState<Record<BootstrapResourceKey, BootstrapResourceState>>({
     stateBucket: 'pending',
@@ -103,6 +116,15 @@ export function useBootstrapResources(): UseBootstrapResourcesResult {
   const [iamCheck, setIamCheck] = useState<IamCheckResult | null>(null);
   const [iamChecking, setIamChecking] = useState(false);
   const [iamError, setIamError] = useState<string | null>(null);
+
+  const iamGateOpen = !guided || (!!iamCheck && !iamChecking && iamError === null && !iamCheck.blocking);
+  const needsGuidedCheck = guided && onBootstrapStep && !iamCheck && !iamChecking && iamError === null;
+
+  useEffect(() => {
+    if (needsGuidedCheck) void runIamCheck();
+    // `runIamCheck` only touches state setters and `window.hyveon`; it is safe to omit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsGuidedCheck]);
 
   function onNameChange(resource: BootstrapResourceKey, name: string) {
     setNames((current) => ({ ...current, [resource]: name }));
@@ -261,6 +283,7 @@ export function useBootstrapResources(): UseBootstrapResourcesResult {
     iam: { check: iamCheck, checking: iamChecking, error: iamError },
     bootstrapping,
     complete,
+    iamGateOpen,
     onNameChange,
     setNames,
     runBootstrap,

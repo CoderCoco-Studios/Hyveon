@@ -436,7 +436,8 @@ Two services, both provided by `ElectronStoreModule`:
   encrypts strings using the OS keychain (Keychain on macOS, libsecret on
   Linux, DPAPI on Windows). `isAvailable()` is `true` only inside an
   Electron process with an unlocked keychain; `encrypt()`/`decrypt()`
-  degrade to passthrough (with a warning on `encrypt()`) outside Electron —
+  degrade to passthrough outside Electron (with a warning on `encrypt()`) and throw
+  inside Electron when the keychain is unavailable —
   unit tests and plain-Node CI never need environment branching of their
   own. The caller must ensure `isAvailable()` returns the same value at
   write time and read time: a ciphertext written while the keychain was

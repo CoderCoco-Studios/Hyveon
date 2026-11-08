@@ -84,18 +84,20 @@ One of three things happens:
   predates the permission this check's fix needs. The row shows an amber
   explanation, followed by the
   current `HyveonDeployAll` policy JSON in a scrollable code block with a
-  copy button, an **Open in AWS Console** button (deep-links straight to the
-  `HyveonDeployAll` managed policy's edit page, scoped to the caller's
-  account ID via `sts:GetCallerIdentity`; falls back to showing the URL as
-  text if a browser can't be launched automatically), and a **Download
-  JSON** button (writes the policy to disk for `aws iam
+  copy button, a **Download JSON** button (writes the policy to disk for `aws iam
   create-policy-version` or similar AWS CLI use; if the file cannot be
-  written the row shows the error). The explanation depends on how you set
+  written the row shows the error), and, except for guided setup, an **Open in
+  AWS Console** button (deep-links straight to the `HyveonDeployAll` managed
+  policy's edit page, scoped to the caller's account ID via
+  `sts:GetCallerIdentity`; falls back to showing the URL as text if a browser
+  can't be launched automatically). The explanation depends on how you set
   up access:
   - **Guided setup** (the active credentials are the guided profile): the
     `HyveonDeployAll` policy belongs to your CloudFormation stack, so update
-    it through the stack (Update stack) rather than editing the policy
-    directly, which would drift from the stack.
+    the stack with a freshly rendered template (guided setup writes
+    `iam-bootstrap-rendered.yaml`) rather than editing the policy directly,
+    which would drift from the stack. There is no console shortcut for this
+    case, and the JSON is for reference only.
   - **Any other setup** (your own profile or pasted keys): the JSON is a bare
     policy document (no `Resources` section), so update the existing policy
     directly (IAM console → Policies → `HyveonDeployAll` → Edit policy →
@@ -135,7 +137,7 @@ it is a plain constant, not something the app needs to look up.
 
 Below the engine row, **AWS access key** has a **Rotate key** button. It replaces the access key Hyveon uses with a freshly minted one: the app creates a new key, verifies it with `sts:GetCallerIdentity`, stores it in the OS keychain, and only then deletes the old key. Later AWS calls and infrastructure operations use the new key without a restart.
 
-It works when the active credentials are the guided profile or pasted keys. Outcomes:
+It works when the active credentials are the guided profile or pasted keys; for a `~/.aws` profile the row is not shown, since rotate that profile's keys with the AWS CLI or console instead. Outcomes:
 
 | Message | Meaning |
 |---|---|
@@ -143,7 +145,7 @@ It works when the active credentials are the guided profile or pasted keys. Outc
 | The new key could not be verified, so your previous key is still active | Nothing changed; try again |
 | The new key is active, but the old key could not be deleted | Revoke the old key manually with the IAM console URL shown |
 | The OS keychain is unavailable | Refused before any key was created; unlock the keychain and retry |
-| Rotation is only supported for pasted or guided credential sources | The active credentials are a `~/.aws` profile (or none); rotate that profile's keys with the AWS CLI or console |
+| A Pulumi operation is running | Refused so the running operation keeps its key and its backend lock; wait for it to finish, then retry |
 
 ### Reconfigure
 

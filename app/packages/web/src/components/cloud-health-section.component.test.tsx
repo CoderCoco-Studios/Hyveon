@@ -73,9 +73,10 @@ describe('CloudHealthSection', () => {
     await userEvent.click(await screen.findByRole('button', { name: /fix/i }));
 
     expect(await screen.findByText(/HyveonServiceLinkedRoles/)).toBeInTheDocument();
-    expect(screen.getByText(/update it through your CloudFormation stack/i)).toBeInTheDocument();
+    expect(screen.getByText(/freshly rendered template/i)).toBeInTheDocument();
+    expect(screen.queryByText(/with the policy document below/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Edit policy/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /open in aws console/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open in aws console/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /download json/i })).toBeInTheDocument();
   });
 

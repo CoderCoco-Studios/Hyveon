@@ -67,7 +67,7 @@ The credentials step's paste form stages its keys in renderer memory in Reconfig
 Guided rotation and the bootstrap buttons act on AWS immediately in both modes and cannot be unwound, and the commit on entering stack-init is itself the point of no return: after any of them has run, Cancel (state kept in `use-reconfigure-cancel.hook.ts`) opens a confirmation stating that those AWS changes remain in place and were not undone, and a Cancel before any of them leaves without a prompt.
 `commitReconfigureAnswers` sends `credentials.toStatePayload()` whenever the credentials step is not pre-completed (`use-reconfigure-answers.hook.ts:222-224`) without the `!guidedCredentials` guard the first-run path has (`first-run-wizard.component.tsx:307`) `[inferred]` risk, not reproduced.
 
-Step advancement on the bootstrap step requires every resource `created` or `exists` (`first-run-wizard.component.tsx:237-238`, `use-bootstrap-resources.hook.ts:241-246`); it does not consider the IAM check (see below).
+Step advancement on the bootstrap step requires every resource `created` or `exists` (`first-run-wizard.component.tsx:237-238`, `use-bootstrap-resources.hook.ts:241-246`); for a guided install it also requires a finished, non-blocking IAM check (see below).
 
 ## Credential Acquisition Paths
 
@@ -118,7 +118,7 @@ The lock engages at the first bootstrap call: each `wizard.bootstrap.*` handler 
 | `wizard.bootstrap.runsTable` | `ensureRunsTable` (`:408`) | run-history DynamoDB table with `status-index` GSI and point-in-time recovery, waits for `ACTIVE` (`:369-400`) |
 
 Settings are re-applied on the `exists` path so older buckets are brought up to standard (APP-WIZARD-BOOT-005, APP-WIZARD-BOOT-008): `ensureConfigurationBucket` applies the same idempotent default encryption as `ensureStateBucket` on both the `created` and `exists` paths.
-Default names are `<project>-tfstate` and `<project>-config` and are operator-editable (`wizard.utils.ts:44-49`); the runs table name is always `resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, '')` regardless of what the operator typed, because the wizard has no project-name field and the seeded `deployment-config.json` carries that same default project name (APP-WIZARD-BOOT-012).
+Default names are `<project>-tfstate` and `<project>-config` and are operator-editable (`wizard.utils.ts:44-49`); the runs table name is resolved from the `projectName` and `runsTableName` of the `deployment-config.json` already in the configuration bucket (`BootstrapService.resolveExistingRunsTableName`), falling back to `resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, '')` on a fresh install, regardless of what the operator typed in the bucket-name fields, because the wizard has no project-name field and a re-run must target the table the stack already uses (APP-WIZARD-BOOT-012).
 The renderer runs the four calls concurrently (`use-bootstrap-resources.hook.ts:219`).
 
 Failure handling: AWS errors inside each method are logged and returned as `{ status: 'failed', message }`, and so is a client-construction failure (no stored `aws.region`, undecryptable credentials), because `buildClient` converts the throw into a `failed` result, so no `wizard.bootstrap.*` call rejects (APP-WIZARD-BOOT-004).
@@ -130,7 +130,7 @@ Result is `passed | missing | warning` with an `origin` of `guided | pasted | pr
 Any STS or simulation failure degrades to a non-blocking `warning` (`:133,140-156,179-183`).
 For missing actions it emits a suggested policy with `Resource: '*'` for every action (`:306-315`), broader than the scoped statements in `iamPolicy.ts:79`.
 
-After guided provisioning completes the wizard runs the check automatically, and a guided `missing` result (`blocking`) blocks progression past the bootstrap step until a re-run passes; the panel lists the denied actions as the required policy JSON (APP-WIZARD-IAMCHK-008, APP-WIZARD-IAMCHK-009). A result for a picked profile or pasted keys never blocks, and switching away from the guided credentials discards the result.
+After guided provisioning completes the wizard runs the check automatically, and a guided install cannot progress past the bootstrap step, even when Reconfigure collapses it, until a check has finished without error and is not `blocking`; a guided install that reaches the step with no result runs the check itself. The panel lists the denied actions as "missing actions only" JSON and tells a guided operator to update the stack with a freshly rendered template, because that JSON is a delta on `Resource: '*'` and pasting it over the stack's policy would replace the full policy (APP-WIZARD-IAMCHK-008, APP-WIZARD-IAMCHK-009). A result for a picked profile or pasted keys never blocks, and switching away from the guided credentials discards the result.
 
 ### Cloud Health
 
@@ -144,7 +144,7 @@ The service is provided by `WizardModule` (`wizard.module.ts:38`) and carries he
 ### Encryption
 
 `SafeStorageService` wraps Electron `safeStorage`: `isAvailable()` is false outside Electron or when the OS keychain is unavailable (`SafeStorageService.ts:30-33`).
-`encrypt` returns plaintext unchanged with a warning when unavailable (`:51-54`).
+`encrypt` returns plaintext unchanged outside Electron but throws `SafeStorageUnavailableError` inside Electron when the keychain is unavailable, so a mid-rotation lock fails before the old key is revoked (APP-WIZARD-CUSTODY-007).
 Writers guard against the first case, and `decrypt` throws inside Electron when the keychain is unavailable so a stored ciphertext is never returned as a key (APP-WIZARD-CUSTODY-007); outside Electron it returns the stored plaintext unchanged, matching `encrypt`.
 `ElectronStoreService` exposes typed `get`/`set`/`delete` plus encrypting accessors; `PastedAwsCredentials` fields are encrypted blobs that callers must not read directly (`ElectronStoreService.ts:19-28`).
 
@@ -162,7 +162,7 @@ A pasted entry wins over a CLI profile of the same name; there is no separate di
 
 ### Rotation for non-guided keys
 
-`AwsProfileService.rotateActiveCredentials()` implements mint, verify, swap and revoke for the active pasted or guided key (APP-WIZARD-ROTKEY-001 to APP-WIZARD-ROTKEY-004). Settings, in the Cloud Setup section, offers it as a "Rotate key" action over `wizard.aws.rotateKey`, which returns a modeled result for every outcome (`complete`, `verification-failed`, `delete-failed`, `keychain-unavailable`, `unsupported`, `failed`) and shares one in-flight rotation between concurrent calls (APP-WIZARD-ROTKEY-005). Every AWS-calling service resolves the stored key per call, so later calls and Pulumi operations use the new key.
+`AwsProfileService.rotateActiveCredentials()` implements mint, verify, swap and revoke for the active pasted or guided key (APP-WIZARD-ROTKEY-001 to APP-WIZARD-ROTKEY-004). Settings, in the Cloud Setup section, offers it as a "Rotate key" action over `wizard.aws.rotateKey`, which returns a modeled result for every outcome (`complete`, `verification-failed`, `delete-failed`, `keychain-unavailable`, `unsupported`, `busy`, `failed`), shares one in-flight rotation between concurrent calls, and refuses with `busy` while a Pulumi operation is running (APP-WIZARD-ROTKEY-005). The outcome unions live once in `@hyveon/shared` (`keyRotation.ts`) and are imported by desktop-main and the preload. The Settings row is hidden for `~/.aws`-profile installs. Every AWS-calling service resolves the stored key per call, so later calls and Pulumi operations use the new key.
 
 ## Decisions & Alternatives
 

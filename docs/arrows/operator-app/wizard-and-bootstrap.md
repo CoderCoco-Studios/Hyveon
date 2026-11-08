@@ -79,6 +79,7 @@ Feature-complete against its requirement sets, including in-app key rotation fro
 
 **@hyveon/shared**
 - `app/packages/shared/src/wizardSteps.ts`
+- `app/packages/shared/src/keyRotation.ts`
 - `app/packages/shared/src/iamPolicy.ts`
 - `app/packages/shared/src/awsRegions.ts` (generated)
 
@@ -168,9 +169,9 @@ Feature-complete against its requirement sets, including in-app key rotation fro
 2. **First-run gate fails open** — `app.component.tsx:40-54` (desktop-shell) sets `wizardCompleted=true` when `window.hyveon.wizard` is missing or `getState()` rejects, so an IPC failure drops a fresh install straight into the dashboard.
 3. **Key rotation has no caller** — **CLOSED** by APP-WIZARD-ROTKEY-005: Settings offers a "Rotate key" action over `wizard.aws.rotateKey`, which maps every outcome to a modeled result.
 4. **Bootstrap secret is a CloudFormation stack output** — `iam-bootstrap.yaml:87-89` publishes `SecretAccessKey` via `!GetAtt`, readable by anyone with `cloudformation:DescribeStacks` for as long as the stack exists. Guided rotation deletes that key once the new one verifies (`GuidedIamService.rotate`, `:414`), so exposure is the window before rotation plus any run where rotation fails before deletion (verification-failed, or a throw such as a denied `iam:CreateAccessKey`) or deletion itself fails (the "delete failed" screen path). The access key resource uses `DeletionPolicy: RetainExceptOnCreate` (`:73`). This exposure is the accepted design (APP-WIZARD-TMPL-008): the published key is a temporary credential pending rotation, active until `iam:DeleteAccessKey` succeeds.
-5. **Keychain degrade path returns ciphertext as plaintext** — **CLOSED** by APP-WIZARD-CUSTODY-007: `SafeStorageService.decrypt` throws inside Electron when the keychain is unavailable; outside Electron it passes the stored plaintext through.
+5. **Keychain degrade path returns ciphertext as plaintext** — **CLOSED** by APP-WIZARD-CUSTODY-007: `SafeStorageService.decrypt` and `encrypt` throw inside Electron when the keychain is unavailable; outside Electron they pass the value through.
 6. **Bootstrap credential error escapes the result model** — **CLOSED** by APP-WIZARD-BOOT-004: `BootstrapService.buildClient` converts client-construction failures into `{ status: 'failed', message }`.
-7. **Runs table name ignores the operator's project name** — resolved as intended behaviour by APP-WIZARD-BOOT-012: the wizard has no project-name field and the seeded configuration carries the default project name the runs table is derived from.
+7. **Runs table name ignores the operator's project name** — resolved by APP-WIZARD-BOOT-012: the table follows the project name of the configuration document already in the bucket and falls back to the default only on a fresh install.
 8. **Duplicated client cache** — `app/packages/desktop-main/src/services/awsClientCache.ts` and `cloud-aws/src/cachedClient.ts` are code-identical (`diff` shows only doc-comment differences); `CloudHealthService.ts:193-212,240-291` carries several "Mirrors GuidedIamService exactly" helpers; `GUIDED_PROFILE_NAME` is declared in both `GuidedIamService.ts:94` and `app/packages/desktop-preload/src/hyveon-api.ts:2107`. All three trip `.claude/rules/duplication.md` rule 4.
 9. **State-file name and step order are fixed by the code**: the progress file is `userData/wizard-state.json` (`FirstRunWizardService.ts:33-41`) and the step order is `pick-cloud, guided-iam, credentials, bootstrap, stack-init` (`wizardSteps.ts:9`); the legacy text named `userData/state.json` and a different Reconfigure order. `APP-WIZARD-PROG-005` and `APP-WIZARD-RECONF-001` state the code's values.
 10. **Reset leaves non-wizard state behind** — `FirstRunWizardService.reset()` (`:200-208`) clears `wizardCompleted`, `activeCloud`, `aws`, `bootstrap`, `creds` and the progress file, but not `addGameWizardDraft` or folder-upload state, and deliberately not `pulumi.*` (documented `:189-198`).

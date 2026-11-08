@@ -53,9 +53,10 @@ export function IamCheckPanel({ iamCheck, checking, error, onRun }: IamCheckPane
           <div className="flex items-center gap-2 text-sm text-[var(--color-amber)]">
             <AlertTriangle className="size-4" />
             {iamCheck.blocking
-              ? 'The deploy policy provisioned for Hyveon is missing permissions that must be fixed before you can continue. Update it through your CloudFormation stack with the policy below, then re-check.'
-              : 'Some permissions are missing. Paste the policy below into your IAM user\'s inline policy.'}
+              ? 'The deploy policy provisioned for Hyveon is missing permissions that must be fixed before you can continue. Update your CloudFormation stack with a freshly rendered template (guided setup writes iam-bootstrap-rendered.yaml), then re-check. Do not paste the JSON below over the stack\'s policy: it lists the missing actions only.'
+              : 'Some permissions are missing. Add the actions below to your IAM user\'s policy.'}
           </div>
+          <p className="text-xs text-muted-foreground">Missing actions only, not a complete policy:</p>
           <div className="relative">
             <pre className="max-h-64 overflow-auto rounded-[var(--radius-md)] bg-[var(--color-surface-2)] p-3 text-xs">
               {iamCheck.policyJson}

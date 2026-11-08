@@ -205,6 +205,9 @@ describe('BootstrapStep', () => {
       };
       renderStep({ iamCheck: missing });
       expect(screen.getByText(/must be fixed before you can continue/i)).toBeInTheDocument();
+      expect(screen.getByText(/freshly rendered template/i)).toBeInTheDocument();
+      expect(screen.queryByText(/with the policy below/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/missing actions only, not a complete policy/i)).toBeInTheDocument();
       expect(screen.getByText(/ec2:RunInstances/)).toBeInTheDocument();
     });
 

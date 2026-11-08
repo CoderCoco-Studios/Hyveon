@@ -5,7 +5,7 @@ import type { BootstrapResourceKey, BootstrapResourceState } from './wizard.util
 export interface UseReconfigureCancelOptions {
   /** Leaves Reconfigure and returns to Settings. */
   onCancel?: () => void;
-  /** Per-resource bootstrap outcomes; any resource past `pending` means AWS was already touched. */
+  /** Per-resource bootstrap outcomes; a `created` or `exists` resource means AWS was already touched; a `failed` one created nothing. */
   bootstrapStatuses: Record<BootstrapResourceKey, BootstrapResourceState>;
 }
 
@@ -30,7 +30,7 @@ export function useReconfigureCancel({ onCancel, bootstrapStatuses }: UseReconfi
   const [guidedRotated, setGuidedRotated] = useState(false);
   const [committed, setCommitted] = useState(false);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
-  const changed = guidedRotated || committed || Object.values(bootstrapStatuses).some((status) => status !== 'pending');
+  const changed = guidedRotated || committed || Object.values(bootstrapStatuses).some((status) => status === 'created' || status === 'exists');
 
   function handleCancel() {
     if (changed) setCancelConfirmOpen(true);

@@ -26,7 +26,8 @@ function HealthBadge({ status }: { status: CloudHealthCheckSummary['status'] }) 
 // @spec APP-WIZARD-HEALTH-007, APP-WIZARD-HEALTH-008
 /**
  * Remediation panel shown when a Cloud Health fix reports `outcome: 'needsPolicyUpdate'`. Guided installs own the
- * policy through a CloudFormation stack, so their copy points there; other installs edit it in the IAM console.
+ * policy through a CloudFormation stack, so their copy points at a freshly rendered template and offers no console
+ * link; other installs edit it in the IAM console.
  *
  * @remarks
  * Owns the console-open and download flows for the required IAM policy JSON — split out of
@@ -91,7 +92,7 @@ function PolicyUpdatePanel({
       <p className="text-xs text-[var(--color-amber)]">
         Your <code>HyveonDeployAll</code> policy needs updating.{' '}
         {managedByStack
-          ? 'Update it through your CloudFormation stack (Update stack, with the policy document below) so the stack stays in sync, or download the JSON — then click Fix again.'
+          ? 'Hyveon created it through a CloudFormation stack, so update that stack with a freshly rendered template (guided setup writes iam-bootstrap-rendered.yaml) instead of editing the policy directly, then click Fix again. The JSON below is the required policy, for reference.'
           : 'Open it in the IAM console and paste in the JSON below (Edit policy → JSON), or download it for use with the AWS CLI — then click Fix again.'}
       </p>
       <div className="relative">
@@ -115,7 +116,7 @@ function PolicyUpdatePanel({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {policyConsoleUrl && (
+        {policyConsoleUrl && !managedByStack && (
           <Button
             type="button"
             variant="outline"
