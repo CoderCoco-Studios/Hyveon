@@ -196,6 +196,17 @@ describe('IacRunsController.get', () => {
     expect(result).toEqual({ found: true, status: 'success', record });
   });
 
+  // @spec IAC-RUN-LOCK-010
+  it('should report running while an apply holds the lock under the runId of its persisted plan record', async () => {
+    const record = buildRecord({ runId: 'run-held', kind: 'plan', exitCode: 0 });
+    const runService = makeRunService(buildLock({ runId: 'run-held', kind: 'apply' }));
+    const controller = new IacRunsController(makePulumi(record), runService, makeRunRecordService());
+
+    const result = await controller.get({ runId: 'run-held' });
+
+    expect(result).toEqual({ found: true, status: 'running' });
+  });
+
   it('should return found: true, status: success plus the record for a finished apply run', async () => {
     const record = buildRecord({ runId: 'run-apply', kind: 'apply', exitCode: 0 });
     const pulumi = makePulumi(record);

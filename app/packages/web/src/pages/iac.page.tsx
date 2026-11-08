@@ -112,13 +112,14 @@ export function IacPage() {
     [planRun.submit, applyRun.reset],
   );
 
+  const { adopt: adoptPlan } = planRun;
   // Adopts the rollback's single plan once, when arriving from a confirmed rollback in history (see RollbackNavState).
   useEffect(() => {
     if (!rollbackState || rollbackConsumedRef.current) return;
     rollbackConsumedRef.current = true;
     navigate('/iac', { replace: true, state: null });
-    planRun.adopt(rollbackState.planRunId);
-  }, [navigate, rollbackState, planRun.adopt]);
+    adoptPlan(rollbackState.planRunId);
+  }, [navigate, rollbackState, adoptPlan]);
 
   const submitApprove = useCallback(() => {
     if (!window.hyveon || !planRun.runId) return;

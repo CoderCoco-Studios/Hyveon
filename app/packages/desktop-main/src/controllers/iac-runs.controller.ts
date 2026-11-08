@@ -210,8 +210,9 @@ export class IacRunsController implements OnModuleInit {
    *
    * - `{ found: true, status: 'running' }` when `runId` matches the run currently holding the apply lock, in memory or
    *   durably (`RunService.getHeldLock()`, so a lock that outlived an app restart still reads as running) and has no
-   *   persisted record — no `record` is attached, since a {@link PulumiRunRecord} is only ever persisted once the run
-   *   has settled, and a settled record wins over a lock whose release failed.
+   *   persisted record of its own — no `record` is attached, since a {@link PulumiRunRecord} is only ever persisted
+   *   once the run has settled, and a settled record wins over a lock whose release failed. An apply reuses its plan's
+   *   `runId`, so an `apply` lock over a persisted `plan` record also reads as running until the apply settles.
    * - `{ found: true, status, record }` when a persisted
    *   {@link PulumiRunRecord} exists for `runId` — `status` is derived via
    *   `computeRunDetailStatus`, checking `PulumiService.hasPlanArtifact()`
@@ -236,9 +237,12 @@ export class IacRunsController implements OnModuleInit {
     }
 
     const record = this.pulumi.readRunRecord(runId);
-    // A record is only persisted once the run settles, so it wins over a lock that lingers after a failed release.
-    if (!record && (await this.runService.getHeldLock())?.runId === runId) {
-      return { found: true, status: 'running' };
+    // A settled record wins over a lock that lingers after a failed release; an apply reuses its plan's runId.
+    if (!record || record.kind === 'plan') {
+      const heldLock = await this.runService.getHeldLock();
+      if (heldLock?.runId === runId && (!record || heldLock.kind === 'apply')) {
+        return { found: true, status: 'running' };
+      }
     }
 
     if (!record) {
