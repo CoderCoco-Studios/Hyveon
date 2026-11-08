@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CheckCircle2, Loader2, Play, RotateCcw, ShieldCheck } from 'lucide-react';
 import type { IacPlanPayload } from '@hyveon/desktop-preload';
-import { errMessage } from '@hyveon/shared';
+import { APPROVAL_WINDOW_MS, errMessage, isApprovalExpired } from '@hyveon/shared';
 import { Button } from '../components/ui/button.component.js';
 import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { ErrorBanner } from '../components/error-banner.component.js';
@@ -16,16 +16,15 @@ import { useIacRun } from '../hooks/use-iac-run.hook.js';
 import { useNowTick } from '../hooks/use-now-tick.hook.js';
 
 /**
- * `location.state` shape the rollback flow navigates to `/iac`
- * with, from a confirmed rollback in `/iac/history` — see
- * `RollbackAction`. `configVersionId` is the freshly-restored head version to
- * plan against; `rolledBackFrom` is the apply run it was restored from, sent
- * straight through to `hyveon.iac.plan` so the resulting plan's persisted
- * record carries the same tag.
+ * `location.state` shape the rollback flow navigates to `/iac` with, from a confirmed rollback in `/iac/history` (see
+ * `RollbackAction`). `planRunId` is the single tagged plan run the confirmed rollback already produced; the page adopts
+ * it for approval rather than submitting a second plan. `configVersionId` is the restored head version and
+ * `rolledBackFrom` the apply run it was restored from, both carried on that plan's record.
  */
 interface RollbackNavState {
   configVersionId: string;
   rolledBackFrom: string;
+  planRunId: string;
 }
 
 /** Type guard for {@link RollbackNavState} — `location.state` is `unknown` until narrowed. */
@@ -34,22 +33,9 @@ function isRollbackNavState(state: unknown): state is RollbackNavState {
     typeof state === 'object' &&
     state !== null &&
     typeof (state as Partial<RollbackNavState>).configVersionId === 'string' &&
-    typeof (state as Partial<RollbackNavState>).rolledBackFrom === 'string'
+    typeof (state as Partial<RollbackNavState>).rolledBackFrom === 'string' &&
+    typeof (state as Partial<RollbackNavState>).planRunId === 'string'
   );
-}
-
-/**
- * Mirrors `APPROVAL_WINDOW_MS` in `@hyveon/shared/runs.ts` — that constant is
- * the source of truth for how long the backend honors an approval before
- * `iac.apply` rejects it. Duplicated here (rather than importing
- * `@hyveon/shared` into the renderer bundle) purely to drive the staleness
- * countdown; the backend's own check is what's actually authoritative.
- */
-const APPROVAL_WINDOW_MS = 15 * 60 * 1000;
-
-/** Mirrors `isApprovalExpired` in `@hyveon/shared/runs.ts` for the same reason as {@link APPROVAL_WINDOW_MS}. */
-function isApprovalExpired(approvedAt: string, now: number): boolean {
-  return now >= new Date(approvedAt).getTime() + APPROVAL_WINDOW_MS;
 }
 
 /**
@@ -81,7 +67,7 @@ function PartialApplyBanner({ onStartOver }: { onStartOver: () => void }) {
   );
 }
 
-// @spec IAC-RUN-PLAN-002, IAC-RUN-PLAN-007, IAC-RUN-APPR-001, IAC-RUN-APPR-004, IAC-RUN-APPR-005, IAC-RUN-GATE-001
+// @spec IAC-RUN-PLAN-002, IAC-RUN-PLAN-007, IAC-RUN-APPR-001, IAC-RUN-APPR-004, IAC-RUN-APPR-005, IAC-RUN-APPR-006, IAC-RUN-GATE-001
 // @spec IAC-RUN-GATE-006, IAC-RUN-GATE-014, IAC-RUN-GATE-015, IAC-RUN-PART-003, IAC-RUN-LCLR-007
 /**
  * Infrastructure plan/apply route (`/iac`) — lets an operator trigger a
@@ -95,7 +81,7 @@ export function IacPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const rollbackState = isRollbackNavState(location.state) ? location.state : null;
-  /** Guards against re-submitting the rollback plan if this component re-renders while the same `location.state` is still present. */
+  /** Guards against re-adopting the rollback plan if this component re-renders while the same `location.state` is still present. */
   const rollbackConsumedRef = useRef(false);
 
   const planRun = useIacRun('plan');
@@ -126,16 +112,13 @@ export function IacPage() {
     [planRun.submit, applyRun.reset],
   );
 
-  // Auto-submits the tagged rollback plan once, when arriving from a
-  // confirmed rollback in history (see RollbackNavState) — the restore write
-  // already happened before this navigation, so the plan just needs to run
-  // against the new head with `rolledBackFrom` set for provenance.
+  // Adopts the rollback's single plan once, when arriving from a confirmed rollback in history (see RollbackNavState).
   useEffect(() => {
     if (!rollbackState || rollbackConsumedRef.current) return;
     rollbackConsumedRef.current = true;
     navigate('/iac', { replace: true, state: null });
-    submitPlan({ configVersionId: rollbackState.configVersionId, rolledBackFrom: rollbackState.rolledBackFrom });
-  }, [navigate, rollbackState, submitPlan]);
+    planRun.adopt(rollbackState.planRunId);
+  }, [navigate, rollbackState, planRun.adopt]);
 
   const submitApprove = useCallback(() => {
     if (!window.hyveon || !planRun.runId) return;
@@ -179,7 +162,7 @@ export function IacPage() {
   const awaitingApproval = planRun.status === 'awaiting_approval';
   const planFinished = planRun.status !== null;
   const planFailed = planRun.status === 'failed' || planRun.status === 'aborted';
-  const approvalExpired = approval ? isApprovalExpired(approval.approvedAt, now) : false;
+  const approvalExpired = approval ? isApprovalExpired(approval.approvedAt, new Date(now)) : false;
   const canApply = Boolean(approval) && !approvalExpired && Boolean(planRun.record?.planHash) && !applyRun.runId;
   const applyFinished = applyRun.status !== null;
   /**

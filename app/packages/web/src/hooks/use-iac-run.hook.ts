@@ -156,11 +156,16 @@ export interface UseIacRunResult {
    * submit, only on what happens once it's called.
    */
   submit: (fn: () => Promise<IacPlanAck>) => void;
+  /**
+   * Attaches an already-started (or already-finished) run by id, as `submit` does on an accepted ack: clears every
+   * banner and the record, then streams the run's log and fetches its terminal status.
+   */
+  adopt: (runId: string) => void;
   /** Resets every field back to its initial (no run submitted) state. */
   reset: () => void;
 }
 
-// @spec IAC-RUN-PLAN-002, IAC-RUN-PLAN-004, IAC-RUN-PLAN-006, IAC-RUN-PLAN-009
+// @spec IAC-RUN-PLAN-002, IAC-RUN-PLAN-004, IAC-RUN-PLAN-006, IAC-RUN-PLAN-009, IAC-RUN-RBK-010
 /**
  * Owns the plan/apply/destroy run-submission state machine shared by all three operations on `IacPage`:
  * the submitted run's id/terminal status/record, its live log (via `useIacRunLog`), and the
@@ -178,7 +183,7 @@ export interface UseIacRunResult {
  *
  * @param kind - Which run this instance tracks — `'plan'` | `'apply'` | `'destroy'` — used only to label
  *   {@link UseIacRunResult.submit}'s generic default/not-found submission error text.
- * @returns The run's live state and its `submit`/`reset` actions.
+ * @returns The run's live state and its `submit`/`adopt`/`reset` actions.
  */
 export function useIacRun(kind: IacRunKind): UseIacRunResult {
   const label = RUN_KIND_LABELS[kind];
@@ -255,6 +260,16 @@ export function useIacRun(kind: IacRunKind): UseIacRunResult {
     [label],
   );
 
+  const adopt = useCallback((adoptedRunId: string) => {
+    setConflict(null);
+    setStaleLock(null);
+    setRunLock(null);
+    setSubmitError(null);
+    setRecord(null);
+    setStatus(null);
+    setRunId(adoptedRunId);
+  }, []);
+
   const reset = useCallback(() => {
     setRunId(null);
     setStatus(null);
@@ -265,5 +280,5 @@ export function useIacRun(kind: IacRunKind): UseIacRunResult {
     setSubmitError(null);
   }, []);
 
-  return { runId, status, record, log, conflict, staleLock, runLock, submitError, inFlight, submit, reset };
+  return { runId, status, record, log, conflict, staleLock, runLock, submitError, inFlight, submit, adopt, reset };
 }

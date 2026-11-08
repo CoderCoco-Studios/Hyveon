@@ -499,7 +499,7 @@ describe('IacPage', () => {
     expect(await screen.findByText(`Apply run "${APPLY_RUN_ID}" could not be found after it finished.`)).toBeInTheDocument();
   });
 
-  // @spec IAC-RUN-APPR-005, IAC-RUN-GATE-006
+  // @spec IAC-RUN-APPR-005, IAC-RUN-APPR-006, IAC-RUN-GATE-006
   it('should show an expired-approval message and disable Apply until re-approved', async () => {
     seedSuccessfulPlan();
     const staleApprovedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString(); // 20 minutes ago > 15-minute window
@@ -759,32 +759,35 @@ describe('IacPage', () => {
   });
 
   describe('rollback flow (#112)', () => {
-    it('should auto-submit a tagged plan with the rollback location.state, without requiring a Run plan click', async () => {
-      hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
+    // @spec IAC-RUN-RBK-010
+    it('should adopt the rollback plan the service already ran, without submitting a second plan', async () => {
       hyveonMock.iac.runs.streamLogs.mockImplementation(
         toStreamHandleMock(async function* () {
           /* no chunks needed for this assertion */
         }),
       );
-      hyveonMock.iac.runs.get.mockResolvedValue({ found: false });
+      hyveonMock.iac.runs.get.mockResolvedValue({
+        found: true,
+        status: 'awaiting_approval',
+        record: { runId: PLAN_RUN_ID, kind: 'plan', startedAt: 't0', completedAt: 't1', exitCode: 0, planHash: 'hash-1' },
+      });
 
       renderPage(<IacPage />, {
         initialEntries: [
-          { pathname: '/iac', state: { configVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
+          {
+            pathname: '/iac',
+            state: { configVersionId: 'v-new-head', rolledBackFrom: 'apply-1', planRunId: PLAN_RUN_ID },
+          },
         ],
       });
 
-      await waitFor(() =>
-        expect(hyveonMock.iac.plan).toHaveBeenCalledWith({
-          configVersionId: 'v-new-head',
-          rolledBackFrom: 'apply-1',
-        }),
-      );
+      await waitFor(() => expect(hyveonMock.iac.runs.streamLogs).toHaveBeenCalledWith(PLAN_RUN_ID));
+      await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
+      expect(hyveonMock.iac.plan).not.toHaveBeenCalled();
       expect(screen.queryByRole('button', { name: /Run plan/ })).not.toBeInTheDocument();
     });
 
     it('should render a link to the rolled-back apply run once the plan record carries rolledBackFrom', async () => {
-      hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
       hyveonMock.iac.runs.streamLogs.mockImplementation(
         toStreamHandleMock(async function* () {
           /* no chunks needed for this assertion */
@@ -806,7 +809,10 @@ describe('IacPage', () => {
 
       renderPage(<IacPage />, {
         initialEntries: [
-          { pathname: '/iac', state: { configVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
+          {
+            pathname: '/iac',
+            state: { configVersionId: 'v-new-head', rolledBackFrom: 'apply-1', planRunId: PLAN_RUN_ID },
+          },
         ],
       });
 

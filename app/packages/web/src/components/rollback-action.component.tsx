@@ -16,6 +16,8 @@ export interface RollbackResult {
   versionId: string;
   /** The apply run the restored version was resolved from — tags the resulting plan. */
   rolledBackFrom: string;
+  /** The single tagged plan run the confirmed rollback already produced, awaiting approval. */
+  planRunId: string;
 }
 
 interface RollbackActionProps {
@@ -106,9 +108,9 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
     void (async () => {
       try {
         const ack = await window.hyveon!.iac.rollback.confirm({ applyRunId, headEtag: target?.headEtag });
-        if (ack.confirmed && ack.versionId) {
+        if (ack.confirmed && ack.versionId && ack.planRunId) {
           setDialogOpen(false);
-          onRolledBack({ versionId: ack.versionId, rolledBackFrom: applyRunId });
+          onRolledBack({ versionId: ack.versionId, rolledBackFrom: applyRunId, planRunId: ack.planRunId });
         } else {
           // Close so a retry re-resolves and picks up the current head etag.
           setDialogOpen(false);

@@ -44,7 +44,7 @@ describe('RollbackAction', () => {
       lastModified: '2026-07-18T00:00:00.000Z',
       headEtag: 'etag-head',
     });
-    hyveonMock.iac.rollback.confirm.mockResolvedValue({ confirmed: true, versionId: 'v-new-head' });
+    hyveonMock.iac.rollback.confirm.mockResolvedValue({ confirmed: true, versionId: 'v-new-head', planRunId: 'plan-9' });
     const onRolledBack = vi.fn();
     render(<RollbackAction applyRunId="apply-1" onRolledBack={onRolledBack} />);
 
@@ -53,7 +53,7 @@ describe('RollbackAction', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Roll back' }));
 
     await waitFor(() =>
-      expect(onRolledBack).toHaveBeenCalledWith({ versionId: 'v-new-head', rolledBackFrom: 'apply-1' }),
+      expect(onRolledBack).toHaveBeenCalledWith({ versionId: 'v-new-head', rolledBackFrom: 'apply-1', planRunId: 'plan-9' }),
     );
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
