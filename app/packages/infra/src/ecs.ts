@@ -40,6 +40,9 @@ import {
 } from './hostnameShim.js';
 import { LOG_RETENTION_DAYS } from './logGroups.js';
 
+/** The official Caddy image the TLS sidecar runs, pinned to an exact version so a re-deploy never changes it silently. */
+const CADDY_IMAGE = 'caddy:2.11.9-alpine';
+
 /** Every resource {@link defineEcs} declares, keyed by role. */
 export interface EcsResources {
   /** The ECS cluster every task definition below runs against. */
@@ -312,7 +315,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
     if (isHttps) {
       containerDefs.push({
         name: 'caddy',
-        image: 'caddy:2-alpine',
+        image: CADDY_IMAGE,
         essential: true,
         portMappings: [
           { containerPort: 443, hostPort: 443, protocol: 'tcp' },
