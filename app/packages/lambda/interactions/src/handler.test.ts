@@ -315,7 +315,55 @@ describe('InteractionsLambda: APPLICATION_COMMAND dispatch', () => {
       const body = parsed(res).body as { type: number; data: { content: string; flags: number } };
       expect(body.type).toBe(4);
       expect(body.data.flags).toBe(64);
-      expect(body.data.content).toMatch(/try again/i);
+      expect(body.data.content).toMatch(/may already be starting/i); // @spec DISCORD-CMD-014
+      expect(body.data.content).toContain('/server-status');
+    });
+
+    /** Config read that takes `ms` of fake time, simulating a slow cold DynamoDB read. */
+    function slowConfig(ms: number): void {
+      const cfg = {
+        clientId: 'app-id',
+        allowedGuilds: ['G1'],
+        admins: { userIds: ['ADMIN'], roleIds: [] },
+        gamePermissions: { palworld: { userIds: ['U1'], roleIds: [], actions: ['start', 'stop', 'status'] } },
+      };
+      getEffectiveDiscordConfigMock.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve(cfg), ms)),
+      );
+    }
+
+    it('should shrink the invoke bound so the whole handler answers by 2.8 s after a slow config read', async () => {
+      slowConfig(1_500);
+      lambdaMock.on(InvokeCommand).callsFake(() => new Promise(() => undefined));
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      let settled = false;
+
+      const pending = handler(commandEvent({ name: 'server-start', userId: 'U1', game: 'palworld' })).then((r) => {
+        settled = true;
+        return r;
+      });
+      await vi.advanceTimersByTimeAsync(2_799);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const res = await pending;
+
+      expect((parsed(res).body as { type: number }).type).toBe(4);
+    });
+
+    it('should keep a small minimum invoke bound when the config read used almost the whole budget', async () => {
+      slowConfig(2_790);
+      lambdaMock.on(InvokeCommand).callsFake(() => new Promise(() => undefined));
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      let settled = false;
+
+      const pending = handler(commandEvent({ name: 'server-start', userId: 'U1', game: 'palworld' })).then((r) => {
+        settled = true;
+        return r;
+      });
+      await vi.advanceTimersByTimeAsync(2_790 + 249);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await pending;
     });
 
     it('should answer with the retry message, without throwing, when the invoke is rejected', async () => {

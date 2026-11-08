@@ -126,7 +126,7 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 |---|---|---|---|---|
 | Serverless invariants | `DISCORD-SVC-001` to `DISCORD-SVC-005` | 5 | 0 | 0 |
 | Ingress and signature verification | `DISCORD-AUTH-001` to `DISCORD-AUTH-008` | 8 | 0 | 0 |
-| Command handling (interactions Lambda) | `DISCORD-CMD-001` to `DISCORD-CMD-013` | 13 | 0 | 0 |
+| Command handling (interactions Lambda) | `DISCORD-CMD-001` to `DISCORD-CMD-014` | 14 | 0 | 0 |
 | Permission evaluation (canRun) | `DISCORD-PERM-001` to `DISCORD-PERM-005` | 5 | 0 | 0 |
 | Followup Lambda | `DISCORD-RUN-001` to `DISCORD-RUN-015` | 15 | 0 | 0 |
 | Pending interactions | `DISCORD-PEND-001` to `DISCORD-PEND-004` | 4 | 0 | 0 |
@@ -137,7 +137,7 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 | Command registration | `DISCORD-REG-001` to `DISCORD-REG-005` | 5 | 0 | 0 |
 | Discord page | `DISCORD-UI-001` to `DISCORD-UI-010` | 10 | 0 | 0 |
 
-**Summary:** 92 of 92 active specs implemented; 0 deferred; 0 gaps.
+**Summary:** 93 of 93 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 
@@ -146,7 +146,7 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 3. **Followup can leave a deferred interaction unresolved** [resolved: config read moved inside the `try`, `DISCORD-RUN-010`] — `getEffectiveDiscordConfig` runs before the `try` (`followup/handler.ts:240`) and the final PATCH runs after it (`:272`); a failure in either leaves Discord showing "thinking..." until the token expires.
 4. **Followup logs the interaction token** [resolved: logs identifiers only, `DISCORD-RUN-011`] — `console.error('Followup handler failed', { err, event })` (`followup/handler.ts:268`) logs the whole event, which carries `interactionToken` (a 15-minute webhook credential). Conflicts with `.claude/rules/logging.md` rule 3 [inferred: the rule targets desktop-main, but the intent applies].
 5. **Raw exception text was sent to Discord users** [resolved: fixed reply via `failureReply`, normalised error logged only, `DISCORD-RUN-012`].
-6. **Deferred ack waits on the async invoke** [resolved: the invoke is awaited, because Lambda freezes after return, but bounded to 2 seconds with an ephemeral retry notice on timeout, `DISCORD-CMD-009`; the config read stays unbounded on the ack path, two DynamoDB point reads]. [resolved: timestamp freshness, `DISCORD-AUTH-007`] `hex.substr` is deprecated (`:74`).
+6. **Deferred ack waits on the async invoke** [resolved: the invoke is awaited, because Lambda freezes after return, but bounded by the 2.8 s ack deadline with an ephemeral check-status notice on timeout, `DISCORD-CMD-009`, `DISCORD-CMD-014`; the config read stays unbounded on the ack path, two DynamoDB point reads]. [resolved: timestamp freshness, `DISCORD-AUTH-007`] `hex.substr` is deprecated (`:74`).
 7. **Two `DiscordEventReceiver` implementations, neither used** — `shared/src/discord/awsLambdaDiscordReceiver.ts:32` (reads `discord_interactions_url`) has no consumer outside its test and the barrel export (`shared/src/index.ts:37`). [the controller now reads the URL through one accessor, `DISCORD-SVC-005`; removing the duplicate stack output and the receivers needs `iac/program` and `operator-app/desktop-shell` specs to change and stays open as a cross-segment item] The bound `AwsDiscordEventReceiver` is constructed with no config callback (`cloud-provider.module.ts:204`), so it would always return `null` (`AwsDiscordEventReceiver.ts:44-45`), and nothing injects `DISCORD_RECEIVER`; the controller reads `outputs.interactionsInvokeUrl` directly instead (`discord.controller.ts:39`, `:77`). `StackOutputs` also carries two identical URL fields (`stackOutputs.ts:147`, `:156`; `infra/src/program.ts:448-451`).
 8. **Sweep disagreement: autocomplete does honour the guild allowlist** — sweep-8 says autocomplete "skips allowedGuilds check" (`interactions/handler.ts:157-184`). The code filters through `canRun` (`:177`), whose first step is the allowlist (`canRun.ts:29`). Not a bug; it matches `docs/docs/app/discord.md:336-338`.
 9. **Sweep disagreement: `putPermission` actions cast is benign** — sweep-6 flags `actions as DiscordAction[]` (`discord.controller.ts:198`) as unvalidated. The service filters to `start|stop|status` before saving (`DiscordConfigService.ts:386-391`). The cast is cosmetic.

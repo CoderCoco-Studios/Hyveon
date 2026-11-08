@@ -65,12 +65,18 @@ makes no AWS SDK calls (see below).
      'Event'`) with a `FollowupPayload` (`kind`, applicationId,
      interactionToken, userId, guildId, roleIds, optional game). The invoke is
      awaited, because Lambda freezes after the handler returns, but is bounded
-     to 2 seconds so the ack still lands inside Discord's 3-second budget.
+     to the smaller of 2 seconds and the time left until 2.8 seconds after
+     handler entry (never below 250 ms), because the secret read, the config
+     read and the invoke run one after another inside Discord's 3-second budget.
 
 If the followup invoke times out or is rejected, the handler logs the
 normalised error (identifiers only, never the interaction token) and answers
-with an ephemeral "Could not start that command right now. Please try again."
-instead of throwing. If anything earlier throws, Discord sees either a non-200
+with an ephemeral "Could not confirm that command was sent. It may already be
+starting: check `/server-status` before retrying." instead of throwing. A
+timed-out invoke may already have been accepted, so a retry can run the
+followup twice; that is safe because `/server-start` is guarded by the start
+lease (`startWithLease`), `/server-stop` is idempotent, and list and status
+only read. If anything earlier throws, Discord sees either a non-200
 response or a silent timeout — the user gets no reply, which is the correct
 failure mode (replying with an error would require another signed response,
 which we can't forge).
