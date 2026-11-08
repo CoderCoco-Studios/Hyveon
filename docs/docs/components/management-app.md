@@ -272,7 +272,7 @@ called out again in the `WindowController` row below.
 - **`DiscordConfigService`** — persistence facade over DynamoDB
   (`CONFIG#discord`) + Secrets Manager. Concurrent reads are coalesced via
   an inflight-promise pattern. `getRedacted()` returns
-  `botTokenSet` / `publicKeySet` booleans only.
+  `botTokenSet` / `publicKeySet` booleans only, and rejects (not-deployed message or the real read failure) rather than returning an empty config. `DiscordController.putPermission` / `deletePermission` validate the game against `DeploymentConfig.gameServers` before writing.
   `getEffectiveToken()` is the single escape hatch — used only by the
   command registrar.
 - **`DiscordCommandRegistrar`** — calls

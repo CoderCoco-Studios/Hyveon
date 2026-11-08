@@ -10,6 +10,7 @@
  * old file-backed service) still behaves.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DISCORD_NOT_DEPLOYED_MESSAGE } from '@hyveon/shared';
 import type { DiscordConfigStore, SecretsStore, StackOutputs } from '@hyveon/shared';
 
 vi.mock('../logger.js', () => ({
@@ -290,18 +291,30 @@ describe('DiscordConfigService.getRedacted', () => {
   });
 
   // @spec DISCORD-DESK-003
-  it('should resolve with both secrets unset instead of throwing when Pulumi stack outputs are missing', async () => {
-    // Regression test: `botTokenSecretArn`/`publicKeySecretArn` throw when
-    // the stack hasn't been deployed yet. That throw used to happen before
-    // `secrets.get(...)`'s `.catch()` was attached, so it escaped
-    // `getRedacted()` uncaught — NestJS wrapped it in an RxJS Observable and
-    // Electron's IPC bridge failed to clone it back to the renderer.
-    const svc = makeService(null);
-    const redacted = await svc.getRedacted();
+  it('should report both secrets unset instead of throwing when the secret reads fail', async () => {
+    secretsGetMock.mockRejectedValue(new Error('AccessDenied'));
+    const redacted = await makeService().getRedacted();
     expect(redacted.botTokenSet).toBe(false);
     expect(redacted.publicKeySet).toBe(false);
+  });
+
+  // @spec DISCORD-UI-008
+  it('should reject with the not-deployed message, reading no secrets, when stack outputs are missing', async () => {
+    await expect(makeService(null).getRedacted()).rejects.toThrow(DISCORD_NOT_DEPLOYED_MESSAGE);
+    expect(getConfigMock).not.toHaveBeenCalled();
     expect(secretsGetMock).not.toHaveBeenCalled();
   });
+
+  // @spec DISCORD-UI-008
+  it('should reject with the real failure, not an empty config, and retry on the next call when the config read fails', async () => {
+    getConfigMock.mockRejectedValueOnce(new Error('ProvisionedThroughputExceededException'));
+    const svc = makeService();
+
+    await expect(svc.getRedacted()).rejects.toThrow('ProvisionedThroughputExceededException');
+    await expect(svc.getRedacted()).resolves.toMatchObject({ clientId: '' });
+    expect(getConfigMock).toHaveBeenCalledTimes(2);
+  });
+
 });
 
 describe('DiscordConfigService.setCredentials', () => {

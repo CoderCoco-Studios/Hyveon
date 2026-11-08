@@ -27,6 +27,7 @@ import { startInProgressMessage, startWithLease } from '@hyveon/shared/aws/start
 // `canRun` is the single shared copy; never inline or fork it.
 import {
   canRun,
+  errMessage,
   formatGameStatus,
   gameNamesFromEnv,
   getDocClient,
@@ -81,6 +82,23 @@ const CONNECT_MESSAGES: Record<string, string> = parseGameMapEnv('CONNECT_MESSAG
 /** First container port per game, used to resolve the `{port}` placeholder. Parsed defensively — see {@link parseGameMapEnv}. */
 const GAME_PORTS: Record<string, ConnectPort> = parseGameMapEnv('GAME_PORTS');
 
+/**
+ * Builds the fixed user-facing reply for a failed ECS call and logs the normalised error server-side.
+ *
+ * @remarks
+ * Raw SDK text can carry ARNs and account details, so it never reaches a Discord channel; the log carries
+ * identifiers and the normalised message only, never the interaction token.
+ *
+ * @param verb - The attempted action, used in both the reply and the log line.
+ * @param game - The game the action targeted.
+ * @param detail - The caught error or the ECS failure reason.
+ * @returns The generic reply text.
+ */
+function failureReply(verb: 'start' | 'stop', game: string, detail: unknown): string {
+  console.error(`ECS ${verb} failed`, { game, error: errMessage(detail) });
+  return `❌ Could not ${verb} ${game}. Check server logs.`;
+}
+
 async function findRunningTask(cluster: string, game: string): Promise<Task | null> {
   const list = await getEcs().send(
     new ListTasksCommand({ cluster, family: `${game}-server`, desiredStatus: 'RUNNING' }),
@@ -117,12 +135,13 @@ async function getStatus(game: string): Promise<GameStatus> {
     }
     return { game, state: 'stopped' };
   } catch (err) {
-    return { game, state: 'error', message: String(err) };
+    console.error('ECS status lookup failed', { game, error: errMessage(err) });
+    return { game, state: 'error', message: 'status lookup failed' };
   }
 }
 
 // @spec RT-TASK-LAUNCH-004, RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
-// @spec DISCORD-RUN-002, DISCORD-RUN-003, DISCORD-RUN-004, DISCORD-RUN-005
+// @spec DISCORD-RUN-002, DISCORD-RUN-003, DISCORD-RUN-004, DISCORD-RUN-005, DISCORD-RUN-012
 async function runStart(game: string): Promise<{ message: string; taskArn?: string }> {
   const cluster = requireEnv('ECS_CLUSTER');
   const subnets = requireEnv('SUBNET_IDS').split(',').map((s) => s.trim()).filter(Boolean);
@@ -153,7 +172,7 @@ async function runStart(game: string): Promise<{ message: string; taskArn?: stri
         const taskArn = resp.tasks?.[0]?.taskArn;
         if (!taskArn) {
           const reason = resp.failures?.[0]?.reason ?? 'unknown';
-          return { launched: false, value: { message: `❌ Failed to start ${game}: ${reason}` } };
+          return { launched: false, value: { message: failureReply('start', game, `RunTask returned no task: ${reason}`) } };
         }
         return { launched: true, value: { message: `✅ ${game} is starting. It may take 2–5 minutes.`, taskArn } };
       },
@@ -162,11 +181,11 @@ async function runStart(game: string): Promise<{ message: string; taskArn?: stri
     if (outcome.status === 'already-running') return { message: `❌ ${game} is already running.` };
     return outcome.value;
   } catch (err) {
-    return { message: `❌ Exception starting ${game}: ${String(err)}` };
+    return { message: failureReply('start', game, err) };
   }
 }
 
-// @spec DISCORD-RUN-006
+// @spec DISCORD-RUN-006, DISCORD-RUN-012
 async function runStop(game: string): Promise<string> {
   const cluster = requireEnv('ECS_CLUSTER');
   const task = await findRunningTask(cluster, game);
@@ -177,7 +196,7 @@ async function runStop(game: string): Promise<string> {
     );
     return `✅ ${game} is stopping.`;
   } catch (err) {
-    return `❌ Exception stopping ${game}: ${String(err)}`;
+    return failureReply('stop', game, err);
   }
 }
 

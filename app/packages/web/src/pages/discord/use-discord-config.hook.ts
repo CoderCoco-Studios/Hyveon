@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { errMessage, isDiscordNotDeployedError } from '@hyveon/shared';
 import {
   api,
   type DiscordAdmins,
@@ -8,20 +9,23 @@ import {
   type DiscordMutationResult,
 } from '../../api.service.js';
 
-// @spec DISCORD-UI-002
+/** Why the Discord config could not be displayed: an undeployed stack, or any other read failure with its message. */
+export type DiscordLoadError = { kind: 'not-deployed' } | { kind: 'failed'; message: string };
+
+// @spec DISCORD-UI-002, DISCORD-UI-008
 /**
  * Owns the Discord config's fetch/refresh/mutate lifecycle for {@link DiscordPage}'s
  * Credentials/Guilds/Admins/Permissions tabs, so the page component is just layout.
  *
- * @returns Config state (`cfg`, `games`, `busy`, `loadError`, `showWizard`) plus one
+ * @returns Config state (`cfg`, `games`, `busy`, `loadError`, `showWizard`), `reload` to retry a failed read, plus one
  * mutation function per tab action. Every mutation refreshes `cfg` after it resolves and
  * reports success/failure via `sonner` toasts; none reject — failures resolve to `undefined`
- * (or, for `registerCommands`, to a `{ success: false, message }` result) so call sites can
- * fire-and-forget them.
+ * (for `registerCommands`, to a `{ success: false, message }` result; for `saveCredentials`, to `false`) so call
+ * sites can fire-and-forget them.
  */
 export function useDiscordConfig() {
   const [cfg, setCfg] = useState<DiscordConfigRedacted | null>(null);
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState<DiscordLoadError | null>(null);
   const [busy, setBusy] = useState(false);
   const [games, setGames] = useState<string[]>([]);
   // "The operator still has setup to do." Latched the first time a config
@@ -48,10 +52,10 @@ export function useDiscordConfig() {
     try {
       const next = await api.discordConfig();
       setCfg(next);
-      setLoadError(false);
+      setLoadError(null);
       if (next.allowedGuilds.length === 0) setWizardLatched(true);
-    } catch {
-      setLoadError(true);
+    } catch (err) {
+      setLoadError(isDiscordNotDeployedError(err) ? { kind: 'not-deployed' } : { kind: 'failed', message: errMessage(err) });
     }
   }
 
@@ -141,9 +145,16 @@ export function useDiscordConfig() {
     }
   }
 
-  /** Save credentials (Client ID / Bot Token / Public Key); any field may be omitted to leave it unchanged. */
-  function saveCredentials(body: { botToken?: string; clientId?: string; publicKey?: string }): Promise<void> {
-    return wrap(() => api.discordSaveCredentials(body), 'Credentials saved').catch(() => undefined);
+  /**
+   * Save credentials (Client ID / Bot Token / Public Key); any field may be omitted to leave it unchanged.
+   *
+   * @returns `true` when the save succeeded, `false` when it failed (already reported by toast), so the form can keep its inputs.
+   */
+  function saveCredentials(body: { botToken?: string; clientId?: string; publicKey?: string }): Promise<boolean> {
+    return wrap(() => api.discordSaveCredentials(body), 'Credentials saved').then(
+      () => true,
+      () => false,
+    );
   }
 
   /** Add a guild to the dynamic allowlist. */
@@ -182,6 +193,7 @@ export function useDiscordConfig() {
     busy,
     loadError,
     showWizard,
+    reload: refresh,
     saveCredentials,
     addGuild,
     removeGuild,

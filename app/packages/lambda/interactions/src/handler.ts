@@ -11,15 +11,17 @@
  *    no ECS calls — must fit in the 3-second budget).
  *  - For APPLICATION_COMMAND, check `canRun()` against the config in DynamoDB
  *    and respond with a deferred ack (type 5). The actual ECS RunTask/StopTask
- *    work is kicked off by async-invoking FollowupLambda so Discord gets its
- *    reply inside the 3-second budget regardless of AWS latency.
+ *    work is kicked off by async-invoking FollowupLambda. The AWS calls on
+ *    the ack path (secret read, config read, invoke) are sequential, so the invoke
+ *    is bounded by the 2.8 s ack deadline; on a timeout the user gets an ephemeral
+ *    check-status notice instead of a silent "interaction failed".
  */
 import { verifyAsync } from '@noble/ed25519';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 // @spec DISCORD-SVC-002
 // `canRun` is the single shared copy; never inline or fork it.
-import { canRun, gameNamesFromEnv, getEffectiveDiscordConfig, getPublicKey, requireEnv } from '@hyveon/shared';
+import { canRun, errMessage, gameNamesFromEnv, getEffectiveDiscordConfig, getPublicKey, requireEnv } from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig } from '@hyveon/shared';
 
 /** Discord interaction types we care about. Full list in discord-api-types. */
@@ -183,10 +185,11 @@ async function handleAutocomplete(
   });
 }
 
-// @spec DISCORD-CMD-003, DISCORD-CMD-004, DISCORD-CMD-005, DISCORD-CMD-006, DISCORD-CMD-007, DISCORD-CMD-008
+// @spec DISCORD-CMD-003, DISCORD-CMD-004, DISCORD-CMD-005, DISCORD-CMD-006, DISCORD-CMD-007, DISCORD-CMD-008, DISCORD-CMD-009
 async function handleApplicationCommand(
   interaction: Interaction,
   cfg: DiscordConfig,
+  startedAtMs: number,
 ): Promise<APIGatewayProxyResultV2> {
   const name = interaction.data?.name ?? '';
   const action = actionFor(name);
@@ -202,27 +205,25 @@ async function handleApplicationCommand(
   const game = extractGameOption(interaction.data);
 
   if (name === 'server-list') {
-    await invokeFollowup({
+    return deferToFollowup({
       kind: 'list',
       applicationId: interaction.application_id,
       interactionToken: interaction.token,
       userId,
       guildId,
       roleIds,
-    });
-    return ephemeralMessage('', true);
+    }, startedAtMs);
   }
 
   if (name === 'server-status' && !game) {
-    await invokeFollowup({
+    return deferToFollowup({
       kind: 'list',
       applicationId: interaction.application_id,
       interactionToken: interaction.token,
       userId,
       guildId,
       roleIds,
-    });
-    return ephemeralMessage('', true);
+    }, startedAtMs);
   }
 
   if (!game) return ephemeralMessage('Game is required.');
@@ -231,7 +232,7 @@ async function handleApplicationCommand(
     return ephemeralMessage(`You don't have permission to ${action} **${game}**.`);
   }
 
-  await invokeFollowup({
+  return deferToFollowup({
     kind: action,
     applicationId: interaction.application_id,
     interactionToken: interaction.token,
@@ -239,8 +240,7 @@ async function handleApplicationCommand(
     guildId,
     roleIds,
     game,
-  });
-  return ephemeralMessage('', true);
+  }, startedAtMs);
 }
 
 interface FollowupPayload {
@@ -253,14 +253,78 @@ interface FollowupPayload {
   game?: string;
 }
 
-async function invokeFollowup(payload: FollowupPayload): Promise<void> {
+/** Upper bound, in milliseconds, on the followup `Invoke` call. */
+const FOLLOWUP_INVOKE_TIMEOUT_MS = 2_000;
+
+/** Latest point, in milliseconds after handler entry, at which the ack should be on its way inside Discord's 3-second budget. */
+const ACK_DEADLINE_MS = 2_800;
+
+/** Smallest invoke bound used even when earlier sequential reads consumed nearly the whole ack budget. */
+const MIN_FOLLOWUP_INVOKE_TIMEOUT_MS = 250;
+
+/**
+ * Computes the followup invoke bound from the time already spent since handler entry.
+ *
+ * @param startedAtMs - Epoch milliseconds when the handler was entered.
+ * @returns `min(2000, 2800 - elapsed)`, never below 250 ms.
+ */
+function followupInvokeBudgetMs(startedAtMs: number): number {
+  const remaining = ACK_DEADLINE_MS - (Date.now() - startedAtMs);
+  return Math.max(MIN_FOLLOWUP_INVOKE_TIMEOUT_MS, Math.min(FOLLOWUP_INVOKE_TIMEOUT_MS, remaining));
+}
+
+/**
+ * Async-invokes the followup Lambda, giving up after {@link followupInvokeBudgetMs}.
+ *
+ * @remarks
+ * The invoke is awaited because Lambda freezes the execution environment once the handler returns. The bound is
+ * deadline-based because the secret read, the config read and this invoke run sequentially. A timed-out invoke may
+ * still have been accepted server-side, so the caller must not tell the user the command definitely did not start.
+ * A timeout or rejection is logged with identifiers only (the payload carries the 15-minute interaction token).
+ *
+ * @param payload - The followup job.
+ * @param startedAtMs - Epoch milliseconds when the handler was entered.
+ * @returns `true` when the invoke was accepted in time, otherwise `false`.
+ */
+async function invokeFollowup(payload: FollowupPayload, startedAtMs: number): Promise<boolean> {
   const fnName = requireEnv('FOLLOWUP_LAMBDA_NAME');
-  await getLambdaClient().send(
-    new InvokeCommand({
-      FunctionName: fnName,
-      InvocationType: 'Event',
-      Payload: Buffer.from(JSON.stringify(payload)),
-    }),
+  const controller = new AbortController();
+  const timedOut = new Promise<never>((_, reject) => {
+    controller.signal.addEventListener('abort', () => reject(new Error('followup invoke timed out')));
+  });
+  const timer = setTimeout(() => controller.abort(), followupInvokeBudgetMs(startedAtMs));
+  try {
+    await Promise.race([
+      getLambdaClient().send(
+        new InvokeCommand({
+          FunctionName: fnName,
+          InvocationType: 'Event',
+          Payload: Buffer.from(JSON.stringify(payload)),
+        }),
+        { abortSignal: controller.signal },
+      ),
+      timedOut,
+    ]);
+    return true;
+  } catch (err) {
+    console.error('Followup invoke failed', {
+      error: errMessage(err),
+      kind: payload.kind,
+      game: payload.game,
+      guildId: payload.guildId,
+    });
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// @spec DISCORD-CMD-014
+/** Hands the job to the followup Lambda and returns the deferred ack, or an ephemeral check-status notice when the hand-off fails or times out. */
+async function deferToFollowup(payload: FollowupPayload, startedAtMs: number): Promise<APIGatewayProxyResultV2> {
+  if (await invokeFollowup(payload, startedAtMs)) return ephemeralMessage('', true);
+  return ephemeralMessage(
+    'Could not confirm that the command was sent. It may already be starting: check `/server-status` before retrying.',
   );
 }
 
@@ -299,6 +363,7 @@ function isTimestampFresh(timestamp: string, nowMs: number): boolean {
  * to do the slow ECS work within Discord's 3-second reply budget.
  */
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
+  const startedAtMs = Date.now();
   const signature = event.headers?.['x-signature-ed25519'];
   const timestamp = event.headers?.['x-signature-timestamp'];
   if (!signature || !timestamp) return unauthorized();
@@ -331,7 +396,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     return handleAutocomplete(interaction, cfg);
   }
   if (interaction.type === INTERACTION_APPLICATION_COMMAND) {
-    return handleApplicationCommand(interaction, cfg);
+    return handleApplicationCommand(interaction, cfg, startedAtMs);
   }
 
   return jsonResponse({ type: RESPONSE_CHANNEL_MESSAGE_WITH_SOURCE, data: { content: 'Unsupported interaction type.', flags: EPHEMERAL } });

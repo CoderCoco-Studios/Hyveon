@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { Button } from '@/components/ui/button.component';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.component';
 import { PollingIndicator } from '../../polling/polling-indicator.component.js';
 import { PageHeader } from '../../components/page-header.component.js';
@@ -19,7 +20,9 @@ import { useDiscordConfig } from './use-discord-config.hook.js';
  *
  * All persistence still goes through the existing `discord.*` IPC channels —
  * neither the bot token nor the public key is ever echoed back to the client.
+ * A failed config read shows either the not-deployed state or the failure with a Retry, never editable tabs.
  */
+// @spec DISCORD-UI-008
 export function DiscordPage() {
   const {
     cfg,
@@ -27,6 +30,7 @@ export function DiscordPage() {
     busy,
     loadError,
     showWizard,
+    reload,
     saveCredentials,
     addGuild,
     removeGuild,
@@ -42,7 +46,9 @@ export function DiscordPage() {
         <PageHeader
           title="Discord"
           subtitle={
-            loadError ? (
+            !loadError ? (
+              'Loading…'
+            ) : loadError.kind === 'not-deployed' ? (
               <>
                 Discord config unavailable — infrastructure not deployed yet. Run a plan and apply from the{' '}
                 <Link to="/iac" className="underline underline-offset-2">
@@ -51,7 +57,12 @@ export function DiscordPage() {
                 page first.
               </>
             ) : (
-              'Loading…'
+              <>
+                Could not load the Discord configuration: {loadError.message}{' '}
+                <Button variant="secondary" size="sm" onClick={() => void reload()}>
+                  Retry
+                </Button>
+              </>
             )
           }
         >

@@ -20,6 +20,7 @@ const toastMock = vi.hoisted(() =>
 );
 vi.mock('sonner', () => ({ toast: toastMock }));
 
+import { DISCORD_NOT_DEPLOYED_MESSAGE } from '@hyveon/shared';
 import { DiscordPage } from './discord.page.js';
 import { renderPage } from '../../test-utils/render-page.utils.js';
 
@@ -109,11 +110,29 @@ describe('DiscordPage', () => {
     });
   });
 
-  it('should show the unavailable-state copy when /api/discord/config rejects', async () => {
-    apiMock.discordConfig.mockRejectedValue(new Error('boom'));
+  // @spec DISCORD-UI-008
+  it('should show the not-deployed state, with no tabs, when the read reports an undeployed stack', async () => {
+    apiMock.discordConfig.mockRejectedValue(
+      new Error(`Error invoking remote method 'discord.getConfig': Error: ${DISCORD_NOT_DEPLOYED_MESSAGE}`),
+    );
     renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
 
-    expect(await screen.findByText(/Discord config unavailable/i)).toBeInTheDocument();
+    expect(await screen.findByText(/infrastructure not deployed yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Credentials' })).toBeNull();
+  });
+
+  // @spec DISCORD-UI-008
+  it('should report any other load failure distinctly, offer retry, and offer no editable tabs', async () => {
+    apiMock.discordConfig.mockRejectedValueOnce(new Error('ProvisionedThroughputExceededException'));
+    renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
+
+    expect(await screen.findByText(/ProvisionedThroughputExceededException/)).toBeInTheDocument();
+    expect(screen.queryByText(/not deployed yet/i)).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Admins' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save credentials' })).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('tab', { name: 'Credentials' })).toBeInTheDocument();
   });
 
   it('should keep the polling indicator visible while /api/discord/config is loading', async () => {
@@ -318,6 +337,61 @@ describe('DiscordPage', () => {
         'Action failed',
         expect.objectContaining({ description: 'An unknown error occurred' }),
       );
+    });
+
+    // @spec DISCORD-UI-009
+    it('should keep the typed secrets in the inputs when the save fails', async () => {
+      apiMock.discordSaveCredentials.mockRejectedValueOnce(new Error('unauthorized'));
+      const user = userEvent.setup();
+      renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
+
+      await screen.findByRole('tab', { name: 'Credentials' });
+      await user.type(screen.getByLabelText('Bot Token'), 'tok-123');
+      await user.type(screen.getByLabelText('Application Public Key'), 'pk-456');
+      await user.click(screen.getByRole('button', { name: 'Save credentials' }));
+
+      expect(toastMock.error).toHaveBeenCalled();
+      expect(screen.getByLabelText('Bot Token')).toHaveValue('tok-123');
+      expect(screen.getByLabelText('Application Public Key')).toHaveValue('pk-456');
+    });
+
+    // @spec DISCORD-UI-009
+    it('should clear the secret inputs once the save succeeds', async () => {
+      const user = userEvent.setup();
+      renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
+
+      await screen.findByRole('tab', { name: 'Credentials' });
+      await user.type(screen.getByLabelText('Bot Token'), 'tok-123');
+      await user.click(screen.getByRole('button', { name: 'Save credentials' }));
+
+      expect(toastMock.success).toHaveBeenCalledWith('Credentials saved');
+      expect(screen.getByLabelText('Bot Token')).toHaveValue('');
+    });
+
+    // @spec DISCORD-UI-010
+    it('should show Copied only after the clipboard write succeeds', async () => {
+      const user = userEvent.setup();
+      renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
+      await screen.findByRole('tab', { name: 'Credentials' });
+      const write = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+
+      await user.click(screen.getByRole('button', { name: 'Copy' }));
+
+      expect(write).toHaveBeenCalledWith(REDACTED_CONFIG.interactionsEndpointUrl);
+      expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    });
+
+    // @spec DISCORD-UI-010
+    it('should not show Copied when the clipboard write is denied', async () => {
+      const user = userEvent.setup();
+      renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
+      await screen.findByRole('tab', { name: 'Credentials' });
+      vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'));
+
+      await user.click(screen.getByRole('button', { name: 'Copy' }));
+
+      expect(screen.queryByRole('button', { name: 'Copied' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
     });
 
     it('should omit clientId from the save payload when the field is cleared, instead of wiping it', async () => {
