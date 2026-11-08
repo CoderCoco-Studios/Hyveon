@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
+import { PULUMI_ENGINE_VERSION, RELEASES_PAGE_URL } from '@hyveon/shared';
 import type { ManualUpdateCheckResult } from '@hyveon/shared';
 import { DiagnosticsPanel } from '../components/DiagnosticsPanel.js';
 import { DeploymentSettingsForm } from '../components/deployment-settings-form.component.js';
@@ -76,8 +76,6 @@ type ManualCheckState =
   | { status: 'downloaded'; version: string }
   | { status: 'download-failed'; version: string; message: string };
 
-/** GitHub Releases page offered as a manual-download escape hatch when an update check fails. */
-const RELEASES_URL = 'https://github.com/CoderCoco-Studios/Hyveon/releases';
 
 /** True once a manual check, download, or install failed (including the IPC-reject fallback message). */
 function manualCheckFailed(state: ManualCheckState): boolean {
@@ -351,7 +349,7 @@ export function SettingsPage() {
                 {manualCheckFailed(manualCheck) && (
                   <>
                     {' '}
-                    <a href={RELEASES_URL} target="_blank" rel="noreferrer" className="underline">
+                    <a href={RELEASES_PAGE_URL} target="_blank" rel="noreferrer" className="underline">
                       Download manually
                     </a>
                   </>

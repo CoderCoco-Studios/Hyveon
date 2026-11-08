@@ -17,6 +17,7 @@ export default defineConfig({
       // an invalid path.
       '@hyveon/shared/folderUpload': resolve(__dirname, 'packages/shared/src/folderUpload/index.ts'),
       '@hyveon/shared/volumeFiles': resolve(__dirname, 'packages/shared/src/volumeFiles/index.ts'),
+      '@hyveon/shared/updateChannels': resolve(__dirname, 'packages/shared/src/updateChannels.ts'),
       '@hyveon/shared/gameServerValidator': resolve(__dirname, 'packages/shared/src/gameServerValidator.ts'),
       '@hyveon/shared/envTokens': resolve(__dirname, 'packages/shared/src/envTokens.ts'),
       '@hyveon/shared/testing/secretFields': resolve(__dirname, 'packages/shared/src/testing/secretFields.ts'),

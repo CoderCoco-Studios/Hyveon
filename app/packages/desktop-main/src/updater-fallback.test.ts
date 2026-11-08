@@ -105,8 +105,45 @@ describe('resolveFallbackFeedUrl', () => {
     await resolveFallbackFeedUrl('win32');
 
     expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
-      'https://api.github.com/repos/CoderCoco-Studios/Hyveon/releases?per_page=10',
+      'https://api.github.com/repos/CoderCoco-Studios/Hyveon/releases?per_page=100&page=1',
     );
+  });
+
+  /** A full page of `n` feedless releases, the shape that forces another page request. */
+  const fullPage = (n: number): GithubRelease[] => Array.from({ length: n }, (_, i) => release(`v9.${i}`, []));
+
+  // @spec APP-UPDATE-FALL-007
+  it('should keep paging until it finds an eligible release older than the newest full page', async () => {
+    stubFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve([]) }));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(fullPage(100)) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([release('v0.1.0', ['latest.yml'])]) } as Response);
+
+    await expect(resolveFallbackFeedUrl('win32')).resolves.toBe(
+      'https://github.com/CoderCoco-Studios/Hyveon/releases/download/v0.1.0',
+    );
+    expect(vi.mocked(fetch).mock.calls.map((c) => c[0])).toEqual([
+      'https://api.github.com/repos/CoderCoco-Studios/Hyveon/releases?per_page=100&page=1',
+      'https://api.github.com/repos/CoderCoco-Studios/Hyveon/releases?per_page=100&page=2',
+    ]);
+  });
+
+  // @spec APP-UPDATE-FALL-007
+  it('should stop paging at the first short page', async () => {
+    stubFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve(fullPage(3)) }));
+
+    await expect(resolveFallbackFeedUrl('win32')).resolves.toBeNull();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  // @spec APP-UPDATE-FALL-007, APP-UPDATE-FALL-003
+  it('should return null when a later page fails', async () => {
+    stubFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve([]) }));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(fullPage(100)) } as Response)
+      .mockResolvedValueOnce({ ok: false, status: 502, json: () => Promise.resolve([]) } as Response);
+
+    await expect(resolveFallbackFeedUrl('win32')).resolves.toBeNull();
   });
 
   // @spec APP-UPDATE-FALL-003

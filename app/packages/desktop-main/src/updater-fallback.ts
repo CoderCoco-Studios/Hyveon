@@ -1,14 +1,14 @@
-import { errMessage } from '@hyveon/shared';
+import { errMessage, RELEASE_REPO, RELEASE_REPO_SLUG } from '@hyveon/shared';
 import { logger } from './logger.js';
 
-/** GitHub `owner/repo` that hosts releases; must match `publish` in `electron-builder.yml`. */
-const RELEASES_REPO = 'CoderCoco-Studios/Hyveon';
-
 /** The primary `github` provider feed, restored after a fallback retry so the singleton isn't left on the fallback. */
-export const PRIMARY_FEED = { provider: 'github', owner: 'CoderCoco-Studios', repo: 'Hyveon' } as const;
+export const PRIMARY_FEED = { provider: 'github', ...RELEASE_REPO } as const;
 
-const RELEASES_API_URL = `https://api.github.com/repos/${RELEASES_REPO}/releases?per_page=10`;
-const RELEASE_DOWNLOAD_BASE_URL = `https://github.com/${RELEASES_REPO}/releases/download`;
+/** Releases per request; GitHub's maximum, so most repos resolve in one call. */
+const RELEASES_PAGE_SIZE = 100;
+
+const RELEASES_API_URL = `https://api.github.com/repos/${RELEASE_REPO_SLUG}/releases`;
+const RELEASE_DOWNLOAD_BASE_URL = `https://github.com/${RELEASE_REPO_SLUG}/releases/download`;
 const FETCH_TIMEOUT_MS = 10_000;
 
 /** Per-platform electron-builder update feed file a release must carry to be updatable. */
@@ -57,26 +57,35 @@ export function pickFallbackRelease(releases: readonly GithubRelease[], platform
   return best;
 }
 
-// @spec APP-UPDATE-FALL-001, APP-UPDATE-FALL-003
+// @spec APP-UPDATE-FALL-001, APP-UPDATE-FALL-003, APP-UPDATE-FALL-007
 /**
  * Resolves a generic-provider feed URL pointing at the newest release that carries a feed file for `platform`.
+ *
+ * @remarks
+ * Pages through the whole releases list (stopping at the first short page) so an eligible older release is found
+ * even when the newest pages hold only feedless releases. Any failed page aborts the lookup.
  *
  * @param platform - Node platform to resolve for.
  * @returns The release download base URL, or `null` when the lookup fails or no release qualifies.
  */
 export async function resolveFallbackFeedUrl(platform: NodeJS.Platform): Promise<string | null> {
   try {
-    const res = await fetch(RELEASES_API_URL, {
-      headers: { Accept: 'application/vnd.github+json' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      logger.warn('[updater] fallback release lookup failed', { status: res.status });
-      return null;
+    const releases: GithubRelease[] = [];
+    for (let page = 1; ; page++) {
+      const res = await fetch(`${RELEASES_API_URL}?per_page=${RELEASES_PAGE_SIZE}&page=${page}`, {
+        headers: { Accept: 'application/vnd.github+json' },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        logger.warn('[updater] fallback release lookup failed', { status: res.status, page });
+        return null;
+      }
+      const body: unknown = await res.json();
+      if (!Array.isArray(body)) return null;
+      releases.push(...(body as GithubRelease[]));
+      if (body.length < RELEASES_PAGE_SIZE) break;
     }
-    const body: unknown = await res.json();
-    if (!Array.isArray(body)) return null;
-    const release = pickFallbackRelease(body as GithubRelease[], platform);
+    const release = pickFallbackRelease(releases, platform);
     return release ? `${RELEASE_DOWNLOAD_BASE_URL}/${release.tag_name}` : null;
   } catch (err) {
     logger.warn('[updater] fallback release lookup failed', { error: errMessage(err) });

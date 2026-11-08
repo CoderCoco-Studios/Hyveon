@@ -38,12 +38,7 @@ import { PulumiEngineService } from '../services/PulumiEngineService.js';
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
 // Value import for the same Nest DI metadata reason as `PulumiEngineService` above.
 import { ConfigService } from '../services/ConfigService.js';
-
-/** Fixed side-channel {@link IacSettingsController.downloadAutoUpdate} pushes download progress on. */
-const UPDATE_DOWNLOAD_CHUNK_CHANNEL = 'iac.settings.autoUpdate.download.chunk';
-
-/** Fixed side-channel {@link IacSettingsController.downloadAutoUpdate} sends its terminal message on. */
-const UPDATE_DOWNLOAD_END_CHANNEL = 'iac.settings.autoUpdate.download.end';
+import { UPDATE_DOWNLOAD_CHUNK_CHANNEL, UPDATE_DOWNLOAD_END_CHANNEL } from '@hyveon/shared/updateChannels';
 
 /**
  * Immediate acknowledgement `downloadAutoUpdate()` resolves with: the `streamId` the

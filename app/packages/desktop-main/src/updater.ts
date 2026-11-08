@@ -30,6 +30,26 @@ async function loadAutoUpdater() {
 
 type AutoUpdater = Awaited<ReturnType<typeof loadAutoUpdater>>;
 
+/**
+ * What this process knows about the updater's cache: `checkCached` mirrors `electron-updater` holding an available
+ * update's info from the last check (the precondition of `downloadUpdate()`); `downloaded` is set once a download
+ * finished, the precondition of installing.
+ */
+const updateState = { checkCached: false, downloaded: false };
+
+/** @internal Clears the module's cache/download tracking between tests. */
+export function resetUpdateStateForTests(): void {
+  updateState.checkCached = false;
+  updateState.downloaded = false;
+}
+
+/** Runs one `checkForUpdates()` and records whether it left an available update cached in the updater. */
+async function trackedCheck(autoUpdater: AutoUpdater): ReturnType<AutoUpdater['checkForUpdates']> {
+  const result = await autoUpdater.checkForUpdates();
+  updateState.checkCached = result?.isUpdateAvailable === true;
+  return result;
+}
+
 // @spec APP-UPDATE-FALL-001, APP-UPDATE-FALL-003, APP-UPDATE-FALL-004, APP-UPDATE-FALL-005
 /**
  * Runs `checkForUpdates()`, retrying once against the newest release that has a feed file if the primary check
@@ -41,7 +61,7 @@ type AutoUpdater = Awaited<ReturnType<typeof loadAutoUpdater>>;
  */
 async function checkWithFallback(autoUpdater: AutoUpdater): ReturnType<AutoUpdater['checkForUpdates']> {
   try {
-    return await autoUpdater.checkForUpdates();
+    return await trackedCheck(autoUpdater);
   } catch (primaryErr) {
     const url = await resolveFallbackFeedUrl(process.platform);
     if (!url) throw primaryErr;
@@ -51,7 +71,7 @@ async function checkWithFallback(autoUpdater: AutoUpdater): ReturnType<AutoUpdat
     });
     autoUpdater.setFeedURL({ provider: 'generic', url });
     try {
-      return await autoUpdater.checkForUpdates();
+      return await trackedCheck(autoUpdater);
     } catch (fallbackErr) {
       logger.warn('[updater] fallback update check failed', { error: errMessage(fallbackErr) });
       throw primaryErr;
@@ -174,20 +194,18 @@ export async function checkForUpdatesNow(): Promise<ManualUpdateCheckResult> {
   });
 }
 
-/** Message `electron-updater` rejects `downloadUpdate()` with when no `checkForUpdates()` has populated its cache. */
-const NO_PRIOR_CHECK_MESSAGE = 'Please check update first';
-
 // @spec APP-UPDATE-DL-001, APP-UPDATE-DL-002, APP-UPDATE-DL-003, APP-UPDATE-DL-004, APP-UPDATE-DL-006
-// @spec APP-UPDATE-DL-007
+// @spec APP-UPDATE-DL-007, APP-UPDATE-DL-005
 /**
  * Downloads the update found by the last check — an explicit, user-initiated action; nothing else in the app ever
  * downloads. `autoDownload`/`autoInstallOnAppQuit` stay `false`, so the downloaded installer is applied only when
  * {@link installDownloadedUpdate} is called.
  *
  * @remarks
- * `electron-updater` caches the check's `updateInfo` on the singleton. If `downloadUpdate()` rejects because that
- * cache is empty (e.g. the app restarted between the check and the click), the check is re-run once via
- * {@link checkWithFallback} and the download retried. The `error` listener is persistent for the duration so the
+ * `electron-updater` caches the check's `updateInfo` on the singleton. When this process has no cached available
+ * update (e.g. the app restarted between the check and the click), the check is re-run once via
+ * {@link checkWithFallback} before downloading, decided from tracked state rather than the updater's rejection
+ * text; if that check finds nothing, the result is `{ ok: false }`. The `error` listener is persistent for the duration so the
  * updater's own `error` event (dispatched before the rejection) is never unhandled; the outcome is decided by the
  * promise. All listeners are removed afterward.
  *
@@ -219,19 +237,18 @@ export async function downloadUpdateNow(onProgress: (progress: UpdateDownloadPro
     autoUpdater.on('error', onError);
 
     try {
-      try {
-        await autoUpdater.downloadUpdate();
-      } catch (err) {
-        if (errMessage(err) !== NO_PRIOR_CHECK_MESSAGE) throw err;
+      if (!updateState.checkCached) {
         logger.info('[updater] download requested before a check in this process — re-checking first');
         await checkWithFallback(autoUpdater);
-        await autoUpdater.downloadUpdate();
+        if (!updateState.checkCached) return { ok: false, message: 'No update is available to download.' };
       }
+      await autoUpdater.downloadUpdate();
     } finally {
       autoUpdater.removeListener('download-progress', onProgressEvent);
       autoUpdater.removeListener('update-downloaded', onDownloaded);
       autoUpdater.removeListener('error', onError);
     }
+    updateState.downloaded = true;
     logger.info('[updater] user-initiated download complete', { version });
     return { ok: true, version };
   } catch (err) {
@@ -241,16 +258,20 @@ export async function downloadUpdateNow(onProgress: (progress: UpdateDownloadPro
   }
 }
 
-// @spec APP-UPDATE-DL-001, APP-UPDATE-DL-007, APP-UPDATE-DL-008
+// @spec APP-UPDATE-DL-001, APP-UPDATE-DL-007, APP-UPDATE-DL-008, APP-UPDATE-DL-009
 /**
  * Quits the app and runs the installer for the update {@link downloadUpdateNow} fetched — an explicit,
  * user-initiated action. Passes `isForceRunAfter = true` so the app relaunches after installing.
  *
- * @returns `{ ok: true }` when the quit-and-install was kicked off, otherwise `{ ok: false, message }`.
+ * @returns `{ ok: true }` when the quit-and-install was kicked off, otherwise `{ ok: false, message }` (including when
+ * no update was downloaded in this process).
  */
 export async function installDownloadedUpdate(): Promise<UpdateInstallResult> {
   if (!process.versions['electron']) {
     return { ok: false, message: 'Update installs are only available in the packaged app.' };
+  }
+  if (!updateState.downloaded) {
+    return { ok: false, message: 'No update has been downloaded yet.' };
   }
   try {
     const autoUpdater = await loadAutoUpdater();
