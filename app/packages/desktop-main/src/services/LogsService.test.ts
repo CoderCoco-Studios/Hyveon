@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { LOG_TAIL_LOOKBACK_MS } from '@hyveon/shared';
 import { mockClient } from 'aws-sdk-client-mock';
 import {
   CloudWatchLogsClient,
@@ -215,6 +216,20 @@ describe('LogsService.getOlderLogs', () => {
     service = makeService(makeConfig());
   });
 
+  // @spec APP-LOGS-PAGE-007
+  it('should throw an informational error, not the raw SDK text, when the game log group does not exist', async () => {
+    const notFound = Object.assign(new Error('The specified log group does not exist.'), {
+      name: 'ResourceNotFoundException',
+    });
+    cwMock.on(DescribeLogStreamsCommand).rejects(notFound);
+
+    await expect(service.getOlderLogs('minecraft', 1000)).rejects.toThrow(/no log group for minecraft yet/i);
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'LogsService.getOlderLogs: log group does not exist yet',
+      expect.objectContaining({ game: 'minecraft' }),
+    );
+  });
+
   // @spec APP-LOGS-PAGE-001
   it('should fetch older events bounded by endTime from the newest log stream', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 'ecs/stream1' }] });
@@ -351,6 +366,20 @@ describe('LogsService.getNewerLogs', () => {
     loggerMock.debug.mockReset();
     loggerMock.warn.mockReset();
     service = makeService(makeConfig());
+  });
+
+  // @spec APP-LOGS-PAGE-007
+  it('should throw an informational error, not the raw SDK text, when the game log group does not exist', async () => {
+    const notFound = Object.assign(new Error('The specified log group does not exist.'), {
+      name: 'ResourceNotFoundException',
+    });
+    cwMock.on(DescribeLogStreamsCommand).rejects(notFound);
+
+    await expect(service.getNewerLogs('minecraft', 1000)).rejects.toThrow(/no log group for minecraft yet/i);
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'LogsService.getNewerLogs: log group does not exist yet',
+      expect.objectContaining({ game: 'minecraft' }),
+    );
   });
 
   // @spec APP-LOGS-PAGE-002
@@ -856,13 +885,14 @@ describe('LogsService.streamLambdaLogs', () => {
 
   // @spec APP-LOGS-TAIL-003, APP-LOGS-TAIL-004
   it('should yield new log lines for the resolved Lambda log group without duplicating events', async () => {
+    const base = Date.now();
     cwMock
       .on(FilterLogEventsCommand)
-      .resolvesOnce({ events: [{ eventId: 'e1', timestamp: 1000, message: 'first' }] })
+      .resolvesOnce({ events: [{ eventId: 'e1', timestamp: base + 1000, message: 'first' }] })
       .resolves({
         events: [
-          { eventId: 'e1', timestamp: 1000, message: 'first' }, // already seen
-          { eventId: 'e2', timestamp: 2000, message: 'second' }, // new
+          { eventId: 'e1', timestamp: base + 1000, message: 'first' }, // already seen
+          { eventId: 'e2', timestamp: base + 2000, message: 'second' }, // new
         ],
       });
     const ac = new AbortController();
@@ -903,7 +933,7 @@ describe('LogsService.streamLambdaLogs', () => {
   });
 
   // @spec APP-LOGS-TAIL-005
-  it('should start the tail at the time it began so retained history is not replayed', async () => {
+  it('should seed the tail one lookback window before it began so lagging events are not missed', async () => {
     cwMock.on(FilterLogEventsCommand).resolves({ events: [] });
     const before = Date.now();
     const ac = new AbortController();
@@ -913,8 +943,51 @@ describe('LogsService.streamLambdaLogs', () => {
     const { startTime } = cwMock.commandCalls(FilterLogEventsCommand)[0]!.args[0].input;
     ac.abort();
     void next.catch(() => undefined);
-    expect(startTime).toBeGreaterThanOrEqual(before);
-    expect(startTime).toBeLessThanOrEqual(Date.now());
+    expect(startTime).toBeGreaterThanOrEqual(before - LOG_TAIL_LOOKBACK_MS);
+    expect(startTime).toBeLessThanOrEqual(Date.now() - LOG_TAIL_LOOKBACK_MS);
+  });
+
+  // @spec APP-LOGS-TAIL-005
+  it('should send one startTime for every page of a poll and advance it only after the last page', async () => {
+    const base = Date.now();
+    cwMock
+      .on(FilterLogEventsCommand)
+      .resolvesOnce({ events: [{ eventId: 'e1', timestamp: base + 5000, message: 'one' }], nextToken: 't1' })
+      .resolvesOnce({ events: [{ eventId: 'e2', timestamp: base + 6000, message: 'two' }] })
+      .resolves({ events: [] });
+    const ac = new AbortController();
+    const gen = service.streamLambdaLogs('watchdog', ac.signal, 0);
+    await gen.next();
+    await gen.next();
+    const next = gen.next();
+    await vi.waitFor(() => expect(cwMock.commandCalls(FilterLogEventsCommand).length).toBeGreaterThanOrEqual(3));
+    ac.abort();
+    void next.catch(() => undefined);
+    const calls = cwMock.commandCalls(FilterLogEventsCommand).map((c) => c.args[0].input);
+    expect(calls[1]!.nextToken).toBe('t1');
+    expect(calls[1]!.startTime).toBe(calls[0]!.startTime);
+    expect(calls[2]!.startTime).toBe(base + 6000);
+  });
+
+  // @spec APP-LOGS-TAIL-005
+  it('should forget de-duplication ids that fall behind the advancing startTime', async () => {
+    const base = Date.now();
+    const e1 = { eventId: 'e1', timestamp: base + 1000, message: 'one' };
+    const e2 = { eventId: 'e2', timestamp: base + 2000, message: 'two' };
+    cwMock
+      .on(FilterLogEventsCommand)
+      .resolvesOnce({ events: [e1, e2] })
+      .resolves({ events: [e1, e2] });
+    const ac = new AbortController();
+    const gen = service.streamLambdaLogs('watchdog', ac.signal, 0);
+    await gen.next();
+    await gen.next();
+    // e1 is behind startTime (base + 2000) so CloudWatch cannot return it again and its id is pruned; e2 sits at
+    // startTime and stays de-duplicated.
+    const third = await gen.next();
+    ac.abort();
+    await gen.return(undefined);
+    expect(third.value).toBe('one');
   });
 
   // @spec APP-LOGS-TAIL-007

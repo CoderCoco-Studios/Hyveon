@@ -16,6 +16,7 @@ import {
   WorkloadLaunchError,
   type AwsCloudProviderConfig,
 } from './AwsCloudProvider.js';
+import { LOG_TAIL_LOOKBACK_MS } from '@hyveon/shared';
 
 /** Typed stand-in for the AWS ECS SDK client. */
 const ecsMock = mockClient(ECSClient);
@@ -542,6 +543,60 @@ describe('AwsCloudProvider', () => {
       await gen.return(undefined);
 
       expect(chunk).toEqual({ message: '', timestamp: new Date(1000) });
+    });
+
+    // @spec APP-LOGS-TAIL-005
+    it('should seed the first poll one lookback window before the tail began', async () => {
+      logsMock.on(FilterLogEventsCommand).resolves({ events: [] });
+      const before = Date.now();
+      const provider = makeProvider();
+      const ac = new AbortController();
+      const gen = provider.streamWorkloadLogs('minecraft', ac.signal, 60_000);
+      const next = gen.next();
+      await vi.waitFor(() => expect(logsMock.commandCalls(FilterLogEventsCommand).length).toBeGreaterThan(0));
+      const { startTime } = logsMock.commandCalls(FilterLogEventsCommand)[0]!.args[0].input;
+      ac.abort();
+      await next;
+
+      expect(startTime).toBeGreaterThanOrEqual(before - LOG_TAIL_LOOKBACK_MS);
+      expect(startTime).toBeLessThanOrEqual(Date.now() - LOG_TAIL_LOOKBACK_MS);
+    });
+
+    // @spec APP-LOGS-TAIL-012
+    it('should report a missing log group once, log it once at warn, and back off while polling', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const notFound = Object.assign(new Error('The specified log group does not exist.'), {
+          name: 'ResourceNotFoundException',
+        });
+        logsMock.on(FilterLogEventsCommand).rejects(notFound);
+        const logger = { error: vi.fn(), warn: vi.fn() };
+        const provider = new AwsCloudProvider(() => DEFAULT_CONFIG, logger);
+        const ac = new AbortController();
+        const gen = provider.streamWorkloadLogs('minecraft', ac.signal, 100);
+
+        const first = await gen.next();
+        expect(first.value).toMatchObject({ message: expect.stringMatching(/no log group for minecraft yet/i) });
+        const pending = gen.next();
+        const calls = () => logsMock.commandCalls(FilterLogEventsCommand).length;
+        expect(calls()).toBe(1);
+
+        await vi.advanceTimersByTimeAsync(199);
+        expect(calls()).toBe(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(calls()).toBe(2);
+        await vi.advanceTimersByTimeAsync(399);
+        expect(calls()).toBe(2);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(calls()).toBe(3);
+
+        ac.abort();
+        await pending;
+        expect(logger.error).not.toHaveBeenCalled();
+        expect(logger.warn).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('should default the poll cadence to 2000ms when pollInterval is not specified', async () => {

@@ -18,7 +18,13 @@ import type {
   WorkloadHandle,
   WorkloadStatus,
 } from '@hyveon/shared';
-import { getTaskEniId, resolveEniPublicIp, sleepInterruptible } from '@hyveon/shared';
+import {
+  LOG_TAIL_LOOKBACK_MS,
+  getTaskEniId,
+  noLogGroupMessage,
+  resolveEniPublicIp,
+  sleepInterruptible,
+} from '@hyveon/shared';
 import { startInProgressMessage, startWithLease } from '@hyveon/shared/aws/startLease';
 import { createCachedAwsClient } from './cachedClient.js';
 
@@ -125,7 +131,18 @@ export interface AwsCloudProviderLogger {
    * @param err - The caught error/value.
    */
   error(message: string, err: unknown): void;
+
+  /**
+   * Logs an expected, recoverable condition at warn level.
+   *
+   * @param message - Human-readable description of the condition.
+   * @param detail - Identifiers for the condition (never secret values).
+   */
+  warn?(message: string, detail?: unknown): void;
 }
+
+/** Ceiling, in milliseconds, on the poll delay while a game's log group does not exist yet. */
+const MAX_NOT_FOUND_BACKOFF_MS = 30_000;
 
 // @spec RT-TASK-COST-002
 /**
@@ -498,6 +515,14 @@ export class AwsCloudProvider implements CloudProvider {
    * so a transient CloudWatch/SDK hiccup doesn't kill the whole stream —
    * matching `LogsService.streamLogs`'s resiliency.
    *
+   * The first poll starts {@link LOG_TAIL_LOOKBACK_MS} before the tail opened, because CloudWatch filters on the
+   * event timestamp and an event stamped just before the tail began can be ingested after the snapshot; the
+   * `eventId` de-duplication absorbs the overlap.
+   *
+   * A `ResourceNotFoundException` (the group appears only once the game's first task logs) is reported once as an
+   * informational chunk and logged once at warn; polling continues with an exponentially growing delay (capped at
+   * {@link MAX_NOT_FOUND_BACKOFF_MS}) until the group exists, rather than repeating an error every `pollInterval`.
+   *
    * @param game - The game identifier to stream logs for.
    * @param signal - Aborts the stream when triggered.
    * @param pollInterval - Milliseconds between polls. Defaults to 2000.
@@ -512,8 +537,9 @@ export class AwsCloudProvider implements CloudProvider {
 
     const { region, credentials, credentialsSignature } = config;
     const logGroup = `/ecs/${game}-server`;
-    let startTime = Date.now();
+    let startTime = Date.now() - LOG_TAIL_LOOKBACK_MS;
     const seen = new Set<string>();
+    let notFoundPolls = 0;
 
     while (!signal.aborted) {
       try {
@@ -521,6 +547,7 @@ export class AwsCloudProvider implements CloudProvider {
           new FilterLogEventsCommand({ logGroupName: logGroup, startTime, limit: 100 }),
           { abortSignal: signal },
         );
+        notFoundPolls = 0;
         for (const e of resp.events ?? []) {
           const id = e.eventId ?? `${e.timestamp}-${e.message}`;
           if (!seen.has(id)) {
@@ -533,12 +560,21 @@ export class AwsCloudProvider implements CloudProvider {
         }
       } catch (err) {
         if ((err as Error).name === 'AbortError') break;
-        this.logger?.error(`Log stream poll error for game=${game} logGroup=${logGroup}`, err);
-        yield { message: `[stream error] ${String(err)}`, timestamp: new Date() };
+        if ((err as Error).name === 'ResourceNotFoundException') {
+          if (notFoundPolls === 0) {
+            this.logger?.warn?.(`Log group does not exist yet for game=${game} logGroup=${logGroup}`);
+            yield { message: noLogGroupMessage(game), timestamp: new Date() };
+          }
+          notFoundPolls += 1;
+        } else {
+          this.logger?.error(`Log stream poll error for game=${game} logGroup=${logGroup}`, err);
+          yield { message: `[stream error] ${String(err)}`, timestamp: new Date() };
+        }
       }
 
+      const delay = Math.min(pollInterval * 2 ** notFoundPolls, Math.max(pollInterval, MAX_NOT_FOUND_BACKOFF_MS));
       try {
-        await sleepInterruptible(pollInterval, signal);
+        await sleepInterruptible(delay, signal);
       } catch {
         break;
       }
