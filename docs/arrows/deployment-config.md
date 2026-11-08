@@ -5,7 +5,7 @@ The one stored document that says what should exist (`deployment-config.json`): 
 ## Status
 
 **MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
-The S3-only, etag-guarded read/write path is solid and well tested; drift detection is narrower than the config it diffs (the banner says so) and fails, rather than reporting every game pending delete, when the config read fails.
+The S3-only, etag-guarded read/write path is solid and well tested; drift detection is narrower than the config it diffs (the banner and the game-detail save toast say so) and fails, rather than reporting every game pending delete, when the config read fails.
 
 ## References
 
@@ -99,7 +99,7 @@ The S3-only, etag-guarded read/write path is solid and well tested; drift detect
 6. **Writes and restore are etag-guarded**: `putRawConfig` passes `ifMatch` and rethrows `RemoteFileConflictError` as `OptimisticLockError` (`DeploymentConfigService.ts:616-639`). `restoreRawConfig` conditions its put on the head etag it reads for the rename guard, so a game edit (which does not take the run lock) landing in between fails with `OptimisticLockError` instead of being overwritten.
 7. **`projectName`/`runsTableName` are immutable after bootstrap**: `assertRunsTableNameStable` (`DeploymentConfigService.ts:756-780`) runs on both settings patches (`:731-739`) and restores (`:383-385`); the controller maps `RunsTableRenameError` to per-field `validation` issues (`iac-settings.controller.ts:170-181`).
 8. **`gameServers` cannot be changed through settings**: `applyTopLevelSettingsPatch` always takes `gameServers` from the current document and drops any value in the patch with no log line (`DeploymentConfigService.ts:731-739`).
-9. **Settings save survives a failed re-read**: if `getTopLevelSettings` throws after `updateTopLevelSettings` resolves, `update` reports success with the settings the write returned.
+9. **Settings save never re-reads**: `update` returns the settings and etag its own write produced, so a concurrent writer's newer version is never paired with this write's etag.
 10. **Two canonical-JSON implementations**: `canonicalStringify` (`DriftService.ts:38-48`) and `canonicalJson` (`deploymentConfig.ts:413-420`) do the same key-sorted serialisation for drift and rollback diff respectively.
 11. **Rollback diff field list is completeness-checked**: `DEPLOYMENT_CONFIG_SCALAR_FIELDS` derives from a `Record` keyed by every top-level `DeploymentConfig` field, so a new field is a compile error until listed. `remote-file-store-mock.ts:14-30` is a further full copy, typed `DeploymentConfig`, so it fails to compile rather than drift.
 12. **`iac-settings.controller.ts` carries other leaves' channels**: the file is this leaf's, but only 2 of its 8 channels are deployment settings. `engineVersion` (`:210`) stays here, hosted on `iac/engine`'s behalf (`IAC-ENGINE-PIN-005`); `autoUpdate.{get,update,check,download,install}` (`:228-320`) belong to `app-update-and-release` and move to a controller that leaf owns, keeping their channel names (`deployment-config-design.md`, Decisions & Alternatives).

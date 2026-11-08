@@ -399,7 +399,7 @@ export interface DeploymentConfigDiff {
  * Built from a `Record` keyed by every {@link DeploymentConfigScalarField}, so adding a field to
  * {@link DeploymentConfig} without listing it here is a compile error rather than a silent omission.
  */
-const DEPLOYMENT_CONFIG_SCALAR_FIELD_FLAGS = {
+export const DEPLOYMENT_CONFIG_SCALAR_FIELD_FLAGS = {
   projectName: true,
   awsRegion: true,
   vpcCidr: true,

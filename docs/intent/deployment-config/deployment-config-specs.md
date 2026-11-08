@@ -98,7 +98,7 @@ EARS requirements for prefix `CONFIG`; design in `docs/intent/deployment-config/
 - [x] **CONFIG-DRIFT-005**: When a game is declared, deployed and present in the applied map, and its `image`, `cpu`, `memory`, `ports` (with `webPort` folded in) or `volumes` differ, the drift report shall contain a `config_drift` entry listing the differing fields in that fixed order. (observed)
 - [x] **CONFIG-DRIFT-006**: When comparing a declared game against its applied snapshot, the system shall pass both through `normalizeGameServer` and compare `ports` and `volumes` as order-insensitive sets. (observed)
 - [x] **CONFIG-DRIFT-007**: If the declared deployment-config cannot be read while computing drift, then `DriftService.getDrift` shall fail, rather than report every deployed game as `pending_delete`.
-- [x] **CONFIG-DRIFT-008**: Drift shall cover only a game's `image`, `cpu`, `memory`, `ports` and `volumes`, and the pending-changes banner shall state that scope, so a change to `environment`, `command`, `https`, `healthCheck` or `pinnedHostname` is not mistaken for a missing pending change.
+- [x] **CONFIG-DRIFT-008**: Drift shall cover only a game's `image`, `cpu`, `memory`, `ports` and `volumes`, and the pending-changes banner and the game-detail save confirmation shall state that scope (the banner is hidden at zero entries, so an edit outside the scope would otherwise never show it), so a change to `environment`, `command`, `https`, `healthCheck` or `pinnedHostname` is not mistaken for a missing pending change.
 - [x] **CONFIG-DRIFT-009**: If `DriftService.getDrift` fails, then it shall log a warning and rethrow a plain `Error` carrying only the message. (observed)
 
 ## Pending-changes banner
