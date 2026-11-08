@@ -13,7 +13,7 @@ The design is shaped by one CLAUDE.md invariant above all others: "Discord is fu
 
 What it owns:
 
-- The interactions Lambda: signature verification, PING, autocomplete, the allowlist and permission gate, and the async hand-off (`app/packages/lambda/interactions/src/handler.ts:268-304`).
+- The interactions Lambda: signature verification, PING, autocomplete, the allowlist and permission gate, and the async hand-off (`app/packages/lambda/interactions/src/handler.ts:301-338`).
 - The followup Lambda: the ECS work behind each command and the PATCH of the deferred reply (`app/packages/lambda/followup/src/handler.ts:238-273`).
 - The single permission evaluator `canRun()` (`app/packages/shared/src/canRun.ts:19-38`).
 - The Discord DynamoDB row shapes and their readers/writers: `CONFIG#discord`, `BASE#discord` (`app/packages/shared/src/ddb/configStore.ts:7-11`) `PENDING#{taskArn}` (`app/packages/shared/src/ddb/pendingStore.ts:8-10`) and the per-game start lease `LAUNCH#{game}` / `LOCK` (`app/packages/shared/src/aws/startLease.ts:56-58`), which this leaf's followup shares with the desktop Start.
@@ -34,9 +34,9 @@ CLAUDE.md invariants that live here:
 
 - Fully serverless, no discord.js: the PATCH and the registration PUT use global `fetch` (`patchOriginal.ts:23`, `DiscordCommandRegistrar.ts:90`).
 - Register commands per guild only: the registrar only calls the guild-scoped bulk-overwrite endpoint (`DiscordCommandRegistrar.ts:88`).
-- `canRun()` exists exactly once in `@hyveon/shared`; both Lambdas import it (`interactions/src/handler.ts:20-21`, `followup/src/handler.ts:24-26`) and the file states the rule (`canRun.ts:16-17`).
+- `canRun()` exists exactly once in `@hyveon/shared`; both Lambdas import it (`interactions/src/handler.ts:20-22`, `followup/src/handler.ts:24-26`) and the file states the rule (`canRun.ts:16-17`).
 - Secrets never reach the renderer: the redacted shape carries `botTokenSet`/`publicKeySet` booleans only (`DiscordConfigService.ts:257-273`).
-- Lambda env vars use `AWS_REGION_` (`interactions/src/handler.ts:56-58`, `followup/src/handler.ts:53-60`, `lambdas.ts:427`, `:458`).
+- Lambda env vars use `AWS_REGION_` (`interactions/src/handler.ts:58-60`, `followup/src/handler.ts:53-60`, `lambdas.ts:427`, `:458`).
 - `@hyveon/shared`'s barrel stays free of new AWS SDK imports: the Discord DynamoDB helpers use the `@aws-sdk/lib-dynamodb` client the barrel already carries.
 
 ## Request Path: Interaction to Reply
@@ -45,18 +45,18 @@ Discord POSTs to `https://discord.{zone}/`. CloudFront forwards every method wit
 
 ### Interactions Lambda
 
-The handler runs these steps in order (`interactions/src/handler.ts:303-340`):
+The handler runs these steps in order (`interactions/src/handler.ts:301-338`):
 
 1. Reject with 401 unless both `x-signature-ed25519` and `x-signature-timestamp` headers are present (`:304`).
-2. Read the raw body, base64-decoding if needed, and never re-stringify it, because the signature covers the raw bytes (`:132-136`, `:273`).
-3. Load the Ed25519 public key from Secrets Manager; a missing or placeholder value returns 401 (`:275-277`, `secretsStore.ts:71-76`). The key is cached per warm container for 5 minutes (`secretsStore.ts:43-54`).
-4. Verify `timestamp + rawBody` with `@noble/ed25519`; any parse or verify error is a 401 (`:79-93`, `:312-313`).
-5. Validate timestamp freshness on the now-verified timestamp: reject with 401 a timestamp that is not a non-negative integer, or that differs from the Lambda clock by more than 30 seconds in either direction (`:269-290`, `:314`). The window is ±30 seconds around the signed timestamp, so a captured request can remain replayable for up to 60 seconds in the worst case; the check bounds replay but does not prevent it.
+2. Read the raw body, base64-decoding if needed, and never re-stringify it, because the signature covers the raw bytes (`:135-140`, `:306`).
+3. Load the Ed25519 public key from Secrets Manager; a missing or placeholder value returns 401 (`:308-310`, `secretsStore.ts:71-76`). The key is cached per warm container for 5 minutes (`secretsStore.ts:43-54`).
+4. Verify `timestamp + rawBody` with `@noble/ed25519`; any parse or verify error is a 401 (`:82-96`, `:312-313`).
+5. Validate timestamp freshness on the now-verified timestamp: reject with 401 a timestamp that is not a non-negative integer, or that differs from the Lambda clock by more than 30 seconds in either direction (`:267-288`, `:314`). The window is ±30 seconds around the signed timestamp, so a captured request can remain replayable for up to 60 seconds in the worst case; the check bounds replay but does not prevent it.
 6. Parse JSON (400 on failure), answer PING with PONG (`:316-325`). PING never reads the config table.
 7. Read the effective config (`:327-328`, see "Configuration Model" below). This happens on every non-PING interaction; there is no cache.
-8. Dispatch autocomplete (type 4) or application command (type 2); anything else gets an ephemeral "Unsupported interaction type." (`:296-303`).
+8. Dispatch autocomplete (type 4) or application command (type 2); anything else gets an ephemeral "Unsupported interaction type." (`:330-337`).
 
-Autocomplete filters the `GAME_NAMES` env list by substring, then by `canRun` for the command's action, caps at 25 and answers in-band (`:152-178`). Because `canRun`'s first step is the guild allowlist, an unlisted guild sees an empty picker. The game list is the deploy-time snapshot, not a live read.
+Autocomplete filters the `GAME_NAMES` env list by substring, then by `canRun` for the command's action, caps at 25 and answers in-band (`:157-184`). Because `canRun`'s first step is the guild allowlist, an unlisted guild sees an empty picker. The game list is the deploy-time snapshot, not a live read.
 
 Application commands map the command name to an action (`:138-150`): `server-start` → `start`, `server-stop` → `stop`, `server-status` and `server-list` → `status`. This mapping is duplicated in `actionForCommand` (`commands.ts:10-20`), which the Lambda does not import. The gate is then (`:180-237`):
 
@@ -73,7 +73,7 @@ The deferred reply is type 5 with the ephemeral flag (`:119-125`). Before return
 
 ### Followup Lambda
 
-The followup event is a hand-written mirror of the interactions payload: `FollowupEvent` (`followup/src/handler.ts:40-48`) duplicates `FollowupPayload` (`interactions/src/handler.ts:239-247`) field for field, with no shared type and no runtime validation of the incoming event.
+The followup event is a hand-written mirror of the interactions payload: `FollowupEvent` (`followup/src/handler.ts:40-48`) duplicates `FollowupPayload` (`interactions/src/handler.ts:246-254`) field for field, with no shared type and no runtime validation of the incoming event.
 
 The handler (`followup/src/handler.ts:238-273`) re-reads the effective config, then inside a `try` re-checks `canRun` for game-bearing kinds (`:219-228`, `:247-263`) on the stated grounds that config "could have changed in the milliseconds since" (`:219`). The work per kind:
 
@@ -211,11 +211,11 @@ None recorded before this document was written.
 4. Should `patchInteractionOriginal` catch `fetch` rejections as its TSDoc promises (`patchOriginal.ts:9-11`, `:23`), or should the doc and callers (`update-dns/src/handler.ts:193-194`) change?
 5. Should the followup stop logging the whole event, which contains the 15-minute `interactionToken` (`followup/src/handler.ts:268`)?
 6. Should user-facing replies carry a generic message instead of `String(err)` (`followup/src/handler.ts:114`, `:146`, `:160`)?
-7. Is awaiting the async invoke inside the 3-second budget acceptable (`interactions/src/handler.ts:198-236`, `:249-258`), and should the module header's claim at `:13-15` be corrected or the ack decoupled?
+7. Is awaiting the async invoke inside the 3-second budget acceptable (`interactions/src/handler.ts:204-243`, `:256-265`), and should the module header's claim at `:13-15` be corrected or the ack decoupled?
 8. Resolved: the interactions Lambda rejects `x-signature-timestamp` values more than 30 seconds from its clock, in either direction, after signature verification (`interactions/src/handler.ts:314`; see the "Interaction timestamp freshness" row in the Decisions table). The window is ±30 seconds around the signed timestamp, so a captured request can remain replayable for up to 60 seconds in the worst case.
 9. Resolved: concurrent starts are guarded by the DynamoDB start lease and the `RunTask` `clientToken` (`followup/src/handler.ts:134-146`; `RT-TASK-LAUNCH-015`).
 10. Which of the two `DiscordEventReceiver` implementations survives, and should the `DISCORD_RECEIVER` binding and the duplicate `discordInteractionsUrl` stack output be removed (`awsLambdaDiscordReceiver.ts:32`, `AwsDiscordEventReceiver.ts:44-45`, `cloud-provider.module.ts:204`, `stackOutputs.ts:147-156`)?
-11. Should `FollowupPayload` and `FollowupEvent` become one shared type, and should the Lambda use `actionForCommand` instead of its own `actionFor` (`interactions/src/handler.ts:138-150`, `:239-247`, `followup/src/handler.ts:40-48`, `commands.ts:10-20`)?
+11. Should `FollowupPayload` and `FollowupEvent` become one shared type, and should the Lambda use `actionForCommand` instead of its own `actionFor` (`interactions/src/handler.ts:143-155`, `:246-254`, `followup/src/handler.ts:40-48`, `commands.ts:10-20`)?
 12. Should the Discord page distinguish "not deployed" from other failures, given the banner logic (`discord.page.tsx:39-50`) can no longer be reached for a missing table, and should the Credentials form keep its inputs until the save succeeds (`credentials-section.component.tsx:47-52`)?
 13. Should `putPermission`/`deletePermission` actually validate `game` against `DeploymentConfig.gameServers`, as their TSDoc says (`discord.controller.ts:175`, `:206`)?
 14. Should `setCredentials` order or roll back its DynamoDB and Secrets Manager writes to avoid partial updates (`DiscordConfigService.ts:296-317`)?
