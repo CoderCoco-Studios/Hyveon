@@ -68,7 +68,7 @@ arrows:
     # Mutual with run; see the comment on run.
     blockedBy: [run, program, wizard-and-bootstrap]
     detail: iac/engine.md
-    next: "Route destroy output through redactEnvironmentValues like preview and apply, and add the missing destroy redaction test."
+    next: "Preview and apply still build their redaction set from the configuration only; add the stack-state source to them as destroy has, then split the triplicated streaming code out of PulumiService.ts."
     drift: null
 
   program:

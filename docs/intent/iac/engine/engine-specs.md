@@ -70,7 +70,7 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 ## Output redaction
 
 - [x] **IAC-ENGINE-REDACT-001**: While a preview or apply streams engine output, `PulumiService` shall replace every operator-set game-server environment value with a fixed placeholder before the line reaches the run record, the live stream or `pulumi.log`. (observed)
-- [x] **IAC-ENGINE-REDACT-002**: While a destroy streams engine output, `PulumiService` shall apply the same game-server environment-value redaction as preview and apply. (observed)
+- [x] **IAC-ENGINE-REDACT-002**: While a destroy runs, `PulumiService` shall redact every game-server environment value held in the stack state (`appliedGameServers`), plus any held in the stored configuration, from the streamed output, the persisted `pulumi.log` and the failure message, and shall fail the destroy before the engine runs when the stack state cannot be read. (observed)
 
 ## Stale backend lock recovery
 
@@ -95,7 +95,7 @@ EARS requirements for prefix `IAC-ENGINE`, the leaf described in `docs/intent/ia
 - [D] **IAC-ENGINE-LIFE-006**: When the operator cancels an in-flight plan, apply or destroy, the system shall abort that operation's signal so `SIGINT` reaches the engine. (deferred with `IAC-RUN-CANCEL-001`: the engine side is built, since every operation accepts an abort signal, but no `iac.*.cancel` channel exists to deliver an operator cancel)
 - [x] **IAC-ENGINE-LIFE-007**: `PulumiService.initializeStack` shall accept an abort signal and run its `refresh` through the same escalating-cancellation and leaked-promise wrappers as up and destroy.
 - [x] **IAC-ENGINE-LIFE-008**: When a cancellable engine call settles, `runWithEscalatingCancellation` shall clear its escalation timer and remove its abort listener, so no engine-leaf listener keeps the event loop alive after an idle quit.
-- [x] **IAC-ENGINE-LIFE-009**: When the app is quit while an infrastructure operation is running, the system shall abort the operation during shutdown and the process shall exit rather than hang.
+- [x] **IAC-ENGINE-LIFE-009**: When the app is quit while an infrastructure operation is running, the system shall abort the operation, hold the quit until the operation has persisted its run record and released its durable lock (bounded at 15 seconds), and exit rather than hang.
 
 ## Leaked-promise recovery
 
