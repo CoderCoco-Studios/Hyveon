@@ -320,7 +320,10 @@ The `electron` Playwright project launches the packaged app via
    replacement function or a plain value. Thereafter every `invoke(channel, ...args)`
    call in the preload consults a `Map<string, fn>` before forwarding to
    `ipcRenderer.invoke`, so the Electron main process is never reached for mocked
-   channels.
+   channels. The seam registers a default `wizard.state.get` mock returning
+   `{ wizardCompleted: true }` (kept across `clearMocks()`/`reset()`), so specs that
+   land on the dashboard bypass the first-run wizard; a spec that exercises the wizard
+   overrides it with its own `mock('wizard.state.get', ...)`.
 
 ### Production-gating guarantee
 

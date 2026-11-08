@@ -149,6 +149,15 @@ export interface AppStoreSchema {
     stateBucket: string;
     configurationBucket: string;
   };
+  // @spec APP-WIZARD-INTAKE-002, APP-WIZARD-TMPL-009
+  /**
+   * The deploy principal resolved from the guided-IAM bootstrap key's `sts:GetCallerIdentity`: the account ID and,
+   * when the caller is an IAM user, that user's name (the stack's `UserName` parameter). Non-secret.
+   */
+  deployPrincipal?: {
+    accountId: string;
+    userName?: string;
+  };
   // @spec APP-WIZARD-REGLOCK-001
   /**
    * The region the install is locked to, recorded before the first bootstrap call so a region

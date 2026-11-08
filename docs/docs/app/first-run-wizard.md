@@ -118,10 +118,11 @@ token included in the request is invalid"). That's expected; get a fresh key
 by running through the CloudFormation stack again, or use **Start over**
 (below) if the wizard itself looks stuck.
 
-### Two ways rotation can fail
+### Ways rotation can fail
 
 | State | What you see | Recovery |
 |---|---|---|
+| **Keychain unavailable** | A message that the OS keychain is unavailable and a **Choose a profile or paste keys** button | Rotation is refused before any new key is minted, so retrying cannot help. The button leaves guided setup for the credentials step, where you can pick an existing AWS CLI profile or paste keys |
 | **Verification failed** | An error message and a **Retry rotation** button | Retrying reuses the same in-memory bootstrap key — no need to re-paste anything. When this is a Reconfigure re-run, the guided key you were already using stays stored and active throughout |
 | **Deletion failed** | An amber warning that the new key is already active but the bootstrap key is too, a direct IAM console link, and a **Revoke now** button | The new key is already your active credential; this state only needs the leftover bootstrap key cleaned up. Pressing **Revoke now** finishes the step the same as a clean rotation |
 
@@ -142,6 +143,10 @@ back to the region screen instead would silently regress your persisted
 progress back to square one the next time you clicked "Continue with guided
 setup."
 
+Quitting after reaching the key-entry screen but before submitting a key
+resumes onto the key-intake screen too (without the banner), with the region
+pre-filled when one is recoverable and editable when not.
+
 Quitting at the template or console-handoff point instead resumes onto the
 template screen, recovering your region from previously-persisted settings;
 if none is recoverable, *this* resume lands back on the region screen with a
@@ -160,7 +165,11 @@ into the exact sub-screen you left — not just "this step in general."
 If step 2's guided setup already established a credential, this step skips
 its normal form entirely and shows a resolved summary instead:
 
-> ✓ AWS account (guided setup) · `<region>`
+> ✓ `<iam-user>` (account `<account-id>`) · `<region>`
+
+The IAM user and account ID are read from the rotated key when guided setup activates it, so a
+custom `UserName` stack parameter shows up here. When the identity was not
+recorded the summary falls back to "AWS account (guided setup)".
 
 with a **Switch to a different source** button that falls back to the normal
 picker/paste form below — nothing from guided setup is discarded by pressing
@@ -406,7 +415,7 @@ collapsed all the way through.
 (There is no way to re-collapse a step once
 expanded — press **Cancel** and start again if you change your mind.)
 
-If you open **Edit** on the credentials step of a guided install and choose nothing, Finish setup leaves your guided credential as it is.
+If you open **Edit** on the credentials step of a guided install and choose nothing, continuing to step 5 leaves your guided credential as it is.
 
 **Provision AWS access starts collapsed only conditionally.** Unlike its
 three siblings above, this step is pre-marked completed only when your
@@ -426,20 +435,27 @@ final step itself needs none of this prefilled state (it resolves its own
 state bucket/region internally, the same way it does on first run) — the
 prefill only feeds the earlier steps' summaries and editable forms.
 
-**All edits are buffered into a single save on Finish.** Advancing between
-steps persists nothing. Only when you press **Finish setup** are your changes
-written, and only for the steps you actually expanded — a step left collapsed
+**All edits are buffered into a single save when you enter step 5.** Advancing
+between earlier steps persists nothing. Only when you continue from Bootstrap
+AWS resources to Finish setup (which needs your new credentials already saved)
+are your changes written, and only for the steps you actually expanded — a step left collapsed
 is omitted entirely rather than re-submitted with possibly-stale local values.
 There is also a **Cancel** button next to Back, which discards the whole
-session.
+session; once your changes were written on entering step 5, **Cancel** asks you
+to confirm first.
 
-One thing Cancel cannot undo: the **Save credentials** and **Bootstrap AWS
-resources** buttons perform real work the moment you click them, exactly as in
-the first-run flow. If you saved a pasted key it is still in your keychain,
-and if you created an S3 bucket it still exists. Cancel only prevents your
-*active* configuration from being pointed at them — since neither of those
-two steps writes anything until `commitReconfigureAnswers` fires on Finish,
-Cancel skipping that call is what "prevents" means here. Editing a collapsed
+In Reconfigure, **Save credentials** on the paste form does not write anything
+yet: your keys are held in memory (the form shows "Credentials staged") and are
+saved to the keychain only when you continue to step 5. Cancelling before then
+leaves your stored credentials exactly as they were. A keychain refusal
+consequently appears when you continue to step 5 rather than on **Save
+credentials**. A key pair with a blank field is refused and is not staged.
+
+One thing Cancel cannot undo: the **Bootstrap AWS resources** button performs
+real work the moment you click it, exactly as in the first-run flow, and if you
+created an S3 bucket it still exists. Once a bootstrap run or a guided rotation
+has happened, **Cancel** asks you to confirm and tells you that those AWS
+changes remain in place and were not undone. Editing a collapsed
 Provision AWS access step is the same story, only more consequential and,
 unlike its two siblings, **not reversible by Cancel at all**: opening it and
 running guided setup creates a real CloudFormation stack and rotates a real

@@ -41,16 +41,16 @@ export interface CredentialsStepProps {
   pasteError: string | null;
   /** Set once the paste flow has successfully saved — the profile name it saved under. */
   pastedProfileName: string | null;
+  /** Reconfigure mode: the paste form was submitted but its keys are only staged in memory until the operator enters stack-init. */
+  pasteStaged?: boolean;
 
   /**
    * Set by the shell when it detects `wizard.state.get()`'s `aws?.profile`
    * equals `GUIDED_PROFILE_NAME` (the guided-IAM step, #Group 7, already
    * provisioned and activated a rotated credential) — renders a satisfied
    * summary of `principal`/`region` instead of the normal profile-picker/
-   * paste form. `principal` is deliberately not an AWS account ID: nothing
-   * in this flow surfaces one, so the shell passes a generic descriptive
-   * label (e.g. `"AWS account (guided setup)"`) instead of inventing new IPC
-   * plumbing to fetch one.
+   * paste form. `principal` is the resolved deploy principal label (IAM user
+   * and account ID), or a generic label when none was recorded.
    */
   satisfiedByGuidedProvisioning?: { principal: string; region: string };
   /**
@@ -94,6 +94,7 @@ export function CredentialsStep({
   pasteSaving,
   pasteError,
   pastedProfileName,
+  pasteStaged,
   satisfiedByGuidedProvisioning,
   onSwitchSource,
 }: CredentialsStepProps) {
@@ -221,6 +222,13 @@ export function CredentialsStep({
             <p className="flex items-center gap-1 text-sm text-[var(--color-green)]">
               <CheckCircle2 className="size-4" />
               Saved as profile &quot;{pastedProfileName}&quot;
+            </p>
+          )}
+
+          {pasteStaged && (
+            <p className="flex items-center gap-1 text-sm text-[var(--color-green)]">
+              <CheckCircle2 className="size-4" />
+              Credentials staged — they are saved when you continue to stack initialization.
             </p>
           )}
 

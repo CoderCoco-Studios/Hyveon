@@ -210,6 +210,7 @@ export class FirstRunWizardService {
     this.store.delete('bootstrap');
     this.store.delete('installRegionLock');
     this.store.delete('creds');
+    this.store.delete('deployPrincipal');
     logger.warn('FirstRunWizardService: wizard state reset (operator-initiated)');
   }
 

@@ -94,6 +94,9 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 - `app/packages/web/src/components/first-run-wizard/guided-iam-intake-screen.component.tsx`
 - `app/packages/web/src/components/first-run-wizard/guided-iam-verification-failed-screen.component.tsx`
 - `app/packages/web/src/components/first-run-wizard/guided-iam-delete-failed-screen.component.tsx`
+- `app/packages/web/src/components/first-run-wizard/guided-iam-keychain-unavailable-screen.component.tsx`
+- `app/packages/web/src/components/first-run-wizard/reconfigure-cancel-dialog.component.tsx`
+- `app/packages/web/src/components/first-run-wizard/use-reconfigure-cancel.hook.ts`
 - `app/packages/web/src/components/first-run-wizard/use-guided-iam.hook.ts`
 - `app/packages/web/src/components/first-run-wizard/credentials-step.component.tsx`
 - `app/packages/web/src/components/first-run-wizard/use-aws-credentials-form.hook.ts`
@@ -108,7 +111,7 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 ### Cited from other leaves
 - `iac/engine`: `app/packages/web/src/components/first-run-wizard/stack-init-step.component.tsx` (the wizard's final step, `iac.stack.initialize` then `wizard.complete`), `app/packages/desktop-main/src/services/PulumiService.ts` (`initializeStack`), `app/packages/desktop-main/src/services/ConfigService.ts` (`getRegion()` used by `CloudHealthService`), `app/packages/desktop-main/src/services/electronRuntime.ts` (`readIsPackaged`, imported at `GuidedIamService.ts:12` and `CloudHealthService.ts:12`).
 - `operator-app/desktop-shell`: `app/packages/web/src/app.component.tsx` (first-run gate on `wizard.state.get`, `:40-60`), `app/packages/web/src/pages/settings.page.tsx` (Reconfigure button and Cloud Health section host), `app/packages/desktop-main/src/app.module.ts` (registers `WizardController`/`CloudHealthController`), `app/packages/desktop-main/src/modules/cloud-provider.module.ts` (store factories that consume `awsCredentialSource`).
-- `operator-app/ipc-bridge`: `app/packages/desktop-preload/src/hyveon-api.ts` (`window.hyveon.wizard.*`, `cloudHealth.*`, and the duplicate `GUIDED_PROFILE_NAME` at `:2107`), `app/packages/desktop-main/src/env.ts` (`isTestMode`).
+- `operator-app/ipc-bridge`: `app/packages/desktop-preload/src/hyveon-api.ts` (`window.hyveon.wizard.*`, `cloudHealth.*`, and the duplicate `GUIDED_PROFILE_NAME` at `:2107`), `app/packages/desktop-main/src/env.ts` (`isTestMode`), `app/packages/desktop-preload/src/preload.ts` (the test seam's default `wizard.state.get` mock).
 - `deployment-config`: `shared` `DEPLOYMENT_CONFIG_DEFAULTS` / `resolveRunsTableName` (`wizard.controller.ts:3,310`), `DeploymentConfigModule` (imported by `wizard.module.ts:31` for `CloudHealthService`'s project name).
 - `game-server`: `GameWizardDraftService.ts` uses the `addGameWizardDraft` slot that `ElectronStoreService` declares.
 - Unassigned repo gates: `app/eslint.config.js:114-198` (renderer `@aws-sdk/*` import ban backing cloud-bootstrap), `docs/docs/setup.md` (the `HyveonDeployAll` oracle `iamPolicy.test.ts` checks against).
@@ -133,22 +136,22 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
-| Launch gating and completion | `APP-WIZARD-GATE-001` to `APP-WIZARD-GATE-006` | 4 | 0 | 1 |
+| Launch gating and completion | `APP-WIZARD-GATE-001` to `APP-WIZARD-GATE-006` | 5 | 0 | 0 |
 | Resumable progress | `APP-WIZARD-PROG-001` to `APP-WIZARD-PROG-008` | 8 | 0 | 0 |
 | Pick-cloud step | `APP-WIZARD-CLOUD-001` to `APP-WIZARD-CLOUD-003` | 3 | 0 | 0 |
 | Wizard shell layout and sidebar | `APP-WIZARD-SHELL-001` to `APP-WIZARD-SHELL-008` | 8 | 0 | 0 |
 | Start over (first-run reset) | `APP-WIZARD-RESET-001` to `APP-WIZARD-RESET-003` | 3 | 0 | 0 |
-| Reconfigure | `APP-WIZARD-RECONF-001` to `APP-WIZARD-RECONF-009` | 7 | 0 | 2 |
+| Reconfigure | `APP-WIZARD-RECONF-001` to `APP-WIZARD-RECONF-009` | 9 | 0 | 0 |
 | Stack initialization step (code owned by iac/engine) | `APP-WIZARD-STACK-001` to `APP-WIZARD-STACK-004` | 4 | 0 | 0 |
-| Guided IAM step in the wizard | `APP-WIZARD-GSTEP-001` to `APP-WIZARD-GSTEP-006` | 5 | 0 | 1 |
-| Guided IAM CloudFormation template | `APP-WIZARD-TMPL-001` to `APP-WIZARD-TMPL-011` | 10 | 0 | 1 |
+| Guided IAM step in the wizard | `APP-WIZARD-GSTEP-001` to `APP-WIZARD-GSTEP-006` | 6 | 0 | 0 |
+| Guided IAM CloudFormation template | `APP-WIZARD-TMPL-001` to `APP-WIZARD-TMPL-011` | 11 | 0 | 0 |
 | Guided IAM console handoff | `APP-WIZARD-CONSOLE-001` to `APP-WIZARD-CONSOLE-006` | 5 | 1 | 0 |
-| Guided IAM bootstrap key intake | `APP-WIZARD-INTAKE-001` to `APP-WIZARD-INTAKE-006` | 5 | 0 | 1 |
+| Guided IAM bootstrap key intake | `APP-WIZARD-INTAKE-001` to `APP-WIZARD-INTAKE-006` | 6 | 0 | 0 |
 | Guided IAM mandatory rotation | `APP-WIZARD-ROTATE-001` to `APP-WIZARD-ROTATE-008` | 8 | 0 | 0 |
-| Keychain requirement for guided and pasted credentials | `APP-WIZARD-KEYCH-001` to `APP-WIZARD-KEYCH-003` | 2 | 0 | 1 |
+| Keychain requirement for guided and pasted credentials | `APP-WIZARD-KEYCH-001` to `APP-WIZARD-KEYCH-003` | 3 | 0 | 0 |
 | Region selection (guided IAM) | `APP-WIZARD-REGION-001` to `APP-WIZARD-REGION-005` | 5 | 0 | 0 |
 | One region per install | `APP-WIZARD-REGLOCK-001` | 1 | 0 | 0 |
-| AWS credentials step | `APP-WIZARD-CREDS-001` to `APP-WIZARD-CREDS-011` | 9 | 0 | 2 |
+| AWS credentials step | `APP-WIZARD-CREDS-001` to `APP-WIZARD-CREDS-011` | 11 | 0 | 0 |
 | In-app access key rotation (non-guided) | `APP-WIZARD-ROTKEY-001` to `APP-WIZARD-ROTKEY-005` | 4 | 0 | 1 |
 | Backend bootstrap | `APP-WIZARD-BOOT-001` to `APP-WIZARD-BOOT-016` | 14 | 0 | 2 |
 | IAM permission check | `APP-WIZARD-IAMCHK-001` to `APP-WIZARD-IAMCHK-009` | 7 | 0 | 2 |
@@ -156,11 +159,11 @@ Feature-complete against its legacy requirement sets except the in-app key rotat
 | Cloud Health (Settings) | `APP-WIZARD-HEALTH-001` to `APP-WIZARD-HEALTH-011` | 9 | 0 | 2 |
 | Credential custody | `APP-WIZARD-CUSTODY-001` to `APP-WIZARD-CUSTODY-008` | 7 | 0 | 1 |
 
-**Summary:** 132 of 150 active specs implemented; 1 deferred; 17 gaps.
+**Summary:** 141 of 150 active specs implemented; 1 deferred; 8 gaps.
 
 ## Key Findings
 
-1. **Test-mode default lives in production code** — `WizardController.readState()` returns `wizardCompleted = this.isTestMode()` when the store key is unset (`wizard.controller.ts:166-168`), so `HYVEON_TEST_MODE=1` in a packaged build skips the first-run wizard. `isTestMode()` (`:217-219`) also re-implements `app/packages/desktop-main/src/env.ts:12`.
+1. **Test-mode default lived in production code** — **CLOSED** by APP-WIZARD-GATE-003: `readState()` returns `false` when the store key is unset in every build, and the e2e dashboard bypass is the preload test seam's default `wizard.state.get` mock.
 2. **First-run gate fails open** — `app.component.tsx:40-54` (desktop-shell) sets `wizardCompleted=true` when `window.hyveon.wizard` is missing or `getState()` rejects, so an IPC failure drops a fresh install straight into the dashboard.
 3. **Key rotation has no caller** — `AwsProfileService.rotateActiveCredentials()` (`AwsProfileService.ts:267`) is referenced only by docs and tests; no controller exposes it, so the `aws-credentials` "In-app access key rotation" requirement is service-only.
 4. **Bootstrap secret is a CloudFormation stack output** — `iam-bootstrap.yaml:87-89` publishes `SecretAccessKey` via `!GetAtt`, readable by anyone with `cloudformation:DescribeStacks` for as long as the stack exists. Guided rotation deletes that key once the new one verifies (`GuidedIamService.rotate`, `:414`), so exposure is the window before rotation plus any run where rotation fails before deletion (verification-failed, or a throw such as a denied `iam:CreateAccessKey`) or deletion itself fails (the "delete failed" screen path). The access key resource uses `DeletionPolicy: RetainExceptOnCreate` (`:73`). This exposure is the accepted design (APP-WIZARD-TMPL-008): the published key is a temporary credential pending rotation, active until `iam:DeleteAccessKey` succeeds.
@@ -182,14 +185,12 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/wizard-and
 
 ### Must Fix
 1. Make `SafeStorageService.decrypt` fail loudly when the keychain is unavailable for an encrypted value instead of passing ciphertext through (finding 5). (specs: `APP-WIZARD-CUSTODY-007`)
-2. Move the `HYVEON_TEST_MODE` `wizardCompleted` default out of the production read path, (finding 1). The gate itself fails open by design and is specified by `desktop-shell` (`APP-SHELL-GATE-004` to `-006`). (specs: `APP-WIZARD-GATE-003`)
 
 ### Should Fix
 4. Wrap client creation inside each `BootstrapService.ensure*` try so credential errors return `{ status: 'failed' }` (finding 6). (specs: `APP-WIZARD-BOOT-004`)
 5. Resolve the runs table name from the operator's project name (finding 7). (specs: `APP-WIZARD-BOOT-012`)
 6. Either wire `rotateActiveCredentials` to an IPC channel and UI, or drop `APP-WIZARD-ROTKEY-001` to `APP-WIZARD-ROTKEY-004` (finding 3). (specs: `APP-WIZARD-ROTKEY-005`)
 7. Use `Promise.allSettled` in `cloudHealth.list`; guard `writePolicyToDisk` (finding 11). (specs: `APP-WIZARD-HEALTH-011`)
-8. Resolve the Reconfigure paste-submit credential overwrite (`APP-WIZARD-RECONF-007`); the guided-credentials overwrite (finding 15, `APP-WIZARD-RECONF-009`) and the guided re-run key deletion (`APP-WIZARD-ROTATE-008`) are fixed. (specs: `APP-WIZARD-RECONF-007`)
 
 ### Nice to Have
 9. Collapse `awsClientCache.ts` into `cloud-aws/src/cachedClient.ts`; share `GUIDED_PROFILE_NAME` and the Cloud Health/Guided IAM helpers (finding 8).

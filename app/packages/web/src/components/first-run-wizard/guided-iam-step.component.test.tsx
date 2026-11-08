@@ -392,6 +392,27 @@ describe('GuidedIamStep', () => {
       await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     });
 
+    // @spec APP-WIZARD-KEYCH-002
+    it('should say the keychain is unavailable and offer the profile-picker or paste path instead of a retry', async () => {
+      stubHappyPathDefaults();
+      hyveonMock.wizard.guidedIamRotate.mockResolvedValue({ status: 'keychain-unavailable' });
+      const onSkipToManual = vi.fn();
+      render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={onSkipToManual} />);
+
+      await advanceToIntake();
+      await userEvent.type(screen.getByLabelText('Access key ID'), 'AKIAEXAMPLE');
+      await userEvent.type(screen.getByLabelText('Secret access key'), 'super-secret-value');
+      await userEvent.click(screen.getByRole('button', { name: /validate and rotate key/i }));
+
+      expect(await screen.findByText(/keychain is unavailable/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /retry rotation/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/pasted/i)).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: /choose a profile or paste keys/i }));
+
+      expect(onSkipToManual).toHaveBeenCalledTimes(1);
+    });
+
     it('should leave the persisted sub-state at rotation-pending on a verification-failed outcome', async () => {
       stubHappyPathDefaults();
       hyveonMock.wizard.guidedIamRotate.mockResolvedValue({ status: 'verification-failed', error: 'nope' });
@@ -579,6 +600,7 @@ describe('GuidedIamStep', () => {
       await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     });
 
+    // @spec APP-WIZARD-GSTEP-006
     it('should resume directly into the template screen when subState is template-written', async () => {
       stubHappyPathDefaults();
       hyveonMock.wizard.getState.mockResolvedValue({ wizardCompleted: false, aws: { region: 'eu-west-1' } });
@@ -596,7 +618,8 @@ describe('GuidedIamStep', () => {
       expect(hyveonMock.wizard.guidedIamPrepareTemplate).toHaveBeenCalledTimes(1);
     });
 
-    it('should resume directly into the template screen when subState is awaiting-key-intake', async () => {
+    // @spec APP-WIZARD-GSTEP-006
+    it('should resume directly into the intake screen when subState is awaiting-key-intake', async () => {
       stubHappyPathDefaults();
       hyveonMock.wizard.getState.mockResolvedValue({ wizardCompleted: false, aws: { region: 'eu-west-1' } });
 
@@ -608,7 +631,27 @@ describe('GuidedIamStep', () => {
         />,
       );
 
-      expect(await screen.findByLabelText('Template path')).toBeInTheDocument();
+      expect(await screen.findByLabelText('Access key ID')).toBeInTheDocument();
+      expect(screen.getByLabelText('AWS region')).toHaveValue('eu-west-1');
+      expect(screen.queryByLabelText('Template path')).not.toBeInTheDocument();
+      expect(screen.queryByText(/previously submitted/i)).not.toBeInTheDocument();
+    });
+
+    // @spec APP-WIZARD-GSTEP-006
+    it('should land on the intake screen, not the region screen, when awaiting-key-intake resumes with no recoverable region', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({ wizardCompleted: false });
+
+      render(
+        <GuidedIamStep
+          onComplete={vi.fn()}
+          onSkipToManual={vi.fn()}
+          initialProgress={{ subState: 'awaiting-key-intake', hasBootstrapKey: false }}
+        />,
+      );
+
+      expect(await screen.findByLabelText('Access key ID')).toBeInTheDocument();
+      expect(screen.getByLabelText('AWS region')).toHaveValue('');
+      expect(screen.queryByRole('button', { name: /continue with guided setup/i })).not.toBeInTheDocument();
     });
 
     it('should fall back to the region screen when no region can be recovered on resume', async () => {

@@ -616,6 +616,39 @@ describe('preload dispatcher', () => {
       expect(bridge['discord']).toBeDefined();
     });
 
+    // @spec APP-WIZARD-GATE-003
+    it('should default wizard.state.get to wizardCompleted: true in test mode so e2e boots reach the dashboard', async () => {
+      const bridge = await loadPreloadBridge('1');
+      const wizard = bridge['wizard'] as { getState: () => Promise<unknown> };
+
+      await expect(wizard.getState()).resolves.toEqual({ wizardCompleted: true });
+      expect(ipcInvoke).not.toHaveBeenCalled();
+    });
+
+    // @spec APP-WIZARD-GATE-003
+    it('should let a spec override the wizard.state.get default and keep the default after reset', async () => {
+      const bridge = await loadPreloadBridge('1');
+      const testApi = bridge['__test'] as { mock: (c: string, h: unknown) => void; reset: () => void };
+      const wizard = bridge['wizard'] as { getState: () => Promise<unknown> };
+
+      testApi.mock('wizard.state.get', () => ({ wizardCompleted: false }));
+      await expect(wizard.getState()).resolves.toEqual({ wizardCompleted: false });
+
+      testApi.reset();
+      await expect(wizard.getState()).resolves.toEqual({ wizardCompleted: true });
+    });
+
+    // @spec APP-WIZARD-GATE-003
+    it('should forward wizard.state.get to real IPC outside test mode', async () => {
+      ipcInvoke.mockResolvedValue({ wizardCompleted: false });
+      const bridge = await loadPreloadBridge('0');
+      const wizard = bridge['wizard'] as { getState: () => Promise<unknown> };
+
+      await wizard.getState();
+
+      expect(ipcInvoke).toHaveBeenCalledWith('wizard.state.get');
+    });
+
     it('should flush the mock registry when clearMocks is called so ipcRenderer.invoke is used for the channel again', async () => {
       const bridge = await loadPreloadBridge('1');
       const testApi = bridge['__test'] as {

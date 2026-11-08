@@ -3,6 +3,7 @@ import { MessagePattern, Payload } from '@nestjs/microservices';
 import { DEPLOYMENT_CONFIG_DEFAULTS, resolveRunsTableName } from '@hyveon/shared';
 import {
   AwsProfileService,
+  SafeStorageUnavailableError,
   type AwsProfileSummary,
   type SavePastedCredentialsInput,
 } from '../services/AwsProfileService.js';
@@ -38,6 +39,12 @@ export interface BootstrapConfigurationBucketInput {
 export interface BootstrapDeploymentConfigInput {
   bucketName: string;
 }
+
+/**
+ * Outcome of {@link WizardController.rotateGuidedIamKey}: {@link RotationResult} plus the modeled refusal for an
+ * unavailable OS keychain, which the service raises before any AWS call.
+ */
+export type GuidedIamRotateResult = RotationResult | { status: 'keychain-unavailable' };
 
 /** Payload accepted by {@link WizardController.saveProgress}. */
 export interface SaveWizardProgressInput {
@@ -81,6 +88,12 @@ export interface WizardBootstrapNames {
   configurationBucket: string;
 }
 
+/** The guided-IAM deploy principal: the account ID and, when the caller is an IAM user, its name. Non-secret. */
+export interface WizardDeployPrincipal {
+  accountId: string;
+  userName?: string;
+}
+
 /** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */
 export interface WizardState {
   wizardCompleted: boolean;
@@ -90,6 +103,8 @@ export interface WizardState {
   aws?: WizardAwsChoice;
   /** The bootstrap step's last-submitted resource names, if any. */
   bootstrap?: WizardBootstrapNames;
+  /** The deploy principal resolved when the guided-IAM bootstrap key authenticated, if any. */
+  deployPrincipal?: WizardDeployPrincipal;
 }
 
 /** Payload accepted by {@link WizardController.saveState}. */
@@ -130,25 +145,18 @@ export class WizardController {
     private readonly guidedIam: GuidedIamService,
   ) {}
 
-  // @spec APP-WIZARD-GATE-001, APP-WIZARD-GATE-002
+  // @spec APP-WIZARD-GATE-001, APP-WIZARD-GATE-002, APP-WIZARD-GATE-003, APP-WIZARD-CREDS-010, APP-WIZARD-CREDS-011
   /**
    * Returns the wizard's completion flag so the renderer can gate the app
    * router. Defaults to `false` (unset in a fresh `electron-store`, meaning
-   * the wizard hasn't run yet) — except under the `HYVEON_TEST_MODE` e2e
-   * test seam, where an unset value defaults to `true` instead.
+   * the wizard hasn't run yet), in every build and regardless of environment.
    *
    * @remarks
-   * The Electron e2e specs that land on the dashboard (`dashboard`, `costs`,
-   * `logs`, `discord`, `iac`) launch the real packaged app and don't
-   * register a `wizard.state.get` mock (most seed their own IPC responses
-   * inline per test, not through the shared `applyHyveonMocks` helper), so a
-   * `false` default here would route every one of them into the wizard
-   * instead of the dashboard they're actually testing. Defaulting to
-   * `true` under test mode avoids retrofitting every existing spec; a
-   * future spec that *does* want to exercise the wizard flow itself can
-   * still override this via `window.hyveon.__test.mock('wizard.state.get', ...)`
-   * — the mock registry is consulted before this controller is ever reached.
-   * This is a plain read of `ElectronStoreService` either way — the fuller
+   * Only `profile` and `region` of the stored `aws` record are returned; the
+   * encrypted key blobs the store schema allows never leave the main process.
+   * The e2e specs that land on the dashboard get `wizardCompleted: true` from
+   * the preload test seam's default mock, not from this handler. The
+   * fuller
    * resumable step-progress state (`userData/wizard-state.json`, owned by
    * `FirstRunWizardService`) is exposed separately via `wizard.progress.get`.
    */
@@ -166,13 +174,13 @@ export class WizardController {
    * line that didn't correspond to a real IPC call from the renderer.
    */
   private readState(): WizardState {
-    const stored = this.store.get('wizardCompleted');
-    const wizardCompleted = stored !== undefined ? stored : this.isTestMode();
+    const storedAws = this.store.get('aws');
     return {
-      wizardCompleted,
+      wizardCompleted: this.store.get('wizardCompleted') ?? false,
       activeCloud: this.store.get('activeCloud'),
-      aws: this.store.get('aws'),
+      aws: storedAws && { profile: storedAws.profile, region: storedAws.region },
       bootstrap: this.store.get('bootstrap'),
+      deployPrincipal: this.store.get('deployPrincipal'),
     };
   }
 
@@ -213,15 +221,6 @@ export class WizardController {
       this.store.set('bootstrap', body.bootstrap);
     }
     return this.readState();
-  }
-
-  /**
-   * Returns `true` when `HYVEON_TEST_MODE=1` is set (the Electron e2e test
-   * seam). Extracted as a protected seam so tests can `vi.spyOn` it instead
-   * of mutating `process.env` directly.
-   */
-  protected isTestMode(): boolean {
-    return process.env['HYVEON_TEST_MODE'] === '1';
   }
 
   // @spec APP-WIZARD-CREDS-003
@@ -431,12 +430,22 @@ export class WizardController {
    * Performs the mandatory mint-then-revoke rotation onto a freshly-minted
    * key pair, per {@link GuidedIamService.rotate}'s documented step
    * sequence and its `complete`/`verification-failed`/`delete-failed`
-   * result branches.
+   * result branches. An unavailable OS keychain (which `rotate` refuses before minting anything) comes back as
+   * `{ status: 'keychain-unavailable' }` rather than a rejection.
    */
+  // @spec APP-WIZARD-KEYCH-002
   @MessagePattern('wizard.guidedIam.rotate')
-  rotateGuidedIamKey(@Payload() body: RotationInput): Promise<RotationResult> {
+  async rotateGuidedIamKey(@Payload() body: RotationInput): Promise<GuidedIamRotateResult> {
     logger.debug('WizardController: wizard.guidedIam.rotate invoked');
-    return this.guidedIam.rotate(body);
+    try {
+      return await this.guidedIam.rotate(body);
+    } catch (err) {
+      if (err instanceof SafeStorageUnavailableError) {
+        logger.warn('WizardController: guided rotation refused, OS keychain unavailable');
+        return { status: 'keychain-unavailable' };
+      }
+      throw err;
+    }
   }
 
   /**

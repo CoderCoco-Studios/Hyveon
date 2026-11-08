@@ -77,6 +77,17 @@ export interface BootstrapKeyIntakeInput {
   region: string;
 }
 
+/**
+ * Extracts the IAM user name from a caller ARN of the form `arn:<partition>:iam::<account>:user/<path/>name`.
+ *
+ * @param arn - The `Arn` from `sts:GetCallerIdentity`, if present.
+ * @returns The final path segment, or `undefined` when the ARN is absent or not an IAM user.
+ */
+export function parseIamUserName(arn: string | undefined): string | undefined {
+  const match = /^arn:[^:]*:iam::\d+:user\/(.+)$/.exec(arn ?? '');
+  return match?.[1]?.split('/').pop() || undefined;
+}
+
 /** Result of {@link GuidedIamService.intakeBootstrapKey}. */
 export interface BootstrapKeyIntakeResult {
   /** AWS account ID resolved from `sts:GetCallerIdentity`. */
@@ -297,7 +308,7 @@ export class GuidedIamService {
     }
   }
 
-  // @spec APP-WIZARD-INTAKE-001, APP-WIZARD-INTAKE-003, APP-WIZARD-INTAKE-006
+  // @spec APP-WIZARD-INTAKE-001, APP-WIZARD-INTAKE-002, APP-WIZARD-INTAKE-003, APP-WIZARD-INTAKE-006, APP-WIZARD-TMPL-009
   /**
    * Validate an operator-submitted bootstrap access key pair by calling
    * `sts:GetCallerIdentity` with it, returning the resolved AWS account ID
@@ -322,7 +333,8 @@ export class GuidedIamService {
    * wrapped in a generic "invalid credentials" message) — the caller needs
    * the real error to explain the failure to the operator.
    *
-   * Persists nothing: this method's only job is validation.
+   * Writes nothing to the store: the deploy principal is recorded by {@link GuidedIamService.rotate} once the
+   * rotated key is activated, so an abandoned or failed re-run cannot relabel the still-active key.
    *
    * @param input - The pasted bootstrap key pair and the region to validate
    *   it against.
@@ -393,7 +405,8 @@ export class GuidedIamService {
    *    with `profile` set to {@link GUIDED_PROFILE_NAME} — the moment the new
    *    key becomes the active credential source (picked up automatically by
    *    `resolveAwsCredentialSource`, since a stored `profile` that resolves
-   *    via `getPastedCredentials` is treated as `kind: 'pasted'`).
+   *    via `getPastedCredentials` is treated as `kind: 'pasted'`). The same step records the verified caller's account ID
+   *    and IAM user name (parsed from the ARN) as `deployPrincipal`, so the label always describes the key that is active.
    * 5. `iam:DeleteAccessKey` on the *bootstrap* key's `AccessKeyId`, using an
    *    IAM client built from the *new, now-active* key (both keys belong to
    *    the same IAM user, and `HyveonSelfRotate` is attached to the user, not
@@ -468,11 +481,12 @@ export class GuidedIamService {
     // with backoff (see VERIFY_ACCESS_KEY_RETRY_DELAYS_MS) since newly
     // minted keys can take a few seconds to propagate across AWS before
     // GetCallerIdentity reliably succeeds for them.
+    let verifiedIdentity: { Account?: string; Arn?: string } = {};
     try {
       const verifyClient = this.createStsClient(newCreds);
       await verifyAccessKeyWithRetry(
         async () => {
-          await verifyClient.send(new GetCallerIdentityCommand({}));
+          verifiedIdentity = await verifyClient.send(new GetCallerIdentityCommand({}));
         },
         {
           sleep: (ms) => this.sleep(ms),
@@ -509,6 +523,10 @@ export class GuidedIamService {
     if (guidedAlreadyActive) this.store.setPastedCredentials(GUIDED_PROFILE_NAME, stagedKey);
     const currentAws = this.store.get('aws') ?? {};
     this.store.set('aws', { ...currentAws, profile: GUIDED_PROFILE_NAME, region: input.region });
+    if (verifiedIdentity.Account) {
+      const userName = parseIamUserName(verifiedIdentity.Arn);
+      this.store.set('deployPrincipal', { accountId: verifiedIdentity.Account, ...(userName ? { userName } : {}) });
+    }
     logger.info('GuidedIamService.rotate: activated rotated key as the credential source', {
       profile: GUIDED_PROFILE_NAME,
     });

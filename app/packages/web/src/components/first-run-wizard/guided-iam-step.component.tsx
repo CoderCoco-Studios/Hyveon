@@ -5,6 +5,7 @@ import { GuidedIamRegionScreen } from '@/components/first-run-wizard/guided-iam-
 import { GuidedIamTemplateScreen } from '@/components/first-run-wizard/guided-iam-template-screen.component';
 import { GuidedIamIntakeScreen } from '@/components/first-run-wizard/guided-iam-intake-screen.component';
 import { GuidedIamVerificationFailedScreen } from '@/components/first-run-wizard/guided-iam-verification-failed-screen.component';
+import { GuidedIamKeychainUnavailableScreen } from '@/components/first-run-wizard/guided-iam-keychain-unavailable-screen.component';
 import { GuidedIamDeleteFailedScreen } from '@/components/first-run-wizard/guided-iam-delete-failed-screen.component';
 import { useGuidedIam } from './use-guided-iam.hook.js';
 
@@ -151,6 +152,8 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress, onB
           onRetryRotation={guidedIam.onRetryRotation}
         />
       );
+    case 'keychain-unavailable':
+      return <GuidedIamKeychainUnavailableScreen onChooseManual={onSkipToManual} />;
     case 'delete-failed':
       return (
         <GuidedIamDeleteFailedScreen

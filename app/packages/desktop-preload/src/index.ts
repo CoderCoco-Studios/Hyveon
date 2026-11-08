@@ -41,6 +41,7 @@ export type {
   IamCheckResult,
   IamCheckOrigin,
   WizardState,
+  WizardDeployPrincipal,
   SaveWizardStateInput,
   WizardStepName,
   GuidedIamSubState,
