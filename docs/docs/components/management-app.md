@@ -604,7 +604,7 @@ either concrete implementation.
 The nine channels in `SELF_BRIDGED_PATTERNS` (`logs.stream`, `logs.lambda.stream`, `iac.plan`, `iac.apply`, `iac.destroy`, `iac.rollback.confirm`, `iac.runs.logs`, `iac.stack.initialize`, `iac.settings.autoUpdate.download`) need the invoke event's sender, so their owning controllers register them from `onModuleInit` through one helper, `registerSelfBridgedHandlers` (`src/ipc-handlers.ts`).
 It skips registration outside Electron, calls `removeHandler` before each `handle`, and wraps every handler with the generic bridge's normalisation: a throw before the ack is logged at `error` and rejected as a plain `Error` carrying only the message.
 A stream failure is sent on the stream's end channel as the same message, with no `Error: ` prefix.
-For the per-call log streams (`logs.stream`, `logs.lambda.stream`) the controller starts pushing chunks on a later macrotask than the invoke ack, so the preload has its listeners attached before the first event.
+For the per-call log streams (`logs.stream`, `logs.lambda.stream`) the controller starts pushing chunks only when the preload sends `<channel>.<streamId>.ready` after attaching its listeners, so the protocol does not depend on whether the invoke reply or the first push reaches the renderer first. Breaking out of the `for await` closes the stream and sends the cancel message.
 Abandoning a shared side-channel stream (`iac.stack.initialize`, `iac.runs.logs`, `iac.settings.autoUpdate.download`) only stops the preload's local loop: provisioning and the update download run to completion, and the run-output tail ends with the run.
 
 ## `@hyveon/desktop-preload`

@@ -56,6 +56,8 @@ export interface BufferedStreamConfig<TArg, TWire, TOut> {
   endChannel: string | ((streamId: string) => string);
   /** Per-call style only: cancel-channel name sent on abort. Omit for the shared-side-channel style, which has none. */
   cancelChannel?: (streamId: string) => string;
+  /** Per-call style only: ready-channel name the preload sends once its listeners are attached, which starts the main-process source. */
+  readyChannel?: (streamId: string) => string;
   /** Maps a raw wire chunk to the value the generator yields. */
   mapChunk: (raw: TWire) => TOut;
   /** Extracts this call's `streamId` from a raw wire chunk — shared-side-channel style only, used to filter foreign events. */
@@ -95,7 +97,7 @@ export function createBufferedStream<TArg, TWire, TOut>(
   config: BufferedStreamConfig<TArg, TWire, TOut>,
   deps: BufferedStreamDeps,
 ): (arg: TArg, signal?: AbortSignal) => AsyncGenerator<TOut> {
-  const { invokeChannel, chunkChannel, endChannel, cancelChannel, mapChunk, getStreamId, checkAck, toInvokeArgs } =
+  const { invokeChannel, chunkChannel, endChannel, cancelChannel, readyChannel, mapChunk, getStreamId, checkAck, toInvokeArgs } =
     config;
   const shared = typeof chunkChannel === 'string';
   if (shared && !getStreamId) {
@@ -231,6 +233,8 @@ export function createBufferedStream<TArg, TWire, TOut>(
 
     ipcRenderer.on(derivedChunkChannel, onChunk);
     ipcRenderer.once(derivedEndChannel, onEnd);
+    // The main process starts its source only on this message, so no push can precede the listeners above.
+    if (readyChannel) ipcRenderer.send(readyChannel(streamId));
     if (signal) {
       if (signal.aborted) sendCancel();
       else signal.addEventListener('abort', onAbort, { once: true });

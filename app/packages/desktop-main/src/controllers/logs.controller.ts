@@ -119,8 +119,11 @@ export class LogsController implements OnModuleInit {
    * The renderer cancels the stream by sending
    * `<channelPrefix><streamId>.cancel` via `ipcRenderer.send`.
    *
-   * The streaming loop starts on a later macrotask than the ack, so the preload has the `streamId` and its listeners
-   * attached before any chunk or end event arrives.
+   * The streaming loop starts only when the renderer sends `<channelPrefix><streamId>.ready`, which the preload does
+   * after it has the `streamId` and has attached its chunk and end listeners. Electron delivers the invoke reply
+   * and `webContents.send` pushes over separate paths with no ordering guarantee, so the protocol never relies on
+   * the reply arriving before a push. A cancel that arrives before `ready` ends the stream without starting the
+   * source.
    *
    * The controller creates its own `AbortController` per invocation because
    * `ElectronIPCTransport` passes `{ evt }` as the execution context — there
@@ -147,44 +150,78 @@ export class LogsController implements OnModuleInit {
     const chunkChannel = `${channelPrefix}${streamId}.chunk`;
     const endChannel = `${channelPrefix}${streamId}.end`;
     const cancelChannel = `${channelPrefix}${streamId}.cancel`;
+    const readyChannel = `${channelPrefix}${streamId}.ready`;
 
     // Lazily import ipcMain so the module stays importable in plain-Node test
     // environments where the Electron runtime is absent.
     const { ipcMain } = await import('electron') as unknown as { ipcMain: IpcMain };
 
-    // Register a one-shot cancel listener so the renderer can abort the stream.
+    let started = false;
+    const finish = () => {
+      ipcMain.removeAllListeners(readyChannel);
+      ipcMain.removeAllListeners(cancelChannel);
+    };
+
+    // One-shot cancel listener so the renderer can abort the stream; before `ready` it ends the stream unstarted.
     ipcMain.once(cancelChannel, () => {
       ac.abort();
+      if (started) return;
+      started = true;
+      if (!sender.isDestroyed()) sender.send(endChannel, {});
+      finish();
     });
 
-    // Deferred to a macrotask so the invoke ack is sent first and the preload never misses an early event.
-    setImmediate(() => void (async () => {
-      try {
-        for await (const line of source(ac.signal)) {
-          if (sender.isDestroyed()) { ac.abort(); break; }
-          sender.send(chunkChannel, line);
-        }
-        if (!sender.isDestroyed()) {
-          sender.send(endChannel, {});
-        }
-      } catch (err) {
-        if ((err as Error).name === 'AbortError') {
-          if (!sender.isDestroyed()) sender.send(endChannel, {});
-        } else {
-          const message = ipcErrorMessage(err);
-          logger.error(errorLogLabel, { message, ...errorLogFields, streamId });
-          if (!sender.isDestroyed()) {
-            sender.send(endChannel, { error: message });
-          }
-        }
-      } finally {
-        // Ensure the cancel listener is removed if the stream ended on its own
-        // so it doesn't linger until the next cancel message arrives.
-        ipcMain.removeAllListeners(cancelChannel);
-      }
-    })());
+    // The preload sends `ready` once its listeners are attached; only then does the source run.
+    ipcMain.once(readyChannel, () => {
+      if (started) return;
+      started = true;
+      void this.pump(source, ac, sender, { chunkChannel, endChannel }, finish, errorLogLabel, {
+        ...errorLogFields,
+        streamId,
+      });
+    });
 
     return { streamId };
+  }
+
+  /**
+   * Drains `source` into chunk pushes on `sender`, then sends the end message (carrying an error message when the
+   * source failed other than by abort) and runs `finish` to drop the stream's one-shot listeners.
+   *
+   * @param source - Builds the log generator from the abort signal.
+   * @param ac - The stream's abort controller.
+   * @param sender - The renderer that opened the stream.
+   * @param channels - The stream's chunk and end channel names.
+   * @param finish - Cleanup run once the stream has ended.
+   * @param errorLogLabel - Message logged via `logger.error` when `source` throws.
+   * @param errorLogFields - Non-secret identifiers merged into that error log line.
+   */
+  private async pump(
+    source: (signal: AbortSignal) => AsyncGenerator<string>,
+    ac: AbortController,
+    sender: WebContents,
+    channels: { chunkChannel: string; endChannel: string },
+    finish: () => void,
+    errorLogLabel: string,
+    errorLogFields: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      for await (const line of source(ac.signal)) {
+        if (sender.isDestroyed()) { ac.abort(); break; }
+        sender.send(channels.chunkChannel, line);
+      }
+      if (!sender.isDestroyed()) sender.send(channels.endChannel, {});
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        if (!sender.isDestroyed()) sender.send(channels.endChannel, {});
+      } else {
+        const message = ipcErrorMessage(err);
+        logger.error(errorLogLabel, { message, ...errorLogFields });
+        if (!sender.isDestroyed()) sender.send(channels.endChannel, { error: message });
+      }
+    } finally {
+      finish();
+    }
   }
 
   /**

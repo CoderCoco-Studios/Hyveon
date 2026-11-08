@@ -235,6 +235,7 @@ const streamLogs = createBufferedStream<string, LogChunk, LogChunk>(
     chunkChannel: (id) => `logs.stream.${id}.chunk`,
     endChannel: (id) => `logs.stream.${id}.end`,
     cancelChannel: (id) => `logs.stream.${id}.cancel`,
+    readyChannel: (id) => `logs.stream.${id}.ready`,
     mapChunk: (chunk) => chunk,
     checkAck: (ack) => (ack as { streamId: string }).streamId,
   },
@@ -254,6 +255,7 @@ const streamLambdaLogs = createBufferedStream<LambdaFunctionKey, LogChunk, LogCh
     chunkChannel: (id) => `logs.lambda.stream.${id}.chunk`,
     endChannel: (id) => `logs.lambda.stream.${id}.end`,
     cancelChannel: (id) => `logs.lambda.stream.${id}.cancel`,
+    readyChannel: (id) => `logs.lambda.stream.${id}.ready`,
     mapChunk: (chunk) => chunk,
     checkAck: (ack) => (ack as { streamId: string }).streamId,
   },
@@ -360,6 +362,9 @@ const streamIacRunLogs = createBufferedStream<string, IacRunLogsWireChunk, IacRu
  * channels and the contextBridge clone boundary" section for why a raw
  * `AsyncGenerator` can't be returned to the renderer directly.
  *
+ * `return()` closes `source`, which a `for await` loop calls when the consumer breaks out early; the generator's
+ * `finally` then removes its listeners and, for a per-call stream, sends the cancel message.
+ *
  * `next()` delegates straight to `source.next()`. `cancel()` aborts
  * `controller`, which is the same (real, preload-internal-only)
  * `AbortSignal` source `source` was created with — from `source`'s own
@@ -375,6 +380,7 @@ function bridgeStream<T>(source: AsyncGenerator<T>, controller: AbortController)
   const handle: HyveonStreamHandle<T> = {
     next: () => source.next(),
     cancel: () => controller.abort(),
+    return: () => source.return(undefined) as Promise<{ done: true; value?: undefined }>,
     [Symbol.asyncIterator]: () => handle,
   };
   return handle;

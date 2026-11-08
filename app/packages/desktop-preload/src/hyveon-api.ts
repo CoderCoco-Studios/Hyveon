@@ -264,6 +264,8 @@ export interface HyveonStreamHandle<T> {
    * stream has already ended on its own.
    */
   cancel: () => void;
+  /** Closes the stream; a `for await` loop calls it when the consumer breaks out early, with the same effect as {@link cancel}. */
+  return?: () => Promise<{ done: true; value?: undefined }>;
   /** Returns itself, so the handle is directly usable in a `for await (const chunk of handle)` loop. */
   [Symbol.asyncIterator]: () => HyveonStreamHandle<T>;
 }

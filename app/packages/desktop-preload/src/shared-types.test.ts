@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type * as Shared from '@hyveon/shared';
 import type * as Preload from './hyveon-api.js';
@@ -49,6 +50,26 @@ export type SharedTypeContract = [
   Assert<Equal<Preload.IacRunKind, Shared.RunKind>>,
   Assert<Equal<Preload.WizardStepName, Shared.WizardStep>>,
   Assert<Equal<Preload.RunLock, Shared.RunLock>>,
+  Assert<Equal<Preload.AutoUpdateSettingGetResult, Shared.AutoUpdateSettingGetResult>>,
+  Assert<Equal<Preload.AutoUpdateSettingUpdatePayload, Shared.AutoUpdateSettingUpdatePayload>>,
+  Assert<Equal<Preload.AutoUpdateSettingWriteResult, Shared.AutoUpdateSettingWriteResult>>,
+  Assert<Equal<Preload.ChangeSummary, Shared.ChangeSummary>>,
+  Assert<Equal<Preload.DeploymentConfigDiff, Shared.DeploymentConfigDiff>>,
+  Assert<Equal<Preload.DeploymentSettingsGetResult, Shared.DeploymentSettingsGetResult>>,
+  Assert<Equal<Preload.DeploymentSettingsWriteResult, Shared.DeploymentSettingsWriteResult>>,
+  Assert<Equal<Preload.ExportDiagnosticsBundleResult, Shared.ExportDiagnosticsBundleResult>>,
+  Assert<Equal<Preload.GameServerHealthCheckAuth, Shared.GameServerHealthCheckAuth>>,
+  Assert<Equal<Preload.LambdaFunctionKey, Shared.LambdaFunctionKey>>,
+  Assert<Equal<Preload.ManualUpdateCheckResult, Shared.ManualUpdateCheckResult>>,
+  Assert<Equal<Preload.UpdateDownloadProgress, Shared.UpdateDownloadProgress>>,
+  Assert<Equal<Preload.UpdateDownloadResult, Shared.UpdateDownloadResult>>,
+  Assert<Equal<Preload.UpdateInstallResult, Shared.UpdateInstallResult>>,
+  Assert<Equal<Preload.OpType, Shared.OpType>>,
+  Assert<Equal<Preload.PulumiEngineVersionResult, Shared.PulumiEngineVersionResult>>,
+  Assert<Equal<Preload.RendererConsoleLevel, Shared.RendererConsoleLevel>>,
+  Assert<Equal<Preload.RendererLogEntry, Shared.RendererLogEntry>>,
+  Assert<Equal<Preload.TopLevelDeploymentSettings, Shared.TopLevelDeploymentSettings>>,
+  Assert<Equal<Preload.UpdateDeploymentSettingsPayload, Shared.UpdateDeploymentSettingsPayload>>,
 ];
 
 describe('preload contract uses @hyveon/shared types', () => {
@@ -56,5 +77,17 @@ describe('preload contract uses @hyveon/shared types', () => {
   it('should equal the shared type for every shared shape that crosses the bridge', () => {
     const contract: SharedTypeContract | undefined = undefined;
     expect(contract).toBeUndefined();
+  });
+
+  // @spec APP-IPC-CONTRACT-003
+  it('should assert equality for every type hyveon-api.ts re-exports from @hyveon/shared', () => {
+    const api = readFileSync(new URL('./hyveon-api.ts', import.meta.url), 'utf8');
+    const block = /export type \{([^}]*AutoUpdateSettingGetResult[^}]*)\};/.exec(api)?.[1] ?? '';
+    const reexported = [...block.matchAll(/^\s*([A-Za-z]+),?\s*$/gm)].map((m) => m[1]);
+    const asserted = readFileSync(new URL('./shared-types.test.ts', import.meta.url), 'utf8');
+
+    expect(reexported.length).toBeGreaterThan(40);
+    const missing = reexported.filter((name) => !asserted.includes(`Assert<Equal<Preload.${name},`));
+    expect(missing).toEqual([]);
   });
 });
