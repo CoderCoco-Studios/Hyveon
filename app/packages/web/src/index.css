@@ -48,6 +48,7 @@
 }
 
 /* ── Legacy CSS vars (used by unmigrated components) ────────────────── */
+/* `--accent` here is the brand purple; Tailwind's `bg-accent` is `--color-accent` (a hover fill) above. */
 :root {
   --bg:       #0f1117;
   --surface:  #1a1d2e;
