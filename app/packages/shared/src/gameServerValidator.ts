@@ -16,6 +16,7 @@
 import { z } from 'zod';
 import { isIcmpProtocol, isTcpProtocol, isUdpProtocol, type GameServer, type GameServerPort } from './gameServerConfig.js';
 import { isReservedHttpsPort } from './gameServerPorts.js';
+import { isCleanVolumePath } from './volumeFiles/paths.js';
 import { ALLOWED_HYVEON_ENV_TOKENS, HYVEON_ENV_TOKENS, findHyveonTokenCandidates, valueUsesToken } from './envTokens.js';
 
 /**
@@ -522,24 +523,34 @@ function checkAbsolutePaths(entry: GameServerEntryInput): GameServerValidationIs
 
 // @spec IAC-PROGRAM-SEED-004
 /**
- * Validates that every absolute `file_seeds[].path` lies strictly under the first volume's `container_path`.
+ * Validates that every absolute `file_seeds[].path` is a clean path (no `.`, `..` or empty segments) lying strictly
+ * under the first volume's `container_path`.
  *
  * @remarks
- * The efs-seeder Lambda mounts only `volumes[0]` (a Lambda allows one EFS configuration), so a seed anywhere else
- * would make the seeder throw and fail the apply; rejecting it here surfaces the error at save time instead.
+ * The efs-seeder Lambda mounts only `volumes[0]` (a Lambda allows one EFS configuration), so a seed anywhere else, or
+ * one that resolves outside the mount, would make the seeder throw and fail the apply; rejecting it here surfaces the
+ * error at save time instead. Trailing-slash handling matches the seeder: a single trailing `/` on the volume path or
+ * on a seed is tolerated, but a seed that is the volume root itself has no file component and is rejected.
  * Relative paths are left to {@link checkAbsolutePaths}.
  */
 function checkSeedsUnderFirstVolume(entry: GameServerEntryInput): GameServerValidationIssue[] {
   const firstVolume = entry.volumes[0];
   if (!firstVolume?.container_path.startsWith('/')) return [];
-  const root = firstVolume.container_path.replace(/\/+$/, '');
+  const root = firstVolume.container_path.replace(/\/$/, '');
   const issues: GameServerValidationIssue[] = [];
 
   entry.file_seeds?.forEach((seed, index) => {
-    if (seed.path.startsWith('/') && !seed.path.startsWith(`${root}/`)) {
+    if (!seed.path.startsWith('/')) return;
+    const path = `file_seeds[${index}].path`;
+    if (!isCleanVolumePath(seed.path)) {
       issues.push({
-        path: `file_seeds[${index}].path`,
-        message: `file_seeds[${index}].path "${seed.path}" must be a file under the first volume's container_path "${root}"; only the first volume is seeded.`,
+        path,
+        message: `${path} "${seed.path}" must not contain ".", ".." or empty ("//") segments.`,
+      });
+    } else if (!seed.path.startsWith(`${root}/`) || seed.path.replace(/\/$/, '') === root) {
+      issues.push({
+        path,
+        message: `${path} "${seed.path}" must be a file under the first volume's container_path "${root || '/'}"; only the first volume is seeded.`,
       });
     }
   });
