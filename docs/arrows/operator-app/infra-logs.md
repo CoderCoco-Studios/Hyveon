@@ -94,12 +94,12 @@ Both log pages (`/logs` for game servers, `/logs/infrastructure` for Lambdas) sh
 | Historical paging | `APP-LOGS-PAGE-001` to `APP-LOGS-PAGE-008` | 8 | 0 | 0 |
 | Live tail | `APP-LOGS-TAIL-001` to `APP-LOGS-TAIL-012` | 12 | 0 | 0 |
 | IPC surface | `APP-LOGS-IPC-001` to `APP-LOGS-IPC-008` | 8 | 0 | 0 |
-| Renderer tail engine | `APP-LOGS-ENGINE-001` to `APP-LOGS-ENGINE-017` | 17 | 0 | 0 |
+| Renderer tail engine | `APP-LOGS-ENGINE-001` to `APP-LOGS-ENGINE-019` | 19 | 0 | 0 |
 | Log pages and view | `APP-LOGS-UI-001` to `APP-LOGS-UI-009` | 9 | 0 | 0 |
 | Line rendering | `APP-LOGS-RENDER-001` to `APP-LOGS-RENDER-003` | 3 | 0 | 0 |
 | Sidebar navigation | `APP-LOGS-NAV-001` to `APP-LOGS-NAV-003` | 3 | 0 | 0 |
 
-**Summary:** 73 of 73 active specs implemented; 0 deferred; 0 gaps.
+**Summary:** 75 of 75 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 

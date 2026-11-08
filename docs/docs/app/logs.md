@@ -162,9 +162,8 @@ This is a view window, not a log retention setting — nothing is deleted from
 CloudWatch either way, and how far back you can page is bounded by CloudWatch's
 own retention for that log group, not by anything the app enforces.
 
-The pause buffer itself is *not* capped, so a long pause can accumulate more
-than 300 lines; the cap is applied when you press Resume, keeping the newest
-300. The footer's `buffered N` count (see [Pause and
+The pause buffer is capped at the same 300 lines and drops its oldest entries,
+so a long pause keeps only the newest 300 lines that arrived. The footer's `buffered N` count (see [Pause and
 Resume](#pause-and-resume)) appears whenever lines are buffered, whether you
 are paused or in historical mode, and the page-header pill reads `HISTORICAL`
 instead of `LIVE` while you are in historical mode.
@@ -177,7 +176,7 @@ stays, because live lines are still being held back.
 
 Below a certain width the search box and the Autoscroll checkbox collapse
 behind a **Filters** button. Expanding it reveals the same controls stacked
-vertically. At any width exactly one search box and one Autoscroll checkbox exist: inline on a wide window, inside the drawer on a narrow one.
+vertically. At most one search box and one Autoscroll checkbox exist at any width: inline on a wide window, inside the drawer on a narrow one (and none while the drawer is closed).
 
 The game combobox and the Pause/Resume button stay visible at every width.
 

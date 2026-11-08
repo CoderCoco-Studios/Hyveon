@@ -77,6 +77,8 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 - [x] **APP-LOGS-ENGINE-015**: When the operator scrolls away from the bottom of the log list, the log tail engine shall turn autoscroll off, and turn it back on when they scroll back within 24 px of the bottom. (observed)
 - [x] **APP-LOGS-ENGINE-016**: When a newer-page request returns `hasMore: false` in historical mode, the log tail engine shall report that no newer history remains.
 - [x] **APP-LOGS-ENGINE-017**: The log tail footer's `oldest {age}` shall measure the age of the oldest loaded log event, not the time since it was received.
+- [x] **APP-LOGS-ENGINE-018**: When a live line arrives whose `eventId` matches a loaded snapshot or paged line, the log tail engine shall not show it twice, and shall not de-duplicate live lines against each other because two live lines sharing an id are distinct events.
+- [x] **APP-LOGS-ENGINE-019**: If the loaded window's newest line changed while a newer-page request was in flight (an older page evicted from the bottom), then the log tail engine shall discard that page and shall not report that newest history was reached.
 
 ## Log pages and view
 
@@ -88,7 +90,7 @@ EARS requirements for prefix `APP-LOGS`; design in `docs/intent/operator-app/inf
 - [x] **APP-LOGS-UI-006**: While in historical mode, the log view shell shall show a `Jump to latest` button, and hide it in live mode. (observed)
 - [x] **APP-LOGS-UI-007**: While paused with buffered lines, the log view footer shall show `buffered {N}`. (observed)
 - [x] **APP-LOGS-UI-008**: While in historical mode, the log view shell shall indicate that the view is not live, in both the badge and the buffered-line count.
-- [x] **APP-LOGS-UI-009**: Where the `/logs` page uses its mobile filter drawer, the log view shell shall mount exactly one search input and one autoscroll toggle at a time.
+- [x] **APP-LOGS-UI-009**: Where the `/logs` page uses its mobile filter drawer, the log view shell shall mount at most one search input and one autoscroll toggle at a time (none while the narrow-window drawer is closed).
 
 ## Line rendering
 
