@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync } from 'fs';
+import { chmodSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, resolve, join } from 'path';
 
 interface FileSeed {
@@ -12,7 +12,7 @@ interface FileSeed {
 interface SeederEvent {
   game: string;
   seeds: FileSeed[];
-  /** The first volume's `container_path`, used to resolve in-container paths to EFS-relative paths. */
+  /** The first volume's `container_path` (the only volume the function mounts), used to resolve in-container paths. */
   container_path: string;
 }
 
@@ -49,7 +49,25 @@ function resolveDestination(seedPath: string, containerPath: string): string {
   return dest;
 }
 
-// @spec HELPER-SEED-001, HELPER-SEED-003, HELPER-SEED-004
+// @spec HELPER-SEED-006
+/**
+ * Rejects an event that lacks a game, a seeds array, a `container_path`, or a seed `path`, before anything is written.
+ *
+ * @throws Error naming the first missing or mistyped field.
+ */
+function assertValidEvent(event: Partial<SeederEvent> | undefined): asserts event is SeederEvent {
+  const problem = (field: string): never => {
+    throw new Error(`Invalid efs-seeder event: ${field} is required`);
+  };
+  if (typeof event?.game !== 'string' || event.game === '') problem('game');
+  if (!Array.isArray(event?.seeds)) problem('seeds');
+  if (typeof event?.container_path !== 'string' || event.container_path === '') problem('container_path');
+  event!.seeds!.forEach((seed, index) => {
+    if (typeof seed?.path !== 'string' || seed.path === '') problem(`seeds[${index}].path`);
+  });
+}
+
+// @spec HELPER-SEED-001, HELPER-SEED-003, HELPER-SEED-004, HELPER-SEED-005, HELPER-SEED-006
 /**
  * Writes each `file_seeds` entry to the EFS access point mounted at
  * `/mnt/efs`.  Invoked synchronously by the `aws.lambda.Invocation` resource
@@ -57,6 +75,7 @@ function resolveDestination(seedPath: string, containerPath: string): string {
  * throws on any error so the apply surfaces the failure.
  */
 export const handler = async (event: SeederEvent): Promise<void> => {
+  assertValidEvent(event);
   const { game, seeds, container_path: containerPath } = event;
 
   console.log(`Seeding ${seeds.length} file(s) for game "${game}" (mount: ${MOUNT_POINT})`);
@@ -87,6 +106,8 @@ export const handler = async (event: SeederEvent): Promise<void> => {
 
     mkdirSync(dirname(dest), { recursive: true });
     writeFileSync(dest, content, { flag: 'w', mode });
+    // `writeFileSync`'s mode applies only when the file is created.
+    chmodSync(dest, mode);
 
     console.log(`Wrote ${dest} (${content.length} bytes, mode ${seed.mode ?? '0644'})`);
   }

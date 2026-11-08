@@ -180,7 +180,7 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 - [x] **IAC-PROGRAM-SEED-001**: Where a game declares `file_seeds`, the infrastructure program shall declare an `aws.lambda.Invocation` of that game's efs-seeder with input `{ game, seeds, container_path }` and an explicit `dependsOn` on the game's efs-seeder policy (`escapes.ts:99-103`, `escapes.ts:229-262`). (observed)
 - [x] **IAC-PROGRAM-SEED-002**: The efs-seeder invocation shall be re-run when the SHA-256 hash of the game's `file_seeds` changes (`escapes.ts:213-215`, `escapes.ts:256`). (observed)
 - [ ] **IAC-PROGRAM-SEED-003**: The efs-seeder invocation trigger shall also change when the seeded volume's `container_path` changes (gap: `escapes.ts:256` hashes only `file_seeds` while `escapes.ts:257` carries `container_path`; whether an `input`-only diff re-invokes is `[unverified]`). (observed)
-- [ ] **IAC-PROGRAM-SEED-004**: Where a game declares more than one volume, the efs-seeder shall be able to seed any of them (gap: `lambdas.ts:738-764` mounts `volumes[0]` and `escapes.ts:249` passes `volumes[0].container_path`). (observed)
+- [x] **IAC-PROGRAM-SEED-004**: Where a game declares `file_seeds`, the game-server validator shall reject any seed whose path is not strictly under the first volume's `container_path`, with an error naming the seed and that path, because the efs-seeder mounts only the first volume (`lambdas.ts:738-764`, `escapes.ts:249`, `shared/src/gameServerValidator.ts`). (observed)
 - [x] **IAC-PROGRAM-SEED-005**: If an efs-seeder function has no matching game entry or seeder policy, then the infrastructure program shall fail naming the game (`escapes.ts:236-247`). (observed)
 
 ## Lambda Runtime and Bundling
