@@ -122,13 +122,13 @@ Inline Pulumi program in `@hyveon/infra` is well-tested per module, and the cond
 | Lambda Wiring | `IAC-PROGRAM-LAMBDA-001` to `IAC-PROGRAM-LAMBDA-017` | 17 | 0 | 0 |
 | Lambda Environment Wire Format | `IAC-PROGRAM-ENV-001` to `IAC-PROGRAM-ENV-007` | 7 | 0 | 0 |
 | Data Tables and Discord Seed Rows | `IAC-PROGRAM-DATA-001` to `IAC-PROGRAM-DATA-005` | 5 | 0 | 0 |
-| Secrets | `IAC-PROGRAM-SECRET-001` to `IAC-PROGRAM-SECRET-005` | 4 | 1 | 0 |
+| Secrets | `IAC-PROGRAM-SECRET-001` to `IAC-PROGRAM-SECRET-004` | 4 | 0 | 0 |
 | DNS and Discord Domain | `IAC-PROGRAM-DNS-001` to `IAC-PROGRAM-DNS-004` | 4 | 0 | 0 |
 | Stack Outputs | `IAC-PROGRAM-OUT-001` to `IAC-PROGRAM-OUT-008` | 8 | 0 | 0 |
 | EFS Seeding During Apply | `IAC-PROGRAM-SEED-001` to `IAC-PROGRAM-SEED-005` | 3 | 1 | 1 |
 | Lambda Runtime and Bundling | `IAC-PROGRAM-RUNTIME-001` to `IAC-PROGRAM-RUNTIME-006` | 5 | 0 | 0 |
 
-**Summary:** 144 of 147 active specs implemented; 2 deferred; 1 gaps.
+**Summary:** 144 of 146 active specs implemented; 1 deferred; 1 gaps.
 
 ## Key Findings
 
