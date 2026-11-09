@@ -16,7 +16,7 @@ Start and stop a game's container on demand, publish its address in DNS while it
 - `docs/intent/game-runtime/task-and-dns/task-and-dns-design.md`
 
 ### EARS
-- `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md` (73 specs)
+- `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md` (78 specs)
 
 ### Tests
 - app/packages/cloud-aws/src/AwsCloudProvider.test.ts
@@ -101,14 +101,14 @@ Start and stop a game's container on demand, publish its address in DNS while it
 
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
-| Start and Stop | `RT-TASK-LAUNCH-001` to `RT-TASK-LAUNCH-016` | 16 | 0 | 0 |
+| Start and Stop | `RT-TASK-LAUNCH-001` to `RT-TASK-LAUNCH-017` | 17 | 0 | 0 |
 | Status | `RT-TASK-STATUS-001` to `RT-TASK-STATUS-008` | 8 | 0 | 0 |
 | DNS Lifecycle | `RT-TASK-DNS-001` to `RT-TASK-DNS-019` | 19 | 0 | 0 |
 | Discord Follow-up on Task State | `RT-TASK-NOTIFY-001` to `RT-TASK-NOTIFY-006` | 6 | 0 | 0 |
 | Cost Estimates | `RT-TASK-COST-001` to `RT-TASK-COST-012` | 12 | 0 | 0 |
 | Dashboard and Costs Page | `RT-TASK-UI-001` to `RT-TASK-UI-016` | 16 | 0 | 0 |
 
-**Summary:** 77 of 77 active specs implemented; 0 deferred; 0 gaps.
+**Summary:** 78 of 78 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 

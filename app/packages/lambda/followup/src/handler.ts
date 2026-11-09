@@ -22,7 +22,7 @@ import {
 } from '@aws-sdk/client-ecs';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
 import { PutCommand } from '@aws-sdk/lib-dynamodb';
-import { startInProgressMessage, startWithLease } from '@hyveon/shared/aws/startLease';
+import { leaseBusyMessage, startWithLease } from '@hyveon/shared/aws/startLease';
 // @spec DISCORD-SVC-002
 // `canRun` is the single shared copy; never inline or fork it.
 import {
@@ -177,7 +177,7 @@ async function runStart(game: string): Promise<{ message: string; taskArn?: stri
         return { launched: true, value: { message: `✅ ${game} is starting. It may take 2–5 minutes.`, taskArn } };
       },
     });
-    if (outcome.status === 'in-progress') return { message: `❌ ${startInProgressMessage(game)}` };
+    if (outcome.status === 'in-progress') return { message: `❌ ${leaseBusyMessage(game, outcome.holder)}` };
     if (outcome.status === 'already-running') return { message: `❌ ${game} is already running.` };
     return outcome.value;
   } catch (err) {

@@ -7,6 +7,8 @@ export interface StartLeasePutInput {
   Item: Record<string, unknown>;
   ConditionExpression?: string;
   ExpressionAttributeValues?: Record<string, unknown>;
+  /** Asks DynamoDB to attach the existing row to a condition failure, so a refused caller can read who holds the lease. */
+  ReturnValuesOnConditionCheckFailure?: 'ALL_OLD' | 'NONE';
 }
 
 /**
@@ -16,15 +18,34 @@ export interface StartLeasePutInput {
  */
 export type StartLeasePut = (input: StartLeasePutInput) => Promise<unknown>;
 
+/** Who owns a lease row: a game start (also the reading of a row written before holders existed) or a file upload. */
+export type LeaseHolder = 'start' | 'upload';
+
 /** Operator-facing refusal when another start holds the lease; shared so the desktop and Discord copy cannot drift. */
 export function startInProgressMessage(game: string): string {
   return `A start for ${game} is already in progress.`;
 }
 
+/** Operator-facing refusal when an upload holds the lease; shared so the desktop and Discord copy cannot drift. */
+export function uploadInProgressMessage(game: string): string {
+  return `An upload into ${game} is in progress. Wait for it to finish or cancel it, then start the server.`;
+}
+
+/**
+ * Picks the refusal copy for a lease held by `holder`.
+ *
+ * @param game - Game whose start was refused.
+ * @param holder - Who holds the lease.
+ * @returns The operator-facing message.
+ */
+export function leaseBusyMessage(game: string, holder: LeaseHolder): string {
+  return holder === 'upload' ? uploadInProgressMessage(game) : startInProgressMessage(game);
+}
+
 /** Outcome of {@link startWithLease}. */
 export type StartWithLeaseOutcome<T> =
   | { status: 'started'; value: T }
-  | { status: 'in-progress' }
+  | { status: 'in-progress'; holder: LeaseHolder }
   | { status: 'already-running' };
 
 /** Inputs to {@link startWithLease}. */
@@ -43,12 +64,30 @@ export interface StartWithLeaseOptions<T> {
   launch: (clientToken: string) => Promise<{ launched: boolean; value: T }>;
 }
 
-function leaseKey(game: string): { pk: string; sk: string } {
+/** Key of `game`'s lease row, shared by start leases and upload leases. */
+export function leaseKey(game: string): { pk: string; sk: string } {
   return { pk: `LAUNCH#${game}`, sk: 'LOCK' };
 }
 
-function isConditionFailure(err: unknown): boolean {
+/** Whether `err` is the SDK's failed-condition error. */
+export function isConditionFailure(err: unknown): boolean {
   return err instanceof Error && err.name === 'ConditionalCheckFailedException';
+}
+
+/** Condition shared by every lease acquisition: no row, or one whose `expiresAt` has passed. */
+export const LEASE_FREE_CONDITION = 'attribute_not_exists(pk) OR expiresAt < :now';
+
+/**
+ * Reads the holder off a condition failure's returned row, accepting both the plain and the DynamoDB-JSON
+ * (`{ S: 'upload' }`) shapes; a row without a holder, or no row at all, reads as `start`.
+ *
+ * @param err - The condition failure.
+ * @returns Who held the lease.
+ */
+export function holderFromConditionFailure(err: unknown): LeaseHolder {
+  const holder = (err as { Item?: { holder?: unknown } } | null)?.Item?.holder;
+  const value = typeof holder === 'object' && holder !== null ? (holder as { S?: unknown }).S : holder;
+  return value === 'upload' ? 'upload' : 'start';
 }
 
 /** Best-effort release: an unconditional put of an already-expired lease, so no `DeleteItem` permission is needed. */
@@ -66,7 +105,7 @@ async function releaseLease(put: StartLeasePut, tableName: string, game: string)
  * one task.
  *
  * @remarks
- * Acquires `LAUNCH#{game}/LOCK` with a conditional put (absent or expired), then re-checks for a running task, then
+ * Acquires `LAUNCH#{game}/LOCK` with a conditional put (absent or expired) as holder `start`, then re-checks for a running task, then
  * launches with the lease id as the ECS `clientToken`. The lease is left to expire after a successful launch and
  * released only when the pre-check refuses or the launch fails. Any DynamoDB or pre-check error propagates, so the
  * start fails closed. Expiry is judged against each caller's own clock, so cross-machine skew of a few seconds is
@@ -74,7 +113,7 @@ async function releaseLease(put: StartLeasePut, tableName: string, game: string)
  *
  * @typeParam T - Value the launch callback produces (e.g. a task ARN).
  * @param opts - Lease table, game, strict pre-check and launch callbacks.
- * @returns `started` with the launch value, `in-progress` when another start holds the lease, or `already-running`.
+ * @returns `started` with the launch value, `in-progress` (with the holder: another start, or an upload) when the lease is held, or `already-running`.
  * @throws Whatever the lease write, pre-check or launch throws.
  */
 export async function startWithLease<T>(opts: StartWithLeaseOptions<T>): Promise<StartWithLeaseOutcome<T>> {
@@ -85,12 +124,13 @@ export async function startWithLease<T>(opts: StartWithLeaseOptions<T>): Promise
   try {
     await put({
       TableName: tableName,
-      Item: { ...leaseKey(game), leaseId, expiresAt: nowSeconds + START_LEASE_TTL_SECONDS },
-      ConditionExpression: 'attribute_not_exists(pk) OR expiresAt < :now',
+      Item: { ...leaseKey(game), leaseId, holder: 'start', expiresAt: nowSeconds + START_LEASE_TTL_SECONDS },
+      ConditionExpression: LEASE_FREE_CONDITION,
       ExpressionAttributeValues: { ':now': nowSeconds },
+      ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
     });
   } catch (err) {
-    if (isConditionFailure(err)) return { status: 'in-progress' };
+    if (isConditionFailure(err)) return { status: 'in-progress', holder: holderFromConditionFailure(err) };
     throw err;
   }
 
@@ -105,5 +145,102 @@ export async function startWithLease<T>(opts: StartWithLeaseOptions<T>): Promise
   } catch (err) {
     await releaseLease(put, tableName, game);
     throw err;
+  }
+}
+
+/** How often a held upload lease is renewed, in milliseconds; four renewals fit in {@link START_LEASE_TTL_SECONDS}. */
+export const UPLOAD_LEASE_HEARTBEAT_MS = 30_000;
+
+/** Inputs shared by the upload-lease operations. */
+export interface UploadLeaseOptions {
+  /** Performs the lease writes. */
+  put: StartLeasePut;
+  /** Discord single-table name. */
+  tableName: string;
+  /** Game whose volume is being written. */
+  game: string;
+  /** Clock override for tests; epoch milliseconds. */
+  now?: () => number;
+}
+
+/** Outcome of {@link acquireUploadLease}. */
+export type UploadLeaseAcquireOutcome = { status: 'acquired'; leaseId: string } | { status: 'busy'; holder: LeaseHolder };
+
+const secondsOf = (now?: () => number): number => Math.floor((now ?? Date.now)() / 1000);
+
+// @spec HELPER-FB-042, HELPER-FB-045
+/**
+ * Takes `game`'s lease as holder `upload` so a start from any process is refused while files are being written.
+ *
+ * @remarks
+ * Same row and free-condition as {@link startWithLease}, so a start and an upload can never both hold it. Renew it
+ * with {@link renewUploadLease} inside {@link START_LEASE_TTL_SECONDS}; a holder that crashes frees it when the TTL
+ * lapses. Any error other than a failed condition propagates, so callers fail closed.
+ *
+ * @param opts - Lease table, game and writer.
+ * @returns `acquired` with the lease id, or `busy` with who holds the lease.
+ * @throws Whatever the lease write throws.
+ */
+export async function acquireUploadLease(opts: UploadLeaseOptions): Promise<UploadLeaseAcquireOutcome> {
+  const nowSeconds = secondsOf(opts.now);
+  const leaseId = globalThis.crypto.randomUUID();
+  try {
+    await opts.put({
+      TableName: opts.tableName,
+      Item: { ...leaseKey(opts.game), leaseId, holder: 'upload', expiresAt: nowSeconds + START_LEASE_TTL_SECONDS },
+      ConditionExpression: LEASE_FREE_CONDITION,
+      ExpressionAttributeValues: { ':now': nowSeconds },
+      ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+    });
+  } catch (err) {
+    if (isConditionFailure(err)) return { status: 'busy', holder: holderFromConditionFailure(err) };
+    throw err;
+  }
+  return { status: 'acquired', leaseId };
+}
+
+// @spec HELPER-FB-044, HELPER-FB-046
+/**
+ * Extends an upload lease this process holds by another {@link START_LEASE_TTL_SECONDS}.
+ *
+ * @param opts - Lease table, game and writer.
+ * @param leaseId - The id {@link acquireUploadLease} returned.
+ * @returns `renewed`, or `lost` when the row no longer carries `leaseId` (another holder took it after a lapse).
+ * @throws Whatever the lease write throws other than a failed condition, so callers can tell a lost lease from an outage.
+ */
+export async function renewUploadLease(opts: UploadLeaseOptions, leaseId: string): Promise<'renewed' | 'lost'> {
+  const nowSeconds = secondsOf(opts.now);
+  try {
+    await opts.put({
+      TableName: opts.tableName,
+      Item: { ...leaseKey(opts.game), leaseId, holder: 'upload', expiresAt: nowSeconds + START_LEASE_TTL_SECONDS },
+      ConditionExpression: 'leaseId = :id',
+      ExpressionAttributeValues: { ':id': leaseId },
+    });
+  } catch (err) {
+    if (isConditionFailure(err)) return 'lost';
+    throw err;
+  }
+  return 'renewed';
+}
+
+// @spec HELPER-FB-043
+/**
+ * Best-effort release of an upload lease: writes it already expired, only while it still carries `leaseId`, so a lease
+ * another holder took after a lapse is never cleared. Never throws; an unreleased lease lapses within the TTL.
+ *
+ * @param opts - Lease table, game and writer.
+ * @param leaseId - The id {@link acquireUploadLease} returned.
+ */
+export async function releaseUploadLease(opts: UploadLeaseOptions, leaseId: string): Promise<void> {
+  try {
+    await opts.put({
+      TableName: opts.tableName,
+      Item: { ...leaseKey(opts.game), leaseId, holder: 'upload', expiresAt: 0 },
+      ConditionExpression: 'leaseId = :id',
+      ExpressionAttributeValues: { ':id': leaseId },
+    });
+  } catch {
+    // Lost or unreachable: the lease expires on its own within START_LEASE_TTL_SECONDS.
   }
 }

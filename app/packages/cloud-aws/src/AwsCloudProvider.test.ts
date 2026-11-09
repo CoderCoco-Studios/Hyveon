@@ -127,6 +127,25 @@ describe('AwsCloudProvider', () => {
       expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
     });
 
+    // @spec HELPER-FB-042
+    it('should expose a lease writer on the Discord table, null when undeployed, and refuse a stack without the table', async () => {
+      const access = await makeProvider().getStartLeaseAccess();
+      expect(access?.tableName).toBe('discord-table');
+      await access!.put({ TableName: 'discord-table', Item: { pk: 'LAUNCH#minecraft' } });
+      expect(ddbMock.commandCalls(PutCommand)).toHaveLength(1);
+      await expect(makeProvider({ ...DEFAULT_CONFIG, discordTableName: '' }).getStartLeaseAccess()).rejects.toThrow(/out of date/i);
+    });
+
+    // @spec RT-TASK-LAUNCH-017, HELPER-FB-042
+    it('should refuse with the upload-specific message and not RunTask when an upload holds the lease', async () => {
+      ddbMock.on(PutCommand).rejects(
+        Object.assign(new Error('held'), { name: 'ConditionalCheckFailedException', Item: { holder: 'upload' } }),
+      );
+
+      await expect(makeProvider().startWorkload('minecraft', {})).rejects.toThrow(/upload into minecraft is in progress/i);
+      expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
+    });
+
     // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
     it('should fail closed without RunTask when the lease write errors', async () => {
       ddbMock.on(PutCommand).rejects(new Error('ddb down'));

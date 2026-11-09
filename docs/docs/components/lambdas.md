@@ -113,7 +113,7 @@ type FollowupPayload = {
 2. Dispatch by `kind`:
    - **`start`** — `runStart()`: takes the 120 s `LAUNCH#{game}` start lease
      in the Discord table (`startWithLease`, shared with the desktop app;
-     a held lease replies `"A start for {game} is already in progress."`, and a
+     a lease held by another start replies `"A start for {game} is already in progress."`, one held by a desktop upload replies `"An upload into {game} is in progress. ..."`, and a
      DynamoDB or running-task check error fails the start without launching),
      then `ecs.runTask` with the game's task
      definition family (`{game}-server`), public-IP-enabled network

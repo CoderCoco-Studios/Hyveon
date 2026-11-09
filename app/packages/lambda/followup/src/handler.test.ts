@@ -151,6 +151,18 @@ describe('FollowupLambda: start', () => {
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toBe('❌ A start for palworld is already in progress.');
   });
 
+  // @spec RT-TASK-LAUNCH-017, DISCORD-RUN-016, HELPER-FB-042
+  it('should reply with the upload-specific refusal and not RunTask when an upload holds the lease', async () => {
+    ddbMock.on(PutCommand).rejects(
+      Object.assign(new Error('held'), { name: 'ConditionalCheckFailedException', Item: { holder: { S: 'upload' } } }),
+    );
+
+    await handler(baseEvent('start', 'palworld'));
+
+    expect(ecsMock.commandCalls(RunTaskCommand)).toHaveLength(0);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).content).toMatch(/^❌ An upload into palworld is in progress/);
+  });
+
   // @spec RT-TASK-LAUNCH-010, RT-TASK-LAUNCH-015, RT-TASK-LAUNCH-016
   it('should fail closed without RunTask when the lease write errors', async () => {
     ddbMock.on(PutCommand).rejects(new Error('ddb down'));

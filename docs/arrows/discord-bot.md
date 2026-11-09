@@ -128,7 +128,7 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 | Ingress and signature verification | `DISCORD-AUTH-001` to `DISCORD-AUTH-008` | 8 | 0 | 0 |
 | Command handling (interactions Lambda) | `DISCORD-CMD-001` to `DISCORD-CMD-014` | 14 | 0 | 0 |
 | Permission evaluation (canRun) | `DISCORD-PERM-001` to `DISCORD-PERM-005` | 5 | 0 | 0 |
-| Followup Lambda | `DISCORD-RUN-001` to `DISCORD-RUN-015` | 15 | 0 | 0 |
+| Followup Lambda | `DISCORD-RUN-001` to `DISCORD-RUN-016` | 16 | 0 | 0 |
 | Pending interactions | `DISCORD-PEND-001` to `DISCORD-PEND-004` | 4 | 0 | 0 |
 | Message rendering | `DISCORD-MSG-001` to `DISCORD-MSG-006` | 6 | 0 | 0 |
 | Configuration model | `DISCORD-CFG-001` to `DISCORD-CFG-006` | 6 | 0 | 0 |
@@ -137,7 +137,7 @@ Intent is taken from `docs/docs/app/discord.md` (the operator page, including th
 | Command registration | `DISCORD-REG-001` to `DISCORD-REG-005` | 5 | 0 | 0 |
 | Discord page | `DISCORD-UI-001` to `DISCORD-UI-010` | 10 | 0 | 0 |
 
-**Summary:** 93 of 93 active specs implemented; 0 deferred; 0 gaps.
+**Summary:** 94 of 94 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 
