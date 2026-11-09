@@ -170,7 +170,6 @@ EARS requirements for prefix `IAC-PROGRAM`, the leaf described in `docs/intent/i
 - [x] **IAC-PROGRAM-SECRET-002**: When deployed to a fresh account, the infrastructure program shall create the Discord bot-token, Discord public-key and FileBrowser credential secrets with `recoveryWindowInDays: 0` and a `placeholder` initial version (`secrets.ts:73`, `secrets.ts:107-161`).
 - [x] **IAC-PROGRAM-SECRET-003**: Every infrastructure-program secret version shall be create-only via `ignoreChanges: ['secretString']`, so a later preview reports no change and a re-deploy never resets a value the app has written (`secrets.ts:89-91`, `secrets.ts:117-161`).
 - [x] **IAC-PROGRAM-SECRET-004**: When the operator configures Discord credentials, the real values shall reach Secrets Manager only over the app's SDK path and never appear in infrastructure state, because the program carries only the placeholder (`secrets.ts:8-21`, `shared/src/deploymentConfig.ts:18-21`).
-- [D] **IAC-PROGRAM-SECRET-005**: The infra test suite shall include a case that writes real values through the app's Secrets Manager path, re-deploys, and asserts the values survive unchanged (deferred: `secrets.test.ts` asserts that `ignoreChanges: ['secretString']` is passed, and the secret value is never in state; see Decisions & Alternatives, Secret-preservation test).
 
 ## DNS and Discord Domain
 

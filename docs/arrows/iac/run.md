@@ -81,9 +81,9 @@ The run lifecycle works end to end through the IaC page and history, and `partia
 | Run detail | `IAC-RUN-DETL-001` to `IAC-RUN-DETL-004` | 4 | 0 | 0 |
 | Rollback | `IAC-RUN-RBK-001` to `IAC-RUN-RBK-010` | 10 | 0 | 0 |
 | IPC surface and streaming | `IAC-RUN-IPC-001` to `IAC-RUN-IPC-009` | 9 | 0 | 0 |
-| Integration coverage | `IAC-RUN-ITEST-001` to `IAC-RUN-ITEST-010` | 8 | 2 | 0 |
+| Integration coverage | `IAC-RUN-ITEST-001` to `IAC-RUN-ITEST-010` (no `-005`, `-007`) | 8 | 0 | 0 |
 
-**Summary:** 130 of 133 active specs implemented; 3 deferred; 0 gaps.
+**Summary:** 130 of 131 active specs implemented; 1 deferred; 0 gaps.
 
 ## Key Findings
 
@@ -96,7 +96,7 @@ The run lifecycle works end to end through the IaC page and history, and `partia
 7. **The IaC page imports the approval window from `@hyveon/shared`**: `iac.page.tsx` uses the same `APPROVAL_WINDOW_MS` and `isApprovalExpired` the apply gate enforces.
 8. **Rollback confirm acks only after the whole plan, with one plan per rollback**: `iac.rollback.confirm` drives `confirmRollback` to completion before returning `{ confirmed, versionId, planRunId }`, and the IaC page adopts that plan (`useIacRun.adopt`) rather than submitting a second one. Its chunk channel `iac.rollback.confirm.chunk` has no subscriber in `desktop-preload` or `web/src`.
 9. **The plan, apply and destroy handlers share one streaming helper**: `IacController.trackRun` and `pumpRunStream` replace three copies of the loop. The matching chunk-streaming setups in `PulumiService` (preview, up and destroy) are still three near-identical blocks, owned by `iac/engine`.
-10. **Integration coverage runs against a stubbed `PulumiService` by design**: `iac-apply-gates.spec.ts:30-41` states the DI stub fully replaces `PulumiService`, so the 8-step gate math and token bookkeeping are unit-tested (`PulumiService.apply.test.ts`, `PulumiService.destroy.test.ts`) and the integration specs check controller ack-shaping. `IAC-RUN-ITEST-005` and `IAC-RUN-ITEST-007` are deferred for that reason.
+10. **Integration coverage runs against a stubbed `PulumiService` by design**: `iac-apply-gates.spec.ts:30-41` states the DI stub fully replaces `PulumiService`, so the 8-step gate math and token bookkeeping are unit-tested (`PulumiService.apply.test.ts`, `PulumiService.destroy.test.ts`) and the integration specs check controller ack-shaping. Real-`PulumiService` integration coverage is a documented non-goal (run design, Decisions & Alternatives).
 11. **`iac.output` ignores `force`**: documented as accepted-for-compatibility and ignored (`iac.controller.ts:1076-1078`, `:1088`).
 12. **Stale vocabulary in run code**: `RunService.ts:3` cites issue #106; `runs.ts:4-13` explains the pre-Pulumi `plan/apply/destroy` naming; `errors.ts:53-55` refers to "the HTTP layer can respond `409 Conflict`" though the app has no HTTP transport.
 13. **History kind filter is client-side over a server page**: `iac-history.page.tsx:29-30` filters `kind` after fetching a status-filtered page, so a kind-filtered view can show a short or empty page while older matching runs exist until "Load more" is used `[inferred]`. Sweep 3's claim that the status filter "omits other statuses" is refuted: the dropdown lists all three `RunStatus` values (`iac-history.page.tsx:82-84`, `runs.ts:24`).
