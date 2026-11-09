@@ -86,6 +86,8 @@ export function IacPage() {
 
   const planRun = useIacRun('plan');
   const applyRun = useIacRun('apply');
+  const { submit: submitPlanRun, reset: resetPlanRun } = planRun;
+  const { submit: submitApplyRun, reset: resetApplyRun } = applyRun;
 
   const [approval, setApproval] = useState<{ approvedBy: string; approvedAt: string } | null>(null);
   const [approving, setApproving] = useState(false);
@@ -96,7 +98,7 @@ export function IacPage() {
 
   const submitPlan = useCallback(
     (payload?: IacPlanPayload) => {
-      planRun.submit(async () => {
+      submitPlanRun(async () => {
         const ack = await window.hyveon!.iac.plan(payload);
         // A (re)plan invalidates whatever approval/apply happened against the
         // previous plan run — reset both so a stale "Apply" doesn't linger
@@ -104,12 +106,12 @@ export function IacPage() {
         if (ack.started && ack.runId) {
           setApproval(null);
           setApproveError(null);
-          applyRun.reset();
+          resetApplyRun();
         }
         return ack;
       });
     },
-    [planRun.submit, applyRun.reset],
+    [submitPlanRun, resetApplyRun],
   );
 
   const { adopt: adoptPlan } = planRun;
@@ -146,15 +148,15 @@ export function IacPage() {
     if (!planRun.runId || !planRun.record?.planHash) return;
     const planRunId = planRun.runId;
     const planHash = planRun.record.planHash;
-    applyRun.submit(() => window.hyveon!.iac.apply({ planRunId, planHash }));
-  }, [planRun.runId, planRun.record, applyRun.submit]);
+    submitApplyRun(() => window.hyveon!.iac.apply({ planRunId, planHash }));
+  }, [planRun.runId, planRun.record, submitApplyRun]);
 
   const startOver = useCallback(() => {
     setApproval(null);
     setApproveError(null);
-    planRun.reset();
-    applyRun.reset();
-  }, [planRun.reset, applyRun.reset]);
+    resetPlanRun();
+    resetApplyRun();
+  }, [resetPlanRun, resetApplyRun]);
 
   useEffect(() => {
     if (applyRun.status === 'success') toast.success('Apply complete');

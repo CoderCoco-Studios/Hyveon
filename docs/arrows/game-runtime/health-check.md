@@ -67,7 +67,7 @@ The health-check Lambda takes the task's private IP from the watchdog's invoke p
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Declaration | `RT-HEALTH-DECL-001`, `RT-HEALTH-DECL-006` (routing and invoke are `RT-WATCHDOG-ROUTE-*`, `RT-WATCHDOG-HC-*`) | 2 | 0 | 0 |
-| HTTP request | `RT-HEALTH-HTTP-001` to `RT-HEALTH-HTTP-011` | 9 | 1 | 0 |
+| HTTP request | `RT-HEALTH-HTTP-001` to `RT-HEALTH-HTTP-012` | 10 | 1 | 0 |
 | Credential injection | `RT-HEALTH-AUTH-001` to `RT-HEALTH-AUTH-006` | 6 | 0 | 0 |
 | Verdict evaluation | `RT-HEALTH-EVAL-001` to `RT-HEALTH-EVAL-009` | 9 | 0 | 0 |
 | Fail-active | `RT-HEALTH-FAIL-001` to `RT-HEALTH-FAIL-007` (the watchdog-side wrapper is `RT-WATCHDOG-HC-003`, `-004`, `-006`, `-008` to `-010`) | 7 | 0 | 0 |
@@ -78,7 +78,7 @@ The health-check Lambda takes the task's private IP from the watchdog's invoke p
 | Operator interface redaction | `RT-HEALTH-REDACT-001` to `RT-HEALTH-REDACT-004` | 4 | 0 | 0 |
 | App-owned credential lifecycle | `RT-HEALTH-CRED-001` to `RT-HEALTH-CRED-008` | 8 | 0 | 0 |
 
-**Summary:** 72 of 73 active specs implemented; 1 deferred; 0 gaps.
+**Summary:** 73 of 74 active specs implemented; 1 deferred; 0 gaps.
 
 ## Key Findings
 
@@ -88,7 +88,7 @@ The health-check Lambda takes the task's private IP from the watchdog's invoke p
 4. **Fail-active everywhere except `exists`.** Every engine failure path returns `active: true, failureDerived: true` (`engine.ts:157-203`) and the handler catch does the same (`handler.ts:178-187`). The `exists` operator alone treats an unresolved path as a conclusive idle verdict (`engine.ts:175-178`), so a typo in `jsonPath` with `exists` reads as "idle" rather than as a fault. This matches the spec's operator semantics but is the one route by which a misconfigured check can stop a server.
 5. **Sweep-8 JSONPath bug is unreachable (sweep disagreement, code wins).** Sweep-8 says `$.`-prefixed paths never resolve (`engine.ts:26-60`). True of the tokenizer in isolation (`$` becomes a literal key), but the validator rejects `$` via `HEALTH_CHECK_JSON_PATH_PATTERN = /^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+|\[\d+\])*$/` (`shared/src/gameServerValidator.ts:114`, `:227-232`), so no saved config can carry one.
 6. **3xx is fail-active by design.** `redirect: 'manual'` (`handler.ts:170`) plus the 2xx-only gate (`engine.ts:157-163`) makes any redirect a failed check; documented in `lambdas.md` step 3.
-7. **Host is never taken from config.** The URL host is the payload's `privateIp`, accepted only when `net.isIPv4` accepts it as received, and the declared `path` cannot change the authority (`RT-HEALTH-HTTP-006`, `-007`, `-008`, `-011`).
+7. **Host is never taken from config.** The URL host is the payload's `privateIp`, accepted only when `net.isIPv4` accepts it as received and it lies inside the `VPC_CIDR` block (`RT-HEALTH-HTTP-012`), and the declared `path` cannot change the authority (`RT-HEALTH-HTTP-006`, `-007`, `-008`, `-011`).
 9. **Region fallback chain duplicated.** `handler.ts:34-37` repeats the `AWS_REGION_ ?? AWS_REGION ?? AWS_DEFAULT_REGION ?? 'us-east-1'` chain also found in `secretsStore.ts:25-27` and every other Lambda handler (sweep-8).
 10. **`secretsStore.ts` mixes two leaves.** Health-check helpers (`secretsStore.ts:94-194`) share a file with Discord helpers; `getBotToken`, `putBotToken`, `putPublicKey`, `invalidateSecretsCache` (`secretsStore.ts:63-91`) have no non-test caller in `app/packages`. The module is re-exported from the barrel (`shared/src/index.ts:35`), while `GamesWriteService` deep-imports it (`GamesWriteService.ts:35`).
 11. **Secret name hard-codes `hyveon-`.** `healthCheckAuthSecretName` returns `hyveon-${gameId}-healthcheck-auth` (`secretsStore.ts:95`) regardless of the infra `projectName`; harmless because IAM scopes to the persisted ARN (`iam.ts:602-604`), but two deployments in one account and region would collide on a shared game id `[inferred]`.

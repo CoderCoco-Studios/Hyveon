@@ -164,13 +164,13 @@ describe('defineAll', () => {
 
     const vpcEndpoints = () => mocks.resources.filter((r) => r.type === 'aws:ec2/vpcEndpoint:VpcEndpoint');
 
-    it('should declare no VPC endpoint for a health check without auth, and a function with only AWS_REGION_', async () => {
+    it('should declare no VPC endpoint for a health check without auth, and a function with only AWS_REGION_ and VPC_CIDR', async () => {
       const result = await runWithHealthCheckGames({ ...FIXTURE_GAME_SERVERS, echo: buildHealthCheckGame() });
 
       expect(result.secretsEndpoint).toBeUndefined();
       expect(vpcEndpoints()).toHaveLength(0);
       const fn = mocks.resources.find((r) => r.name === 'hyveon-health-check')!;
-      expect((fn.inputs.environment as { variables: unknown }).variables).toEqual({ AWS_REGION_: 'us-east-1' });
+      expect((fn.inputs.environment as { variables: unknown }).variables).toEqual({ AWS_REGION_: 'us-east-1', VPC_CIDR: '10.0.0.0/16' });
     });
 
     it('should declare one endpoint in the first public subnet while the function keeps both subnets', async () => {

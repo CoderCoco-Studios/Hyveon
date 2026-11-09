@@ -16,6 +16,7 @@
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import {
   HEALTH_CHECK_SECRET_DEADLINE_MS,
+  isIPv4InCidr,
   isPrivateIPv4,
   type GameServerHealthCheck,
   type GameServerHealthCheckAuth,
@@ -81,18 +82,20 @@ async function resolveAuthSecretValue(healthCheck: GameServerHealthCheck): Promi
   return healthCheck.auth ? fetchSecretString(healthCheck.auth.secretArn) : undefined;
 }
 
-// @spec RT-HEALTH-HTTP-002, RT-HEALTH-HTTP-007, RT-HEALTH-HTTP-008, RT-HEALTH-HTTP-010
+// @spec RT-HEALTH-HTTP-002, RT-HEALTH-HTTP-007, RT-HEALTH-HTTP-008, RT-HEALTH-HTTP-010, RT-HEALTH-HTTP-012
 /**
  * Validates the payload's `privateIp`, the sole source of the request's destination host.
  *
  * @remarks
- * Accepts only an RFC 1918 IPv4 literal ({@link isPrivateIPv4}), applied to the value as received with no trimming, so
- * loopback, link-local (including the instance metadata address), multicast, broadcast and public addresses are
- * never request targets even from a direct invoker. The VPC CIDR is configuration, so the private ranges are the bound.
+ * Accepts only an RFC 1918 IPv4 literal ({@link isPrivateIPv4}) that also lies inside the VPC CIDR the infra program
+ * provisions in the `VPC_CIDR` environment variable, applied to the value as received with no trimming, so loopback,
+ * link-local (including the instance metadata address), multicast, broadcast, public and other-network private
+ * addresses are never request targets even from a direct invoker. A missing or malformed `VPC_CIDR` rejects every
+ * address.
  *
  * @param privateIp - The payload field, which may be absent despite its type.
  * @returns The validated IPv4 literal.
- * @throws When the value is absent, is not a well-formed IPv4 literal, or is outside the RFC 1918 ranges.
+ * @throws When the value is absent, is not a well-formed IPv4 literal, is outside the RFC 1918 ranges, or is outside the VPC CIDR.
  */
 function requirePayloadHost(privateIp: string | null | undefined): string {
   if (privateIp === undefined || privateIp === null) {
@@ -100,6 +103,9 @@ function requirePayloadHost(privateIp: string | null | undefined): string {
   }
   if (typeof privateIp !== 'string' || !isPrivateIPv4(privateIp)) {
     throw new Error('invoke payload privateIp is not a private IPv4 address');
+  }
+  if (!isIPv4InCidr(privateIp, process.env['VPC_CIDR'] ?? '')) {
+    throw new Error('invoke payload privateIp is outside the VPC CIDR');
   }
   return privateIp;
 }

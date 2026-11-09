@@ -225,8 +225,8 @@ Requirements of the in-app file browser.
 
 ## Application quit
 
-- [x] **HELPER-QUIT-001**: When the application emits `before-quit` and the registry owns no helper session, the quit hook shall let the quit proceed without delay. (observed)
-- [x] **HELPER-QUIT-002**: When the application emits `before-quit` while the registry owns helper sessions, the quit hook shall prevent that quit, stop every owned session for at most 5 seconds, then quit again and let the second `before-quit` pass. (observed)
+- [x] **HELPER-QUIT-001**: When the application quits and the registry owns no helper session, the helper quit stopper shall do nothing, so the helper step adds no delay to the quit. (observed)
+- [x] **HELPER-QUIT-002**: When the application quits while the registry owns helper sessions, the helper quit stopper shall stop every owned session, within the time bound and quit prevention that the app's quit coordinator (`installOperationQuitHook`) applies to its steps. (observed)
 - [x] **HELPER-QUIT-003**: When stopping every owned session on quit, the registry shall stop each session independently and never throw. (observed)
 
 ## Retired IDs

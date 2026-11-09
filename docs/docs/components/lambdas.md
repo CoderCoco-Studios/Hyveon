@@ -355,7 +355,7 @@ Failure modes:
 | **Trigger** | Synchronous invoke (`InvocationType: RequestResponse`) from the watchdog Lambda, once per running task belonging to a game that declares a `healthCheck`. Not exposed externally, and invocable only by the watchdog — no Function URL, no resource-based `aws.lambda.Permission`; the grant is an IAM identity-policy statement on the watchdog's own role. |
 | **Pulumi** | `app/packages/infra/src/lambdas.ts` (`healthCheckFunction`, `healthCheckLogGroup`). **A single shared function, conditionally created** — provisioned only when at least one game declares `healthCheck` (`iam.ts`'s `gamesWithHealthChecks`), unlike efs-seeder's one-function-per-game shape. A deployment where no game opts in gets no health-check function, role, security group, or log group. |
 | **IAM** | Single shared role: `logs:CreateLogGroup`/`CreateLogStream`/`PutLogEvents`, `ec2:CreateNetworkInterface`/`DescribeNetworkInterfaces`/`DeleteNetworkInterface` (required for Lambda VPC networking), and — only when at least one opted-in game references a credential — `secretsmanager:GetSecretValue` scoped to exactly those `auth.secretArn` values. No `ecs:` action: the function makes no ECS call. |
-| **Env vars** | `AWS_REGION_` only. Everything else it needs (`game`, `taskArn`, `privateIp`, the full `healthCheck` declaration) arrives in the invocation payload from the watchdog. |
+| **Env vars** | `AWS_REGION_` and `VPC_CIDR` (the deployment's `vpcCidr`, the bound on the address the function will probe). Everything else it needs (`game`, `taskArn`, `privateIp`, the full `healthCheck` declaration) arrives in the invocation payload from the watchdog. |
 | **Network** | VPC-attached in both public subnets with its own security group, whose only egress is TCP to the game-servers group on each declared health-check port and, while any game declares `healthCheck.auth`, TCP 443 to the Secrets Manager interface endpoint. The endpoint (one ENI in the first public subnet, private DNS on) exists only while some game declares `healthCheck.auth`; it bills hourly (about $7.30 a month in us-east-1) whether or not a game runs, sits in one subnet only (an outage of that zone makes credentialed checks fail-active), and with private DNS on routes every in-VPC Secrets Manager call (game tasks, Fargate secret pulls) through it while it exists, and a deployment whose checks are all unauthenticated declares none. There is no NAT gateway, so a credentialed check cannot fetch its secret until an apply has created the endpoint. |
 
 ### Behaviour
@@ -364,9 +364,10 @@ Invocation payload: `{ game: string, taskArn: string, privateIp: string, healthC
 
 1. Take the destination host from the payload's `privateIp`, which the
    watchdog read from the task's ECS attachment details. The value must be
-   an RFC 1918 IPv4 literal (applied as received); an absent, malformed or
-   out-of-range value (loopback, link-local, multicast, public) is a fail-active
-   verdict and no request is made.
+   an RFC 1918 IPv4 literal (applied as received) inside the `VPC_CIDR` block;
+   an absent, malformed or out-of-range value (loopback, link-local, multicast,
+   public, or private but outside the VPC) is a fail-active verdict and no
+   request is made, as is a missing or malformed `VPC_CIDR`.
    This is the *only* source of the request's destination host; the declared
    configuration never supplies one, and the declared `path` cannot change the
    request URL's authority. The host is trusted because the watchdog is the

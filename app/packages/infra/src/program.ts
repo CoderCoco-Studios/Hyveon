@@ -293,6 +293,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
   const lambdas = defineLambdas({
     projectName: config.projectName,
     awsRegion: config.awsRegion,
+    vpcCidr: config.vpcCidr,
     hostedZoneName,
     dnsTtl: config.dnsTtl,
     watchdogIntervalMinutes: config.watchdogIntervalMinutes,

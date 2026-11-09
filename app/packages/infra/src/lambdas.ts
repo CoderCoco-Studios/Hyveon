@@ -132,6 +132,8 @@ export interface DefineLambdasArgs {
   projectName: string;
   /** Every function's `AWS_REGION_` environment variable (see the CLAUDE.md invariant: `AWS_REGION` itself is reserved by the Lambda runtime). */
   awsRegion: string;
+  /** The VPC's CIDR block (`DeploymentConfig.vpcCidr`) — the health-check function's `VPC_CIDR` environment variable, the bound on the task address it will probe. */
+  vpcCidr: string;
   /** The interactions/followup/dns-updater functions' `HOSTED_ZONE_NAME`/`DOMAIN_NAME` environment variables. */
   hostedZoneName: string;
   /** The dns-updater function's `DNS_TTL` environment variable. */
@@ -380,6 +382,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
   const {
     projectName,
     awsRegion,
+    vpcCidr,
     hostedZoneName,
     dnsTtl,
     watchdogIntervalMinutes,
@@ -562,7 +565,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
           subnetIds: publicSubnetIds,
           securityGroupIds: [healthCheckSg],
         },
-        environment: { variables: { AWS_REGION_: awsRegion } },
+        environment: { variables: { AWS_REGION_: awsRegion, VPC_CIDR: vpcCidr } },
         tags: { Name: `${projectName}-health-check` },
       },
       { ...opts, dependsOn: [healthCheckLogGroup] },
