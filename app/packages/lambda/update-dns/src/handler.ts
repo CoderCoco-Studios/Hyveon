@@ -5,8 +5,8 @@
  *
  * For every game (HTTPS games terminate TLS in-task via a Caddy sidecar and
  * share the task's public IP, so they use the same path as everything else):
- *   - RUNNING → resolve ENI public IP → UPSERT Route 53 A record
- *   - STOPPED → DELETE Route 53 A record
+ *   - RUNNING → resolve ENI public IP → UPSERT Route 53 A record plus an ownership TXT record (task ARN)
+ *   - STOPPED → DELETE both records, only if the TXT names the stopping task
  *
  * On RUNNING, after the DNS update, look up a pending Discord interaction by task ARN and
  * PATCH the original message with the resolved hostname/IP, then delete the
@@ -99,7 +99,18 @@ async function resolvePublicIp(taskArn: string, clusterArn: string): Promise<str
   return null;
 }
 
-async function upsertDns(dnsName: string, ip: string): Promise<void> {
+/** Sibling label holding the owning task ARN; an underscore prefix keeps it clear of the game's A record. */
+function ownerRecordName(dnsName: string): string {
+  return `_hyveon-owner.${dnsName}`;
+}
+
+/** TXT values must be quoted for Route 53. */
+const quoteTxt = (value: string): string => `"${value}"`;
+const unquoteTxt = (value: string): string => value.replace(/^"|"$/g, '');
+
+// @spec RT-TASK-DNS-005, RT-TASK-DNS-016
+/** UPSERT the A record and its ownership TXT record in one change batch, so a record is never published without its owner. */
+async function upsertDns(dnsName: string, ip: string, taskArn: string): Promise<void> {
   await route53.send(
     new ChangeResourceRecordSetsCommand({
       HostedZoneId: HOSTED_ZONE_ID,
@@ -108,11 +119,15 @@ async function upsertDns(dnsName: string, ip: string): Promise<void> {
         Changes: [
           {
             Action: 'UPSERT',
+            ResourceRecordSet: { Name: dnsName, Type: 'A', TTL: DNS_TTL, ResourceRecords: [{ Value: ip }] },
+          },
+          {
+            Action: 'UPSERT',
             ResourceRecordSet: {
-              Name: dnsName,
-              Type: 'A',
+              Name: ownerRecordName(dnsName),
+              Type: 'TXT',
               TTL: DNS_TTL,
-              ResourceRecords: [{ Value: ip }],
+              ResourceRecords: [{ Value: quoteTxt(taskArn) }],
             },
           },
         ],
@@ -122,39 +137,66 @@ async function upsertDns(dnsName: string, ip: string): Promise<void> {
 }
 
 interface StoredRecord {
-  ip: string;
+  type: 'A' | 'TXT';
+  name: string;
+  value: string;
   ttl: number;
 }
 
-async function currentRecord(dnsName: string): Promise<StoredRecord | null> {
-  try {
-    const resp = await route53.send(
-      new ListResourceRecordSetsCommand({
-        HostedZoneId: HOSTED_ZONE_ID,
-        StartRecordName: dnsName,
-        StartRecordType: 'A',
-        MaxItems: 1,
-      }),
-    );
-    for (const rrs of resp.ResourceRecordSets ?? []) {
-      if (rrs.Name?.replace(/\.$/, '') === dnsName.replace(/\.$/, '') && rrs.Type === 'A') {
-        const ip = rrs.ResourceRecords?.[0]?.Value;
-        return ip ? { ip, ttl: rrs.TTL ?? DNS_TTL } : null;
-      }
+/** Read one record set from the zone; `null` when it does not exist. Throws when the lookup itself fails. */
+async function readRecord(name: string, type: 'A' | 'TXT'): Promise<StoredRecord | null> {
+  const resp = await route53.send(
+    new ListResourceRecordSetsCommand({
+      HostedZoneId: HOSTED_ZONE_ID,
+      StartRecordName: name,
+      StartRecordType: type,
+      MaxItems: 1,
+    }),
+  );
+  for (const rrs of resp.ResourceRecordSets ?? []) {
+    if (rrs.Name?.replace(/\.$/, '') === name && rrs.Type === type) {
+      const value = rrs.ResourceRecords?.[0]?.Value;
+      return value ? { type, name, value, ttl: rrs.TTL ?? DNS_TTL } : null;
     }
-  } catch (err) {
-    console.warn('Could not look up current record', { dnsName, error: errMessage(err) });
   }
   return null;
 }
 
-// @spec RT-TASK-DNS-009
-/** DELETE the game's A record, echoing the stored TTL and value because Route 53 rejects a DELETE that does not match exactly. */
-async function deleteDns(dnsName: string): Promise<void> {
-  const record = await currentRecord(dnsName);
-  if (!record) {
+/** Outcome of a STOPPED-event cleanup. */
+type DeleteOutcome = 'deleted' | 'not_owner' | 'owner_unreadable';
+
+// @spec RT-TASK-DNS-007, RT-TASK-DNS-008, RT-TASK-DNS-009, RT-TASK-DNS-010
+// @spec RT-TASK-DNS-017, RT-TASK-DNS-018, RT-TASK-DNS-019
+/**
+ * Delete the game's A record and ownership TXT record when the stopping task owns them.
+ *
+ * @remarks
+ * Ownership is the task ARN in the TXT record. A different ARN or an unreadable lookup changes nothing, so a late
+ * STOPPED for an old task cannot remove a newer task's record. An A record with no TXT predates ownership tracking
+ * and is deleted. Each DELETE echoes the stored TTL and value because Route 53 rejects a mismatched DELETE.
+ *
+ * @param dnsName - The game's `{game}.{domain}` A record name.
+ * @param taskArn - ARN of the task named by the STOPPED event.
+ * @returns What happened, so the handler can report it.
+ */
+async function deleteDns(dnsName: string, taskArn: string): Promise<DeleteOutcome> {
+  let a: StoredRecord | null;
+  let owner: StoredRecord | null;
+  try {
+    owner = await readRecord(ownerRecordName(dnsName), 'TXT');
+    a = await readRecord(dnsName, 'A');
+  } catch (err) {
+    console.warn('Could not read DNS records; leaving them in place', { dnsName, taskArn, error: errMessage(err) });
+    return 'owner_unreadable';
+  }
+  if (owner && unquoteTxt(owner.value) !== taskArn) {
+    console.warn('STOPPED task does not own the DNS record; leaving it in place', { dnsName, taskArn });
+    return 'not_owner';
+  }
+  const targets = [a, owner].filter((r): r is StoredRecord => r !== null);
+  if (targets.length === 0) {
     console.log(`No DNS record exists for ${dnsName} — nothing to delete.`);
-    return;
+    return 'deleted';
   }
   try {
     await route53.send(
@@ -162,23 +204,17 @@ async function deleteDns(dnsName: string): Promise<void> {
         HostedZoneId: HOSTED_ZONE_ID,
         ChangeBatch: {
           Comment: `Game server auto-delete for ${dnsName}`,
-          Changes: [
-            {
-              Action: 'DELETE',
-              ResourceRecordSet: {
-                Name: dnsName,
-                Type: 'A',
-                TTL: record.ttl,
-                ResourceRecords: [{ Value: record.ip }],
-              },
-            },
-          ],
+          Changes: targets.map((r) => ({
+            Action: 'DELETE' as const,
+            ResourceRecordSet: { Name: r.name, Type: r.type, TTL: r.ttl, ResourceRecords: [{ Value: r.value }] },
+          })),
         },
       }),
     );
   } catch (err) {
     console.warn('Could not delete DNS record', { dnsName, error: errMessage(err) });
   }
+  return 'deleted';
 }
 
 /** What the pending Discord interaction should be told: the resolved address, or why the task never became reachable. */
@@ -249,7 +285,7 @@ async function handleDirect(
       return { status: 'error', reason: 'no_ip' };
     }
     try {
-      await upsertDns(dnsName, ip);
+      await upsertDns(dnsName, ip, taskArn);
     } catch (err) {
       console.error('DNS upsert failed', { dnsName, error: errMessage(err) });
       await notifyDiscordIfPending(taskArn, game, {
@@ -262,9 +298,9 @@ async function handleDirect(
     return { status: 'upserted', game, ip };
   }
   if (lastStatus === 'STOPPED') {
-    await deleteDns(dnsName);
+    const outcome = await deleteDns(dnsName, taskArn);
     await notifyDiscordIfPending(taskArn, game, { error: 'The task stopped before it reached RUNNING.' });
-    return { status: 'deleted', game };
+    return outcome === 'deleted' ? { status: 'deleted', game } : { status: 'skipped', game, reason: outcome };
   }
   return { status: 'no_action', lastStatus };
 }

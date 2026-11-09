@@ -253,6 +253,156 @@ describe('update-dns handler: stored-record DELETE', () => {
   });
 });
 
+type ZoneRecord = { Name: string; Type: 'A' | 'TXT'; Value: string; TTL: number };
+
+/** Stub `ListResourceRecordSets` over an in-memory zone, honouring the start name and type like Route 53 does. */
+function stubZone(records: ZoneRecord[]) {
+  route53Mock.on(ListResourceRecordSetsCommand).callsFake((input) => ({
+    ResourceRecordSets: records
+      .filter((r) => r.Name === `${input.StartRecordName}.` && r.Type === input.StartRecordType)
+      .map((r) => ({ Name: r.Name, Type: r.Type, TTL: r.TTL, ResourceRecords: [{ Value: r.Value }] })),
+  }));
+}
+
+const aRecord: ZoneRecord = { Name: 'palworld.example.com.', Type: 'A', Value: '9.9.9.9', TTL: 300 };
+const ownerOf = (arn: string, ttl = 300): ZoneRecord => ({
+  Name: '_hyveon-owner.palworld.example.com.',
+  Type: 'TXT',
+  Value: `"${arn}"`,
+  TTL: ttl,
+});
+
+describe('update-dns handler: ownership TXT record', () => {
+  // @spec RT-TASK-DNS-016
+  it('should UPSERT the A record and the quoted-ARN TXT record in one change batch on RUNNING', async () => {
+    stubTaskWithEni();
+    ec2Mock.on(DescribeNetworkInterfacesCommand).resolves({
+      NetworkInterfaces: [{ Association: { PublicIp: '1.2.3.4' } }],
+    });
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
+
+    await handler(stateChange({ game: 'palworld', lastStatus: 'RUNNING' }));
+
+    const changes = route53Mock.commandCalls(ChangeResourceRecordSetsCommand);
+    expect(changes).toHaveLength(1);
+    const batch = changes[0]!.args[0]!.input.ChangeBatch!.Changes!;
+    expect(batch).toHaveLength(2);
+    expect(batch[1]).toMatchObject({
+      Action: 'UPSERT',
+      ResourceRecordSet: {
+        Name: '_hyveon-owner.palworld.example.com',
+        Type: 'TXT',
+        TTL: 30,
+        ResourceRecords: [{ Value: '"arn:task/abc"' }],
+      },
+    });
+  });
+
+  // @spec RT-TASK-DNS-007
+  it('should DELETE the A and TXT records in one batch, echoing stored TTLs, when the ARN matches', async () => {
+    stubZone([aRecord, ownerOf('arn:task/abc', 120)]);
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
+
+    const result = await handler(stateChange({ game: 'palworld', lastStatus: 'STOPPED' }));
+
+    expect(result).toMatchObject({ status: 'deleted', game: 'palworld' });
+    const changes = route53Mock.commandCalls(ChangeResourceRecordSetsCommand);
+    expect(changes).toHaveLength(1);
+    const batch = changes[0]!.args[0]!.input.ChangeBatch!.Changes!;
+    expect(batch.map((c) => [c.Action, c.ResourceRecordSet!.Type, c.ResourceRecordSet!.TTL])).toEqual([
+      ['DELETE', 'A', 300],
+      ['DELETE', 'TXT', 120],
+    ]);
+    expect(batch[1]!.ResourceRecordSet!.ResourceRecords).toEqual([{ Value: '"arn:task/abc"' }]);
+  });
+
+  // @spec RT-TASK-DNS-010
+  it('should leave both records and warn with identifiers only when a late STOPPED names another task', async () => {
+    stubZone([aRecord, ownerOf('arn:task/new')]);
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await handler(stateChange({ game: 'palworld', lastStatus: 'STOPPED', taskArn: 'arn:task/old' }));
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'not_owner' });
+    expect(route53Mock.commandCalls(ChangeResourceRecordSetsCommand)).toHaveLength(0);
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).toContain('arn:task/old');
+    expect(logged).not.toContain('9.9.9.9');
+    warn.mockRestore();
+  });
+
+  // @spec RT-TASK-DNS-010
+  it('should let a stop-then-start race resolve safely: late old STOPPED is a no-op, new STOPPED deletes', async () => {
+    stubZone([aRecord, ownerOf('arn:task/new')]);
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await handler(stateChange({ game: 'palworld', lastStatus: 'STOPPED', taskArn: 'arn:task/old' }));
+    expect(route53Mock.commandCalls(ChangeResourceRecordSetsCommand)).toHaveLength(0);
+
+    await handler(stateChange({ game: 'palworld', lastStatus: 'STOPPED', taskArn: 'arn:task/new' }));
+    expect(route53Mock.commandCalls(ChangeResourceRecordSetsCommand)).toHaveLength(1);
+    warn.mockRestore();
+  });
+
+  // @spec RT-TASK-DNS-008
+  it('should make no change for a duplicate STOPPED event once both records are gone', async () => {
+    stubZone([]);
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
+
+    const result = await handler(stateChange({ game: 'palworld', lastStatus: 'STOPPED' }));
+
+    expect(result).toMatchObject({ status: 'deleted', game: 'palworld' });
+    expect(route53Mock.commandCalls(ChangeResourceRecordSetsCommand)).toHaveLength(0);
+  });
+
+  // @spec RT-TASK-DNS-017
+  it('should DELETE a legacy A record that has no ownership TXT record', async () => {
+    stubZone([aRecord]);
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
+
+    await handler(stateChange({ game: 'palworld', lastStatus: 'STOPPED' }));
+
+    const batch = route53Mock.commandCalls(ChangeResourceRecordSetsCommand)[0]!.args[0]!.input.ChangeBatch!.Changes!;
+    expect(batch).toHaveLength(1);
+    expect(batch[0]).toMatchObject({ Action: 'DELETE', ResourceRecordSet: { Type: 'A', TTL: 300 } });
+  });
+
+  // @spec RT-TASK-DNS-018
+  it('should change nothing and warn when the ownership TXT record cannot be read', async () => {
+    route53Mock.on(ListResourceRecordSetsCommand).callsFake((input) => {
+      if (input.StartRecordType === 'TXT') throw new Error('throttled');
+      return {
+        ResourceRecordSets: [
+          { Name: aRecord.Name, Type: 'A', TTL: 300, ResourceRecords: [{ Value: aRecord.Value }] },
+        ],
+      };
+    });
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await handler(stateChange({ game: 'palworld', lastStatus: 'STOPPED' }));
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'owner_unreadable' });
+    expect(route53Mock.commandCalls(ChangeResourceRecordSetsCommand)).toHaveLength(0);
+    expect(JSON.stringify(warn.mock.calls)).toContain('arn:task/abc');
+    warn.mockRestore();
+  });
+
+  // @spec RT-TASK-DNS-019
+  it('should DELETE an orphaned matching TXT record when no A record exists', async () => {
+    stubZone([ownerOf('arn:task/abc', 60)]);
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
+
+    await handler(stateChange({ game: 'palworld', lastStatus: 'STOPPED' }));
+
+    const batch = route53Mock.commandCalls(ChangeResourceRecordSetsCommand)[0]!.args[0]!.input.ChangeBatch!.Changes!;
+    expect(batch).toHaveLength(1);
+    expect(batch[0]).toMatchObject({ Action: 'DELETE', ResourceRecordSet: { Type: 'TXT', TTL: 60 } });
+  });
+});
+
 describe('update-dns handler: event logging', () => {
   // @spec RT-TASK-DNS-014
   it('should log task identifiers rather than the full event JSON', async () => {

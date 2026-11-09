@@ -88,7 +88,7 @@ Start and stop a game's container on demand, publish its address in DNS while it
 1. `AwsCloudProvider` (app/packages/cloud-aws/src/AwsCloudProvider.ts) — the `CloudProvider` implementation: `startWorkload` (start lease and running-task pre-check through `startWithLease`, `RunTask` with the lease id as `clientToken` and `propagateTags: 'TASK_DEFINITION'`), `stopWorkload`, `getWorkloadStatus` (running/starting/stopped/not_deployed/error plus public IP and hostname), `streamWorkloadLogs`; per-game in-process lock `withGameLock`.
 2. `EcsService` (app/packages/desktop-main/src/services/EcsService.ts) — Nest facade: `getStatus`/`start`/`stop` delegate to the injected `CLOUD_PROVIDER`; also raw ECS helpers (`getTaskDefinition`, `registerTaskDefinition`, `runTask`, `stopTask`, `tagTask`, `listTasksByStartedBy*`, `describeStoppedReason`, and the fail-closed `findRunningTaskOrThrow`) that the helper task uses. `buildProviderConfig` and `createAwsCloudProvider` build the provider from stack outputs.
 3. `Ec2Service` (app/packages/desktop-main/src/services/Ec2Service.ts) — ENI and security-group ingress helpers; injected into `EcsService` but unused there (the `_ec2` constructor parameter).
-4. update-dns Lambda (app/packages/lambda/update-dns/src/handler.ts) — `handler` maps task family to game and calls `handleDirect`: on RUNNING `resolvePublicIp` (up to five ENI lookups) then `upsertDns`; on STOPPED `deleteDns` (echoing the stored TTL and IP); then `notifyDiscordIfPending` PATCHes any pending Discord interaction (an UPSERT failure keeps the row for the retry). Triggered by the EventBridge rule in `infra/src/lambdas.ts` (the `-task-state-change` rule, filtered to this cluster and `RUNNING`/`STOPPED`).
+4. update-dns Lambda (app/packages/lambda/update-dns/src/handler.ts) — `handler` maps task family to game and calls `handleDirect`: on RUNNING `resolvePublicIp` (up to five ENI lookups) then `upsertDns`; the same call also UPSERTs the `_hyveon-owner` TXT with the task ARN; on STOPPED `deleteDns` (deleting A and TXT only when the TXT names the stopping task, echoing stored TTLs and values); then `notifyDiscordIfPending` PATCHes any pending Discord interaction (an UPSERT failure keeps the row for the retry). Triggered by the EventBridge rule in `infra/src/lambdas.ts` (the `-task-state-change` rule, filtered to this cluster and `RUNNING`/`STOPPED`).
 5. `shared/src/aws/ecsTask.ts` — `getTaskEniId`, `getTaskPrivateIp`, `resolveEniPublicIp`; shared by the provider, update-dns and the health-check Lambda.
 6. `shared/src/cloud.ts` — the `CloudProvider` interface and `WorkloadStatus`, plus store interfaces owned by other leaves.
 7. `CostService` + `CostsController` (app/packages/desktop-main/src/services/CostService.ts, controllers/costs.controller.ts) — `costs.estimate` reads `gameNames` from stack outputs, describes each task definition, and returns `$/hour`, `$/day` (24 h), `$/month` (4 h × 30); the hourly figure comes from `estimateFargateHourlyCost` in `@hyveon/shared`.
@@ -103,16 +103,16 @@ Start and stop a game's container on demand, publish its address in DNS while it
 |---|---|---|---|---|
 | Start and Stop | `RT-TASK-LAUNCH-001` to `RT-TASK-LAUNCH-016` | 16 | 0 | 0 |
 | Status | `RT-TASK-STATUS-001` to `RT-TASK-STATUS-008` | 8 | 0 | 0 |
-| DNS Lifecycle | `RT-TASK-DNS-001` to `RT-TASK-DNS-015` | 14 | 1 | 0 |
+| DNS Lifecycle | `RT-TASK-DNS-001` to `RT-TASK-DNS-019` | 19 | 0 | 0 |
 | Discord Follow-up on Task State | `RT-TASK-NOTIFY-001` to `RT-TASK-NOTIFY-006` | 6 | 0 | 0 |
 | Cost Estimates | `RT-TASK-COST-001` to `RT-TASK-COST-012` | 12 | 0 | 0 |
 | Dashboard and Costs Page | `RT-TASK-UI-001` to `RT-TASK-UI-016` | 16 | 0 | 0 |
 
-**Summary:** 72 of 73 active specs implemented; 1 deferred; 0 gaps.
+**Summary:** 77 of 77 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 
-3. **DNS DELETE has no owner check (deferred).** On any STOPPED event for a known family the record is deleted without proving the stopping task owns it; a stale STOPPED event for an old task arriving after a new task's RUNNING UPSERT would remove the live record [inferred from code; not reproduced]. The event carries no public IP and the update-dns role holds only `ecs:DescribeTasks`, and the 120 s start lease bars a Start inside the window in which a late event could arrive, so the race is deferred (`RT-TASK-DNS-010`, design doc Decisions).
+3. **DNS DELETE owner check (resolved).** The A record carries a sibling TXT ownership record `_hyveon-owner.{game}.{domain}` holding the task ARN, UPSERTed in the same change batch at RUNNING; STOPPED deletes both only when the ARN matches the stopping task, so a late STOPPED for an old task cannot remove a newer task's record (`RT-TASK-DNS-010`, `RT-TASK-DNS-016` to `RT-TASK-DNS-019`, design doc Decisions). A pre-ownership A record with no TXT is still deleted.
 5. **Per-game start/stop lock is in-process only (resolved).** `withGameLock` still serialises calls within one `AwsCloudProvider` instance, and both launch paths (`AwsCloudProvider.startWorkload`, `followup/handler.ts` `runStart`) now also take a 120 s DynamoDB start lease through `startWithLease` (`shared/src/aws/startLease.ts`), so a desktop Start and a Discord `/server-start` cannot both launch (`RT-TASK-LAUNCH-010`, `RT-TASK-LAUNCH-015`, `RT-TASK-LAUNCH-016`). Stop is not covered by the lease.
 10. **Dead and vestigial code in `EcsService`.** The null-on-failure `findRunningTask` has no production caller; its fail-closed sibling `findRunningTaskOrThrow` does, from the helper task (`FolderUploadService`, `volumeFiles/fileOps.ts`). The `_ec2` constructor parameter is unused; `registerTaskDefinition` dynamically imports a command class from a package the file already imports .
 12. **Stale references.** code comments in `CostService.ts`, `costs.controller.ts`, `costs.page.tsx`, `AwsCloudProvider.ts`, `shared/src/cloud.ts`, `kpi-strip.component.tsx` and `costs.spec.ts` cite the retired `remove-cost-explorer-calls` change name instead of stating the rationale (the app makes no Cost Explorer calls); `costs.controller.ts` says "tfstate" for stack outputs; `update-dns/handler.ts` cites the retired `update_dns.py`; the `CostsPage` page object says Costs is not in the sidebar, but `app-nav.component.tsx` links it.
@@ -123,7 +123,7 @@ Start and stop a game's container on demand, publish its address in DNS while it
 Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-runtime/task-and-dns/task-and-dns-specs.md`; items with no matching gap spec carry none.
 
 ### Must Fix
-None open. `RT-TASK-DNS-010` is deferred (finding 3).
+None open.
 
 ### Nice to Have
 7. Remove the caller-less `EcsService.findRunningTask` wrapper, the unused `_ec2` parameter and the dynamic import (finding 10).

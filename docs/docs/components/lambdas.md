@@ -180,10 +180,24 @@ Event shape (simplified):
    share the task's public IP — follows the same path below.
 2. On `RUNNING`: `resolvePublicIp()` — retries up to 5 times with
    3-second sleeps to survive ENI attach lag; then `upsertDns()` writes
-   an A record `{game}.{domain}` → IP with `DNS_TTL`.
-3. On `STOPPED`: read the current record and `deleteDns()`, sending the
-   stored record's TTL and IP (Route 53 rejects a DELETE that differs from the
-   stored record set, so a changed `DNS_TTL` cannot orphan a record).
+   an A record `{game}.{domain}` → IP with `DNS_TTL`, plus an ownership TXT
+   record `_hyveon-owner.{game}.{domain}` whose quoted value is the task ARN,
+   in the same change batch.
+3. On `STOPPED`: read the ownership TXT record and the A record, then
+   `deleteDns()`:
+   - TXT names the stopping task → one batch deletes the A and TXT records,
+     each sending its stored TTL and value (Route 53 rejects a DELETE that
+     differs from the stored record set, so a changed `DNS_TTL` cannot orphan
+     a record).
+   - TXT names a different task (a late `STOPPED` for a task that a newer
+     start replaced) → no change, warning logged with the game and task ARN;
+     the handler returns `{status: 'skipped', reason: 'not_owner'}`.
+   - A record exists but no TXT (written before ownership tracking) → the A
+     record is deleted.
+   - A or TXT lookup fails → no change, warning logged;
+     `{status: 'skipped', reason: 'owner_unreadable'}`.
+   - Neither record exists (a duplicate `STOPPED`) → no change.
+   No IAM beyond `ChangeResourceRecordSets` and `ListResourceRecordSets` is needed.
 4. Call `notifyDiscordIfPending()` — look up `PENDING#{taskArn}` in
    DynamoDB, format a final status message (including the resolved public IP
    on `RUNNING`, an error status when the IP cannot be resolved, the UPSERT
