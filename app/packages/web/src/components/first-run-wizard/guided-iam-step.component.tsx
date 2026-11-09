@@ -119,6 +119,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress, onB
           onRetryTemplate={guidedIam.onRetryTemplate}
           templatePath={guidedIam.templatePath}
           onCopyPath={guidedIam.onCopyPath}
+          onRevealPath={guidedIam.onRevealPath}
           pathCopied={guidedIam.pathCopied}
           openingConsole={guidedIam.openingConsole}
           onOpenConsole={guidedIam.onOpenConsole}

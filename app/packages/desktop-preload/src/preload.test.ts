@@ -2950,9 +2950,9 @@ describe('preload dispatcher', () => {
     });
   });
 
-  // diagnostics.showInFolder
+  // shell.revealInFolder
 
-  describe('diagnostics.showInFolder', () => {
+  describe('shell.revealInFolder', () => {
     describe('real-IPC fallthrough', () => {
       let bridge: Record<string, unknown>;
 
@@ -2960,13 +2960,13 @@ describe('preload dispatcher', () => {
         bridge = await loadPreloadBridge('0');
       });
 
-      it('should invoke the diagnostics.showInFolder channel with the path', async () => {
+      it('should invoke the shell.revealInFolder channel with the target', async () => {
         ipcInvoke.mockResolvedValue(undefined);
-        const diagnostics = bridge['diagnostics'] as { showInFolder: (path: string) => Promise<void> };
+        const shell = bridge['shell'] as { revealInFolder: (target: string) => Promise<void> };
 
-        await diagnostics.showInFolder('/tmp/hyveon-diagnostics.zip');
+        await shell.revealInFolder('diagnostics-bundle');
 
-        expect(ipcInvoke).toHaveBeenCalledWith('diagnostics.showInFolder', { path: '/tmp/hyveon-diagnostics.zip' });
+        expect(ipcInvoke).toHaveBeenCalledWith('shell.revealInFolder', { target: 'diagnostics-bundle' });
       });
     });
 
@@ -2977,15 +2977,15 @@ describe('preload dispatcher', () => {
         bridge = await loadPreloadBridge('1');
       });
 
-      it('should call the registered mock instead of ipcRenderer.invoke when diagnostics.showInFolder is mocked', async () => {
+      it('should call the registered mock instead of ipcRenderer.invoke when shell.revealInFolder is mocked', async () => {
         const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
         const mockHandler = vi.fn().mockResolvedValue(undefined);
-        testApi.mock('diagnostics.showInFolder', mockHandler);
+        testApi.mock('shell.revealInFolder', mockHandler);
 
-        const diagnostics = bridge['diagnostics'] as { showInFolder: (path: string) => Promise<void> };
-        await diagnostics.showInFolder('/tmp/hyveon-diagnostics.zip');
+        const shell = bridge['shell'] as { revealInFolder: (target: string) => Promise<void> };
+        await shell.revealInFolder('diagnostics-bundle');
 
-        expect(mockHandler).toHaveBeenCalledWith({ path: '/tmp/hyveon-diagnostics.zip' });
+        expect(mockHandler).toHaveBeenCalledWith({ target: 'diagnostics-bundle' });
         expect(ipcInvoke).not.toHaveBeenCalled();
       });
     });

@@ -20,7 +20,7 @@ import { NativeSelect } from '@/components/ui/native-select.component';
 import { messageFor, type WizardDraftHealthCheck, type WizardDraftPort } from './wizard-form.utils.js';
 
 /** `healthCheck.scheme` options. */
-const HEALTH_CHECK_SCHEME_OPTIONS = ['http', 'https'] as const;
+const HEALTH_CHECK_SCHEME_OPTIONS = ['http'] as const;
 
 /** `healthCheck.method` options. */
 const HEALTH_CHECK_METHOD_OPTIONS = ['GET', 'POST', 'PUT', 'PATCH', 'HEAD'] as const;

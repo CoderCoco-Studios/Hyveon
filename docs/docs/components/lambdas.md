@@ -416,7 +416,7 @@ Invocation payload: `{ game: string, taskArn: string, privateIp: string, healthC
    desktop app's write path, covered by the existing `secretsmanager:*`
    grant in the [`HyveonDeployAll` policy](/setup). This Lambda's own
    `GetSecretValue`-only grant (above) is unaffected by `type`.
-3. Issue the declared request (`scheme`/`port`/`path`/`method`/`headers`),
+3. Issue the declared request (`http` to the task's private IP on `port`, with `path`/`method`/`headers`),
    bounded by `healthCheck.timeoutMs` as a single wall-clock budget, with
    no redirect following (a 3xx response is a failed check, not a hop to
    chase).

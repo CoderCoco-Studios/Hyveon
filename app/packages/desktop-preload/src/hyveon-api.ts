@@ -81,6 +81,7 @@ import type {
   RunPageResult as RunHistoryPageResult,
   RunKind as IacRunKind,
   WizardStep as WizardStepName,
+  RevealTarget,
 } from '@hyveon/shared';
 import type {
   FolderOverwriteDecisionResult,
@@ -1607,8 +1608,15 @@ export interface HyveonDiagnosticsApi {
    * operator cancels the dialog.
    */
   exportBundle: () => Promise<ExportDiagnosticsBundleResult>;
-  /** Reveals `path` (a written bundle) in the OS's file manager via `shell.showItemInFolder`. Never rejects. */
-  showInFolder: (path: string) => Promise<void>;
+}
+
+/** Shared shell actions that act on app-owned files. */
+export interface HyveonShellApi {
+  /**
+   * Reveals an app-owned file in the OS's file manager. The renderer names a target, never a path;
+   * the main process reveals only the path its own owner recorded. Never rejects.
+   */
+  revealInFolder: (target: RevealTarget) => Promise<void>;
 }
 
 /** Audit log: paginated history of `game_servers` mutations from DynamoDB. */
@@ -2099,6 +2107,8 @@ export interface HyveonApi {
   drift: HyveonDriftApi;
   /** Local application log diagnostics: tail recent lines or retrieve the log file path. */
   diagnostics: HyveonDiagnosticsApi;
+  /** Shared shell actions (reveal an app-owned file in the file manager). */
+  shell: HyveonShellApi;
   /** Audit log: paginated history of `game_servers` mutations from DynamoDB. */
   audit: HyveonAuditApi;
   /** AWS account-prerequisite health checklist surfaced on the Settings page. */

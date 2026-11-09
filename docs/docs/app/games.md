@@ -195,7 +195,7 @@ Checking it exposes:
 
 | Field | Purpose |
 |---|---|
-| **Scheme** | `http` or `https` |
+| **Scheme** | `http` only. The check runs inside the VPC and probes the container directly by private IP, bypassing the Caddy sidecar, so TLS is not involved; a saved configuration declaring `https` is rejected at save time, and the wizard opens such a game or resumed draft with the scheme already set to `http` so it can be saved |
 | **Port** | A dropdown constrained to the ports declared above — you cannot target a port this game doesn't expose. On an HTTPS game the web port is listed first as `<port>/tcp (web port)`, followed by the additional ports |
 | **Method** | `GET`, `POST`, `PUT`, `PATCH`, or `HEAD` |
 | **Timeout (ms)** | 100–10000. Bounds the entire request as one wall-clock budget |
@@ -226,7 +226,7 @@ For **Basic** and **Bearer**, the app names the secret deterministically
 (`hyveon-{game}-healthcheck-auth`, one per game) and creates or updates it
 itself when you save — you never see or enter an ARN for those two types.
 
-**A credential adds an always-on cost.** While any game declares a credential (any type other than **None**), the next apply creates one Secrets Manager interface VPC endpoint, shared by every such game, which bills about $7.30 a month in us-east-1 plus per-GB processing whether or not a game is running. A credential saved after the last apply is not readable by the health check until the next apply creates the endpoint and the matching permission, and until then the check reads active. A deployment whose health checks carry no credential has no endpoint and pays nothing. The check also needs an `http` scheme: an `https` check addresses the task by its private IP and is not expected to pass certificate verification against the task's hostname-issued certificate.
+**A credential adds an always-on cost.** While any game declares a credential (any type other than **None**), the next apply creates one Secrets Manager interface VPC endpoint, shared by every such game, which bills about $7.30 a month in us-east-1 plus per-GB processing whether or not a game is running. A credential saved after the last apply is not readable by the health check until the next apply creates the endpoint and the matching permission, and until then the check reads active. A deployment whose health checks carry no credential has no endpoint and pays nothing. The check always uses plain `http`, credential or not: it addresses the task by its private IP, so a `https` scheme is rejected at save time.
 
 **The credential value never comes back.** Every credential field (ARN,
 username, password, token) renders blank when you re-open the wizard or edit

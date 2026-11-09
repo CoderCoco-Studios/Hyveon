@@ -58,6 +58,18 @@ describe('handler', () => {
     expect(url).toBe('http://10.0.1.23:8212/status');
   });
 
+  // @spec RT-HEALTH-HTTP-001, RT-HEALTH-HTTP-005
+  it('should request over plain http even when a legacy stored declaration still carries scheme https', async () => {
+    fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
+    // @ts-expect-error a stored declaration from before http-only can still carry 'https'
+    const legacy: GameServerHealthCheck = { ...makeHealthCheck(), scheme: 'https' };
+
+    await handler({ game: 'palworld', taskArn: 'task-arn', privateIp: '10.0.1.23', healthCheck: legacy });
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toBe('http://10.0.1.23:8211/status');
+  });
+
   it('should not fetch a secret when the health check declares no auth', async () => {
     fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
 

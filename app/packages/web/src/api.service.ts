@@ -45,6 +45,7 @@ import type {
   GameEstimate,
   GameStatus,
   StartResult,
+  RevealTarget,
 } from '@hyveon/shared';
 import type {
   FolderOverwriteDecisionResult,
@@ -321,7 +322,7 @@ export const api = {
   diagnosticsTail: async (): Promise<{ lines: string[] }> => hyveon().diagnostics.tail(),
   diagnosticsLogPath: async (): Promise<{ path: string }> => hyveon().diagnostics.path(),
   diagnosticsExportBundle: async (): Promise<ExportDiagnosticsBundleResult> => hyveon().diagnostics.exportBundle(),
-  diagnosticsShowInFolder: async (path: string): Promise<void> => hyveon().diagnostics.showInFolder(path),
+  revealInFolder: async (target: RevealTarget): Promise<void> => hyveon().shell.revealInFolder(target),
 
   drift: async (): Promise<DriftReport> => hyveon().drift.get(),
 

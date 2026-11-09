@@ -4,6 +4,7 @@ import { DiagnosticsController } from './diagnostics.controller.js';
 import type { DiagnosticsService } from '../services/DiagnosticsService.js';
 import type { DiagnosticsBundleService } from '../services/DiagnosticsBundleService.js';
 import type { NativeDialogService } from '../services/NativeDialogService.js';
+import type { ShellRevealService } from '../services/ShellRevealService.js';
 import { expectChannels } from '../testing/message-pattern.test-utils.js';
 
 vi.mock('../logger.js', () => ({
@@ -34,11 +35,9 @@ function makeDialogs(savePath: string | null = null): NativeDialogService {
   } as Partial<NativeDialogService> as NativeDialogService;
 }
 
-/** Widens `DiagnosticsController`'s protected test seams to public so specs can stub them without casts. */
-class TestableDiagnosticsController extends DiagnosticsController {
-  public override revealInFolder(path: string): void {
-    return super.revealInFolder(path);
-  }
+/** Build a ShellRevealService stub. */
+function makeReveal(): ShellRevealService {
+  return { record: vi.fn(), reveal: vi.fn() } as Partial<ShellRevealService> as ShellRevealService;
 }
 
 describe('DiagnosticsController', () => {
@@ -50,7 +49,6 @@ describe('DiagnosticsController', () => {
         ['reportError', 'diagnostics.reportError'],
         ['reportLog', 'diagnostics.reportLog'],
         ['exportBundle', 'diagnostics.exportBundle'],
-        ['showInFolder', 'diagnostics.showInFolder'],
       ] as const);
     });
   });
@@ -59,14 +57,14 @@ describe('DiagnosticsController', () => {
     // @spec APP-DIAG-TAIL-006
     it('should return lines from DiagnosticsService', async () => {
       const svc = makeDiagnostics();
-      const result = await new DiagnosticsController(svc, makeBundle(), makeDialogs()).getTail();
+      const result = await new DiagnosticsController(svc, makeBundle(), makeDialogs(), makeReveal()).getTail();
       expect(result).toEqual({ lines: ['line1', 'line2', 'line3'] });
     });
 
     // @spec APP-DIAG-TAIL-006
     it('should call DiagnosticsService.readTail with 500 lines', async () => {
       const svc = makeDiagnostics();
-      await new DiagnosticsController(svc, makeBundle(), makeDialogs()).getTail();
+      await new DiagnosticsController(svc, makeBundle(), makeDialogs(), makeReveal()).getTail();
       expect(svc.readTail).toHaveBeenCalledWith(500);
     });
   });
@@ -75,13 +73,13 @@ describe('DiagnosticsController', () => {
     // @spec APP-DIAG-TAIL-006
     it('should return the current log path from DiagnosticsService', () => {
       const svc = makeDiagnostics();
-      const result = new DiagnosticsController(svc, makeBundle(), makeDialogs()).getPath();
+      const result = new DiagnosticsController(svc, makeBundle(), makeDialogs(), makeReveal()).getPath();
       expect(result).toEqual({ path: '/var/log/app/main-2026-05-23.log' });
     });
 
     it('should delegate to DiagnosticsService.getTodayLogPath', () => {
       const svc = makeDiagnostics();
-      new DiagnosticsController(svc, makeBundle(), makeDialogs()).getPath();
+      new DiagnosticsController(svc, makeBundle(), makeDialogs(), makeReveal()).getPath();
       expect(svc.getTodayLogPath).toHaveBeenCalled();
     });
   });
@@ -90,7 +88,7 @@ describe('DiagnosticsController', () => {
     // @spec APP-DIAG-RERR-001
     it('should call DiagnosticsService.logRendererError with the payload fields', () => {
       const svc = makeDiagnostics();
-      new DiagnosticsController(svc, makeBundle(), makeDialogs()).reportError({
+      new DiagnosticsController(svc, makeBundle(), makeDialogs(), makeReveal()).reportError({
         message: 'boom',
         stack: 'Error: boom\n  at x',
         source: 'boundary',
@@ -101,7 +99,7 @@ describe('DiagnosticsController', () => {
 
     it('should pass through an undefined stack unchanged', () => {
       const svc = makeDiagnostics();
-      new DiagnosticsController(svc, makeBundle(), makeDialogs()).reportError({
+      new DiagnosticsController(svc, makeBundle(), makeDialogs(), makeReveal()).reportError({
         message: 'unhandled rejection',
         source: 'unhandled-rejection',
       });
@@ -111,7 +109,7 @@ describe('DiagnosticsController', () => {
 
     it('should return undefined', () => {
       const svc = makeDiagnostics();
-      const result = new DiagnosticsController(svc, makeBundle(), makeDialogs()).reportError({
+      const result = new DiagnosticsController(svc, makeBundle(), makeDialogs(), makeReveal()).reportError({
         message: 'boom',
         source: 'window-error',
       });
@@ -129,7 +127,7 @@ describe('DiagnosticsController', () => {
         { level: 'warn' as const, message: 'second' },
       ];
 
-      new DiagnosticsController(svc, makeBundle(), makeDialogs()).reportLog({ entries, droppedCount: 3 });
+      new DiagnosticsController(svc, makeBundle(), makeDialogs(), makeReveal()).reportLog({ entries, droppedCount: 3 });
 
       expect(svc.logRendererConsoleBatch).toHaveBeenCalledWith(entries, 3);
     });
@@ -138,14 +136,14 @@ describe('DiagnosticsController', () => {
       const svc = makeDiagnostics();
       const entries = [{ level: 'info' as const, message: 'hello' }];
 
-      new DiagnosticsController(svc, makeBundle(), makeDialogs()).reportLog({ entries });
+      new DiagnosticsController(svc, makeBundle(), makeDialogs(), makeReveal()).reportLog({ entries });
 
       expect(svc.logRendererConsoleBatch).toHaveBeenCalledWith(entries, undefined);
     });
 
     it('should return undefined', () => {
       const svc = makeDiagnostics();
-      const result = new DiagnosticsController(svc, makeBundle(), makeDialogs()).reportLog({ entries: [] });
+      const result = new DiagnosticsController(svc, makeBundle(), makeDialogs(), makeReveal()).reportLog({ entries: [] });
 
       expect(result).toBeUndefined();
     });
@@ -156,9 +154,12 @@ describe('DiagnosticsController', () => {
     it('should write the bundle and return the written path when the operator picks a save location', async () => {
       const bundle = makeBundle();
       const dialogs = makeDialogs('/tmp/hyveon-diagnostics.zip');
-      const controller = new TestableDiagnosticsController(makeDiagnostics(), bundle, dialogs);
+      const reveal = makeReveal();
+      const controller = new DiagnosticsController(makeDiagnostics(), bundle, dialogs, reveal);
 
       const result = await controller.exportBundle();
+
+      expect(reveal.record).toHaveBeenCalledWith('diagnostics-bundle', '/tmp/hyveon-diagnostics.zip');
 
       expect(dialogs.pickSavePath).toHaveBeenCalledWith(expect.stringMatching(/^hyveon-diagnostics-.*\.zip$/), {
         title: 'Export diagnostics bundle',
@@ -168,10 +169,20 @@ describe('DiagnosticsController', () => {
       expect(result).toEqual({ status: 'written', path: '/tmp/hyveon-diagnostics.zip' });
     });
 
+    // @spec APP-DIAG-BNDL-016
+    it('should not record a revealable path when the export fails', async () => {
+      const bundle = makeBundle();
+      vi.mocked(bundle.writeBundle).mockRejectedValue(new Error('disk full'));
+      const reveal = makeReveal();
+      await new DiagnosticsController(makeDiagnostics(), bundle, makeDialogs('/tmp/x.zip'), reveal).exportBundle();
+
+      expect(reveal.record).not.toHaveBeenCalled();
+    });
+
     // @spec APP-DIAG-BNDL-002
     it('should return a cancelled result without calling writeBundle when the operator cancels the dialog', async () => {
       const bundle = makeBundle();
-      const controller = new TestableDiagnosticsController(makeDiagnostics(), bundle, makeDialogs(null));
+      const controller = new DiagnosticsController(makeDiagnostics(), bundle, makeDialogs(null), makeReveal());
 
       const result = await controller.exportBundle();
 
@@ -183,33 +194,11 @@ describe('DiagnosticsController', () => {
     it('should return an error result with a message, not a thrown error, when writeBundle rejects', async () => {
       const bundle = makeBundle();
       vi.mocked(bundle.writeBundle).mockRejectedValue(new Error('disk full'));
-      const controller = new TestableDiagnosticsController(makeDiagnostics(), bundle, makeDialogs('/tmp/hyveon-diagnostics.zip'));
+      const controller = new DiagnosticsController(makeDiagnostics(), bundle, makeDialogs('/tmp/hyveon-diagnostics.zip'), makeReveal());
 
       const result = await controller.exportBundle();
 
       expect(result).toEqual({ status: 'error', message: 'disk full' });
-    });
-  });
-
-  describe('showInFolder', () => {
-    // @spec APP-DIAG-BNDL-016
-    it('should delegate to revealInFolder with the given path', () => {
-      const controller = new TestableDiagnosticsController(makeDiagnostics(), makeBundle(), makeDialogs());
-      const spy = vi.spyOn(controller, 'revealInFolder').mockImplementation(() => {});
-
-      controller.showInFolder({ path: '/tmp/hyveon-diagnostics.zip' });
-
-      expect(spy).toHaveBeenCalledWith('/tmp/hyveon-diagnostics.zip');
-    });
-
-    // @spec APP-DIAG-BNDL-017
-    it('should never throw when revealInFolder fails', () => {
-      const controller = new TestableDiagnosticsController(makeDiagnostics(), makeBundle(), makeDialogs());
-      vi.spyOn(controller, 'revealInFolder').mockImplementation(() => {
-        throw new Error('no file manager available');
-      });
-
-      expect(() => controller.showInFolder({ path: '/tmp/hyveon-diagnostics.zip' })).not.toThrow();
     });
   });
 });

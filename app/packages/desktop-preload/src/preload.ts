@@ -123,7 +123,7 @@ import type {
   RevokeBootstrapKeyResult,
   RendererLogEntry,
 } from './hyveon-api.js';
-import type { StackOutputs } from '@hyveon/shared';
+import type { RevealTarget, StackOutputs } from '@hyveon/shared';
 import { UPDATE_DOWNLOAD_CHUNK_CHANNEL, UPDATE_DOWNLOAD_END_CHANNEL } from '@hyveon/shared/updateChannels';
 import type {
   FolderOverwriteDecisionResult,
@@ -605,7 +605,10 @@ const api: HyveonApi = {
     reportLog: (entries: RendererLogEntry[], droppedCount?: number) =>
       invoke('diagnostics.reportLog', { entries, droppedCount }),
     exportBundle: () => invoke('diagnostics.exportBundle'),
-    showInFolder: (path: string) => invoke('diagnostics.showInFolder', { path }),
+  },
+
+  shell: {
+    revealInFolder: (target: RevealTarget) => invoke('shell.revealInFolder', { target }),
   },
 
   audit: {

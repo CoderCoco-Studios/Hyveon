@@ -22,7 +22,7 @@ type ExportBundleState = 'idle' | 'loading' | { status: 'success'; path: string 
 /**
  * "Export diagnostics bundle" button plus its two result banners (a success
  * banner with a "Show in folder" action, or an error banner) — owns the
- * `diagnostics.exportBundle`/`diagnostics.showInFolder` IPC calls and their
+ * `diagnostics.exportBundle`/`shell.revealInFolder` IPC calls and their
  * client-side state so callers only render the button and let it drive its
  * own result UI.
  */
@@ -54,7 +54,7 @@ export function ExportBundleButton() {
   /** Reveals the last-exported bundle in the OS's file manager. A no-op unless {@link exportState} is a success. */
   const handleShowInFolder = useCallback(() => {
     if (typeof exportState === 'object' && exportState.status === 'success') {
-      void api.diagnosticsShowInFolder(exportState.path);
+      void api.revealInFolder('diagnostics-bundle');
     }
   }, [exportState]);
 

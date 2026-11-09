@@ -147,7 +147,7 @@ Feature-complete against its requirement sets, including in-app key rotation fro
 | Stack initialization step (code owned by iac/engine) | `APP-WIZARD-STACK-001` to `APP-WIZARD-STACK-004` | 4 | 0 | 0 |
 | Guided IAM step in the wizard | `APP-WIZARD-GSTEP-001` to `APP-WIZARD-GSTEP-006` | 6 | 0 | 0 |
 | Guided IAM CloudFormation template | `APP-WIZARD-TMPL-001` to `APP-WIZARD-TMPL-011` | 11 | 0 | 0 |
-| Guided IAM console handoff | `APP-WIZARD-CONSOLE-001` to `APP-WIZARD-CONSOLE-006` | 5 | 1 | 0 |
+| Guided IAM console handoff | `APP-WIZARD-CONSOLE-001` to `APP-WIZARD-CONSOLE-006` | 6 | 0 | 0 |
 | Guided IAM bootstrap key intake | `APP-WIZARD-INTAKE-001` to `APP-WIZARD-INTAKE-006` | 6 | 0 | 0 |
 | Guided IAM mandatory rotation | `APP-WIZARD-ROTATE-001` to `APP-WIZARD-ROTATE-008` | 8 | 0 | 0 |
 | Keychain requirement for guided and pasted credentials | `APP-WIZARD-KEYCH-001` to `APP-WIZARD-KEYCH-003` | 3 | 0 | 0 |

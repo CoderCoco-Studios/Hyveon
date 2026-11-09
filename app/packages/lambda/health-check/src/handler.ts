@@ -110,9 +110,13 @@ function requirePayloadHost(privateIp: string | null | undefined): string {
   return privateIp;
 }
 
-/** Builds the request URL so the declared `path` can never change the authority; the connect address stays `host`. */
+/**
+ * Builds the request URL so the declared `path` can never change the authority; the connect address stays `host`.
+ * The scheme is always `http`, never read from the declaration, so a stored legacy `https` value cannot reach `fetch`.
+ */
+// @spec RT-HEALTH-HTTP-005
 function buildRequestUrl(healthCheck: GameServerHealthCheck, host: string): string {
-  const base = new URL(`${healthCheck.scheme}://${host}:${healthCheck.port}/`);
+  const base = new URL(`http://${host}:${healthCheck.port}/`);
   const target = new URL(healthCheck.path, base);
   if (target.host !== base.host) {
     throw new Error('declared path changes the request authority');

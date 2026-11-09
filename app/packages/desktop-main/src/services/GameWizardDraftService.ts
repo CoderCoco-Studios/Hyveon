@@ -279,22 +279,25 @@ const DEFAULT_HEALTH_CHECK_DRAFT: NonNullable<GameWizardDraft['healthCheck']> = 
  * `healthCheck` from before those fields existed (only `secretArn`/`secretSet`
  * present): `authType` becomes `'raw'` when `secretSet` is true (an
  * already-configured credential, necessarily `raw` — `basic`/`bearer` did
- * not exist yet when such a draft was autosaved) or `'none'` otherwise.
+ * not exist yet when such a draft was autosaved) or `'none'` otherwise. Resets a non-`http` `scheme` to `http`, since
+ * health checks are http-only and the wizard's scheme control offers no other value.
  */
+// @spec RT-HEALTH-VALID-010
 function backfillHealthCheck(stored: StoredGameWizardDraft): StoredGameWizardDraft {
   if (!stored.draft.healthCheck) {
     return { ...stored, draft: { ...stored.draft, healthCheck: DEFAULT_HEALTH_CHECK_DRAFT } };
   }
   const hc = stored.draft.healthCheck;
-  if (hc.authType !== undefined) {
+  if (hc.authType !== undefined && hc.scheme === 'http') {
     return stored;
   }
+  const authFields: Partial<NonNullable<GameWizardDraft['healthCheck']>> =
+    hc.authType === undefined
+      ? { authType: hc.secretSet ? 'raw' : 'none', username: '', password: '', token: '' }
+      : {};
   return {
     ...stored,
-    draft: {
-      ...stored.draft,
-      healthCheck: { ...hc, authType: hc.secretSet ? 'raw' : 'none', username: '', password: '', token: '' },
-    },
+    draft: { ...stored.draft, healthCheck: { ...hc, ...authFields, scheme: 'http' } },
   };
 }
 

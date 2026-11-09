@@ -1,10 +1,10 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { createRequire } from 'node:module';
 import type { ExportDiagnosticsBundleResult, RendererLogEntry } from '@hyveon/shared';
 import { DiagnosticsService } from '../services/DiagnosticsService.js';
 import { DiagnosticsBundleService } from '../services/DiagnosticsBundleService.js';
 import { NativeDialogService } from '../services/NativeDialogService.js';
+import { ShellRevealService } from '../services/ShellRevealService.js';
 import { logger } from '../logger.js';
 import { errMessage } from '@hyveon/shared';
 
@@ -22,18 +22,12 @@ export interface ReportRendererLogBatchInput {
   droppedCount?: number;
 }
 
-/** Payload accepted by `diagnostics.showInFolder`. */
-export interface ShowInFolderInput {
-  path: string;
-}
-
 // @spec APP-DIAG-SVC-005
 /**
  * IPC-only controller for local application log data.
  *
  * Registers the `diagnostics.tail`, `diagnostics.path`, `diagnostics.reportError`,
- * `diagnostics.reportLog`, `diagnostics.exportBundle`, and
- * `diagnostics.showInFolder` Electron IPC channels so the renderer can reach
+ * `diagnostics.reportLog`, and `diagnostics.exportBundle` Electron IPC channels so the renderer can reach
  * them through `window.hyveon.diagnostics.*`. No HTTP routes are declared here.
  */
 @Controller()
@@ -42,6 +36,7 @@ export class DiagnosticsController {
     private readonly diagnostics: DiagnosticsService,
     private readonly bundle: DiagnosticsBundleService,
     private readonly dialogs: NativeDialogService,
+    private readonly shellReveal: ShellRevealService,
   ) {}
 
   // @spec APP-DIAG-TAIL-006
@@ -97,41 +92,12 @@ export class DiagnosticsController {
     }
     try {
       const result = await this.bundle.writeBundle(destinationPath);
+      this.shellReveal.record('diagnostics-bundle', result.path);
       return { status: 'written', path: result.path };
     } catch (err) {
       const message = errMessage(err);
       logger.error('DiagnosticsController: diagnostics.exportBundle failed to write bundle', { message });
       return { status: 'error', message };
     }
-  }
-
-  // @spec APP-DIAG-BNDL-016, APP-DIAG-BNDL-017
-  /**
-   * Reveals the written bundle in the OS's file manager via Electron's
-   * `shell.showItemInFolder`, backing the export success toast's "Show in
-   * folder" action. Never rejects — a failure to reveal the file is not
-   * worth surfacing as an error over a file that was already written
-   * successfully.
-   */
-  @MessagePattern('diagnostics.showInFolder')
-  showInFolder(@Payload() body: ShowInFolderInput): void {
-    logger.debug('DiagnosticsController: diagnostics.showInFolder invoked');
-    try {
-      this.revealInFolder(body.path);
-    } catch (err) {
-      const message = errMessage(err);
-      logger.warn('DiagnosticsController: diagnostics.showInFolder failed', { message });
-    }
-  }
-
-  /**
-   * Calls `shell.showItemInFolder(path)`, lazily requiring `electron` at
-   * call-time. Extracted as a protected method so tests can stub it without
-   * a real Electron process.
-   */
-  protected revealInFolder(path: string): void {
-    const _require = createRequire(import.meta.url);
-    const { shell } = _require('electron') as { shell: { showItemInFolder(path: string): void } };
-    shell.showItemInFolder(path);
   }
 }
