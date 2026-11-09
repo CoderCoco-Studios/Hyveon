@@ -121,8 +121,7 @@ never speaks HTTP to this process.
   which imports both). Also directly provides a handful of
   controller-adjacent services that don't warrant their own module
   (`DiagnosticsService`, `DiagnosticsBundleService`, `DriftService`,
-  `GamesWriteService`, `AuditService`, `GameWizardDraftService`,
-  `WindowService`) plus the `DIAGNOSTICS_LOG_DIR` token.
+  `GamesWriteService`, `AuditService`, `GameWizardDraftService`) plus the `DIAGNOSTICS_LOG_DIR` token.
 - **`ConfigModule`** — imports `ElectronStoreModule` and `PulumiServiceModule`
   (so `ConfigService` can inject `PulumiService`); provides just
   `ConfigService`. Extracted on its own so every other feature module can
@@ -223,10 +222,12 @@ never speaks HTTP to this process.
 Every controller is IPC-only: handlers are bound to a channel name via
 `@MessagePattern()`/`@Payload()` — there are no HTTP routes anywhere in this
 app. The renderer calls into these via `window.hyveon.*` (the preload bridge),
-which forwards to `ipcRenderer.invoke(channel, ...)`. The one exception is
-`window.maximizedChange`, a one-way main → renderer push (`webContents.send`,
-consumed via `ipcRenderer.on`) rather than an `invoke`d request/response —
-called out again in the `WindowController` row below.
+which forwards to `ipcRenderer.invoke(channel, ...)`. The exceptions are the one-way main → renderer pushes (`folderUpload.progress`,
+`volumeFiles.session`, `volumeFiles.transfer`), sent with `webContents.send` and
+consumed via `ipcRenderer.on` rather than an `invoke`d request/response. The OS
+draws the window buttons (native traffic lights on macOS, a native
+`titleBarOverlay` on Windows and Linux), so there are no window-control
+channels; `window.hyveon.window` carries only `platform`.
 
 | Controller | Representative channels | Purpose |
 |---|---|---|
@@ -243,7 +244,6 @@ called out again in the `WindowController` row below.
 | `IacSettingsController` | `iac.settings.get`, `iac.settings.update`, `iac.settings.engineVersion`, `iac.settings.autoUpdate.get`, `iac.settings.autoUpdate.update`, `iac.settings.autoUpdate.check`, `iac.settings.autoUpdate.download`, `iac.settings.autoUpdate.install` | Reads/writes every top-level `deployment-config.json` field EXCEPT `gameServers` — backs the Settings page's [General section](/app/settings#general). `update` validates via the shared `validateDeploymentSettingsPatch` (`@hyveon/shared`) before delegating to `DeploymentConfigService.updateTopLevelSettings()`; a stale `expectedVersionId` returns `{ code: 'conflict' }` rather than silently overwriting a concurrent edit. `get` and `update` return `{ code: 'not_found' }` when the bucket is configured but `deployment-config.json` is absent (distinct from the catch-all `error`). `update` returns the settings and etag its own write produced and never re-reads. Logged failures carry the error's `.message` only. `engineVersion` reads `PulumiEngineService.getResolvedVersion()` (`null` when not yet provisioned) — backs the [Cloud Setup section](/app/settings#cloud-setup)'s Pulumi engine version row. The `autoUpdate.*` pair reads/writes `ElectronStoreService`'s `enableAutoUpdate` flag (a local install-level setting, not a `deployment-config.json` field) — backs the [Updates section](/app/settings#updates)'s toggle. `autoUpdate.get` also returns `appVersion` (the running app's `app.getVersion()` via `readAppVersion()`, `'unknown'` outside Electron) — backs the Updates section's App Version row. `autoUpdate.check` triggers an on-demand `checkForUpdatesNow()` call in `updater.ts`, independent of the `enableAutoUpdate` flag (that flag only gates `initUpdater`'s automatic boot-time check); it never downloads or installs, retries once against the newest published release that carries the platform feed file (`updater-fallback.ts`) if the primary check fails (surfacing the original error if that also fails), and resolves the discriminated `ManualUpdateCheckResult` (`@hyveon/shared`) — `{ ok: true, updateAvailable: true, version }`, `{ ok: true, updateAvailable: false }`, or `{ ok: false, message }`. `autoUpdate.download` and `autoUpdate.install` are the only handlers that ever download or install an update, and only on an explicit operator click: `download` runs `downloadUpdateNow()` and streams progress over the `iac.settings.autoUpdate.download.chunk` / `.end` side channels (self-bridged like `iac.stack.initialize`, since it needs the invoke event's sender; a failure is the end message's `error`); `install` calls `installDownloadedUpdate()`, i.e. `quitAndInstall(false, true)`. Both `engine` and `store` are optional constructor params so direct-construction test call sites keep compiling without stubbing them; a real `AppModule` bootstrap always resolves both. `get` also returns an optional `region` from `ConfigService.getRegion()` — the install's one region, shown read-only on the Settings page. `update` rejects any patch carrying `awsRegion` through the shared validator (`CONFIG-SET-012`); the region is chosen in the setup wizard. `config` is a third optional constructor param, for the same reason as `engine` and `store`. |
 | `WizardController` | first-run wizard channels (AWS profile/credentials, `wizard.aws.rotateKey` in-place key rotation, bootstrap, IAM check, guided-IAM CloudFormation bootstrap, progress) | Backs the in-app setup wizard — see the [setup guide](/setup). |
 | `ShellController` | `shell.revealInFolder` | Reveals an app-owned file in the OS file manager through `ShellRevealService`. The renderer sends a target name (`guided-iam-template` or `diagnostics-bundle`), never a path; the main process reveals only the path `WizardController` (after `wizard.guidedIam.prepareTemplate`) or `DiagnosticsController` (after a successful `diagnostics.exportBundle`) recorded for that target, and refuses unknown targets, unrecorded targets and files that no longer exist, logging a `warn` and never rejecting. |
-| `WindowController` | `window.minimize`, `window.toggleMaximize`, `window.close`, `window.isMaximized` (invoke request/response) + `window.maximizedChange` (main → renderer push, not an invoke channel — see above) | Minimize, maximize, close, and query the maximized state of the main window. `window.maximizedChange` is pushed whenever the main window's maximized state changes, for any reason (the app's own button, OS-level snap/restore, or macOS/Windows native window controls). Backs the app header's merged title bar, rendered with platform-specific window-control buttons: native traffic lights on macOS, native titleBarOverlay on Windows, and app-drawn buttons on Linux. macOS and Windows get double-click-to-maximize on the drag region for free from Electron/Chromium; the app does not add an equivalent handler for Linux's app-drawn header. |
 
 ### `VolumeFilesController` contract
 

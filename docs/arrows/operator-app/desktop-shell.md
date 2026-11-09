@@ -20,20 +20,17 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 - `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md` (90 specs)
 
 ### Tests
-- `app/packages/desktop-main/src/controllers/window.controller.test.ts`
 - `app/packages/desktop-main/src/electron-entry.test.ts`
 - `app/packages/desktop-main/src/fix-path-bootstrap.test.ts`
 - `app/packages/desktop-main/src/main.test.ts`
 - `app/packages/desktop-main/src/modules/cloud-provider.module.test.ts`
 - `app/packages/desktop-main/src/services/NativeDialogService.test.ts`
-- `app/packages/desktop-main/src/services/WindowService.test.ts`
 - `app/packages/web/e2e/specs/electron-clean-quit.spec.ts`
 - `app/packages/web/e2e/specs/electron-smoke.spec.ts`
 - `app/packages/web/e2e/specs/polling.spec.ts`
 - `app/packages/web/e2e/specs/settings.spec.ts`
 - `app/packages/web/src/app.component.test.tsx`
 - `app/packages/web/src/components/app-layout.component.test.tsx`
-- `app/packages/web/src/components/window-chrome.component.test.tsx`
 - `app/packages/web/src/design-tokens.test.ts`
 - `app/packages/web/src/components/confirm-dialog.component.test.tsx`
 - `app/packages/web/src/components/ui/form-field.component.test.tsx`
@@ -50,7 +47,6 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 - `electron-entry.ts`, `main.ts`, `env.ts`, `fix-path-bootstrap.ts`
 - `app.module.ts`, `modules/cloud-provider.module.ts`, `modules/cloud-provider.tokens.ts`
 - `app/packages/desktop-main/src/services/NativeDialogService.ts`, `modules/native-dialog.module.ts`
-- `app/packages/desktop-main/src/services/WindowService.ts`, `controllers/window.controller.ts`
 
 **`@hyveon/web`** (`app/packages/web/`)
 - Entry and routing: `index.html`, `app/packages/web/src/main.tsx`, `app/packages/web/src/app.component.tsx`, `app/packages/web/src/index.css`, `app/packages/web/src/vite-env.d.ts`
@@ -87,13 +83,13 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 **Purpose:** Give the operator one window. Start Electron, build the Nest container, create the `BrowserWindow` with per-platform chrome, gate the renderer on the first-run wizard, then render a routed shell (sidebar, top bar, Settings) on top of an app-wide polling registry.
 
 **Key Components:**
-1. `electron-entry.ts`: Electron main entry: clears the menu (`:208`), bootstraps Nest inside `app.whenReady()` (`:210-246`) and, after the updater, installs the helper quit hook (`:225`), creates the window with `titleBarStyle: 'hidden'` plus macOS `trafficLightPosition` / Windows `titleBarOverlay` (`platformWindowChromeOptions`, `:104-117`), re-positions macOS traffic lights on resize and zoom (`:146-158`), resolves the window icon (`:30-37`), routes `target="_blank"` to the OS browser (`:46-53`).
+1. `electron-entry.ts`: Electron main entry: clears the menu (`:208`), bootstraps Nest inside `app.whenReady()` (`:210-246`) and, after the updater, installs the helper quit hook (`:225`), creates the window with `titleBarStyle: 'hidden'` plus macOS `trafficLightPosition` / Windows and Linux `titleBarOverlay` (`platformWindowChromeOptions`, `:104-117`), re-positions macOS traffic lights on resize and zoom (`:146-158`), resolves the window icon (`:30-37`), routes `target="_blank"` to the OS browser (`:46-53`).
 2. `main.ts`: `applyFixPath()`, refuses to run outside Electron (`:18-23`), creates the winston logger under `userData/logs` (`:25-26`), `bootstrap()` creates the IPC microservice, registers `RpcErrorMessageFilter`, then calls `registerIpcMainBridges` (`:43-56`).
-3. `app.module.ts`: Nest composition root: 13 feature modules, 16 IPC controllers, 7 loose providers including `WindowService` (`:67-121`).
+3. `app.module.ts`: Nest composition root: 13 feature modules, 15 IPC controllers, 6 loose providers (`:67-121`).
 4. `modules/cloud-provider.module.ts`: binds the seven cloud tokens (`cloud-provider.tokens.ts`) to `@hyveon/cloud-aws` through `CLOUD_BINDINGS` keyed by `ConfigService.getActiveCloud()` (`:193-226`, `:246-305`); lazy config resolvers including the pre-apply runs-table fallback (`:163-184`).
-5. `app/packages/desktop-main/src/services/WindowService.ts` + `controllers/window.controller.ts`: `window.minimize|toggleMaximize|close|isMaximized` channels (`window.controller.ts:16-41`); `maximize`/`unmaximize` pushed as `window.maximizedChange` via `webContents.send` (`WindowService.ts:117-124`).
+5. `app/packages/desktop-preload/src/preload.ts` `window` namespace: exposes only `platform`; the OS draws all window buttons, so there are no window-control channels.
 6. `app/packages/web/src/main.tsx` + `app.component.tsx`: mounts React with `ErrorBoundary` and global error/console forwarding (`main.tsx:6-23`); first-run gate on `wizard.getState()` (`app.component.tsx:28-61`); `HashRouter` route table of 13 routes (`:97-111`).
-7. `app-layout`, `app-nav`, `app-topbar`, `window-chrome` components: sidebar plus mobile drawer (`app-layout.component.tsx:57-125`), nav groups Monitoring / Logs / Configuration (`app-nav.component.tsx:21-59`), top bar with env pill, Refresh-all and LIVE (`app-topbar.component.tsx:80-137`), Linux-only app-drawn window buttons and mac/win spacers (`window-chrome.component.tsx:18-120`).
+7. `app-layout`, `app-nav`, `app-topbar`, `window-chrome` components: sidebar plus mobile drawer (`app-layout.component.tsx:57-125`), nav groups Monitoring / Logs / Configuration (`app-nav.component.tsx:21-59`), top bar with env pill, Refresh-all and LIVE (`app-topbar.component.tsx:80-137`), mac traffic-light and win/linux overlay spacers (`window-chrome.component.tsx:18-120`).
 8. `polling/polling-provider.component.tsx`: named-poller registry split across stable-actions and 1 Hz state contexts (`:79-242`), `usePoller` (`:273-301`), `isStale` at 2x interval (`:304-315`); `polling-indicator` renders per-poller age.
 9. `pages/settings.page.tsx`: host page: engine version, auto-update toggle / check / download / install (direct `window.hyveon.iac.settings` calls, `:145-260`), then `WatchdogPanel`, `CloudHealthSection`, `DeploymentSettingsForm`, `DiagnosticsPanel` (`:271-382`).
 10. App icon pipeline: `build/generate-icons.mjs` (`npm run icons:generate`, root `package.json:49`) produces `build/icon.*` and `app/packages/web/public/favicon*`; `index.html:7-10` links the favicons; `electron-builder.yml:222-266` packages them.
@@ -106,17 +102,17 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 |---|---|---|---|---|
 | Process Start and Composition Root | `APP-SHELL-BOOT-001` to `APP-SHELL-BOOT-016` | 16 | 0 | 0 |
 | Cloud Provider Bindings | `APP-SHELL-BIND-001` to `APP-SHELL-BIND-004` | 4 | 0 | 0 |
-| Window Chrome | `APP-SHELL-CHROME-001` to `APP-SHELL-CHROME-014` | 13 | 1 | 0 |
-| Window-Control IPC | `APP-SHELL-WINIPC-001` to `APP-SHELL-WINIPC-013` | 13 | 0 | 0 |
+| Window Chrome | `APP-SHELL-CHROME-001` to `APP-SHELL-CHROME-014` (010 and 011 retired) | 12 | 0 | 0 |
+| Window Platform Bridge | `APP-SHELL-WINIPC-011` | 1 | 0 | 0 |
 | App Icon | `APP-SHELL-ICON-001` to `APP-SHELL-ICON-005` | 5 | 0 | 0 |
 | First-Run Gate | `APP-SHELL-GATE-001` to `APP-SHELL-GATE-006` | 6 | 0 | 0 |
 | Routing and Navigation | `APP-SHELL-NAV-001` to `APP-SHELL-NAV-009` | 9 | 0 | 0 |
 | Top Bar | `APP-SHELL-TOP-001` to `APP-SHELL-TOP-004` | 4 | 0 | 0 |
 | Polling Heartbeat | `APP-SHELL-POLL-001` to `APP-SHELL-POLL-009` | 9 | 0 | 0 |
 | Settings Host Page | `APP-SHELL-SET-001` to `APP-SHELL-SET-003` | 3 | 0 | 0 |
-| UI Integrity and Design Tokens | `APP-SHELL-UI-001` to `APP-SHELL-UI-007` | 7 | 0 | 0 |
+| UI Integrity and Design Tokens | `APP-SHELL-UI-001` to `APP-SHELL-UI-007` (005 retired) | 6 | 0 | 0 |
 
-**Summary:** 89 of 90 active specs implemented; 1 deferred; 0 gaps.
+**Summary:** 75 of 75 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 
@@ -124,9 +120,9 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 2. **Sidebar covers the route table**: all 9 top-level routes in `app.component.tsx:98-110` have a nav entry in `app-nav.component.tsx:21-59`; `/iac/history`, `/iac/history/:runId` `/games/:name` and `/games/:name/files` are detail routes. The `desktop-only-operator-surface` sidebar requirement holds. The `CostsPage.ts` TODO claiming Costs is absent from the sidebar is stale (§6 disagreement, owned by `task-and-dns`).
 3. **Dashboard active check is exact-match in effect**: `app-nav.component.tsx:90` tests `startsWith('//')`, which never matches, so Dashboard is active only on `/`. The behaviour is correct; the expression is misleading, and `:87-113` index `monitoringItems[0]`/`[1]` by position.
 4. **Title-bar colours and geometry are hard-coded twice**: `electron-entry.ts:113` hard-codes `#1a1d2e`/`#e1e4ed`/`56`; `index.css:11-17` declares `--color-card` specifically to keep `bg-card` equal to that literal. `electron-entry.ts:60-70` bakes the 768 px breakpoint and the 240 px sidebar width (`w-60`) into traffic-light positions. Any theme or layout change must edit both packages.
-5. **Shell colour tokens resolve**: `index.css` `@theme` declares `--color-background`, `--color-muted` and `--color-accent` beside `--color-card`, and the close button uses `--color-red`; `design-tokens.test.ts` fails when a chrome file uses a semantic colour utility with no declared token (`APP-SHELL-UI-004`, `APP-SHELL-UI-005`).
+5. **Shell colour tokens resolve**: `index.css` `@theme` declares `--color-background`, `--color-muted` and `--color-accent` beside `--color-card`; `design-tokens.test.ts` fails when a chrome file uses a semantic colour utility with no declared token (`APP-SHELL-UI-004`).
 6. **`DESIGN.md` mirrors `index.css`**: the colour table lists the same tokens and values, and `design-tokens.test.ts` compares them (`APP-SHELL-UI-006`).
-7. **Drag-region mechanisms**: the skip link and the top bar use `useAppRegionStyle`; `window-chrome.component.tsx` and the macOS sidebar brand block still write `WebkitAppRegion` inline, and the helper is named as a hook but calls no React hook (`use-app-region-style.hook.ts`). The brand block is one `BrandMark` component reading "Hyveon" everywhere.
+7. **Drag-region mechanisms**: the skip link and the top bar use `useAppRegionStyle`; the macOS sidebar brand block still writes `WebkitAppRegion` inline, and the helper is named as a hook but calls no React hook (`use-app-region-style.hook.ts`). The brand block is one `BrandMark` component reading "Hyveon" everywhere.
 8. **Env pill failure is visible**: an `api.env()` rejection renders `env unavailable` in the error style with the message as tooltip, distinct from the in-flight and genuine `local` text (`APP-SHELL-TOP-002`).
 9. **Polling registry quirks**: same-name `register()` silently replaces the prior poller (`polling-provider.component.tsx:154-157`); the `usePollingState` doc says the slice carries `tick` but the field is `now` (`:256` vs `:60`). `polling-indicator.component.tsx:96-102` has its own relative-time formatter, separate from `use-log-tail.hook.ts` (sweep-1 `[unverified]` on that second copy's rounding).
 10. **Stale comments in the composition root**: `app.module.ts:51-53` says `PulumiEngineModule` has "no controller of their own yet", but `iac-settings.controller.ts:210` serves `iac.settings.engineVersion` from `PulumiEngineService`. The module doc list at `:43-46` omits `FolderUploadModule`, `NativeDialogModule`, `VolumeFilesModule` and `VolumeFilesApiModule` (imported at `:78-81`). `window-chrome.component.tsx:7` cites a design decision "(D2)" from a document that no longer exists.
@@ -135,23 +131,3 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 13. **Main-process errors reach winston**: `electron-entry.ts` reports external-link, renderer-load, updater-init and Nest-bootstrap failures through `logStartupFailure` (`APP-SHELL-BOOT-008`). `main.ts:25` uses a top-level `await import('electron')`.
 14. **Stale e2e rationale**: `electron-clean-quit.spec.ts:11-14` says `@cdktf/hcl2json` and `@pulumi/pulumi` are "both" marked external; `electron.vite.config.ts:42` and `verify-main-bundle-externals.mjs` describe hcl2json as retired.
 15. **Dead and duplicated primitives**: `app/packages/web/src/components/ui/dropdown-menu.component.tsx` has no importer (verified). `button.component.tsx:13-14` and `:25-26` define identical `destructive` and `stop` variants. Sweep-2 notes the input class string copied into `native-select` and `textarea` `[unverified]`. `electron-entry.test.ts` mocks `setWindowOpenHandler` and `openExternal` but no test asserts the external-link redirect or the `zoom-changed` re-position.
-
-Note: the inventory digest lists "`electron-entry.ts:94` Linux no native chrome (PR #531 TODO)". There is no TODO in the code; `:94` simply documents that Linux gets app-drawn buttons, which is what `custom-title-bar` requires. The planned move to a native Linux overlay lives outside the repo.
-
-## Work Required
-
-Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md`; items with no matching gap spec carry none.
-
-### Must Fix
-None open.
-
-### Should Fix
-1. Derive the Windows overlay colours and traffic-light geometry from one shared source, or add a test pinning them to `index.css` (finding 4).
-2. Fix stale comments in `app.module.ts`, `polling-provider.component.tsx:256`, `electron-clean-quit.spec.ts:11-14` (findings 9, 10, 14).
-3. Add tests for `resolveDiscordConfigStoreConfig` and the zoom re-position (findings 11, 15).
-
-### Nice to Have
-10. Collapse the remaining inline drag-region styles into `useAppRegionStyle` and rename it to a plain function (finding 7).
-11. Remove `dropdown-menu.component.tsx`; merge `stop` into `destructive` (finding 15).
-12. Replace positional `monitoringItems[n]` and the `startsWith('//')` check in `app-nav` (finding 3).
-13. Warn or throw on duplicate poller names (finding 9).

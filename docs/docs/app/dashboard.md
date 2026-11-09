@@ -220,7 +220,7 @@ intervals pass without a successful poll it turns into a red
 The **Refresh** button in the top bar forces every poller to run immediately.
 The `LIVE` pill next to it summarises the same health across all pollers.
 
-The top bar doubles as the app's window title bar — drag any empty area of it to move the window, and on Linux it shows in-app minimize/maximize/close buttons since the OS title bar is hidden.
+The top bar doubles as the app's window title bar — drag any empty area of it to move the window. The OS draws the minimize/maximize/close buttons into it (native traffic lights on macOS, a native overlay on Windows and Linux).
 
 Note that the underlying per-game cost estimates (`costs.estimate`) are
 fetched at app start and when you open the Costs page, not part of that 20-second cycle — see

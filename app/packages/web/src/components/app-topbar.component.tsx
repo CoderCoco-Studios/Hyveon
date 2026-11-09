@@ -3,7 +3,7 @@ import { cn } from '../lib/utils.utils.js';
 import { Button } from '@/components/ui/button.component';
 import { isStale, usePollingActions, usePollingState } from '../polling/polling-provider.component.js';
 import { useAppRegionStyle } from '../hooks/use-app-region-style.hook.js';
-import { TrafficLightSpacer, TitlebarOverlaySpacer, WindowControls } from './window-chrome.component.js';
+import { TrafficLightSpacer, TitlebarOverlaySpacer } from './window-chrome.component.js';
 
 // @spec APP-SHELL-TOP-003
 /**
@@ -141,8 +141,6 @@ export function AppTopbar({
         >
           <span className="text-xs font-medium text-white">OP</span>
         </div>
-
-        <WindowControls />
 
         <TitlebarOverlaySpacer />
       </div>

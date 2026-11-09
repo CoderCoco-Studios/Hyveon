@@ -54,7 +54,7 @@ Channel names follow `<namespace>.<action>` (`preload.ts:10`); `expectChannels` 
 
 ### Push channels
 
-Three namespaces expose four event subscriptions instead of streams, all through one preload `subscribe(channel, cb)` helper that drops the Electron event argument (`preload.ts:216-220`): `folderUpload.onProgress` on `folderUpload.progress` (`preload.ts:485`), `volumeFiles.onSession` on `volumeFiles.session` and `volumeFiles.onTransfer` on `volumeFiles.transfer` (`preload.ts:524-525`), and `window.onMaximizedChange` on `window.maximizedChange` (`preload.ts:650`).
+Two namespaces expose three event subscriptions instead of streams, all through one preload `subscribe(channel, cb)` helper that drops the Electron event argument (`preload.ts:216-220`): `folderUpload.onProgress` on `folderUpload.progress` (`preload.ts:485`), `volumeFiles.onSession` on `volumeFiles.session` and `volumeFiles.onTransfer` on `volumeFiles.transfer` (`preload.ts:524-525`).
 Each returns an unsubscribe function, which is clone-safe because it is a function returned by a bridged call.
 The two `volumeFiles` channel names are string literals in preload, because the sandboxed preload cannot load `@hyveon/shared/volumeFiles` at runtime; `preload.test.ts:340-341` pins them to the shared constants (`preload.ts:143-148`, `shared/src/volumeFiles/types.ts:96-99`).
 On the main side the `volumeFiles` pushes go through `forwardToWindows`, which subscribes to a service event source and `webContents.send`s each event to every non-destroyed window, and subscribes nothing outside Electron (`ipc-broadcast.ts:16-29`; caller `volume-files.controller.ts:105-106`, owned by `helper-task`).
