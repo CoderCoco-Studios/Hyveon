@@ -17,7 +17,7 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 - `docs/intent/operator-app/desktop-shell/desktop-shell-design.md`
 
 ### EARS
-- `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md` (90 specs)
+- `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md` (79 specs)
 
 ### Tests
 - `app/packages/desktop-main/src/electron-entry.test.ts`
@@ -111,8 +111,9 @@ Spec-backed surfaces (custom title bar, app icon, sidebar coverage) match the co
 | Polling Heartbeat | `APP-SHELL-POLL-001` to `APP-SHELL-POLL-009` | 9 | 0 | 0 |
 | Settings Host Page | `APP-SHELL-SET-001` to `APP-SHELL-SET-003` | 3 | 0 | 0 |
 | UI Integrity and Design Tokens | `APP-SHELL-UI-001` to `APP-SHELL-UI-007` (005 retired) | 6 | 0 | 0 |
+| Reveal in File Manager | `APP-SHELL-REVEAL-001` to `APP-SHELL-REVEAL-004` | 4 | 0 | 0 |
 
-**Summary:** 75 of 75 active specs implemented; 0 deferred; 0 gaps.
+**Summary:** 79 of 79 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 
