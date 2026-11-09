@@ -19,12 +19,12 @@ export class AppLayout {
   }
 
   /**
-   * Linux-only app-drawn window-control button, by its accessible name
-   * (Minimize/Maximize/Restore/Close). `exact: true` is required — Playwright's
+   * Locator for an app-drawn window-control button, by its accessible name.
+   * The renderer draws none (native chrome), so specs assert it is absent. `exact: true` is required — Playwright's
    * default substring name matching would otherwise let `'Close'` also match
    * the mobile drawer's `aria-label="Close navigation"` button.
    */
-  windowControlButton(name: 'Minimize' | 'Maximize' | 'Restore' | 'Close'): Locator {
+  windowControlButton(name: 'Minimize' | 'Maximize' | 'Close'): Locator {
     return this.page.getByRole('button', { name, exact: true });
   }
 

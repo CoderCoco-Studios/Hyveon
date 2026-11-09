@@ -38,19 +38,11 @@ test.describe('electron smoke', () => {
   /**
    * Exercises the custom title bar (add-custom-title-bar) against the real
    * preload bridge — earlier coverage only asserted `window.hyveon` exists,
-   * not that the header is actually a drag region or that Linux's app-drawn
-   * window-control buttons render and are clickable.
-   *
-   * The drag-region assertion is platform-independent (a CSS property check),
-   * but the Minimize/Maximize/Close button assertions only hold where the app
-   * draws its own buttons — Linux only (macOS/Windows use native OS chrome
-   * instead, see `platformWindowChromeOptions()` in `electron-entry.ts`). CI
-   * runs this project on `ubuntu-latest` (`.github/workflows/e2e.yml`), so
-   * `process.platform` is reliably `linux` there; this test gates the button
-   * assertions on that so it still passes (skipping just the button checks)
-   * if ever run locally on macOS/Windows.
+   * not that the header is actually a drag region or that the renderer draws
+   * no window buttons of its own (native chrome on every platform, see
+   * `platformWindowChromeOptions()` in `electron-entry.ts`).
    */
-  test('should mark the header as a drag region and, on Linux, render clickable window controls', async () => {
+  test('should mark the header as a drag region and render no app-drawn window controls', async () => {
     const { app, win } = await launchElectron();
 
     try {
@@ -65,24 +57,12 @@ test.describe('electron smoke', () => {
       // the `!` narrows that without an `as unknown as T` cast.
       const platform = await win.evaluate(() => window.hyveon!.window.platform);
 
-      if (platform === 'linux') {
-        const minimizeButton = layout.windowControlButton('Minimize');
-        const maximizeButton = layout.windowControlButton('Maximize');
-        const closeButton = layout.windowControlButton('Close');
-        await expect(minimizeButton).toBeVisible();
-        await expect(closeButton).toBeVisible();
-        await expect(minimizeButton).toBeEnabled();
-        await expect(closeButton).toBeEnabled();
-
-        // Exercise the real IPC round trip (preload -> ipcMain -> WindowController
-        // -> WindowService), not just that the buttons render — a missing
-        // WindowController registration would leave these clicks hanging
-        // forever with no other test at any tier catching it.
-        await maximizeButton.click();
-        await expect(layout.windowControlButton('Restore')).toBeVisible();
-        await layout.windowControlButton('Restore').click();
-        await expect(maximizeButton).toBeVisible();
-      }
+      // The OS draws the window buttons (traffic lights, or `titleBarOverlay`
+      // on Windows/Linux), so the renderer never renders its own.
+      expect(['darwin', 'win32', 'linux']).toContain(platform);
+      await expect(layout.windowControlButton('Minimize')).toHaveCount(0);
+      await expect(layout.windowControlButton('Maximize')).toHaveCount(0);
+      await expect(layout.windowControlButton('Close')).toHaveCount(0);
     } finally {
       await app.close();
     }

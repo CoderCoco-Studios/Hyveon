@@ -663,14 +663,9 @@ const api: HyveonApi = {
     },
   },
 
-  // @spec APP-SHELL-WINIPC-011, APP-SHELL-WINIPC-012, APP-SHELL-WINIPC-013
+  // @spec APP-SHELL-WINIPC-011
   window: {
     platform: process.platform,
-    minimize: () => invoke<void>('window.minimize'),
-    toggleMaximize: () => invoke<void>('window.toggleMaximize'),
-    close: () => invoke<void>('window.close'),
-    isMaximized: () => invoke<boolean>('window.isMaximized'),
-    onMaximizedChange: (cb: (isMaximized: boolean) => void) => subscribe<boolean>('window.maximizedChange', cb),
   },
 };
 

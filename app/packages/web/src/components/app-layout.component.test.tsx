@@ -364,11 +364,6 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     vi.stubGlobal('hyveon', {
       window: {
         platform: 'linux',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
       },
     });
 
@@ -389,11 +384,6 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     vi.stubGlobal('hyveon', {
       window: {
         platform: 'linux',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
       },
     });
 
@@ -409,16 +399,11 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(refreshButton.style.getPropertyValue('-webkit-app-region')).toBe('no-drag');
   });
 
-  // @spec APP-SHELL-CHROME-010
-  it('should render Linux minimize/maximize/close buttons when platform is linux', () => {
+  // @spec APP-SHELL-CHROME-012
+  it('should not render any app-drawn window-control buttons when platform is linux', () => {
     vi.stubGlobal('hyveon', {
       window: {
         platform: 'linux',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
       },
     });
 
@@ -430,9 +415,9 @@ describe('AppLayout — window chrome (custom title bar)', () => {
       </PollingProvider>,
     );
 
-    expect(screen.getByRole('button', { name: 'Minimize' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Maximize' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    for (const name of ['Minimize', 'Maximize', 'Restore', 'Close']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
   });
 
   // @spec APP-SHELL-CHROME-005
@@ -440,11 +425,6 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     vi.stubGlobal('hyveon', {
       window: {
         platform: 'darwin',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
       },
     });
 
@@ -465,11 +445,6 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     vi.stubGlobal('hyveon', {
       window: {
         platform: 'win32',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
       },
     });
 
@@ -485,16 +460,11 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
   });
 
-  // @spec APP-SHELL-CHROME-009
-  it('should reserve space for the Windows titleBarOverlay in the header trailing group on win32', () => {
+  // @spec APP-SHELL-CHROME-009, APP-SHELL-CHROME-012
+  it.each(['win32', 'linux'])('should reserve space for the titleBarOverlay in the header trailing group on %s', (platform) => {
     vi.stubGlobal('hyveon', {
       window: {
-        platform: 'win32',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+        platform,
       },
     });
 
@@ -525,15 +495,10 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(trailingGroup).toHaveStyle({ flexShrink: '0' });
   });
 
-  it('should NOT reserve space for the Windows titleBarOverlay on linux or darwin', () => {
+  it('should NOT reserve space for the titleBarOverlay on darwin', () => {
     vi.stubGlobal('hyveon', {
       window: {
-        platform: 'linux',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+        platform: 'darwin',
       },
     });
 
@@ -554,11 +519,6 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     vi.stubGlobal('hyveon', {
       window: {
         platform: 'darwin',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
       },
     });
 
@@ -579,11 +539,6 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     vi.stubGlobal('hyveon', {
       window: {
         platform: 'win32',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
       },
     });
 
@@ -601,11 +556,6 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     vi.stubGlobal('hyveon', {
       window: {
         platform: 'linux',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
       },
     });
     rerender(
@@ -635,11 +585,6 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     vi.stubGlobal('hyveon', {
       window: {
         platform: 'darwin',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
       },
     });
 
@@ -659,11 +604,6 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     vi.stubGlobal('hyveon', {
       window: {
         platform: 'win32',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
       },
     });
 
@@ -683,11 +623,6 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     vi.stubGlobal('hyveon', {
       window: {
         platform: 'linux',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
       },
     });
 
@@ -715,100 +650,6 @@ describe('AppLayout — window chrome (custom title bar)', () => {
 
     const brandBlock = screen.getByTestId('sidebar-brand-block');
     expect(brandBlock.style.getPropertyValue('-webkit-app-region')).not.toBe('drag');
-  });
-
-  // @spec APP-SHELL-CHROME-010
-  it('should call window.hyveon.window.minimize() when the Minimize button is clicked', async () => {
-    const minimize = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal('hyveon', {
-      window: {
-        platform: 'linux',
-        minimize,
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
-      },
-    });
-    const user = userEvent.setup();
-
-    render(
-      <PollingProvider>
-        <MemoryRouter>
-          <AppLayout>content</AppLayout>
-        </MemoryRouter>
-      </PollingProvider>,
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Minimize' }));
-    expect(minimize).toHaveBeenCalledOnce();
-  });
-
-  it('should call window.hyveon.window.close() when the Close button is clicked', async () => {
-    const close = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal('hyveon', {
-      window: {
-        platform: 'linux',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close,
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
-      },
-    });
-    const user = userEvent.setup();
-
-    render(
-      <PollingProvider>
-        <MemoryRouter>
-          <AppLayout>content</AppLayout>
-        </MemoryRouter>
-      </PollingProvider>,
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Close' }));
-    expect(close).toHaveBeenCalledOnce();
-  });
-
-  // @spec APP-SHELL-CHROME-011
-  it('should swap the maximize button to a restore icon when onMaximizedChange reports true', async () => {
-    let fireMaximizedChange: (isMaximized: boolean) => void = () => undefined;
-    vi.stubGlobal('hyveon', {
-      window: {
-        platform: 'linux',
-        minimize: vi.fn().mockResolvedValue(undefined),
-        toggleMaximize: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        isMaximized: vi.fn().mockResolvedValue(false),
-        onMaximizedChange: vi.fn((cb: (isMaximized: boolean) => void) => {
-          fireMaximizedChange = cb;
-          return vi.fn();
-        }),
-      },
-    });
-
-    render(
-      <PollingProvider>
-        <MemoryRouter>
-          <AppLayout>content</AppLayout>
-        </MemoryRouter>
-      </PollingProvider>,
-    );
-
-    const maximizeButton = screen.getByRole('button', { name: 'Maximize' });
-    expect(maximizeButton).toBeInTheDocument();
-    expect(maximizeButton.querySelector('svg.lucide-square')).toBeInTheDocument();
-    expect(maximizeButton.querySelector('svg.lucide-copy')).not.toBeInTheDocument();
-
-    await act(async () => {
-      fireMaximizedChange(true);
-    });
-
-    expect(screen.queryByRole('button', { name: 'Maximize' })).not.toBeInTheDocument();
-    const restoreButton = screen.getByRole('button', { name: 'Restore' });
-    expect(restoreButton).toBeInTheDocument();
-    expect(restoreButton.querySelector('svg.lucide-copy')).toBeInTheDocument();
-    expect(restoreButton.querySelector('svg.lucide-square')).not.toBeInTheDocument();
   });
 });
 

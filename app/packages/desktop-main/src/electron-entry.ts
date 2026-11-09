@@ -12,7 +12,6 @@ import { initUpdater } from './updater.js';
 import { ElectronStoreService } from './services/ElectronStoreService.js';
 import { PulumiService } from './services/PulumiService.js';
 import { HelperSessionRegistry } from './services/volumeFiles/HelperSessionRegistry.js';
-import { WindowService } from './services/WindowService.js';
 
 // electron-vite injects __dirname for main-process entries, but we also
 // compute it explicitly via import.meta.url so the file is valid plain ESM.
@@ -88,7 +87,7 @@ const SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 252, y: 20 };
  */
 const NO_SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 12, y: 20 };
 
-// @spec APP-SHELL-CHROME-001, APP-SHELL-CHROME-005, APP-SHELL-CHROME-008
+// @spec APP-SHELL-CHROME-001, APP-SHELL-CHROME-005, APP-SHELL-CHROME-008, APP-SHELL-CHROME-012
 /**
  * Builds the platform-conditional `BrowserWindow` chrome options for the
  * custom title bar. `titleBarStyle: 'hidden'` on every platform hides the OS
@@ -109,9 +108,10 @@ const NO_SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 12, y: 20 };
  *   Reuses `SIDEBAR_TRAFFIC_LIGHT_POSITION` rather than repeating the
  *   literal, so this constructor-time default and
  *   `wireTrafficLightResizeHandling`'s runtime updates can never drift apart.
- * - Windows keeps the native `titleBarOverlay` (including the Windows 11
- *   snap-layout flyout), colored to match the header's background/text.
- * - Linux gets neither — the renderer draws its own buttons there.
+ * - Windows and Linux keep the native `titleBarOverlay` (on Windows including
+ *   the Windows 11 snap-layout flyout), colored to match the header's
+ *   background/text. Electron documents `titleBarOverlay` as supported on
+ *   `win32` and `linux`; the renderer draws no window buttons on either.
  *
  * The overlay's `height: 56` matches the header's `h-14` Tailwind class; its
  * `color`/`symbolColor` match `--color-card` (#1a1d2e) and
@@ -127,7 +127,7 @@ function platformWindowChromeOptions(): Partial<Electron.BrowserWindowConstructo
   if (process.platform === 'darwin') {
     return { ...base, trafficLightPosition: SIDEBAR_TRAFFIC_LIGHT_POSITION };
   }
-  if (process.platform === 'win32') {
+  if (process.platform === 'win32' || process.platform === 'linux') {
     return {
       ...base,
       titleBarOverlay: { color: '#1a1d2e', symbolColor: '#e1e4ed', height: 56 },
@@ -183,8 +183,7 @@ function wireTrafficLightResizeHandling(win: BrowserWindow): void {
  * Creates the main application window with the preload script wired in and
  * loads either the dev server URL or the production renderer bundle.
  *
- * @returns The created `BrowserWindow`, so callers (`app.whenReady()`'s chain)
- *   can attach it to `WindowService` once the Nest app is available.
+ * @returns The created `BrowserWindow`.
  */
 function createWindow(): BrowserWindow {
   const icon = resolveWindowIcon();
@@ -248,18 +247,13 @@ app.whenReady().then(() => {
 
       installOperationQuitHook(app, nestApp.get(PulumiService), [createHelperQuitStopper(nestApp.get(HelperSessionRegistry))]);
 
-      const windowService = nestApp.get(WindowService);
-      windowService.attach(createWindow());
+      createWindow();
 
       // On macOS re-create the window when the dock icon is clicked and there
-      // are no other windows open (standard macOS behaviour). Re-attaching
-      // WindowService here (not just on the initial launch path above) matters:
-      // without it, WindowService would keep holding a reference to the
-      // destroyed original BrowserWindow, silently no-oping every subsequent
-      // IPC call from the renderer.
+      // are no other windows open (standard macOS behaviour).
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
-          windowService.attach(createWindow());
+          createWindow();
         }
       });
     })

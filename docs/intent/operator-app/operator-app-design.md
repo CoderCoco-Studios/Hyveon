@@ -131,7 +131,7 @@ flowchart LR
 
 | Child | Layer | Owns | Deliberately leaves to others |
 |---|---|---|---|
-| `desktop-shell` | main + renderer | Electron entry, `bootstrap()`, `AppModule` and `CloudProviderModule`, `NativeDialogService`, window chrome and `WindowController`, first-run gate, route table and sidebar, top bar, `PollingProvider`, Settings host page, shared UI primitives and tokens, icon pipeline (`desktop-shell-design.md`, Context) | The transport, the wizard component, renderer error reporting, the updater, and every Settings section's content |
+| `desktop-shell` | main + renderer | Electron entry, `bootstrap()`, `AppModule` and `CloudProviderModule`, `NativeDialogService`, window chrome, first-run gate, route table and sidebar, top bar, `PollingProvider`, Settings host page, shared UI primitives and tokens, icon pipeline (`desktop-shell-design.md`, Context) | The transport, the wizard component, renderer error reporting, the updater, and every Settings section's content |
 | `ipc-bridge` | preload + main dispatch | `HyveonApi` and `Window.hyveon`, preload `invoke` / `subscribe` / buffered streams, `registerIpcMainBridges`, `SELF_BRIDGED_PATTERNS`, `RpcErrorMessageFilter`, payload guards, `forwardToWindows`, the `__test` seam and secret-shape test helpers (`ipc-bridge-design.md`, Context) | Bootstrapping and the window, and every handler |
 | `wizard-and-bootstrap` | renderer + main | Five-step first-run wizard and Reconfigure, guided IAM, SDK-direct bootstrap of buckets, seed config and runs table, IAM check, Cloud Health, and credential custody (`wizard-and-bootstrap-design.md`, Context) | The final stack-init step (`iac/engine`), the first-run gate and Settings host (`desktop-shell`), the preload facade (`ipc-bridge`) |
 | `diagnostics` | renderer + main + AWS | Winston singleton and daily file, tail reads, renderer crash and console forwarding, Settings → Diagnostics panel, support bundle export, audit trail and `/audit` page (`diagnostics-design.md`, Context) | Logger bootstrap, log-line rendering (`infra-logs`), CloudWatch logs, the audit table and its callers |
@@ -156,7 +156,7 @@ Two styles exist: per-call channels whose cancel reaches main, used by `infra-lo
 A leaf owning a streaming channel registers its own `ipcMain.handle` behind a `process.versions.electron` guard and must appear in `ipc-bridge`'s hand-synced `SELF_BRIDGED_PATTERNS` list (`ipc-bridge-design.md`, "Self-bridged channels").
 
 **Main-to-renderer pushes.**
-`window.maximizedChange` (`desktop-shell`), `folderUpload.progress` and the two `volumeFiles` pushes (`helper-task`) travel over `webContents.send` and arrive through the preload `subscribe` helper, which returns a clone-safe unsubscribe function (`ipc-bridge-design.md`, "Push channels"; `desktop-shell-design.md`, "Window IPC").
+`folderUpload.progress` and the two `volumeFiles` pushes (`helper-task`) travel over `webContents.send` and arrive through the preload `subscribe` helper, which returns a clone-safe unsubscribe function (`ipc-bridge-design.md`, "Push channels"; `desktop-shell-design.md`, "Window IPC").
 
 **Logging and diagnostics duties.**
 `desktop-shell` creates the winston logger under `<userData>/logs` before the Nest container boots, and `diagnostics` owns the logger and its file (`desktop-shell-design.md`, "Process Start"; `diagnostics-design.md`, "The App Log").
