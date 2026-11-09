@@ -30,7 +30,7 @@ CLAUDE.md invariants that live here:
 
 - **Secrets never reach the renderer**, extended to the bundle: the config section is an explicit allowlist and the log section is scrubbed (`diagnosticsBundleAllowlist.ts:85`, `diagnosticsLogScrubber.ts:31`).
 - **The desktop app has no HTTP transport**: every surface here is an IPC `@MessagePattern` (`diagnostics.controller.ts:47-129`, `audit.controller.ts:24-28`).
-- **Every IPC handler logs on entry; no error escapes uncaught** (`.claude/rules/logging.md`): each diagnostics handler opens with `logger.debug` (`diagnostics.controller.ts:49,57,64,71,84,111`); `AuditService.list` currently breaks rule 2 (see Deferred).
+- **Every IPC handler logs on entry; no error escapes uncaught** (`.claude/rules/logging.md`): each diagnostics handler opens with `logger.debug` (`diagnostics.controller.ts:49,57,64,71,84,111`).
 
 ## The App Log
 
@@ -108,7 +108,7 @@ Each response is a cumulative snapshot, not a delta, so pausing keeps polling bu
 A sequence counter discards out-of-order responses, and a poll failure while paused is not surfaced so a frozen view is not replaced by an error (`:50,57,66-70`).
 
 `DiagnosticsPanel` renders the log path, a search box (substring highlight via `LogLineList`), pause/resume, autoscroll only while not paused, a line count, `ExportBundleButton` and `StrayHelpersButton` (`DiagnosticsPanel.tsx:25-31,51-91`).
-When the tail errors, the panel returns only an `ErrorBanner` (`:43-47`), so the export button disappears exactly when the log read is failing.
+When the tail errors, the panel renders the `ErrorBanner` with `ExportBundleButton` and `StrayHelpersButton` beneath it, so both actions stay available exactly when the log read is failing.
 
 ### Bundle export flow
 
@@ -133,7 +133,7 @@ ExportBundleButton ──diagnostics.exportBundle──▶ DiagnosticsController
 | Logs | `logs.txt`: scrubbed join of up to 2,000 tail entries | `:154-157` |
 | Config | `config-summary.json`: allowlist of 10 top-level fields plus per-game sizing, counts and booleans (`hasWebPort`, `hasHealthCheck`, `hasPinnedHostname`); excludes `environment`, `file_seeds`, health-check `auth`, Discord IDs | `diagnosticsBundleAllowlist.ts:3-46,55-102` |
 | Metadata | `metadata.json`: `readAppVersion()` (`'unknown'` outside Electron), Electron/Node versions, `os.platform()`/`os.release()`, `enableAutoUpdate` | `DiagnosticsBundleService.ts:167-176`, `app-version.ts:12-21` |
-| AWS snapshot | `aws-snapshot.json`: four stack-output fields and per-game `GameStatus`; `null`/`[]` before first apply; a per-game failure becomes `{ state: 'error', message }` inside `games`, unscrubbed | `DiagnosticsBundleService.ts:187-209` |
+| AWS snapshot | `aws-snapshot.json`: four stack-output fields and per-game `GameStatus`; `null`/`[]` before first apply; a per-game failure becomes `{ state: 'error', message }` inside `games`, and every per-game `message`, whether from a failure or a returned status, is passed through `scrubSecrets` | `DiagnosticsBundleService.ts:187-209` |
 | Write | `archiver` zip at level 9 to a UUID-suffixed temp file, renamed into place; on failure the stream is destroyed, the temp file removed, and a plain `Error` thrown, which the controller maps to `{ status: 'error' }` | `DiagnosticsBundleService.ts:128-136,232-273`, `diagnostics.controller.ts:92-99` |
 | Reveal | `diagnostics.showInFolder` calls `shell.showItemInFolder`; failures are logged at `warn` and never rejected | `diagnostics.controller.ts:109-129` |
 
@@ -142,9 +142,16 @@ The result union lives once in `@hyveon/shared` (`diagnosticsBundle.ts:8-11`); i
 
 ### Secret scrubbing
 
-`scrubSecrets` applies two regexes (`diagnosticsLogScrubber.ts:5,15-16,31-38`): AWS access key IDs (`AKIA`/`ASIA` + 16) and a `token`/`key`/`secret`-ish label followed by `:` or `=` and a 16+ character value.
-The label pattern requires the separator immediately after the label word, so JSON-quoted keys as produced by the production `json()` format (`"botToken":"..."`) and dev meta (`"apiKey": "..."`) do not match.
-The scrubber is explicitly defense-in-depth (`:18-23`): a second layer over text that is already collected, with "never log secrets" as the primary control, and it will have false negatives on secret shapes it was not written for.
+`scrubSecrets` (`diagnosticsLogScrubber.ts`) replaces these shapes with `[REDACTED]`:
+
+- AWS access key IDs (`AKIA`/`ASIA` + 16), and an unlabelled 40-character base64-ish secret access key that follows one within a few separator characters (APP-DIAG-SCRUB-001, -010).
+- Discord bot tokens (`id.timestamp.hmac`), both labelled and bare (APP-DIAG-SCRUB-006).
+- The credential of an `Authorization` header with the `Bearer`, `Bot` or `Basic` scheme, and a bare `Bearer` credential of 16+ characters (APP-DIAG-SCRUB-007).
+- The `X-Amz-Signature`, `X-Amz-Security-Token` and `X-Amz-Credential` presigned-URL parameters, through the next `&` (APP-DIAG-SCRUB-008).
+- A `token`/`key`/`secret`/`password`/`passphrase`-ish label followed by `:` or `=` and a value of 6+ base64url-ish characters including `.` and `=`, plain or JSON-quoted (`"botToken":"..."`, `"apiKey": "..."`) (APP-DIAG-SCRUB-002, -003, -009).
+
+The 6-character floor applies only to labelled values, so an ordinary word after such a label (`token: expired`) is redacted too; that over-redaction is accepted for a defense-in-depth pass.
+The scrubber is explicitly defense-in-depth: a second layer over text that is already collected, with "never log secrets" as the primary control, and it will have false negatives on secret shapes it was not written for.
 
 ## Audit Trail
 
@@ -192,12 +199,13 @@ The audit trail's required behaviour is currently only what the code above does;
 | Log directory derivation | One `resolveLogDir(userDataPath)` helper used by the writer and the reader | Two inline `path.join` calls | The writer (`createLogger`) and the diagnostics reader must agree on the directory; one derivation removes the drift risk. |
 | Error boundary state | A `hasError` boolean | Test the thrown value for truthiness | React lets a component throw any value, including falsy ones; a truthiness test would re-render the crashing children. |
 | Panel data source | Keep a 5 s cumulative-tail poll; pause buffers the latest snapshot | Push/stream model like `/logs`; append successive polls | Reuse `/logs` interaction patterns (pause with buffering, level filter, substring search without regex) without its data source; the snapshot shape makes appending incorrect. The app's own log is a local file with no main-process file-watch-and-stream mechanism, and building one is materially more work than porting controls onto the existing poll for a panel used for post-hoc debugging rather than live monitoring. A `LogViewer` component shared with `/logs` would need a fetch-strategy prop layer; it remains a possible follow-up. |
+| Raw error objects in logs | A static guard test (`desktop-main/src/testing/logger-raw-error.guard.test.ts`) scans every non-test source file under `desktop-main/src` for `logger.<level>(...)` calls that pass a caught-error binding bare, as an object property value (`{ err }`, `{ cause: err }`, `{ error: caught as Error }`) or by spread, and fails on any hit outside an allowlist of files owned by other segments; an allowlisted file that no longer has a hit only produces a console warning, because independent stacks fix those files | Hand-auditing every service method; an ESLint rule | The logging rule applies to every method that calls an external API, which is too broad to verify by review. The scan is lexical, not type-aware: a name counts as an error only when the file binds it in a `catch` or as an error-named `unknown`/`Error` parameter, which removes most false positives but still flags an unrelated variable that reuses a binding's name and misses an error reached through an alias. The allowlist is a list of known debt (15 files at the time of writing), not a small exception set; it shrinks as the owning segments normalize their metadata, and the spec stays open until it is empty. |
 | Bundle orchestration | New `DiagnosticsBundleService` calling into existing services | Grow `DiagnosticsService` | `DiagnosticsService` is a narrow tail reader; bundling, zipping and cross-service orchestration is a distinct responsibility with its own test surface. |
 | Section isolation | `Promise.allSettled` over four gatherers, failures to `errors.json` | Sequential try/catch chaining | One slow AWS call must not serialize behind or block the cheap sections (logs, metadata); each settled result becomes bundle content or an `errors.json` entry. |
 | Zip library | `archiver`, streamed to disk | `adm-zip` | `archiver` streams to a file; `adm-zip` has a simpler synchronous API but builds the whole archive in memory first, which matters because log content can be several MB. |
 | Save location | Native save dialog before writing | Silent write to Downloads, then reveal | Operator controls where a file containing config and log data lands, rather than the app assuming a safe location. |
 | Config redaction | Explicit field-by-field allowlist; new fields excluded by default | Generic deep redact-by-key-name | Safe failure direction when a new `DeploymentConfig` field is forgotten: it is silently excluded, never leaked. Matches the existing field-by-field redacted-shape helpers (`botTokenSet`) rather than a new redaction style (`diagnosticsBundleAllowlist.ts:70-77`). |
-| Log redaction | Regex scrubber as a second layer only | Structured redaction at log time | "Never log secrets" stays primary; the regex layer runs over already-collected text and is not a substitute (`diagnosticsLogScrubber.ts:18-23`). |
+| Log redaction | Regex scrubber as a second layer only | Structured redaction at log time | "Never log secrets" stays primary; the regex layer runs over already-collected text and is not a substitute (see the `scrubSecrets` TSDoc). |
 | Bundle destination | A local file only, no upload path | Upload to a backend or bucket | No new backend, bucket, credential or auth story, and no new outbound network dependency; the operator hands the zip to support themselves. |
 | Console argument redaction | None; callers follow the no-secrets rule in `.claude/rules/logging.md` | Sanitizing forwarded console arguments | Forwarding captures calls that already exist into a local file the operator already controls, so it adds no new destination; automatic redaction of arbitrary arguments is out of scope. |
 | Log levels | Reuse winston `debug` and `silly` | A custom `trace` level | The standard levels already cover normal and very verbose detail; `silly` is configured and unused. |
@@ -215,20 +223,20 @@ The audit trail's required behaviour is currently only what the code above does;
 1. ✅ Console forwarding uses a separate `diagnostics.reportLog` channel with client-side batching (APP-DIAG-CONS-*).
 2. ✅ The bundle is assembled by a dedicated service with per-section `Promise.allSettled` isolation, `archiver`, a save-dialog-first flow, and an allowlist config summary (APP-DIAG-BNDL-*).
 3. ✅ The panel keeps polling rather than streaming, with snapshot-swap pause semantics (APP-DIAG-PANEL-*).
+4. ✅ `ExportBundleButton` and `StrayHelpersButton` stay rendered beside the error banner when the tail read fails, since the bundle tolerates a failed log section (APP-DIAG-PANEL-010).
+5. ✅ `AuditService.record` never throws (stack-outputs read inside the try, normalized message logged) and `AuditService.list` logs the normalized message and throws a plain `Error` (APP-DIAG-AUDIT-004, APP-DIAG-AUDR-004, APP-DIAG-SVC-003).
 
 ### Deferred
 
-1. Should `ExportBundleButton` and `StrayHelpersButton` stay rendered when the tail read fails? The bundle already tolerates a failed log section (`DiagnosticsBundleService.ts:123`); `StrayHelpersButton` is currently hidden with the log viewer.
-2. Should `AuditService.list` catch, normalize and log store failures per `.claude/rules/logging.md` rule 2 (`AuditService.ts:140`), and should `record()` normalize its logged error and move the stack-outputs read inside its try (`AuditService.ts:90,114-118`)? No test covers a `listEntries` rejection (`AuditService.test.ts:143-170`).
-3. Should the `ErrorBoundary` fallback offer a reload action?
-4. Should the console-forwarding flush interval ever be cleared?
-5. Should the audit trail get its own leaf, given it is a separate concern from diagnostics and now records IaC actions under a game-only schema and copy (`audit.ts:29-33`, `audit.controller.ts:8-11`, `audit.page.tsx:84`, `iac.controller.ts:755,885,1029`)? If IaC rows stay, how should the page render an empty Game cell and a `null`/`null` diff?
-6. Should the `/audit` page drop or rewire `<PollingIndicator />`, which reflects the global status poller on a page that fetches once (`audit.page.tsx:85`, `polling-indicator.component.tsx:18`)?
-7. Should `useDiagnosticsTail` move onto the shared polling registry and stop re-fetching the static log path every 5 s (`use-diagnostics-tail.hook.ts:56,83`)? Should the 500-line panel tail be a shared constant rather than a literal (`diagnostics.controller.ts:50`), and `TAIL_READ_BYTES` be exported instead of duplicated in tests (`DiagnosticsService.test.ts:17-18`)?
-8. Stale pointers to refresh: "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`), `DiagnosticsBundleService`'s class doc naming a change directory that no longer exists (`DiagnosticsBundleService.ts:64`), and `diagnosticsBundle.ts:3` naming `DiagnosticsPanel` as the switcher.
-9. `AwsAuditLogStore` resolves `getConfig()` twice per operation (`AwsAuditLogStore.ts:65,83`); acceptable, or fold into one resolution?
-10. Test hygiene: `logger.test.ts:16,27,99` builds real `DailyRotateFile` transports under `/tmp`; there are no dedicated tests for `export-bundle-button.component.tsx` or `use-diagnostics-tail.hook.ts`; `DiagnosticsPanel.tsx` is the lone PascalCase component filename (sweep disagreement, `final-clustering.md` §6).
-11. The stray-helper cleanup button renders inside this leaf's panel (`DiagnosticsPanel.tsx:76`, APP-DIAG-PANEL-002) while its behaviour belongs to `helper-task`. Should this leaf keep acknowledging that hosting, or should the panel's spec drop the button?
+1. Should the `ErrorBoundary` fallback offer a reload action?
+2. Should the console-forwarding flush interval ever be cleared?
+3. Should the audit trail get its own leaf, given it is a separate concern from diagnostics and now records IaC actions under a game-only schema and copy (`audit.ts:29-33`, `audit.controller.ts:8-11`, `audit.page.tsx:84`, `iac.controller.ts:755,885,1029`)? If IaC rows stay, how should the page render an empty Game cell and a `null`/`null` diff?
+4. Should the `/audit` page drop or rewire `<PollingIndicator />`, which reflects the global status poller on a page that fetches once (`audit.page.tsx:85`, `polling-indicator.component.tsx:18`)?
+5. Should `useDiagnosticsTail` move onto the shared polling registry and stop re-fetching the static log path every 5 s (`use-diagnostics-tail.hook.ts:56,83`)? Should the 500-line panel tail be a shared constant rather than a literal (`diagnostics.controller.ts:50`), and `TAIL_READ_BYTES` be exported instead of duplicated in tests (`DiagnosticsService.test.ts:17-18`)?
+6. Stale pointers to refresh: "diagnostics API endpoint" (`DiagnosticsService.ts:72-74`), `DiagnosticsBundleService`'s class doc naming a change directory that no longer exists (`DiagnosticsBundleService.ts:64`), and `diagnosticsBundle.ts:3` naming `DiagnosticsPanel` as the switcher.
+7. `AwsAuditLogStore` resolves `getConfig()` twice per operation (`AwsAuditLogStore.ts:65,83`); acceptable, or fold into one resolution?
+8. Test hygiene: `logger.test.ts:16,27,99` builds real `DailyRotateFile` transports under `/tmp`; there are no dedicated tests for `export-bundle-button.component.tsx` or `use-diagnostics-tail.hook.ts`; `DiagnosticsPanel.tsx` is the lone PascalCase component filename (sweep disagreement, `final-clustering.md` §6).
+9. The stray-helper cleanup button renders inside this leaf's panel (`DiagnosticsPanel.tsx:76`, APP-DIAG-PANEL-002) while its behaviour belongs to `helper-task`. Should this leaf keep acknowledging that hosting, or should the panel's spec drop the button?
 
 ## References
 

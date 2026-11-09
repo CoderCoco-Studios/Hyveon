@@ -10,7 +10,7 @@
  */
 import * as os from 'node:os';
 import { Inject, Injectable } from '@nestjs/common';
-import { buildAuditSk } from '@hyveon/shared';
+import { buildAuditSk, errMessage } from '@hyveon/shared';
 import type { AuditAction, AuditEntry, AuditLogStore, AuditPageResult, RedactedGameServer } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
@@ -75,29 +75,29 @@ export class AuditService {
     @Inject(AUDIT_LOG_STORE) private readonly store: AuditLogStore,
   ) {}
 
-  // @spec APP-DIAG-AUDIT-001, APP-DIAG-AUDIT-002, APP-DIAG-AUDIT-003, APP-DIAG-SVC-001
+  // @spec APP-DIAG-AUDIT-001, APP-DIAG-AUDIT-002, APP-DIAG-AUDIT-003, APP-DIAG-AUDIT-004, APP-DIAG-SVC-001, APP-DIAG-SVC-003
   /**
    * Builds an {@link AuditEntry} from `params` (actor from `os.userInfo()`,
    * timestamp/`sk` from the current time) and persists it via
    * `store.putEntry`.
    *
    * Never throws: when `auditTableName` isn't in the Pulumi stack outputs
-   * yet (table not deployed) or `store.putEntry` rejects, a winston warning
+   * yet (table not deployed), reading the outputs fails, or `store.putEntry` rejects, a winston warning
    * is logged and the method returns — the caller's own write must not be
    * blocked or failed by an audit-logging problem.
    */
   async record(params: RecordAuditEntryParams): Promise<void> {
     logger.debug('AuditService.record: recording audit entry', { action: params.action, game: params.game });
-    const tableName = (await this.config.getStackOutputs())?.auditTableName;
-    if (!tableName) {
-      logger.warn('AuditService.record: audit_table_name not configured, skipping audit log entry', {
-        action: params.action,
-        game: params.game,
-      });
-      return;
-    }
-
     try {
+      const tableName = (await this.config.getStackOutputs())?.auditTableName;
+      if (!tableName) {
+        logger.warn('AuditService.record: audit_table_name not configured, skipping audit log entry', {
+          action: params.action,
+          game: params.game,
+        });
+        return;
+      }
+
       const now = new Date();
       const entry: AuditEntry = {
         sk: buildAuditSk(now),
@@ -113,14 +113,14 @@ export class AuditService {
       await this.store.putEntry(entry);
     } catch (err) {
       logger.warn('AuditService.record: failed to write audit log entry', {
-        err,
+        message: errMessage(err),
         action: params.action,
         game: params.game,
       });
     }
   }
 
-  // @spec APP-DIAG-AUDR-001, APP-DIAG-AUDR-002, APP-DIAG-SVC-001
+  // @spec APP-DIAG-AUDR-001, APP-DIAG-AUDR-002, APP-DIAG-AUDR-004, APP-DIAG-SVC-001
   /**
    * Lists audit entries newest-first, delegating to `store.listEntries`
    * after clamping `opts.limit` via {@link clampLimit}.
@@ -130,15 +130,24 @@ export class AuditService {
    * warning is logged and an empty page is returned rather than letting
    * `store.listEntries` throw — the always-visible audit page should render
    * its empty state on pre-audit-table deployments, not an error state.
+   *
+   * @throws A plain `Error` carrying only the normalized message when the stack-outputs read or `store.listEntries`
+   * fails; the failure is logged via `logger.error` first so no raw SDK error escapes.
    */
   async list(opts: ListAuditEntriesOpts = {}): Promise<AuditPageResult> {
     logger.debug('AuditService.list: listing audit entries', { limit: opts.limit, before: opts.before });
-    const tableName = (await this.config.getStackOutputs())?.auditTableName;
-    if (!tableName) {
-      logger.warn('AuditService.list: audit_table_name not configured, returning empty audit log page');
-      return { entries: [] };
-    }
+    try {
+      const tableName = (await this.config.getStackOutputs())?.auditTableName;
+      if (!tableName) {
+        logger.warn('AuditService.list: audit_table_name not configured, returning empty audit log page');
+        return { entries: [] };
+      }
 
-    return this.store.listEntries(clampLimit(opts.limit), opts.before);
+      return await this.store.listEntries(clampLimit(opts.limit), opts.before);
+    } catch (err) {
+      const message = errMessage(err);
+      logger.error('AuditService.list: failed to list audit entries', { message });
+      throw new Error(message);
+    }
   }
 }

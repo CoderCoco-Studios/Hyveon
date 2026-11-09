@@ -75,6 +75,7 @@ beforeEach(() => {
   vi.mocked(os.userInfo).mockReturnValue({ username: 'test-actor' } as ReturnType<typeof os.userInfo>);
   vi.mocked(logger.debug).mockClear();
   vi.mocked(logger.warn).mockClear();
+  vi.mocked(logger.error).mockClear();
 });
 
 describe('AuditService', () => {
@@ -116,6 +117,37 @@ describe('AuditService', () => {
       ).resolves.toBeUndefined();
 
       expect(putEntryMock).toHaveBeenCalledTimes(1);
+    });
+
+    // @spec APP-DIAG-SVC-003
+    it('should log only the normalized message, not the raw error object, when the write fails', async () => {
+      putEntryMock.mockRejectedValue(new Error('DynamoDB is down'));
+
+      await makeService().record({ action: 'edit', game: 'minecraft', before: null, after: null });
+
+      const meta = vi.mocked(logger.warn).mock.calls.at(-1)?.[1] as Record<string, unknown>;
+      expect(meta).toMatchObject({ message: 'DynamoDB is down' });
+      expect(meta).not.toHaveProperty('err');
+    });
+
+    // @spec APP-DIAG-AUDIT-004
+    it('should log and swallow a stack-outputs read failure so record never throws', async () => {
+      const config = {
+        getStackOutputs: async () => {
+          throw new Error('state backend unreachable');
+        },
+      } as Partial<ConfigService> as ConfigService;
+      const service = new AuditService(config, makeStore());
+
+      await expect(
+        service.record({ action: 'add', game: 'minecraft', before: null, after: null }),
+      ).resolves.toBeUndefined();
+
+      expect(putEntryMock).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('AuditService.record'),
+        expect.objectContaining({ message: 'state backend unreachable' }),
+      );
     });
 
     // @spec APP-DIAG-AUDIT-002
@@ -184,6 +216,23 @@ describe('AuditService', () => {
 
       expect(result).toEqual({ entries: [] });
       expect(listEntriesMock).not.toHaveBeenCalled();
+    });
+
+    // @spec APP-DIAG-AUDR-004
+    it('should log the normalized message and throw a plain Error when store.listEntries rejects', async () => {
+      const raw = Object.assign(new Error('Throttled'), { $metadata: { httpStatusCode: 400 }, name: 'ThrottlingException' });
+      listEntriesMock.mockRejectedValue(raw);
+
+      const failure = await makeService().list().catch((e: unknown) => e);
+
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure).not.toBe(raw);
+      expect(Object.keys(failure as object)).toEqual([]);
+      expect((failure as Error).message).toBe('Throttled');
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('AuditService.list'),
+        expect.objectContaining({ message: 'Throttled' }),
+      );
     });
 
     // @spec APP-DIAG-SVC-001

@@ -425,7 +425,7 @@ paused, e.g. `214 lines · paused`.
 |---|---|
 | Loading | `Loading diagnostics…` |
 | No log file yet, or it is empty | `No log lines available.` |
-| Read failed | The raw error message, in a red banner replacing the whole panel |
+| Read failed | The raw error message in a red banner, with the **Export diagnostics bundle** button still shown beneath it |
 
 A brand-new install shows the empty state rather than an error, because the
 log file does not exist until the first write.

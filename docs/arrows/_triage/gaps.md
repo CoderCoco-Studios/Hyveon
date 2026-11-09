@@ -34,7 +34,7 @@ Totals count specs, one class per spec. `APP-WIZARD-HEALTH-008` is counted once,
 | `watchdog` | `docs/intent/game-runtime/watchdog/watchdog-specs.md` | 0 | 0 | 0 | 0 | 0 (4 since closed) |
 | `health-check` | `docs/intent/game-runtime/health-check/health-check-specs.md` | 0 | 0 | 0 | 0 | 0 (5 since closed) |
 | `wizard-and-bootstrap` | `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md` | 0 | 14 (2 / 5 / 7) | 4 | 2 | 20 |
-| `diagnostics` | `docs/intent/operator-app/diagnostics/diagnostics-specs.md` | 0 | 8 (1 / 1 / 6) | 4 | 2 | 14 |
+| `diagnostics` | `docs/intent/operator-app/diagnostics/diagnostics-specs.md` | 0 | 1 (0 / 0 / 1) | 0 | 0 | 1 |
 | `infra-logs` | `docs/intent/operator-app/infra-logs/infra-logs-specs.md` | 0 | 10 (0 / 1 / 9) | 2 | 1 | 13 |
 | `app-update-and-release` | `docs/intent/operator-app/app-update-and-release/app-update-and-release-specs.md` | 0 | 5 (0 / 2 / 3) | 1 | 3 | 9 |
 | `desktop-shell` | `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md` | 0 | 4 (0 / 1 / 3) | 1 | 3 | 8 |
@@ -213,14 +213,14 @@ Specs: `docs/intent/operator-app/diagnostics/diagnostics-specs.md` · Arrow doc:
 | `APP-DIAG-RERR-008` | closed | - | Fixed (was): No install guard (web/src/lib/report-renderer-error.utils.ts:169-178) but only call site is main.tsx:8, once per session; speculative |
 | `APP-DIAG-RERR-009` | closed | - | Fixed (was): Uses instanceof Error (report-renderer-error.utils.ts:175-176) vs isErrorLike at :4; renderer has no cross-realm rejection source today, speculative |
 | `APP-DIAG-CONS-012` | closed | - | Fixed (was): flushInFlight cleared only in .then handlers (web/src/lib/report-renderer-error.utils.ts:126-137); a hung reportLog stops forwarding, contradicting doc :94-97 |
-| `APP-DIAG-SVC-002` | b | low | AuditService.list returns store.listEntries uncaught (desktop-main/src/services/AuditService.ts:142); AwsAuditLogStore.listEntries has no catch (cloud-aws/src/AwsAuditLogStore.ts:139-150) |
-| `APP-DIAG-SVC-003` | b | low | record's catch still logs raw { err } object (app/packages/desktop-main/src/services/AuditService.ts:113-118) instead of errMessage(err) |
-| `APP-DIAG-PANEL-010` | b | med | On tail error the panel returns only <ErrorBanner> (web/src/components/DiagnosticsPanel.tsx:44-48), hiding ExportBundleButton (:74) exactly when an operator needs it |
-| `APP-DIAG-BNDL-013` | b | low | Per-game getStatus failure message not scrubbed (desktop-main/src/services/DiagnosticsBundleService.ts:201) vs scrubSecrets for section errors (:151) |
-| `APP-DIAG-SCRUB-003` | b | high | Verified by running the regex: '"botToken":"<24 chars>"' and '"apiKey": "..."' pass unredacted (desktop-main/src/services/diagnosticsLogScrubber.ts:15-16); bundle secret-leak path (resolved) |
-| `APP-DIAG-AUDIT-004` | c | low | getStackOutputs read outside try (desktop-main/src/services/AuditService.ts:91), but the behaviour holds today through the upstream never-reject contract (PulumiService.ts:972-1023; ConfigService.ts:153-167 still rethrows defensively); trivial move-into-try. Class left to the owner (Decisions: contested classification) |
-| `APP-DIAG-AUDR-004` | d | - | Duplicates APP-DIAG-SVC-002: same gap at desktop-main/src/services/AuditService.ts:142; keep one ID |
-| `APP-DIAG-AUDUI-008` | b | low | Subtitle still game-only (web/src/pages/audit.page.tsx:85); AuditEntry doc shared/src/audit.ts:28-33 and audit.controller.ts:8-11 say game config only though AuditAction includes plan/apply/destroy |
+| `APP-DIAG-SVC-002` | b | low | Logger-metadata half closed by `logger-raw-error.guard.test.ts` (allowlist of out-of-segment files remains, 15 files); AuditService half fixed. |
+| `APP-DIAG-SVC-003` | closed | - | Fixed. |
+| `APP-DIAG-PANEL-010` | closed | - | Fixed. |
+| `APP-DIAG-BNDL-013` | closed | - | Fixed. |
+| `APP-DIAG-SCRUB-003` | closed | - | Fixed: the pattern accepts quoted labels and values, and the scrubber also covers Discord tokens, Authorization headers, presigned-URL parameters, passwords and short labelled values. |
+| `APP-DIAG-AUDIT-004` | closed | - | Fixed. |
+| `APP-DIAG-AUDR-004` | closed | - | Fixed. |
+| `APP-DIAG-AUDUI-008` | closed | - | Fixed. |
 
 ### `infra-logs`
 

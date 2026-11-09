@@ -84,6 +84,15 @@ describe('AuditPage', () => {
     await waitFor(() => expect(apiMock.audit).toHaveBeenCalledWith({ limit: 25 }));
   });
 
+  // @spec APP-DIAG-AUDUI-008
+  it('should describe both game-configuration writes and Infrastructure workspace actions in the header', async () => {
+    apiMock.audit.mockResolvedValue({ entries: [] });
+
+    renderPage(<AuditPage />, { initialEntries: ['/audit'] });
+
+    expect(await screen.findByText(/infrastructure/i, { selector: 'p' })).toBeInTheDocument();
+  });
+
   it('should render a loading state before the audit fetch resolves', () => {
     apiMock.audit.mockReturnValue(new Promise(() => {}));
 

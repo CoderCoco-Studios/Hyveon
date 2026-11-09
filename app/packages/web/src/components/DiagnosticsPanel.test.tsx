@@ -47,6 +47,26 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByText('Loading diagnostics…')).toBeInTheDocument();
   });
 
+  // @spec APP-DIAG-PANEL-010
+  it('should still offer the export bundle action alongside the error when the tail poll fails', async () => {
+    apiMock.diagnosticsTail.mockRejectedValue(new Error('Network error'));
+
+    render(<DiagnosticsPanel />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network error');
+    expect(screen.getByRole('button', { name: /export diagnostics bundle/i })).toBeInTheDocument();
+  });
+
+  // @spec APP-DIAG-PANEL-010
+  it('should still offer the stray-helper cleanup action alongside the error when the tail poll fails', async () => {
+    apiMock.diagnosticsTail.mockRejectedValue(new Error('Network error'));
+
+    render(<DiagnosticsPanel />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network error');
+    expect(screen.getByRole('button', { name: 'Clean up stray helpers' })).toBeInTheDocument();
+  });
+
   // @spec APP-DIAG-PANEL-002
   it('should render log lines returned by api.diagnosticsTail', async () => {
     render(<DiagnosticsPanel />);
@@ -241,6 +261,24 @@ describe('DiagnosticsPanel', () => {
     expect(box.scrollTop).toBe(0);
 
     vi.useRealTimers();
+  });
+
+  // @spec APP-DIAG-PANEL-010
+  it('should keep an in-flight export when a later poll recovers from an error', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    apiMock.diagnosticsTail.mockRejectedValueOnce(new Error('Network error'));
+    apiMock.diagnosticsExportBundle.mockReturnValue(new Promise(() => {}));
+    render(<DiagnosticsPanel />);
+    await screen.findByRole('alert');
+
+    await user.click(screen.getByRole('button', { name: /Export diagnostics bundle/ }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(await screen.findByText(/Server started/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Exporting…/ })).toBeInTheDocument();
   });
 
   describe('Export diagnostics bundle button', () => {

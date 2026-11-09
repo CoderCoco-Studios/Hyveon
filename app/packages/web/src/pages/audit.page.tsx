@@ -18,7 +18,7 @@ import { AsyncContent } from '../components/async-content.component.js';
 /** Number of audit entries fetched per page (initial load and each "Load more"). */
 const PAGE_SIZE = 25;
 
-// @spec APP-DIAG-AUDUI-001, APP-DIAG-AUDUI-002, APP-DIAG-AUDUI-003, APP-DIAG-AUDUI-004
+// @spec APP-DIAG-AUDUI-001, APP-DIAG-AUDUI-002, APP-DIAG-AUDUI-003, APP-DIAG-AUDUI-004, APP-DIAG-AUDUI-008
 /**
  * Audit log route (`/audit`). Fetches the newest {@link PAGE_SIZE} entries on
  * mount, renders them as expandable rows (see {@link AuditEntryRow}) showing
@@ -82,7 +82,7 @@ export function AuditPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <PageHeader title="Audit Log" subtitle="Who changed which game's configuration, and what changed.">
+      <PageHeader title="Audit Log" subtitle="Who changed a game's configuration or ran an Infrastructure workspace action, and what changed.">
         <PollingIndicator />
       </PageHeader>
 
