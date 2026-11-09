@@ -24,6 +24,7 @@ export type {
   RunHistoryPageResult,
   RunHistoryStatus,
   IacPlanAck,
+  IacCancelAck,
   IacStaleLockHolder,
   IacStaleLockInfo,
   IacPlanPayload,

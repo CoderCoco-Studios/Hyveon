@@ -610,6 +610,21 @@ export interface IacLockClearAck {
 }
 
 /**
+ * Result the `iac.run.cancel` IPC channel resolves with, never by throwing. `cancelled: true` means the run is being
+ * driven by this app session and its abort was requested (the final status is read from `iac.runs.get`);
+ * `reason: 'not_running'` means it is not (never started, already settled, or owned by a previous session); `error`
+ * accompanies a malformed payload.
+ *
+ * Mirrors `IacCancelAck` in `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
+ * is the source of truth; keep this copy in sync with it.
+ */
+export interface IacCancelAck {
+  cancelled: boolean;
+  reason?: 'not_running';
+  error?: string;
+}
+
+/**
  * Payload accepted by the `iac.apply` IPC channel. `planRunId`
  * identifies the approved plan run to apply; `planHash` is the caller's
  * expected plan hash, checked against the plan run's stored `planHash` to
@@ -1830,6 +1845,13 @@ export interface HyveonIacApi {
    * through.
    */
   destroy: (payload: IacDestroyPayload) => Promise<IacPlanAck>;
+  /**
+   * Cancels the in-flight plan, apply or destroy `runId` by invoking the `iac.run.cancel` IPC channel. The run is
+   * aborted through the engine's cancellation path and recorded as `aborted`; the resolved {@link IacCancelAck} only
+   * reports whether the abort was requested, so read the outcome from `runs.get`. Idempotent while the run is still
+   * settling.
+   */
+  cancel: (runId: string) => Promise<IacCancelAck>;
   /**
    * Returns the current deployed stack outputs by invoking the `iac.output`
    * IPC channel with `{ force }`. `null` when the stack has never been

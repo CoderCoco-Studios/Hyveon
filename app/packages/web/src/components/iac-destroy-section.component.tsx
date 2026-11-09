@@ -7,6 +7,7 @@ import { ConfirmDialog } from './confirm-dialog.component.js';
 import { ErrorBanner } from './error-banner.component.js';
 import { useIacRun } from '../hooks/use-iac-run.hook.js';
 import { ChangeSummaryStatus } from './change-summary-status.component.js';
+import { RunCancelButton } from './run-cancel-button.component.js';
 import { SubmissionBanners } from './submission-banners.component.js';
 
 /**
@@ -17,7 +18,7 @@ import { SubmissionBanners } from './submission-banners.component.js';
  */
 const DESTROY_CONFIRM_PHRASE = 'destroy infrastructure';
 
-// @spec IAC-RUN-DSTR-001, IAC-RUN-DSTR-002
+// @spec IAC-RUN-DSTR-001, IAC-RUN-DSTR-002, IAC-RUN-CANCEL-005
 /**
  * "Destroy infrastructure" section of the Plan/Apply page (`/iac`) — its own heading, warning copy,
  * type-to-confirm dialog, and run/log/status block, all driven by an independent `useIacRun('destroy')`
@@ -108,6 +109,9 @@ export function DestroySection({ nowMs }: { nowMs: number }) {
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-semibold text-[var(--color-foreground)]">Destroy run</h4>
             {destroyFinished && <ChangeSummaryStatus summary={destroyRun.record?.changeSummary} />}
+            {destroyRun.cancellable && (
+              <RunCancelButton kind="destroy" cancelling={destroyRun.cancelling} onCancel={destroyRun.cancel} />
+            )}
           </div>
 
           <AnsiLogViewer chunks={destroyRun.log.chunks} emptyMessage="Waiting for destroy output…" />

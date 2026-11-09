@@ -144,6 +144,15 @@ export interface UseIacRunResult {
   runLock: RunLock | null;
   submitError: string | null;
   inFlight: boolean;
+  /** True while the run is streaming and has not reached a terminal status, i.e. while {@link cancel} can still help. */
+  cancellable: boolean;
+  /** True once a cancel was requested for the current run and it has not yet settled. */
+  cancelling: boolean;
+  /**
+   * Requests cancellation of the current run over `iac.cancel`. A `not_running` ack is not an error (the run
+   * settled first and its status follows); a malformed-payload ack or a rejection lands in `submitError`.
+   */
+  cancel: () => void;
   /**
    * Submits a plan/apply/destroy run. Bails out with a friendly `submitError` if `window.hyveon` (the IPC
    * bridge) is unavailable; otherwise resets `conflict`/`staleLock`/`runLock`/`submitError`/`record`, calls
@@ -165,7 +174,7 @@ export interface UseIacRunResult {
   reset: () => void;
 }
 
-// @spec IAC-RUN-PLAN-002, IAC-RUN-PLAN-004, IAC-RUN-PLAN-006, IAC-RUN-PLAN-009, IAC-RUN-RBK-010
+// @spec IAC-RUN-PLAN-002, IAC-RUN-PLAN-004, IAC-RUN-PLAN-006, IAC-RUN-PLAN-009, IAC-RUN-RBK-010, IAC-RUN-CANCEL-005
 /**
  * Owns the plan/apply/destroy run-submission state machine shared by all three operations on `IacPage`:
  * the submitted run's id/terminal status/record, its live log (via `useIacRunLog`), and the
@@ -183,7 +192,7 @@ export interface UseIacRunResult {
  *
  * @param kind - Which run this instance tracks — `'plan'` | `'apply'` | `'destroy'` — used only to label
  *   {@link UseIacRunResult.submit}'s generic default/not-found submission error text.
- * @returns The run's live state and its `submit`/`adopt`/`reset` actions.
+ * @returns The run's live state and its `submit`/`adopt`/`reset`/`cancel` actions.
  */
 export function useIacRun(kind: IacRunKind): UseIacRunResult {
   const label = RUN_KIND_LABELS[kind];
@@ -196,8 +205,11 @@ export function useIacRun(kind: IacRunKind): UseIacRunResult {
   const [runLock, setRunLock] = useState<RunLock | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [inFlight, setInFlight] = useState(false);
+  const [cancelRequestedFor, setCancelRequestedFor] = useState<string | null>(null);
 
   const log = useIacRunLog(runId);
+  const cancellable = runId !== null && status === null && !log.ended;
+  const cancelling = runId !== null && cancelRequestedFor === runId;
 
   // Once the log stream ends, fetch the run's terminal status/record —
   // `awaiting_approval`/`success`/`failed`/`aborted` are only derivable
@@ -225,6 +237,25 @@ export function useIacRun(kind: IacRunKind): UseIacRunResult {
       cancelled = true;
     };
   }, [runId, log.ended, label]);
+
+  const cancel = useCallback(() => {
+    if (!runId || !window.hyveon) return;
+    setCancelRequestedFor(runId);
+    void (async () => {
+      try {
+        const ack = await window.hyveon!.iac.cancel(runId);
+        if (ack.error) {
+          setCancelRequestedFor(null);
+          setSubmitError(ack.error);
+        } else if (!ack.cancelled) {
+          setCancelRequestedFor(null);
+        }
+      } catch (err) {
+        setCancelRequestedFor(null);
+        setSubmitError(errMessage(err));
+      }
+    })();
+  }, [runId]);
 
   const submit = useCallback(
     (fn: () => Promise<IacPlanAck>) => {
@@ -280,5 +311,5 @@ export function useIacRun(kind: IacRunKind): UseIacRunResult {
     setSubmitError(null);
   }, []);
 
-  return { runId, status, record, log, conflict, staleLock, runLock, submitError, inFlight, submit, adopt, reset };
+  return { runId, status, record, log, conflict, staleLock, runLock, submitError, inFlight, cancellable, cancelling, cancel, submit, adopt, reset };
 }

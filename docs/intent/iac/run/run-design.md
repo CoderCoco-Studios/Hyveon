@@ -118,6 +118,7 @@ The token logic is `LockClearConfirmationGate<string>` bound on `runId` (`RunSer
 | `iac.rollback.resolve` | generic | target version + best-effort diff (`:1162`) | `IacController` |
 | `iac.rollback.confirm` | self-bridged | `{ confirmed, versionId?, planRunId?, error? }` after the whole plan (`:1219-1300`) | `IacController` |
 | `iac.lock.clear.mintToken`, `iac.lock.clear` | generic | Pulumi backend lock recovery (`:953`, `:1332`) | `IacController` (logic in `iac/engine`; specified here by `IAC-RUN-LCLR-009` to `-012`) |
+| `iac.run.cancel` | generic | `{ cancelled: true }` for a run this session is driving; `{ cancelled: false, reason: 'not_running' }` for any other `runId`; `{ cancelled: false, error }` for a malformed payload; never throws (`IAC-RUN-CANCEL-002`, `-003`) | `IacController` |
 | `iac.output` | generic | stack outputs; `force` accepted and ignored (`:1076-1088`) | `IacController` |
 | `iac.runs.get` | generic | `{ found, status: RunDetailStatus, record }` from local `run.json`, `running` while the run holds the apply lock in memory or durably and has no persisted record (`iac-runs.controller.ts:208-250`) | `IacRunsController` |
 | `iac.runs.logs` | self-bridged | `{ streamId }`, then `iac.runs.logs.chunk` / `.end` (`:257-313`) | `IacRunsController` |
@@ -128,6 +129,22 @@ Every mutating channel returns an immediate ack. A refused submission is modelle
 ### Streaming as it actually works
 
 The controller's plan, apply and destroy handlers each pull the service generator's first step before acking, then hand it to one shared loop (`IacController.pumpRunStream`, with `trackRun` for the window-destroyed abort wiring) that sends every chunk on a fixed `iac.<op>.chunk` channel and a terminal message on `iac.<op>.end` (`IAC-RUN-IPC-004`, `IAC-RUN-IPC-008`). **Nothing subscribes to those channels.** The preload says so (`desktop-preload/src/hyveon-api.ts:2333-2339`) and neither preload nor `web/src` references them. The loop therefore functions only as the generator's driver; operator-visible output comes from `iac.runs.logs`, which replays the run's buffered output from `PulumiService.streamRunOutput` and follows it live, giving reattach-after-reload for free (Decisions & Alternatives: Renderer output path). `iac.rollback.confirm.chunk` is likewise unsubscribed, which its own comment acknowledges (`iac.controller.ts:44-55`).
+
+### Operator cancel
+
+`iac.run.cancel {runId}` looks the `runId` up in the controller's `activePlans`, `activeApplies` and `activeDestroys` maps and fires the matching `AbortController`, the same abort a destroyed window fires. From there the engine's escalating-cancellation path stops the operation (`IAC-ENGINE-LIFE-003`, `-004`, `-006`) and `PulumiService` settles the run record as `aborted` and releases the durable apply lock (`IAC-RUN-DSTR-010`), so cancel adds no persistence path of its own. `pumpRunStream` then sends one terminal message with `exitCode: null` and `aborted: true`, and deregisters the run.
+
+Race and ownership edges, each decided by the maps being the single source of truth for "this session is driving the run":
+
+| Case | Outcome |
+|---|---|
+| Cancel races completion | A run still in the map is acked `cancelled: true`; if the service had already settled, the abort is a no-op and the record keeps its real status. The renderer reads the final status from `iac.runs.get`, never from the ack. |
+| Double cancel | The second call finds the run still registered and resolves `cancelled: true` again; aborting an aborted controller has no effect. |
+| Cancel after settle, unknown id, or a run from a previous app session | Not in any map, so `{ cancelled: false, reason: 'not_running' }` with no record or lock touched. A durable lock left by a previous session is recovered only through the lock-clear flow (`IAC-RUN-LCLR-*`, `IAC-ENGINE-LOCK-*`). |
+| Cancel during the apply approval window | Approval is a record write, not a run, so there is nothing to cancel; the page offers Cancel only once a run is streaming. |
+| Cancel during the apply gate | The run is registered after the gate passes and the ack is sent, so a cancel before then resolves `not_running`; the gate is short and holds no engine process. |
+
+Cancelling an apply or destroy can leave partial state, so the page confirms first (`IAC-RUN-CANCEL-006`); a plan changes nothing and cancels at once. The partial-apply banner and `partialApply` marker already cover an aborted apply (`IAC-RUN-PART-*`).
 
 ### Renderer state machine
 
@@ -180,6 +197,7 @@ Unit tests cover the services, store and controllers directly (`RunService.test.
 | Lock-clear discovery | Reactive, only after a `RunLockHeldError` refusal | Proactive `iac.runs.lockStatus` channel | Mirrors the Pulumi-lock banner precedent; proactive deferred: a status channel would show a wedged lock on page load, but adds a channel with no precedent, and an operator with a wedged lock sees nothing wrong until their next submission. The clear action is offered only for lock-held refusals, not for the in-process workspace guard, since the latter means this process is genuinely busy and there is nothing to clear. |
 | Lock-clear token binding | Bound to the held `runId`, own 5 min TTL | Bound to "a lock exists"; share Pulumi's TTL constant | A delayed confirm must never clear a different run's lock; the two locks tune independently. Binding matters because between mint and confirm the original run could finish and a new legitimate run acquire the lock; a stale token then fails and requires a fresh mint. The clear itself reuses `releaseRun` unchanged, including its graceful degradation to TTL self-heal on a transient DynamoDB failure. Clearing a lock that still backs a live run in a different process would allow a second concurrent apply; the confirmation dialog names holder, kind and age to mitigate this, as the Pulumi-lock flow does. |
 | Integration coverage of the gates | Not a goal: the tier-2 harness never runs the real `PulumiService`; the gate arithmetic and destroy token bookkeeping are covered by `PulumiService.apply.test.ts`, `PulumiService.destroy.test.ts` and `IAC-RUN-GATE-012` (lock ordering) | Run the real `PulumiService` inside the tier-2 harness (two specs asserting gate arithmetic and token bookkeeping through the controllers) | Such specs contradict `IAC-RUN-ITEST-001` and `IAC-RUN-ITEST-002`: the harness replaces `PulumiService` with a scriptable stub on purpose (no engine, no AWS), and the real behaviour is already unit-tested where it lives. Rejected rather than deferred: a real-engine-free `PulumiService` seam would duplicate the unit tests, not add coverage |
+| Operator cancel channel | One `iac.run.cancel {runId}` channel resolving a modelled `cancelled` ack, firing the existing per-run `AbortController` | `iac.plan.cancel`, `iac.apply.cancel`, `iac.destroy.cancel` channels; a `stack.cancel()` call | `runId`s are unique across operations, so one channel needs no operation tag; the abort path already settles the record and releases the lock; `stack.cancel()` is reserved for confirmed lock clearing (`iac/engine` design, Cancellation) |
 | Approver identity | Local OS username resolved server-side | Caller-supplied identity | An IPC caller cannot spoof the approver (`iac.controller.ts:1097-1099`). |
 
 ## Open Questions & Future Decisions

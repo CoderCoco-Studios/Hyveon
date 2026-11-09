@@ -25,6 +25,7 @@ const hyveonMock = {
     apply: vi.fn(),
     mintDestroyToken: vi.fn(),
     destroy: vi.fn(),
+    cancel: vi.fn(),
     output: vi.fn(),
     runs: {
       get: vi.fn(),
@@ -123,6 +124,7 @@ describe('IacPage', () => {
     apiMock.status.mockResolvedValue([]);
     apiMock.costsEstimate.mockResolvedValue({ games: {}, totalPerHourIfAllOn: 0 });
     hyveonMock.iac.plan.mockReset();
+    hyveonMock.iac.cancel.mockReset();
     hyveonMock.iac.approve.mockReset();
     hyveonMock.iac.apply.mockReset();
     hyveonMock.iac.mintDestroyToken.mockReset();
@@ -824,6 +826,97 @@ describe('IacPage', () => {
       renderPage(<IacPage />);
       expect(hyveonMock.iac.plan).not.toHaveBeenCalled();
       expect(screen.getByRole('button', { name: /Run plan/ })).toBeInTheDocument();
+    });
+  });
+  // @spec IAC-RUN-CANCEL-005, IAC-RUN-CANCEL-006
+  describe('operator cancel', () => {
+    /** Seeds a stream that stays open until `settle()` is called, then ends and reports `status` for the run. */
+    function seedLongRun(runId: string, status: 'aborted' | 'success') {
+      let settle!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+      hyveonMock.iac.runs.streamLogs.mockImplementation(
+        toStreamHandleMock(async function* () {
+          yield { stream: 'stdout', line: 'working' };
+          await gate;
+        }),
+      );
+      hyveonMock.iac.runs.get.mockResolvedValue({
+        found: true,
+        status,
+        record: { runId, kind: 'plan', startedAt: 't0', completedAt: 't1', exitCode: null },
+      });
+      return settle;
+    }
+
+    it('should not render a cancel control when no run is streaming', () => {
+      renderPage(<IacPage />);
+
+      expect(screen.queryByRole('button', { name: /^Cancel/ })).not.toBeInTheDocument();
+    });
+
+    it('should cancel a streaming plan without confirmation and show the aborted banner once it settles', async () => {
+      hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
+      hyveonMock.iac.cancel.mockResolvedValue({ cancelled: true });
+      const settle = seedLongRun(PLAN_RUN_ID, 'aborted');
+      renderPage(<IacPage />);
+
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Cancel plan' }));
+
+      expect(hyveonMock.iac.cancel).toHaveBeenCalledWith(PLAN_RUN_ID);
+      expect(await screen.findByRole('button', { name: /Cancelling/ })).toBeDisabled();
+      settle();
+      expect(await screen.findByText('Plan was aborted — see the log above for details.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Cancelling|^Cancel plan/ })).not.toBeInTheDocument();
+    });
+
+    it('should confirm before cancelling a destroy and only then call iac.cancel', async () => {
+      hyveonMock.iac.mintDestroyToken.mockResolvedValue({ token: 'destroy-token-1' });
+      hyveonMock.iac.destroy.mockResolvedValue({ started: true, runId: DESTROY_RUN_ID });
+      hyveonMock.iac.cancel.mockResolvedValue({ cancelled: true });
+      const settle = seedLongRun(DESTROY_RUN_ID, 'aborted');
+      renderPage(<IacPage />);
+
+      await userEvent.click(screen.getByRole('button', { name: /Destroy infrastructure/ }));
+      await userEvent.type(screen.getByLabelText('Type to confirm'), DESTROY_CONFIRM_PHRASE);
+      await userEvent.click(screen.getByRole('button', { name: 'Destroy' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Cancel destroy' }));
+
+      expect(await screen.findByText('Cancel this destroy?')).toBeInTheDocument();
+      expect(hyveonMock.iac.cancel).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByRole('button', { name: 'Stop destroy' }));
+
+      expect(hyveonMock.iac.cancel).toHaveBeenCalledWith(DESTROY_RUN_ID);
+      settle();
+      expect(await screen.findByText('Destroy was aborted — see the log above for details.')).toBeInTheDocument();
+    });
+
+    it('should re-enable the control and show no error when the run had already settled (not_running)', async () => {
+      hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
+      hyveonMock.iac.cancel.mockResolvedValue({ cancelled: false, reason: 'not_running' });
+      seedLongRun(PLAN_RUN_ID, 'success');
+      renderPage(<IacPage />);
+
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Cancel plan' }));
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel plan' })).toBeEnabled());
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('should surface the error and re-enable the control when iac.cancel rejects', async () => {
+      hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
+      hyveonMock.iac.cancel.mockRejectedValue(new Error('ipc down'));
+      seedLongRun(PLAN_RUN_ID, 'success');
+      renderPage(<IacPage />);
+
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Cancel plan' }));
+
+      expect(await screen.findByText('ipc down')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Cancel plan' })).toBeEnabled();
     });
   });
 });

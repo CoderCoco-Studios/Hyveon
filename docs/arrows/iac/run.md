@@ -5,7 +5,7 @@ Each plan / apply / destroy / rollback attempt as a durable record: who approved
 ## Status
 
 **MAPPED** — mapped 2026-10-30 (git SHA `5c55a380`), not yet audited.
-The run lifecycle works end to end through the IaC page and history, and `partialApply` round-trips through the DynamoDB store, and the durable run lock is held from the first apply on a fresh install.
+The run lifecycle works end to end through the IaC page and history, and `partialApply` round-trips through the DynamoDB store, an operator can cancel a running plan, apply or destroy (`iac.run.cancel`, recorded `aborted`), and the durable run lock is held from the first apply on a fresh install.
 
 ## References
 
@@ -17,7 +17,7 @@ The run lifecycle works end to end through the IaC page and history, and `partia
 - `docs/intent/iac/run/run-design.md`
 
 ### EARS
-- `docs/intent/iac/run/run-specs.md` (133 specs)
+- `docs/intent/iac/run/run-specs.md` (136 specs)
 
 ### Tests
 - **cloud-aws**: `app/packages/cloud-aws/src/AwsRunRecordStore.test.ts`
@@ -71,7 +71,7 @@ The run lifecycle works end to end through the IaC page and history, and `partia
 | Runs table and log storage | `IAC-RUN-STORE-001` to `IAC-RUN-STORE-009` | 9 | 0 | 0 |
 | Apply lock | `IAC-RUN-LOCK-001` to `IAC-RUN-LOCK-010` | 10 | 0 | 0 |
 | Run-lock recovery | `IAC-RUN-LCLR-001` to `IAC-RUN-LCLR-012` | 12 | 0 | 0 |
-| Operator cancel | `IAC-RUN-CANCEL-001` | 0 | 1 | 0 |
+| Operator cancel | `IAC-RUN-CANCEL-001` to `IAC-RUN-CANCEL-006` | 6 | 0 | 0 |
 | Plan submission and the IaC page | `IAC-RUN-PLAN-001` to `IAC-RUN-PLAN-010` | 10 | 0 | 0 |
 | Approval | `IAC-RUN-APPR-001` to `IAC-RUN-APPR-007` | 7 | 0 | 0 |
 | Apply gate | `IAC-RUN-GATE-001` to `IAC-RUN-GATE-015` | 15 | 0 | 0 |
@@ -83,7 +83,7 @@ The run lifecycle works end to end through the IaC page and history, and `partia
 | IPC surface and streaming | `IAC-RUN-IPC-001` to `IAC-RUN-IPC-009` | 9 | 0 | 0 |
 | Integration coverage | `IAC-RUN-ITEST-001` to `IAC-RUN-ITEST-010` (no `-005`, `-007`) | 8 | 0 | 0 |
 
-**Summary:** 130 of 131 active specs implemented; 1 deferred; 0 gaps.
+**Summary:** 136 of 136 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 

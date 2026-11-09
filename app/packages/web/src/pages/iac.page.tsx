@@ -10,6 +10,7 @@ import { ErrorBanner } from '../components/error-banner.component.js';
 import { PageHeader } from '../components/page-header.component.js';
 import { RolledBackFromLink } from '../components/rolled-back-from-link.component.js';
 import { DestroySection } from '../components/iac-destroy-section.component.js';
+import { RunCancelButton } from '../components/run-cancel-button.component.js';
 import { SubmissionBanners } from '../components/submission-banners.component.js';
 import { ChangeSummaryStatus } from '../components/change-summary-status.component.js';
 import { useIacRun } from '../hooks/use-iac-run.hook.js';
@@ -68,7 +69,7 @@ function PartialApplyBanner({ onStartOver }: { onStartOver: () => void }) {
 }
 
 // @spec IAC-RUN-PLAN-002, IAC-RUN-PLAN-007, IAC-RUN-APPR-001, IAC-RUN-APPR-004, IAC-RUN-APPR-005, IAC-RUN-APPR-006, IAC-RUN-GATE-001
-// @spec IAC-RUN-GATE-006, IAC-RUN-GATE-014, IAC-RUN-GATE-015, IAC-RUN-PART-003, IAC-RUN-LCLR-007
+// @spec IAC-RUN-GATE-006, IAC-RUN-GATE-014, IAC-RUN-GATE-015, IAC-RUN-PART-003, IAC-RUN-LCLR-007, IAC-RUN-CANCEL-005
 /**
  * Infrastructure plan/apply route (`/iac`) — lets an operator trigger a
  * Pulumi plan (preview), watch its live ANSI output, review the
@@ -206,6 +207,9 @@ export function IacPage() {
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-[var(--color-foreground)]">Plan</h3>
             {planFinished && <ChangeSummaryStatus summary={planRun.record?.changeSummary} />}
+            {planRun.cancellable && (
+              <RunCancelButton kind="plan" cancelling={planRun.cancelling} onCancel={planRun.cancel} />
+            )}
           </div>
 
           {planRun.record?.rolledBackFrom && <RolledBackFromLink applyRunId={planRun.record.rolledBackFrom} />}
@@ -213,6 +217,7 @@ export function IacPage() {
           <AnsiLogViewer chunks={planRun.log.chunks} emptyMessage="Waiting for plan output…" />
 
           {planRun.log.error && <ErrorBanner>{`Log stream error: ${planRun.log.error}`}</ErrorBanner>}
+          {!planFinished && planRun.submitError && <ErrorBanner>{planRun.submitError}</ErrorBanner>}
 
           {planFailed && (
             <ErrorBanner>
@@ -277,10 +282,15 @@ export function IacPage() {
                 {applyFinished ? (
                   <ChangeSummaryStatus summary={applyRun.record?.changeSummary} />
                 ) : (
-                  <span role="status" className="flex items-center gap-1.5 text-sm text-[var(--color-muted-foreground)]">
-                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                    Applying…
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span role="status" className="flex items-center gap-1.5 text-sm text-[var(--color-muted-foreground)]">
+                      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                      Applying…
+                    </span>
+                    {applyRun.cancellable && (
+                      <RunCancelButton kind="apply" cancelling={applyRun.cancelling} onCancel={applyRun.cancel} />
+                    )}
+                  </div>
                 )}
               </div>
 

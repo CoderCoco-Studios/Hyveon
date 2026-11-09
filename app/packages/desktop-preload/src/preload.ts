@@ -80,6 +80,7 @@ import type {
   IacLockClearMintAck,
   IacLockClearPayload,
   IacPlanAck,
+  IacCancelAck,
   IacPlanPayload,
   IacRollbackConfirmAck,
   IacRollbackResolveAck,
@@ -625,6 +626,7 @@ const api: HyveonApi = {
     apply: (payload: IacApplyPayload) => invoke<IacPlanAck>('iac.apply', payload),
     mintDestroyToken: () => invoke<IacDestroyMintAck>('iac.destroy.mintToken'),
     destroy: (payload: IacDestroyPayload) => invoke<IacPlanAck>('iac.destroy', payload),
+    cancel: (runId: string) => invoke<IacCancelAck>('iac.run.cancel', { runId }),
     output: (force?: boolean) => invoke<StackOutputs | null>('iac.output', { force }),
     runs: {
       get: (runId: string) => invoke<IacRunsGetResult>('iac.runs.get', { runId }),
