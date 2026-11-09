@@ -128,7 +128,7 @@ describe('IacSettingsController', () => {
 
       await new IacSettingsController(deploymentConfig).get();
 
-      expect(logger.error).toHaveBeenCalledWith('Failed to read deployment settings', { err: 'S3 unreachable' });
+      expect(logger.error).toHaveBeenCalledWith('Failed to read deployment settings', { error: 'S3 unreachable' });
     });
 
     // @spec CONFIG-SET-010
@@ -263,7 +263,7 @@ describe('IacSettingsController', () => {
       vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValueOnce(new Error('malformed config JSON'));
       await new IacSettingsController(deploymentConfig).update(PAYLOAD);
       expect(logger.error).toHaveBeenCalledWith('Failed to write deployment settings', {
-        err: 'malformed config JSON',
+        error: 'malformed config JSON',
       });
     });
 
