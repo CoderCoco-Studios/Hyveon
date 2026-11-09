@@ -57,7 +57,7 @@ export class Ec2Service {
       logger.debug('Resolved public IP', { eniId, ip });
       return ip;
     } catch (err) {
-      logger.error('Failed to resolve public IP', { err, eniId });
+      logger.error('Failed to resolve public IP', { error: errMessage(err), eniId });
       return null;
     }
   }
@@ -76,7 +76,7 @@ export class Ec2Service {
       logger.debug('Resolved private IP', { eniId, ip });
       return ip;
     } catch (err) {
-      logger.error('Failed to resolve private IP', { err, eniId });
+      logger.error('Failed to resolve private IP', { error: errMessage(err), eniId });
       return null;
     }
   }

@@ -596,7 +596,7 @@ export class IacController implements OnModuleInit {
         // `failedPhase` field", for why the *renderer-facing* message below
         // deliberately doesn't try to carry the same field).
         logger.error('stack initialization error', {
-          err,
+          error: errMessage(err),
           failedPhase: err instanceof PulumiStackInitializationError ? err.phase : undefined,
         });
         if (!sender.isDestroyed()) {
@@ -681,7 +681,7 @@ export class IacController implements OnModuleInit {
         sender.send(channels.end, endMessage);
       }
     } catch (err) {
-      logger.error(`${op} error`, { err });
+      logger.error(`${op} error`, { error: errMessage(err) });
       if (!sender.isDestroyed()) {
         const endMessage: IacPlanEndMessage<TResult | undefined> = {
           runId,
@@ -1032,7 +1032,7 @@ export class IacController implements OnModuleInit {
 
       return { approved: true, approvedBy: record.approvedBy, approvedAt: record.approvedAt };
     } catch (err) {
-      logger.error('approve error', { err, planRunId: payload.planRunId });
+      logger.error('approve error', { error: errMessage(err), planRunId: payload.planRunId });
       const error = errMessage(err);
       return { approved: false, error };
     }
@@ -1078,7 +1078,7 @@ export class IacController implements OnModuleInit {
         ({ diff, headEtag } = await this.pulumi.computeRollbackDiff(target.versionId));
       } catch (err) {
         logger.warn('rollback resolve: diff computation failed — continuing without it', {
-          err,
+          error: errMessage(err),
           applyRunId: payload.applyRunId,
         });
       }
@@ -1091,7 +1091,7 @@ export class IacController implements OnModuleInit {
         ...(headEtag ? { headEtag } : {}),
       };
     } catch (err) {
-      logger.error('rollback resolve error', { err, applyRunId: payload.applyRunId });
+      logger.error('rollback resolve error', { error: errMessage(err), applyRunId: payload.applyRunId });
       const error = errMessage(err);
       return { resolved: false, error };
     }
@@ -1201,7 +1201,7 @@ export class IacController implements OnModuleInit {
 
       return { confirmed: true, versionId, planRunId: result.runId };
     } catch (err) {
-      logger.error('rollback confirm error', { err, applyRunId: payload.applyRunId });
+      logger.error('rollback confirm error', { error: errMessage(err), applyRunId: payload.applyRunId });
       if (err instanceof PulumiRollbackPlanFailedError) {
         // The restore write DID succeed — err.restoredVersionId is now the
         // new head — only the follow-up plan failed. Surface it
@@ -1255,7 +1255,7 @@ export class IacController implements OnModuleInit {
       await this.pulumi.clearStaleLock(payload.confirmationToken);
       return { cleared: true };
     } catch (err) {
-      logger.error('iac lock clear error', { err });
+      logger.error('iac lock clear error', { error: errMessage(err) });
       const error = errMessage(err);
       return { cleared: false, error };
     }

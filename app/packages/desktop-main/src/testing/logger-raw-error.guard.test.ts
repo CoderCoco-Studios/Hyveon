@@ -18,30 +18,6 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/**
- * Files owned by other arrow segments that still log a raw error object, tolerated so the guard can gate the rest of
- * the tree today. An entry here is a known debt, not an endorsement: remove it when the owning segment normalizes its
- * logger metadata. A listed file that has since been fixed only produces a console warning (the stacks that fix them
- * land independently, so a stale entry must not fail the build); a violation in an unlisted file always fails.
- */
-const ALLOWLIST = new Set([
-  'controllers/iac-runs.controller.ts',
-  'controllers/iac-settings.controller.ts',
-  'controllers/iac.controller.ts',
-  'services/DeploymentConfigService.ts',
-  'services/EcsService.ts',
-  'services/Ec2Service.ts',
-  'services/FileManagerService.ts',
-  'services/GamesWriteService.ts',
-  'services/PulumiEngineService.ts',
-  'services/PulumiService.ts',
-  'services/RunRecordService.ts',
-  'services/RunService.ts',
-  'services/SchedulerService.ts',
-  'services/volumeFiles/HelperSessionRegistry.ts',
-  'services/volumeFiles/VolumeFilesService.ts',
-]);
-
 /** Parameter names that, when typed `unknown`/`Error`, are taken to hold a caught error (a `game: unknown` is not). */
 const ERROR_PARAM_NAME = /^(?:err|error|e|ex|exc|exception|cause|reason|caught|failure)$/;
 
@@ -169,18 +145,14 @@ export function passesRawError(args: string, bindings: Set<string>): boolean {
 describe('logger metadata never carries a raw error object', () => {
   it('should flag no logger call in desktop-main sources that passes a caught-error binding as an argument or property', () => {
     const violations: string[] = [];
-    const flaggedAllowlisted = new Set<string>();
     for (const file of listSources(SRC)) {
       const rel = relative(SRC, file);
       const source = readFileSync(file, 'utf8');
       const bindings = caughtErrorBindings(source);
       const hits = loggerCalls(source).filter(({ args }) => passesRawError(args, bindings));
       if (hits.length === 0) continue;
-      if (ALLOWLIST.has(rel)) flaggedAllowlisted.add(rel);
-      else violations.push(...hits.map(({ line }) => `${rel}:${line}`));
+      violations.push(...hits.map(({ line }) => `${rel}:${line}`));
     }
-    const fixed = [...ALLOWLIST].filter((rel) => !flaggedAllowlisted.has(rel));
-    if (fixed.length > 0) console.warn(`logger-raw-error guard: allowlist entries with no remaining violation: ${fixed.join(', ')}`);
     expect(violations).toEqual([]);
   });
 

@@ -34,7 +34,7 @@ Totals count specs, one class per spec. `APP-WIZARD-HEALTH-008` is counted once,
 | `watchdog` | `docs/intent/game-runtime/watchdog/watchdog-specs.md` | 0 | 0 | 0 | 0 | 0 (4 since closed) |
 | `health-check` | `docs/intent/game-runtime/health-check/health-check-specs.md` | 0 | 0 | 0 | 0 | 0 (5 since closed) |
 | `wizard-and-bootstrap` | `docs/intent/operator-app/wizard-and-bootstrap/wizard-and-bootstrap-specs.md` | 0 | 14 (2 / 5 / 7) | 4 | 2 | 20 |
-| `diagnostics` | `docs/intent/operator-app/diagnostics/diagnostics-specs.md` | 0 | 1 (0 / 0 / 1) | 0 | 0 | 1 |
+| `diagnostics` | `docs/intent/operator-app/diagnostics/diagnostics-specs.md` | 0 | 0 (0 / 0 / 0) | 0 | 0 | 0 |
 | `infra-logs` | `docs/intent/operator-app/infra-logs/infra-logs-specs.md` | 0 | 10 (0 / 1 / 9) | 2 | 1 | 13 |
 | `app-update-and-release` | `docs/intent/operator-app/app-update-and-release/app-update-and-release-specs.md` | 0 | 5 (0 / 2 / 3) | 1 | 3 | 9 |
 | `desktop-shell` | `docs/intent/operator-app/desktop-shell/desktop-shell-specs.md` | 0 | 4 (0 / 1 / 3) | 1 | 3 | 8 |
@@ -43,7 +43,7 @@ Totals count specs, one class per spec. `APP-WIZARD-HEALTH-008` is counted once,
 | `deployment-config` | `docs/intent/deployment-config/deployment-config-specs.md` | 0 | 9 (3 / 2 / 4) | 2 | 0 | 11 |
 | `discord-bot` | `docs/intent/discord-bot/discord-bot-specs.md` | 0 | 9 (0 / 5 / 4) | 1 | 1 | 11 |
 | `helper-task` | `docs/intent/helper-task/helper-task-specs.md` | 0 | 8 (0 / 3 / 5) | 2 | 0 | 10 |
-| **Total** | | **0** | **129** (12 / 38 / 79) | **28** | **26** | **183** |
+| **Total** | | **0** | **128** (12 / 38 / 78) | **28** | **26** | **182** |
 
 ## Top 10 real gaps by user impact
 
@@ -213,7 +213,7 @@ Specs: `docs/intent/operator-app/diagnostics/diagnostics-specs.md` · Arrow doc:
 | `APP-DIAG-RERR-008` | closed | - | Fixed (was): No install guard (web/src/lib/report-renderer-error.utils.ts:169-178) but only call site is main.tsx:8, once per session; speculative |
 | `APP-DIAG-RERR-009` | closed | - | Fixed (was): Uses instanceof Error (report-renderer-error.utils.ts:175-176) vs isErrorLike at :4; renderer has no cross-realm rejection source today, speculative |
 | `APP-DIAG-CONS-012` | closed | - | Fixed (was): flushInFlight cleared only in .then handlers (web/src/lib/report-renderer-error.utils.ts:126-137); a hung reportLog stops forwarding, contradicting doc :94-97 |
-| `APP-DIAG-SVC-002` | b | low | Logger-metadata half closed by `logger-raw-error.guard.test.ts` (allowlist of out-of-segment files remains, 15 files); AuditService half fixed. |
+| `APP-DIAG-SVC-002` | closed | - | Fixed: every logger call logs `{ error: errMessage(err) }` and `logger-raw-error.guard.test.ts` has no allowlist. |
 | `APP-DIAG-SVC-003` | closed | - | Fixed. |
 | `APP-DIAG-PANEL-010` | closed | - | Fixed. |
 | `APP-DIAG-BNDL-013` | closed | - | Fixed. |

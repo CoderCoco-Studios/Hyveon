@@ -333,7 +333,7 @@ export class DeploymentConfigService {
         // doesn't read as a genuine incident.
         logger.warn('No configuration bucket configured — returning empty gameServers list', {});
       } else {
-        logger.error('Failed to load deployment config gameServers — returning empty list', { err: errMessage(err) });
+        logger.error('Failed to load deployment config gameServers — returning empty list', { error: errMessage(err) });
       }
       if (generation === this.cacheGeneration) {
         this.cache = { value: [], cachedAt: this.now(), failed: true };
@@ -869,7 +869,7 @@ export class DeploymentConfigService {
     try {
       parsed = JSON.parse(raw);
     } catch (err) {
-      logger.error('Failed to parse deployment config JSON', { err });
+      logger.error('Failed to parse deployment config JSON', { error: errMessage(err) });
       throw new Error(`Failed to parse deployment config JSON: ${errMessage(err)}`);
     }
 
