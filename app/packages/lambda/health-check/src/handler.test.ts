@@ -15,6 +15,7 @@ import { HEALTH_CHECK_SECRET_DEADLINE_MS, type GameServerHealthCheck } from '@hy
 const secretsManagerMock = mockClient(SecretsManagerClient);
 
 process.env['AWS_REGION_'] = 'us-east-1';
+process.env['VPC_CIDR'] = '10.0.0.0/16';
 
 const { handler } = await import('./handler.js');
 
@@ -272,15 +273,43 @@ describe('handler', () => {
     },
   );
 
-  // @spec RT-HEALTH-HTTP-010
-  it.each(['10.0.1.23', '10.255.255.254', '172.16.0.1', '172.31.255.254', '192.168.0.1'])(
-    'should accept the private IPv4 literal %s',
+  // @spec RT-HEALTH-HTTP-010, RT-HEALTH-HTTP-012
+  it.each(['10.0.0.1', '10.0.1.23', '10.0.255.254'])('should accept the VPC-CIDR address %s', async (privateIp) => {
+    fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
+
+    await handler({ game: 'palworld', taskArn: 'task-arn', privateIp, healthCheck: makeHealthCheck() });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`http://${privateIp}:8211/status`);
+  });
+
+  // @spec RT-HEALTH-HTTP-012
+  it.each(['10.1.0.1', '10.255.255.254', '172.16.0.1', '172.31.255.254', '192.168.0.1'])(
+    'should be fail-active without a request when private address %s is outside the VPC CIDR',
     async (privateIp) => {
-      fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
+      const verdict = await handler({ game: 'palworld', taskArn: 'task-arn', privateIp, healthCheck: makeHealthCheck() });
 
-      await handler({ game: 'palworld', taskArn: 'task-arn', privateIp, healthCheck: makeHealthCheck() });
+      expect(verdict).toMatchObject({ active: true, failureDerived: true });
+      expect(verdict.reason).toMatch(/^health check failed:/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 
-      expect(fetchMock.mock.calls[0]?.[0]).toBe(`http://${privateIp}:8211/status`);
+  // @spec RT-HEALTH-HTTP-012
+  it.each([undefined, '', 'garbage', '10.0.0.0', '10.0.0.0/33'])(
+    'should be fail-active without a request when the VPC_CIDR environment variable is %j',
+    async (cidr) => {
+      const previous = process.env['VPC_CIDR'];
+      if (cidr === undefined) delete process.env['VPC_CIDR'];
+      else process.env['VPC_CIDR'] = cidr;
+      try {
+        const verdict = await handler({ game: 'palworld', taskArn: 'task-arn', privateIp: '10.0.1.23', healthCheck: makeHealthCheck() });
+
+        expect(verdict).toMatchObject({ active: true, failureDerived: true });
+        expect(verdict.reason).toMatch(/^health check failed:/);
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        process.env['VPC_CIDR'] = previous;
+      }
     },
   );
 

@@ -123,7 +123,6 @@ export function useBootstrapResources({ guided = false, onBootstrapStep = false 
   useEffect(() => {
     if (needsGuidedCheck) void runIamCheck();
     // `runIamCheck` only touches state setters and `window.hyveon`; it is safe to omit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsGuidedCheck]);
 
   function onNameChange(resource: BootstrapResourceKey, name: string) {

@@ -66,7 +66,6 @@ describe('ErrorBoundary', () => {
   it.each([0, '', null])('should render the fallback when a child throws %j', (thrown) => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     function Thrower(): never {
-      // eslint-disable-next-line @typescript-eslint/only-throw-error
       throw thrown;
     }
 

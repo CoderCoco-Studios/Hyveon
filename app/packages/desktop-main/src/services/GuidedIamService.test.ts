@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
+import { createRequire } from 'node:module';
 import { mockClient } from 'aws-sdk-client-mock';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { IAMClient, CreateAccessKeyCommand, DeleteAccessKeyCommand } from '@aws-sdk/client-iam';
@@ -289,6 +290,23 @@ describe('GuidedIamService', () => {
     });
 
     describe('with process.versions.electron set but the electron module unusable (matches a plain Node test process)', () => {
+      const nodeRequire = createRequire(import.meta.url);
+      let cachedElectron: NodeJS.Module | undefined;
+      let electronId: string | undefined;
+
+      // Pre-seed the require cache with an `app`-less module so the real package index (slow, filesystem-bound) never runs.
+      beforeEach(() => {
+        electronId = nodeRequire.resolve('electron');
+        cachedElectron = nodeRequire.cache[electronId];
+        nodeRequire.cache[electronId] = { id: electronId, filename: electronId, loaded: true, exports: {} } as NodeJS.Module;
+      });
+
+      afterEach(() => {
+        if (electronId === undefined) return;
+        if (cachedElectron) nodeRequire.cache[electronId] = cachedElectron;
+        else delete nodeRequire.cache[electronId];
+      });
+
       it('should return false from readIsPackaged when requiring "electron" does not yield a usable app object', () => {
         (process.versions as Record<string, string | undefined>)['electron'] = '30.0.0';
         expect(service.readIsPackaged()).toBe(false);

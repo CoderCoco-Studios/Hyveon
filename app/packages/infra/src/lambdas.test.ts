@@ -108,6 +108,7 @@ function buildArgs(
   return {
     projectName: 'hyveon',
     awsRegion: 'us-east-1',
+    vpcCidr: '10.0.0.0/16',
     hostedZoneName: 'example.com',
     dnsTtl: 30,
     watchdogIntervalMinutes: 15,
@@ -835,17 +836,19 @@ describe('defineLambdas', () => {
     });
 
     // @spec RT-HEALTH-PROV-003, RT-HEALTH-PROV-005, IAC-PROGRAM-LAMBDA-011
-    it('should provision exactly the env vars the health-check handler reads, which is AWS_REGION_ only', async () => {
+    it('should provision exactly the env vars the health-check handler reads, which are AWS_REGION_ and VPC_CIDR', async () => {
       const handlerSource = readFileSync(path.resolve(__dirname, '../../lambda/health-check/src/handler.ts'), 'utf8');
       const required = [...handlerSource.matchAll(/requireEnv\('([A-Z_]+)'\)/g)].map((match) => match[1]);
       expect(required).toEqual([]);
+      const read = [...handlerSource.matchAll(/process\.env\['([A-Z_]+)'\]/g)].map((match) => match[1]);
+      expect([...new Set(read)].filter((name) => !name.startsWith('AWS_')).sort()).toEqual(['VPC_CIDR']);
 
       const gameServers = gameServersWithHealthCheck();
       const { provider, roles, efs } = await arrangeDependencies(gameServers);
       await runDefineLambdas(buildArgs({ gameServers, roles, efs, provider, healthCheckSecurityGroupId: MOCK_HEALTH_CHECK_SECURITY_GROUP_ID }));
 
       const variables = (findByName(mocks.resources, 'hyveon-health-check').inputs.environment as { variables: Record<string, unknown> }).variables;
-      expect(variables).toEqual({ AWS_REGION_: 'us-east-1' });
+      expect(variables).toEqual({ AWS_REGION_: 'us-east-1', VPC_CIDR: '10.0.0.0/16' });
     });
 
     // @spec RT-HEALTH-PROV-002, RT-HEALTH-NET-003, IAC-PROGRAM-LAMBDA-017
@@ -867,7 +870,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.role).toBe(await promiseOf(roles.healthCheckLambdaRole!.arn));
       expect(fn.inputs.handler).toBe('handler.handler');
       expect(fn.inputs.runtime).toBe('nodejs24.x');
-      expect((fn.inputs.environment as { variables: Record<string, unknown> }).variables).toEqual({ AWS_REGION_: 'us-east-1' });
+      expect((fn.inputs.environment as { variables: Record<string, unknown> }).variables).toEqual({ AWS_REGION_: 'us-east-1', VPC_CIDR: '10.0.0.0/16' });
       // @spec RT-HEALTH-FAIL-005
       expect((fn.inputs.timeout as number) * 1000).toBeGreaterThan(HEALTH_CHECK_SECRET_DEADLINE_MS + HEALTH_CHECK_TIMEOUT_MAX_MS);
 

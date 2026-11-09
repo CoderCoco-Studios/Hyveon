@@ -9,7 +9,7 @@ import {
   MULTI_GAME_STATUSES,
   ERROR_GAME,
 } from '../fixtures/index.js';
-import { DashboardPage, AppLayout } from '../pages/index.js';
+import { DashboardPage, AppLayout, CostsPage } from '../pages/index.js';
 
 /**
  * Dashboard spec — driven via `_electron.launch()` and the
@@ -31,6 +31,15 @@ test.describe('dashboard', () => {
     ({ app, win } = await launchElectron());
     dashboard = new DashboardPage(win);
     layout = new AppLayout(win);
+
+    // The provider fetches estimates once at mount, before any mock can exist (the seam is empty at page load), so the
+    // real channel fails and toasts. Reload them through the mock via the Costs page, which refetches on mount.
+    await applyHyveonMocks(win);
+    await new CostsPage(win).gotoElectron();
+    await win.evaluate(() => {
+      window.location.hash = '/';
+    });
+    await layout.toastMessage('Could not load cost estimates').waitFor({ state: 'hidden' });
   });
 
   test.afterAll(async () => {
