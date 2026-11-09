@@ -551,7 +551,7 @@ describe('AddGameWizard — health-check patch batching', () => {
     await goNext(); // -> networking
 
     await userEvent.click(screen.getByLabelText('Enable authoritative health check'));
-    const schemeSelect = await screen.findByLabelText('Scheme');
+    const methodSelect = await screen.findByLabelText('Method');
     const pathInput = screen.getByLabelText('Request path');
     expect(capturedOnHealthCheckChange).not.toBeNull();
 
@@ -562,11 +562,11 @@ describe('AddGameWizard — health-check patch batching', () => {
     // render-scoped `draft.healthCheck` instead of the latest state,
     // silently discarding the first patch.
     act(() => {
-      capturedOnHealthCheckChange!({ scheme: 'https' });
+      capturedOnHealthCheckChange!({ method: 'POST' });
       capturedOnHealthCheckChange!({ path: '/healthz' });
     });
 
-    expect(schemeSelect).toHaveValue('https');
+    expect(methodSelect).toHaveValue('POST');
     expect(pathInput).toHaveValue('/healthz');
   });
 });

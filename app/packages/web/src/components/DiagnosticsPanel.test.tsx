@@ -9,7 +9,7 @@ const apiMock = vi.hoisted(() => ({
   diagnosticsTail: vi.fn(),
   diagnosticsLogPath: vi.fn(),
   diagnosticsExportBundle: vi.fn(),
-  diagnosticsShowInFolder: vi.fn(),
+  revealInFolder: vi.fn(),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 
@@ -310,7 +310,7 @@ describe('DiagnosticsPanel', () => {
     });
 
     // @spec APP-DIAG-BNDL-016
-    it('should call diagnosticsShowInFolder with the written path when "Show in folder" is clicked', async () => {
+    it('should call revealInFolder with the diagnostics-bundle target when "Show in folder" is clicked', async () => {
       const user = userEvent.setup();
       apiMock.diagnosticsExportBundle.mockResolvedValue({ status: 'written', path: '/tmp/hyveon-diagnostics.zip' });
       render(<DiagnosticsPanel />);
@@ -320,7 +320,7 @@ describe('DiagnosticsPanel', () => {
 
       await user.click(screen.getByRole('button', { name: 'Show in folder' }));
 
-      expect(apiMock.diagnosticsShowInFolder).toHaveBeenCalledWith('/tmp/hyveon-diagnostics.zip');
+      expect(apiMock.revealInFolder).toHaveBeenCalledWith('diagnostics-bundle');
     });
 
     // @spec APP-DIAG-BNDL-002

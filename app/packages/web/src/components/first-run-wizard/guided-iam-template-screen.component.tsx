@@ -1,4 +1,4 @@
-import { CheckCircle2, Copy, ExternalLink, Loader2, RotateCcw } from 'lucide-react';
+import { CheckCircle2, Copy, ExternalLink, FolderOpen, Loader2, RotateCcw } from 'lucide-react';
 import { InlineAlert } from '@/components/inline-alert.component';
 import { Button } from '@/components/ui/button.component';
 import { Input } from '@/components/ui/input.component';
@@ -13,6 +13,7 @@ export interface GuidedIamTemplateScreenProps {
   onRetryTemplate: () => void;
   templatePath: string | null;
   onCopyPath: () => void;
+  onRevealPath: () => void;
   pathCopied: boolean;
   openingConsole: boolean;
   onOpenConsole: () => void;
@@ -23,14 +24,15 @@ export interface GuidedIamTemplateScreenProps {
   onContinueToIntake: () => void;
 }
 
-// @spec APP-WIZARD-CONSOLE-001, APP-WIZARD-CONSOLE-004
-/** `template` phase: renders `iam-bootstrap.yaml`, offers "Copy Path"/"Open AWS Console", then hands off to key entry. */
+// @spec APP-WIZARD-CONSOLE-001, APP-WIZARD-CONSOLE-004, APP-WIZARD-CONSOLE-006
+/** `template` phase: renders `iam-bootstrap.yaml`, offers "Copy Path"/"Show in folder"/"Open AWS Console", then hands off to key entry. */
 export function GuidedIamTemplateScreen({
   preparingTemplate,
   templateError,
   onRetryTemplate,
   templatePath,
   onCopyPath,
+  onRevealPath,
   pathCopied,
   openingConsole,
   onOpenConsole,
@@ -70,6 +72,9 @@ export function GuidedIamTemplateScreen({
             <Input id="wizard-guided-iam-template-path" value={templatePath} readOnly />
             <Button type="button" variant="outline" size="sm" onClick={onCopyPath} aria-label="Copy template path">
               <Copy className="size-3" />
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={onRevealPath} aria-label="Show template in folder">
+              <FolderOpen className="size-3" />
             </Button>
           </div>
           {pathCopied && (

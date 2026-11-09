@@ -135,7 +135,7 @@ ExportBundleButton ──diagnostics.exportBundle──▶ DiagnosticsController
 | Metadata | `metadata.json`: `readAppVersion()` (`'unknown'` outside Electron), Electron/Node versions, `os.platform()`/`os.release()`, `enableAutoUpdate` | `DiagnosticsBundleService.ts:167-176`, `app-version.ts:12-21` |
 | AWS snapshot | `aws-snapshot.json`: four stack-output fields and per-game `GameStatus`; `null`/`[]` before first apply; a per-game failure becomes `{ state: 'error', message }` inside `games`, and every per-game `message`, whether from a failure or a returned status, is passed through `scrubSecrets` | `DiagnosticsBundleService.ts:187-209` |
 | Write | `archiver` zip at level 9 to a UUID-suffixed temp file, renamed into place; on failure the stream is destroyed, the temp file removed, and a plain `Error` thrown, which the controller maps to `{ status: 'error' }` | `DiagnosticsBundleService.ts:128-136,232-273`, `diagnostics.controller.ts:92-99` |
-| Reveal | `diagnostics.showInFolder` calls `shell.showItemInFolder`; failures are logged at `warn` and never rejected | `diagnostics.controller.ts:109-129` |
+| Reveal | `shell.revealInFolder` with target `diagnostics-bundle` (desktop-shell `ShellRevealService`); `diagnostics.exportBundle` records the written path; failures are logged at `warn` and never rejected | `diagnostics.controller.ts`, `ShellRevealService.ts` |
 
 `errors.json` is always written, so an all-failed export is a valid zip containing only it (`DiagnosticsBundleService.ts:86-90,254`), consistent with the best-effort export contract (APP-DIAG-BNDL-*).
 The result union lives once in `@hyveon/shared` (`diagnosticsBundle.ts:8-11`); its doc says `DiagnosticsPanel` switches on it, but `ExportBundleButton` does.

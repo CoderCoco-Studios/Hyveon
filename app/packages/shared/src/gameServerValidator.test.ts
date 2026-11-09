@@ -1035,6 +1035,16 @@ describe('validateGameServer', () => {
       }
     });
 
+    // @spec RT-HEALTH-VALID-009
+    it.each(['https', 'ftp', 'HTTP'])('should reject scheme %s with an issue at healthCheck.scheme naming why only http is allowed', (scheme) => {
+      const result = validateGameServer('game', makeProposed({ healthCheck: makeHealthCheck({ scheme }) }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.issues.find((i) => i.path === 'healthCheck.scheme');
+        expect(issue?.message).toContain('private IP');
+      }
+    });
+
     it('should reject a malformed auth.secretArn', () => {
       const result = validateGameServer(
         'game',

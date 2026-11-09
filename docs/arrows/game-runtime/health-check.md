@@ -5,7 +5,7 @@ Optionally ask a game "are you actually serving players?" over HTTP, so the watc
 ## Status
 
 **MAPPED** — mapped 2026-10-30 (git SHA `2822efd1`), not yet audited.
-The health-check Lambda takes the task's private IP from the watchdog's invoke payload and makes no ECS call; checks that declare a credential reach Secrets Manager through a conditional interface endpoint. Only `https` checks against a private IP (`RT-HEALTH-HTTP-005`, deferred) are not expected to complete a TLS handshake.
+The health-check Lambda takes the task's private IP from the watchdog's invoke payload and makes no ECS call; checks that declare a credential reach Secrets Manager through a conditional interface endpoint. Checks are plain `http` only (`RT-HEALTH-HTTP-005`, `RT-HEALTH-VALID-009`).
 
 ## References
 
@@ -17,7 +17,7 @@ The health-check Lambda takes the task's private IP from the watchdog's invoke p
 - `docs/intent/game-runtime/health-check/health-check-design.md`
 
 ### EARS
-- `docs/intent/game-runtime/health-check/health-check-specs.md` (73 specs)
+- `docs/intent/game-runtime/health-check/health-check-specs.md` (75 specs)
 
 ### Tests
 - `app/packages/lambda/health-check/src/engine.test.ts`
@@ -67,18 +67,18 @@ The health-check Lambda takes the task's private IP from the watchdog's invoke p
 | Category | Spec IDs | Implemented | Deferred | Gaps |
 |---|---|---|---|---|
 | Declaration | `RT-HEALTH-DECL-001`, `RT-HEALTH-DECL-006` (routing and invoke are `RT-WATCHDOG-ROUTE-*`, `RT-WATCHDOG-HC-*`) | 2 | 0 | 0 |
-| HTTP request | `RT-HEALTH-HTTP-001` to `RT-HEALTH-HTTP-012` | 10 | 1 | 0 |
+| HTTP request | `RT-HEALTH-HTTP-001` to `RT-HEALTH-HTTP-012` | 11 | 0 | 0 |
 | Credential injection | `RT-HEALTH-AUTH-001` to `RT-HEALTH-AUTH-006` | 6 | 0 | 0 |
 | Verdict evaluation | `RT-HEALTH-EVAL-001` to `RT-HEALTH-EVAL-009` | 9 | 0 | 0 |
 | Fail-active | `RT-HEALTH-FAIL-001` to `RT-HEALTH-FAIL-007` (the watchdog-side wrapper is `RT-WATCHDOG-HC-003`, `-004`, `-006`, `-008` to `-010`) | 7 | 0 | 0 |
 | Provisioning and runtime environment | `RT-HEALTH-PROV-001` to `RT-HEALTH-PROV-006` | 6 | 0 | 0 |
 | Network and permission confinement | `RT-HEALTH-NET-001` to `RT-HEALTH-NET-009` | 9 | 0 | 0 |
-| Save-time validation | `RT-HEALTH-VALID-001` to `RT-HEALTH-VALID-008` | 8 | 0 | 0 |
+| Save-time validation | `RT-HEALTH-VALID-001` to `RT-HEALTH-VALID-009` | 9 | 0 | 0 |
 | Logging | `RT-HEALTH-LOG-001` to `RT-HEALTH-LOG-004` | 4 | 0 | 0 |
 | Operator interface redaction | `RT-HEALTH-REDACT-001` to `RT-HEALTH-REDACT-004` | 4 | 0 | 0 |
 | App-owned credential lifecycle | `RT-HEALTH-CRED-001` to `RT-HEALTH-CRED-008` | 8 | 0 | 0 |
 
-**Summary:** 73 of 74 active specs implemented; 1 deferred; 0 gaps.
+**Summary:** 75 of 75 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 
@@ -102,7 +102,6 @@ Spec IDs cite the open (`[ ]`) gap specs in `docs/intent/game-runtime/health-che
 None.
 
 ### Should Fix
-1. Decide whether an `https` health check should pin the TLS server name to the game hostname (`RT-HEALTH-HTTP-005`, deferred).
 2. Decide whether `exists` with an unresolved path should stay a conclusive idle verdict (Finding 4).
 3. Split `secretsStore.ts` into health-check and Discord modules; delete or justify the uncalled Discord helpers.
 4. Before scripted health checks start, reconcile their credential model with the `raw` / `basic` / `bearer` auth-type discriminator.

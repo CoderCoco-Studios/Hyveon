@@ -9,10 +9,10 @@ EARS requirements for prefix `RT-HEALTH`; design in `health-check-design.md` (sa
 
 ## HTTP request
 
-- [x] **RT-HEALTH-HTTP-001**: When the health-check Lambda runs an `http`-kind check, it shall issue one HTTP request to `{scheme}://{taskPrivateIp}:{port}{path}` using the declared method, the declared headers, and the declared `timeoutMs` as a single wall-clock budget for the whole request.
+- [x] **RT-HEALTH-HTTP-001**: When the health-check Lambda runs an `http`-kind check, it shall issue one HTTP request to `http://{taskPrivateIp}:{port}{path}` using the declared method, the declared headers, and the declared `timeoutMs` as a single wall-clock budget for the whole request.
 - [x] **RT-HEALTH-HTTP-002**: When the health-check Lambda runs an `http`-kind check, it shall take the destination host only from the `privateIp` field of its invoke payload.
 - [x] **RT-HEALTH-HTTP-003**: The health-check Lambda shall not follow HTTP redirects when issuing an `http`-kind check, so a 3xx response is evaluated as a non-successful status.
-- [D] **RT-HEALTH-HTTP-005**: Where an `http`-kind check declares `scheme: 'https'`, the health-check Lambda shall complete the TLS handshake with the task's Caddy sidecar despite addressing the task by private IP rather than by its certificate hostname. (deferred: the request addresses the task by private IP with default certificate validation, so an `https` check is not expected to complete the handshake with a hostname-issued Caddy certificate and reads fail-active; see Decisions & Alternatives, HTTPS health-check target)
+- [x] **RT-HEALTH-HTTP-005**: The health-check Lambda shall issue an `http`-kind check only over plain `http`, addressing the container directly by private IP so the request bypasses the Caddy sidecar. (TLS to a private IP is a non-goal; see Decisions & Alternatives, Health-check scheme)
 - [x] **RT-HEALTH-HTTP-006**: No `healthCheck` declaration field shall be capable of supplying or overriding the destination host of a health-check request, where the destination host is the connect address in the authority of the request URL.
 - [x] **RT-HEALTH-HTTP-007**: If the `privateIp` field of the health-check Lambda's invoke payload is absent (`undefined` or `null`), then the Lambda shall return `active: true`, `failureDerived: true`, and a reason prefixed `health check failed:`, without issuing an HTTP request.
 - [x] **RT-HEALTH-HTTP-008**: If the `privateIp` field of the health-check Lambda's invoke payload is present and is a value that Node's `net.isIPv4` does not accept when applied to the value as received, without trimming, then the Lambda shall return `active: true`, `failureDerived: true`, and a reason prefixed `health check failed:`, without issuing an HTTP request.
@@ -83,6 +83,7 @@ EARS requirements for prefix `RT-HEALTH`; design in `health-check-design.md` (sa
 - [x] **RT-HEALTH-VALID-006**: When an operator saves a health check whose `activeWhen.jsonPath` does not match `^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+|\[\d+\])*$` (which excludes a leading `$`), the game-server validator shall reject the save.
 - [x] **RT-HEALTH-VALID-007**: When an operator saves a health check whose declared `headers` contain an `authorization` key or a value resembling a bearer token, basic-auth pair, or long API-key string, the game-server validator shall reject the save.
 - [x] **RT-HEALTH-VALID-008**: When an operator saves a health-check credential with `type: 'basic'` lacking a username or password, `type: 'bearer'` lacking a token, or `type: 'raw'` (or no type) lacking a Secrets Manager ARN matching `arn:aws:secretsmanager:<region>:<account>:secret:<name>`, the write-input validator shall reject the save.
+- [x] **RT-HEALTH-VALID-009**: When an operator saves, or the validator reads, a health check whose `scheme` is anything other than `http` (including `https`), the game-server validator shall reject it with an issue at `healthCheck.scheme` stating that only `http` is supported because the check runs inside the VPC against the task's private IP.
 
 ## Logging
 

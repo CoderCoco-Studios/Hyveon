@@ -61,6 +61,13 @@ EARS requirements for prefix `APP-SHELL`; design and rationale live in `docs/int
 - [x] **APP-SHELL-WINIPC-012**: When the renderer calls `window.hyveon.window.minimize()`, `toggleMaximize()`, `close()` or `isMaximized()`, the preload shall invoke the matching `window.*` channel and resolve with its result (`desktop-preload/src/preload.ts:646-649`).
 - [x] **APP-SHELL-WINIPC-013**: When the renderer subscribes with `window.hyveon.window.onMaximizedChange(callback)`, the preload shall call the callback on every `window.maximizedChange` push and return an unsubscribe function that removes the listener (`desktop-preload/src/preload.ts:650`).
 
+## Reveal in File Manager
+
+- [x] **APP-SHELL-REVEAL-001**: The desktop main process shall reveal a file in the OS file manager only through `ShellRevealService`, invoked from the renderer over the `shell.revealInFolder` channel (`ShellController`), and no other module shall call `shell.showItemInFolder`.
+- [x] **APP-SHELL-REVEAL-002**: The `shell.revealInFolder` payload shall name a target from the closed set `guided-iam-template` and `diagnostics-bundle` and shall never carry a path; the main process shall reveal only the path that the file's own owner recorded for that target when it wrote the file.
+- [x] **APP-SHELL-REVEAL-003**: If the payload's target is not in the closed set, has no recorded path, names a file that no longer exists, or the file manager fails, then `ShellRevealService` shall log a `warn` with the normalized message, reveal nothing, and not reject.
+- [x] **APP-SHELL-REVEAL-004**: When `shell.revealInFolder` is invoked, `ShellController` shall first log `ShellController: shell.revealInFolder invoked` with the target name only (truncated), never a path.
+
 ## App Icon
 
 - [x] **APP-SHELL-ICON-001**: The repository shall contain the Hyveon icon asset set `build/icon.icns`, `build/icon.ico` (16, 24, 32, 48, 64, 128 and 256 px) and `build/icon.png` (1024x1024), committed so packaging never rasterises (`build/generate-icons.mjs:1-15,40`).

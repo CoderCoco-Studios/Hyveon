@@ -1,3 +1,4 @@
+import type { ShellRevealService } from '../services/ShellRevealService.js';
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -106,6 +107,7 @@ function makeController(overrides: {
   firstRunWizard?: FirstRunWizardService;
   guidedIam?: GuidedIamService;
   pulumi?: PulumiService;
+  shellReveal?: ShellRevealService;
 } = {}): WizardController {
   return new WizardController(
     overrides.awsProfiles ?? makeAwsProfiles(),
@@ -115,6 +117,7 @@ function makeController(overrides: {
     overrides.firstRunWizard ?? makeFirstRunWizard(),
     overrides.guidedIam ?? makeGuidedIam(),
     overrides.pulumi ?? ({ getOperationInFlight: vi.fn().mockReturnValue(null) } as Partial<PulumiService> as PulumiService),
+    overrides.shellReveal ?? ({ record: vi.fn() } as Partial<ShellRevealService> as ShellRevealService),
   );
 }
 
@@ -153,6 +156,20 @@ describe('WizardController', () => {
   });
 
   // @spec APP-WIZARD-CREDS-003
+  describe('prepareGuidedIamTemplate', () => {
+    // @spec APP-WIZARD-CONSOLE-006
+    it('should record the rendered template path as the guided-iam-template reveal target', () => {
+      const guidedIam = makeGuidedIam();
+      vi.mocked(guidedIam.renderTemplate).mockReturnValue({ path: '/data/iam-bootstrap-rendered.yaml' });
+      const shellReveal = { record: vi.fn() } as Partial<ShellRevealService> as ShellRevealService;
+
+      const result = makeController({ guidedIam, shellReveal }).prepareGuidedIamTemplate();
+
+      expect(result).toEqual({ path: '/data/iam-bootstrap-rendered.yaml' });
+      expect(shellReveal.record).toHaveBeenCalledWith('guided-iam-template', '/data/iam-bootstrap-rendered.yaml');
+    });
+  });
+
   describe('listAwsProfiles', () => {
     it('should return the profiles produced by AwsProfileService.listProfiles', async () => {
       const awsProfiles = makeAwsProfiles();

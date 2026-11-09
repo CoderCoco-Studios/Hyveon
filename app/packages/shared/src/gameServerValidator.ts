@@ -252,7 +252,9 @@ export const gameServerHealthCheckConditionSchema = z.object({
  */
 export const gameServerHealthCheckSchema = z.object({
   kind: z.literal('http'),
-  scheme: z.enum(['http', 'https']),
+  scheme: z.literal('http', {
+    error: 'healthCheck.scheme must be "http": the health check runs inside the VPC and probes the task by private IP over plain http, bypassing Caddy.',
+  }),
   port: z.number(),
   path: z
     .string()

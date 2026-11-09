@@ -30,6 +30,7 @@ export * from './envJson.js';
 export * from './env.js';
 export * from './aws/ecsTask.js';
 export * from './privateIpv4.js';
+export * from './shellReveal.js';
 export * from './fileManagerLogGroup.js';
 export * from './relativeTime.js';
 export * from './sanitize.js';

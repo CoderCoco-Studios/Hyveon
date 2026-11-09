@@ -93,7 +93,7 @@ EARS requirements for prefix `APP-WIZARD`; design in `wizard-and-bootstrap-desig
 - [x] **APP-WIZARD-CONSOLE-003**: The CloudFormation create-stack console URL shall be built only in `GuidedIamService.buildCloudFormationConsoleUrl`, which rejects a region that is not `[a-z0-9-]+` (`GuidedIamService.ts:238-242`).
 - [x] **APP-WIZARD-CONSOLE-004**: If the default browser cannot be launched, the URL is not `https:`, or the process is not Electron, then `openConsole` shall return `{ opened: false, url }` and the template screen shall show the URL as selectable text beside the template path (`GuidedIamService.ts:275-294`, `use-guided-iam.hook.ts:314-315`, `guided-iam-template-screen.component.tsx:100-106`).
 - [x] **APP-WIZARD-CONSOLE-005**: The guided-IAM flow shall never request root credentials or receive any credential from the operator's console session; its only credential input is the bootstrap key pasted from the stack outputs (`use-guided-iam.hook.ts:383-403`).
-- [D] **APP-WIZARD-CONSOLE-006**: The guided-IAM template screen shall not offer a reveal-in-file-manager action; the operator navigates to the printed path.
+- [x] **APP-WIZARD-CONSOLE-006**: The guided-IAM template screen shall offer a reveal-in-folder action for the rendered template file, which invokes `shell.revealInFolder` with the target `guided-iam-template`, and `wizard.guidedIam.prepareTemplate` shall record the rendered template path for that target (see `APP-SHELL-REVEAL-001` to `-004` for the channel and its trust boundary).
 
 ## Guided IAM bootstrap key intake
 

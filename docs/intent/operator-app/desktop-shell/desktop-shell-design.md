@@ -102,6 +102,10 @@ The header is the drag handle (`app-topbar.component.tsx:92-95`, `useAppRegionSt
 | `window.isMaximized` | renderer to main | `:37-41` | returns state, `false` on no window or error (`WindowService.ts:98-106`) |
 | `window.maximizedChange` | main to renderer push | `WindowService.pushMaximizedChange` (`:117-124`) | `webContents.send` on native `maximize`/`unmaximize`; not a `@MessagePattern` because the bridge only carries request/response |
 
+### Reveal in file manager
+
+`shell.revealInFolder` (`ShellController`) is the only route to `shell.showItemInFolder`, owned by `ShellRevealService` in `ShellModule` (`APP-SHELL-REVEAL-001` to `-004`). The reveal acts on the host file system on behalf of the renderer, so it is a trust boundary: the renderer names a target (`guided-iam-template`, `diagnostics-bundle`), never a path. `WizardController` records the rendered template path after `prepareTemplate`, and `DiagnosticsController` records the bundle path after a successful write; the service refuses unknown targets, unrecorded targets and files that no longer exist.
+
 `WindowService` holds no window until `attach()` (`WindowService.ts:29-52`); every method is a no-op without one, and a `closed` listener with an identity check nulls the reference so a macOS re-activation does not leave the service pointing at a destroyed window (`:41-48`). Every failure is caught and logged at `warn` (`:50,60,78,88,103,122`). `WindowControls` seeds its maximize state from `isMaximized()` but lets any live push win if it lands first (`window-chrome.component.tsx:61-84`), and does neither on macOS or Windows.
 
 ## Renderer Shell
@@ -175,6 +179,7 @@ The icon pipeline is a build-time script: `npm run icons:generate` (root `packag
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
+| Reveal in file manager | One `shell.revealInFolder` channel taking a closed-set target name; the file's owner records the path | A path-carrying channel validated against an allow-list; one reveal channel per feature | A renderer-supplied path is arbitrary-path input to a host-level action even when filtered, whereas a target name leaves the renderer nothing to forge; one channel keeps a single copy of the electron import and the guard |
 | Native dialogs | One `NativeDialogService` in a standalone `NativeDialogModule` | Each consumer lazily requires `electron` itself (the earlier `DiagnosticsController.showSaveDialog` pattern) | Shared, guarded import for every dialog consumer (`native-dialog.module.ts:4-7`, `NativeDialogService.ts:11-14`). |
 | Title bar placement | Merge into the existing top header | Separate ~32 px strip above the header | Saves vertical space for dashboards and logs, and the header already carries the branding most of a title bar needs; a separate strip is cleaner in separation of concerns but costs a second UI row in an app whose main content already competes for height. |
 | macOS window controls | Native traffic lights repositioned into the header, re-positioned at runtime across the 768 px breakpoint and on zoom | App-drawn buttons on every platform | Matches macOS expectations and keeps double-click-to-zoom, hover states and accessibility the OS already provides. `trafficLightPosition` is relative to the whole window, whose top-left corner is the 240 px sidebar, so the x offset is 240 plus a 12 px inset; below the 768 px breakpoint the sidebar is hidden, and because the option is constructor-time only, `electron-entry.ts` re-positions the buttons at runtime on `resize`. |

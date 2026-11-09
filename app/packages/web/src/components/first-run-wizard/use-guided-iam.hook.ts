@@ -98,6 +98,8 @@ export interface UseGuidedIamResult {
   onRevoke: () => void;
   /** Copies `templatePath` to the clipboard. */
   onCopyPath: () => void;
+  /** Reveals the rendered template file in the OS file manager. */
+  onRevealPath: () => void;
   /** Clears `templateError`, re-triggering the template-render effect. */
   onRetryTemplate: () => void;
 }
@@ -494,12 +496,6 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
    * Copies `templatePath` to the clipboard, showing a brief "Copied" state via
    * {@link useCopiedReset} (shared with `CredentialsSection.handleCopyUrl`); a
    * denied/unavailable clipboard is non-critical since the path is already visible on screen.
-   *
-   * @remarks
-   * The `template` screen this backs offers a copy-path action only, not a
-   * reveal-in-file-manager action: no `shell.showItemInFolder`-equivalent IPC
-   * channel exists in the `desktop-main`↔renderer surface. The operator can
-   * navigate to the printed `templatePath` manually.
    */
   function onCopyPath() {
     if (!templatePath || !navigator.clipboard) return;
@@ -509,6 +505,14 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
       .catch(() => {
         /* clipboard denial is non-critical; the path is still visible above */
       });
+  }
+
+  // @spec APP-WIZARD-CONSOLE-006
+  /** Reveals the rendered template in the OS file manager; the main process resolves the path, never this renderer. */
+  function onRevealPath() {
+    void window.hyveon?.shell.revealInFolder('guided-iam-template')?.catch(() => {
+      /* revealing is a convenience; the path is still visible above */
+    });
   }
 
   return {
@@ -546,6 +550,7 @@ export function useGuidedIam({ onComplete, initialProgress, onBusyChange }: UseG
     onRetryRotation,
     onRevoke: () => void onRevoke(),
     onCopyPath,
+    onRevealPath,
     onRetryTemplate: () => setTemplateError(null),
   };
 }

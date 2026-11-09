@@ -25,6 +25,7 @@ const hyveonMock = {
     guidedIamRotate: vi.fn(),
     guidedIamRevokeBootstrapKey: vi.fn(),
   },
+  shell: { revealInFolder: vi.fn() },
 };
 vi.stubGlobal('hyveon', hyveonMock);
 
@@ -57,6 +58,7 @@ async function chooseRegion(label: string) {
 
 beforeEach(() => {
   Object.values(hyveonMock.wizard).forEach((fn) => fn.mockReset());
+  hyveonMock.shell.revealInFolder.mockReset().mockResolvedValue(undefined);
   Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
 });
 
@@ -222,6 +224,33 @@ describe('GuidedIamStep', () => {
       await userEvent.click(screen.getByRole('button', { name: /copy template path/i }));
 
       expect(screen.queryByText(/copied/i)).not.toBeInTheDocument();
+    });
+
+    // @spec APP-WIZARD-CONSOLE-006
+    it('should reveal the template via the shared shell channel by target name, passing no path', async () => {
+      stubHappyPathDefaults();
+      render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
+      await chooseRegion('US East (N. Virginia) — us-east-1');
+      await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
+      await screen.findByLabelText('Template path');
+
+      await userEvent.click(screen.getByRole('button', { name: /show template in folder/i }));
+
+      expect(hyveonMock.shell.revealInFolder).toHaveBeenCalledExactlyOnceWith('guided-iam-template');
+    });
+
+    // @spec APP-WIZARD-CONSOLE-006
+    it('should not surface an error when the reveal call rejects', async () => {
+      stubHappyPathDefaults();
+      hyveonMock.shell.revealInFolder.mockRejectedValue(new Error('no file manager'));
+      render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
+      await chooseRegion('US East (N. Virginia) — us-east-1');
+      await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
+      await screen.findByLabelText('Template path');
+
+      await userEvent.click(screen.getByRole('button', { name: /show template in folder/i }));
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
     // @spec APP-WIZARD-CONSOLE-002

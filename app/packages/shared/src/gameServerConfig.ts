@@ -182,8 +182,8 @@ export interface GameServerHealthCheckCondition {
 export interface GameServerHealthCheck {
   /** Check-kind discriminator. Only `'http'` is supported today; more kinds may be added later without restructuring existing configuration. */
   kind: 'http';
-  /** Request scheme. */
-  scheme: 'http' | 'https';
+  /** Request scheme. Always `'http'`: the check probes the task by private IP inside the VPC, bypassing Caddy. */
+  scheme: 'http';
   /** Container port to issue the request against. Must be one of the game's declared {@link GameServer.ports}. */
   port: number;
   /** Request path, rooted at `/`. */

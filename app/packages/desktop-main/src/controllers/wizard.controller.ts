@@ -1,3 +1,4 @@
+import { ShellRevealService } from '../services/ShellRevealService.js';
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import {
@@ -154,6 +155,7 @@ export class WizardController {
     private readonly firstRunWizard: FirstRunWizardService,
     private readonly guidedIam: GuidedIamService,
     private readonly pulumi: PulumiService,
+    private readonly shellReveal: ShellRevealService,
   ) {}
 
   // @spec APP-WIZARD-GATE-001, APP-WIZARD-GATE-002, APP-WIZARD-GATE-003, APP-WIZARD-CREDS-010, APP-WIZARD-CREDS-011
@@ -448,7 +450,9 @@ export class WizardController {
   @MessagePattern('wizard.guidedIam.prepareTemplate')
   prepareGuidedIamTemplate(): RenderedTemplateResult {
     logger.debug('WizardController: wizard.guidedIam.prepareTemplate invoked');
-    return this.guidedIam.renderTemplate();
+    const rendered = this.guidedIam.renderTemplate();
+    this.shellReveal.record('guided-iam-template', rendered.path);
+    return rendered;
   }
 
   // @spec APP-WIZARD-CONSOLE-002

@@ -217,7 +217,7 @@ export function installHyveonHttpBridge(): void {
     diagnostics: {
       tail: () => call('/api/diagnostics/tail'),
       path: () => call('/api/diagnostics/path'),
-      // `diagnostics.exportBundle`/`.showInFolder` are IPC-only in production
+      // `diagnostics.exportBundle` and `shell.revealInFolder` are IPC-only in production
       // with no HTTP route — same situation as `iac.settings.update` below.
       // Unlike `tail`/`path`, nothing calls this unconditionally on mount
       // (only an explicit "Export diagnostics bundle" click in
@@ -226,8 +226,10 @@ export function installHyveonHttpBridge(): void {
       exportBundle: () => {
         throw new Error('diagnostics.exportBundle has no HTTP route in the chromium e2e tier.');
       },
-      showInFolder: () => {
-        throw new Error('diagnostics.showInFolder has no HTTP route in the chromium e2e tier.');
+    },
+    shell: {
+      revealInFolder: () => {
+        throw new Error('shell.revealInFolder has no HTTP route in the chromium e2e tier.');
       },
     },
     // Logs are IPC-only in production with no HTTP route; tier-1 overrides this

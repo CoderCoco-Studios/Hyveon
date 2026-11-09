@@ -27,6 +27,8 @@ import { AuditController } from './controllers/audit.controller.js';
 import { IacController } from './controllers/iac.controller.js';
 import { IacRunsController } from './controllers/iac-runs.controller.js';
 import { IacSettingsController } from './controllers/iac-settings.controller.js';
+import { ShellController } from './controllers/shell.controller.js';
+import { ShellModule } from './modules/shell.module.js';
 import { WizardController } from './controllers/wizard.controller.js';
 import { CloudHealthController } from './controllers/cloud-health.controller.js';
 import { WindowController } from './controllers/window.controller.js';
@@ -78,6 +80,7 @@ import { WindowService } from './services/WindowService.js';
     ElectronStoreModule,
     FolderUploadModule,
     NativeDialogModule,
+    ShellModule,
     VolumeFilesModule,
     VolumeFilesApiModule,
   ],
@@ -96,6 +99,7 @@ import { WindowService } from './services/WindowService.js';
     IacRunsController,
     IacSettingsController,
     WizardController,
+    ShellController,
     CloudHealthController,
     WindowController,
   ],

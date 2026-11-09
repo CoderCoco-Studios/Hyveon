@@ -89,10 +89,10 @@ app's `userData` directory, and shows:
 | Element | Notes |
 |---|---|
 | **Template path** | Read-only field with an icon-only copy button, labelled `Copy template path` for screen readers (no visible text) |
+| **Show template in folder** | A second icon-only button beside the copy button, labelled `Show template in folder` for screen readers; opens your file manager with the rendered template selected. Nothing happens if your file manager can't be launched, and the path stays visible to copy |
 | **Open AWS Console** | Opens the region-scoped CloudFormation "Create stack" console page in your default browser. If it can't launch a browser, the URL is shown as selectable text instead |
 | **Continue to key entry** | Appears once the template is written; advances to the intake screen |
 
-There is no "reveal in file manager" action here — only the copy-path button.
 Upload the file yourself using "Upload a template file" on the console page,
 then come back for the access key the stack outputs.
 
