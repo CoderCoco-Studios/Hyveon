@@ -1,6 +1,7 @@
 import type { AuditEntry, AuditPageResult } from './audit.js';
 import type { RunLock, RunPageResult, RunRecord, RunStatus } from './runs.js';
 import type { BaseDiscordConfig, DiscordConfig } from './types.js';
+import type { StartLeasePut } from './aws/startLease.js';
 
 /** Options for launching a game workload. Intentionally open/opaque for v1; implementations may accept provider-specific keys or refine this via intersection. */
 export interface StartOpts {
@@ -39,6 +40,14 @@ export interface CloudProvider {
   stopWorkload(game: string): Promise<void>;
   getWorkloadStatus(game: string): Promise<WorkloadStatus>;
   streamWorkloadLogs(game: string, signal: AbortSignal): AsyncIterable<LogChunk>;
+  /**
+   * Resolves the writer and table of the cross-process start lease, which file uploads hold so no start can launch
+   * a workload while a volume is being written.
+   *
+   * @returns The lease writer and table, or `null` when nothing is deployed.
+   * @throws Error when the deployment predates the lease table.
+   */
+  getStartLeaseAccess?(): Promise<{ put: StartLeasePut; tableName: string } | null>;
 }
 
 /**

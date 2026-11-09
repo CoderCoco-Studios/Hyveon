@@ -23,6 +23,7 @@ import { SafeStorageService } from './SafeStorageService.js';
 import type { EcsService } from './EcsService.js';
 import type { FileManagerService, HelperLaunchOutcome } from './FileManagerService.js';
 import type { PublicIpService } from './PublicIpService.js';
+import type { UploadLeaseService } from './volumeFiles/UploadLeaseService.js';
 import { HelperSessionRegistry } from './volumeFiles/HelperSessionRegistry.js';
 import { FileBrowserClientFactory } from './folderUpload/FileBrowserClient.js';
 import { generateEphemeralCert, type EphemeralCert } from './folderUpload/ephemeralCert.js';
@@ -113,6 +114,7 @@ async function wire(options: {
     fm as Partial<FileManagerService> as FileManagerService,
     new FileBrowserClientFactory(),
     { detect: vi.fn().mockResolvedValue('203.0.113.7') } as Partial<PublicIpService> as PublicIpService,
+    { hold: vi.fn(async () => ({ ok: true })), drop: vi.fn(async () => undefined), onLost: vi.fn() } as Partial<UploadLeaseService> as UploadLeaseService,
   );
   registry.timings.helperPort = server.port;
   registry.timings.pollMs = 1;

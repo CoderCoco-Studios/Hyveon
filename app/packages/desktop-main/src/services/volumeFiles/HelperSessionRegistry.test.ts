@@ -9,6 +9,7 @@ import { HelperSessionRegistry, NoSessionError, type HelperSessionSnapshot } fro
 import type { FileManagerService, HelperLaunchOutcome } from '../FileManagerService.js';
 import { PinMismatchError, type FileBrowserClientFactory } from '../folderUpload/FileBrowserClient.js';
 import type { PublicIpService } from '../PublicIpService.js';
+import type { UploadLeaseService } from './UploadLeaseService.js';
 import { buildHelperVolumeLayout, type HelperVolumeLayout } from './helperVolumeLayout.js';
 import { VolumeFileError } from './VolumeFileBackend.js';
 import { fakeBackend, type FakeBackend } from '../../testing/fake-volume-backend.js';
@@ -52,6 +53,11 @@ interface Harness {
     reauthorizeOperatorIp: ReturnType<typeof vi.fn<FileManagerService['reauthorizeOperatorIp']>>;
   };
   publicIp: { detect: ReturnType<typeof vi.fn<PublicIpService['detect']>> };
+  leases: {
+    hold: ReturnType<typeof vi.fn<UploadLeaseService['hold']>>;
+    drop: ReturnType<typeof vi.fn<UploadLeaseService['drop']>>;
+    onLost: ReturnType<typeof vi.fn<UploadLeaseService['onLost']>>;
+  };
   backend: FakeBackend;
   create: ReturnType<typeof vi.fn>;
   /** Games for which ECS reports a helper task; a game joins once `launchHelper` runs and leaves on `stop`. */
@@ -82,12 +88,18 @@ function harness(): Harness {
   };
   const publicIp: Harness['publicIp'] = { detect: vi.fn(async () => '203.0.113.7') };
   const create = vi.fn().mockReturnValue(backend);
+  const leases: Harness['leases'] = {
+    hold: vi.fn(async () => ({ ok: true as const })),
+    drop: vi.fn(async () => undefined),
+    onLost: vi.fn(() => () => undefined),
+  };
   const registry = new HelperSessionRegistry(
     fm as Partial<FileManagerService> as FileManagerService,
     { create } as Partial<FileBrowserClientFactory> as FileBrowserClientFactory,
     publicIp as Partial<PublicIpService> as PublicIpService,
+    leases as Partial<UploadLeaseService> as UploadLeaseService,
   );
-  return { registry, fm, publicIp, backend, create, ecs };
+  return { registry, fm, publicIp, leases, backend, create, ecs };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -220,7 +232,8 @@ describe('HelperSessionRegistry', () => {
     const { registry, fm } = harness();
     const tags = [{ key: 'Purpose', value: 'upload' }];
 
-    await Promise.all([registry.acquire('mc', 'upload:r1', { runId: 'r1', tags }), registry.acquire('mc', 'browse', { runId: 'other' })]);
+    await registry.acquire('mc', 'upload:r1', { runId: 'r1', tags });
+    await registry.acquire('mc', 'browse', { runId: 'other' });
     const second = harness();
     await second.registry.acquire('mc', 'browse');
 
@@ -978,5 +991,70 @@ describe('HelperSessionRegistry', () => {
     const text = JSON.stringify([await registry.status('mc'), ...seen]);
 
     expect(text).not.toMatch(/password|credential|cert|fingerprint|127\.0\.0\.1|203\.0\.113\.7|https?:/i);
+  });
+
+  describe('upload start lease', () => {
+    // @spec HELPER-FB-043
+    it('should take the lease for an upload holder before launching, and not for browse or download holders', async () => {
+      const { registry, leases, fm } = harness();
+      await registry.acquire('mc', 'browse');
+      await registry.acquire('mc', 'download:x1');
+      expect(leases.hold).not.toHaveBeenCalled();
+      await registry.acquire('mc', 'upload:x2');
+      expect(leases.hold).toHaveBeenCalledWith('mc', 'upload:x2');
+      expect(fm.launchHelper).toHaveBeenCalledTimes(1);
+    });
+
+    // @spec HELPER-FB-045
+    it('should refuse an upload acquire without launching a helper when the lease is refused', async () => {
+      const { registry, leases, fm } = harness();
+      leases.hold.mockResolvedValueOnce({ ok: false, message: 'A start for mc is already in progress.' });
+      expect(await registry.acquire('mc', 'upload:r1')).toEqual({ ok: false, code: 'failed', message: expect.stringContaining('start for mc') });
+      expect(fm.launchHelper).not.toHaveBeenCalled();
+      expect(registry.hasUploadHolders('mc')).toBe(false);
+    });
+
+    // @spec HELPER-FB-043
+    it('should drop the lease when the upload holder is released', async () => {
+      const { registry, leases } = harness();
+      await registry.acquire('mc', 'upload:r1');
+      registry.release('mc', 'upload:r1');
+      expect(leases.drop).toHaveBeenCalledWith('mc', 'upload:r1');
+    });
+
+    // @spec HELPER-FB-043
+    it('should drop the lease of every upload holder when a stopping session is torn down', async () => {
+      const { registry, leases } = harness();
+      await Promise.all([registry.acquire('mc', 'upload:r1'), registry.acquire('mc', 'upload:r2')]);
+      await registry.stop('mc');
+      expect(leases.drop).toHaveBeenCalledWith('mc', 'upload:r1');
+      expect(leases.drop).toHaveBeenCalledWith('mc', 'upload:r2');
+    });
+
+    // @spec HELPER-FB-043, HELPER-FB-047
+    it('should finish releasing the lease before stopAll resolves, as the quit hook awaits it', async () => {
+      const { registry, leases } = harness();
+      let released = false;
+      leases.drop.mockImplementation(async () => {
+        await Promise.resolve();
+        released = true;
+      });
+      await registry.acquire('mc', 'upload:r1');
+      await registry.stopAll();
+      expect(released).toBe(true);
+    });
+
+    // @spec HELPER-FB-046
+    it('should cancel the uploads by force-stopping the session when the lease is lost', async () => {
+      const { registry, leases } = harness();
+      const onLost = leases.onLost.mock.calls[0]![0];
+      const before = vi.fn();
+      registry.onBeforeStop(before);
+      await registry.acquire('mc', 'upload:r1');
+      onLost('mc', 'The upload lost its hold on the game, so it was stopped.');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(before).toHaveBeenCalledWith('mc');
+      expect(await registry.status('mc')).toMatchObject({ state: 'failed', error: expect.stringContaining('lost its hold') });
+    });
   });
 });

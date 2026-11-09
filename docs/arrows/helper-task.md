@@ -39,7 +39,7 @@ Re-synced after the in-app file browser shipped (PRs #694-#699, #701): one main-
   - `app/packages/desktop-main/src/services/PublicIpService.ts`
   - `app/packages/desktop-main/src/services/SchedulerService.ts`
   - `app/packages/desktop-main/src/services/folderUpload/FileBrowserClient.ts`, `ProgressAggregator.ts`, `RegistryUploadBackend.ts`, `ephemeralCert.ts`, `tlsLaunch.ts`, `uploadEngine.ts`
-  - `app/packages/desktop-main/src/services/volumeFiles/HelperSessionRegistry.ts`, `VolumeFileBackend.ts`, `VolumeFilesService.ts`, `fileOps.ts`, `helperVolumeLayout.ts`, `localFiles.ts`, `localNames.ts`, `textFiles.ts`, `transferOps.ts`, `transfers.ts`, `uploadReservations.ts`, `volumeFileErrors.ts`
+  - `app/packages/desktop-main/src/services/volumeFiles/HelperSessionRegistry.ts`, `VolumeFileBackend.ts`, `VolumeFilesService.ts`, `fileOps.ts`, `helperVolumeLayout.ts`, `localFiles.ts`, `localNames.ts`, `textFiles.ts`, `transferOps.ts`, `transfers.ts`, `UploadLeaseService.ts`, `uploadReservations.ts`, `volumeFileErrors.ts`
 - **lambda/efs-seeder**
   - `app/packages/lambda/efs-seeder/src/handler.ts`
   - `app/packages/lambda/efs-seeder/esbuild.config.mjs`, `package.json`, `tsconfig.json`
@@ -72,6 +72,7 @@ Re-synced after the in-app file browser shipped (PRs #694-#699, #701): one main-
 1. `HelperSessionRegistry` (`services/volumeFiles/HelperSessionRegistry.ts:123`): one session per game, reference-counted by holders (`browse`, `upload:<id>`, `download:<id>`, `:17`); `acquire` (`:159`) shares a launch, waits for public IP then pinned login before reporting `running` (`:471-513`); 5 min browse grace (`:126,655-663`); `withBackend` (`:294`) retries once after an operator-IP change; pin mismatch fails the session (`:320,331`); `stop`/`stopAll` notify before-stop listeners (`:224,415`).
 2. `FileManagerService.launchHelper` (`FileManagerService.ts:306-490`): registers a throwaway `filebrowser-{game}` task definition with one EFS volume per mounted game volume (`:410-435`), the digest-pinned image (`:23-24`), a per-launch cert and HTTPS entry point (`:393-394`), an operator `/32` ingress rule (`:374`) and a 2 h auto-stop schedule (`:487,498-515`). Also `stop` (`:538`), `reauthorizeOperatorIp` (`:580`) and `sweepStrayHelpers` (`:611`) with CIDR reference-counted rule revocation (`:204-226`).
 3. `helperVolumeLayout.ts`: `buildHelperVolumeLayout` (`:71`) maps `efsVolumeAccessPoints[game]` to `/srv/<dir>` mounts, with a first-volume fallback flagged `usedFallback` (`:76,88`); `toHelperPath` (`:120`).
+3a. `UploadLeaseService` (`services/volumeFiles/UploadLeaseService.ts`): holds the game's start lease as holder `upload` for the life of the upload holders, with a 30 s heartbeat; the registry takes it on `acquire` of an `upload:` holder, drops it on `release` and entry drop, and force-stops the session when it is lost (`HELPER-FB-042` to `-047`).
 4. `VolumeFilesService` (`VolumeFilesService.ts:73`) with `FileOps` (`fileOps.ts:50`) and `TransferOps` (`transferOps.ts:42`): validated, fail-closed file operations (list, mkdir, rename, delete, text read/write) and background downloads and uploads via `TransferManager` (`transfers.ts:129`); `UploadReservations` (`uploadReservations.ts:14`) keeps in-app writers off the same path.
 5. `FileBrowserClient` (`folderUpload/FileBrowserClient.ts:116`): the only `VolumeFileBackend` (`volumeFiles/VolumeFileBackend.ts:57`) implementation, fingerprint-pinned TLS (`:125-133`), `PinMismatchError` fails closed (`:290`), zip archive support (`:248`). `RegistryUploadBackend` (`:19`) routes the upload engine through the registry.
 6. `FolderUploadService` (`FolderUploadService.ts:105`): upload orchestrator; preflight guards (`prepare`, `:257-312`), run (`execute`, `:344-386`) holding `upload:<runId>`, overwrite confirmation, upload, verify; startup stray sweep (`:134-139`); manual sweep excludes registry-owned games (`:202-207`).
@@ -98,7 +99,7 @@ Re-synced after the in-app file browser shipped (PRs #694-#699, #701): one main-
 | Safety limits and state | `HELPER-SAFE-001` to `HELPER-SAFE-006` | 6 | 0 | 0 |
 | IPC contract | `HELPER-IPC-001` to `HELPER-IPC-008` (no 003) | 7 | 0 | 0 |
 | Deploy-time seeding | `HELPER-SEED-001` to `HELPER-SEED-006` | 6 | 0 | 0 |
-| In-app file browser | `HELPER-FB-001` to `HELPER-FB-042` | 41 | 1 | 0 |
+| In-app file browser | `HELPER-FB-001` to `HELPER-FB-047` | 47 | 0 | 0 |
 | Helper session registry | `HELPER-SESS-001` to `HELPER-SESS-008` | 8 | 0 | 0 |
 | Volume layout | `HELPER-LAYOUT-001` to `HELPER-LAYOUT-005` | 5 | 0 | 0 |
 | Upload reservations | `HELPER-RSV-001` to `HELPER-RSV-005` | 5 | 0 | 0 |
@@ -106,7 +107,7 @@ Re-synced after the in-app file browser shipped (PRs #694-#699, #701): one main-
 | Text editor | `HELPER-EDIT-001` to `HELPER-EDIT-004` | 4 | 0 | 0 |
 | Application quit | `HELPER-QUIT-001` to `HELPER-QUIT-003` | 3 | 0 | 0 |
 
-**Summary:** 167 of 168 active specs implemented; 1 deferred; 0 gaps. Retired IDs (`HELPER-UPLOAD-007`, `HELPER-BROWSE-001` to `-006`, `HELPER-IPC-003`) are listed at the end of the specs file.
+**Summary:** 173 of 173 active specs implemented; 0 deferred; 0 gaps. Retired IDs (`HELPER-UPLOAD-007`, `HELPER-BROWSE-001` to `-006`, `HELPER-IPC-003`) are listed at the end of the specs file.
 
 ## Key Findings
 

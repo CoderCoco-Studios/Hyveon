@@ -25,7 +25,7 @@ import {
   resolveEniPublicIp,
   sleepInterruptible,
 } from '@hyveon/shared';
-import { startInProgressMessage, startWithLease } from '@hyveon/shared/aws/startLease';
+import { leaseBusyMessage, startWithLease, type StartLeasePut } from '@hyveon/shared/aws/startLease';
 import { createCachedAwsClient } from './cachedClient.js';
 
 /**
@@ -413,10 +413,29 @@ export class AwsCloudProvider implements CloudProvider {
           throw new WorkloadLaunchError(`Failed to start ${game}: ${reason}`);
         },
       });
-      if (outcome.status === 'in-progress') throw new WorkloadGuardError(startInProgressMessage(game));
+      if (outcome.status === 'in-progress') throw new WorkloadGuardError(leaseBusyMessage(game, outcome.holder));
       if (outcome.status === 'already-running') throw new WorkloadGuardError(`${game} is already running.`);
       return { workloadId: outcome.value };
     });
+  }
+
+  // @spec HELPER-FB-042
+  /**
+   * Resolves the DynamoDB writer and table of the cross-process start lease for callers that hold it outside a start
+   * (a file upload).
+   *
+   * @returns The writer and table, or `null` when infrastructure is not deployed.
+   * @throws Error when the stack predates the start-lease table.
+   */
+  async getStartLeaseAccess(): Promise<{ put: StartLeasePut; tableName: string } | null> {
+    const config = (await this.getConfig?.()) ?? null;
+    if (!config) return null;
+    if (!config.discordTableName) {
+      throw new Error('Infrastructure is out of date (no start-lease table). Run Apply on the IaC page first.');
+    }
+    const { region, credentials, credentialsSignature } = config;
+    const doc = this.getCachedDocClient({ region, credentials, credentialsSignature });
+    return { put: (input) => doc.send(new PutCommand(input)), tableName: config.discordTableName };
   }
 
   // @spec RT-TASK-LAUNCH-006, RT-TASK-LAUNCH-007, RT-TASK-LAUNCH-008

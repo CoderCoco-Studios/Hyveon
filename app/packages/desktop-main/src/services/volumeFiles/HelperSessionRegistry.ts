@@ -8,6 +8,7 @@ import { FileBrowserClientFactory } from '../folderUpload/FileBrowserClient.js';
 import { abortableSleep } from '../folderUpload/uploadEngine.js';
 import { PublicIpService } from '../PublicIpService.js';
 import type { HelperVolumeLayout } from './helperVolumeLayout.js';
+import { UploadLeaseService } from './UploadLeaseService.js';
 import { VolumeFileError, type VolumeFileBackend } from './VolumeFileBackend.js';
 
 /**
@@ -150,7 +151,10 @@ export class HelperSessionRegistry {
     private readonly fileManager: FileManagerService,
     private readonly clients: FileBrowserClientFactory,
     private readonly publicIp: PublicIpService,
-  ) {}
+    private readonly uploadLeases: UploadLeaseService,
+  ) {
+    this.uploadLeases.onLost((game, message) => void this.abortLostUpload(game, message));
+  }
 
   // @spec HELPER-FB-013, HELPER-FB-014, HELPER-UPLOAD-010, HELPER-SESS-001, HELPER-SESS-002
   /**
@@ -167,6 +171,10 @@ export class HelperSessionRegistry {
    */
   async acquire(game: string, holder: HelperHolder, options: AcquireOptions = {}): Promise<AcquireResult> {
     logger.debug('HelperSessionRegistry: acquire', { game, holder });
+    if (isUploadHolder(holder)) {
+      const lease = await this.uploadLeases.hold(game, holder);
+      if (!lease.ok) return { ok: false, code: 'failed', message: lease.message };
+    }
     for (;;) {
       const existing = this.entries.get(game);
       if (!existing) break;
@@ -226,6 +234,7 @@ export class HelperSessionRegistry {
     const entry = this.entries.get(game);
     if (!entry || entry.state === 'stopping' || !entry.holders.delete(holder)) return;
     logger.debug('HelperSessionRegistry: release', { game, holder });
+    if (isUploadHolder(holder)) void this.uploadLeases.drop(game, holder);
     if (holder === 'browse') this.startGrace(game, entry);
     if (entry.holders.size > 0 || entry.graceTimer) return;
     void this.stopEntry(game, entry);
@@ -643,8 +652,9 @@ export class HelperSessionRegistry {
       logger.warn('HelperSessionRegistry: stopping the helper failed', { game, error: message });
       result = { success: false, message };
     }
-    if (this.entries.get(game) === entry) this.dropEntry(game, entry);
+    const leasesReleased = this.entries.get(game) === entry ? this.dropEntry(game, entry) : Promise.resolve();
     this.emit(game, entry, 'stopped');
+    await leasesReleased;
     return result;
   }
 
@@ -680,11 +690,27 @@ export class HelperSessionRegistry {
     }
   }
 
-  /** Removes `entry` from the registry, remembering its volumes for later snapshots. */
-  private dropEntry(game: string, entry: Entry): void {
+  // @spec HELPER-FB-043
+  /**
+   * Removes `entry` from the registry, remembering its volumes for later snapshots, and releases the start lease its
+   * upload holders held (a stopping session keeps its holders until now).
+   *
+   * @returns Settles once the lease release has been attempted; never rejects.
+   */
+  private dropEntry(game: string, entry: Entry): Promise<void> {
     this.cancelGrace(entry);
     if (entry.layout) this.lastVolumes.set(game, volumesOf(entry.layout));
     this.entries.delete(game);
+    const uploads = [...entry.holders].filter(isUploadHolder);
+    return Promise.all(uploads.map((holder) => this.uploadLeases.drop(game, holder))).then(() => undefined);
+  }
+
+  // @spec HELPER-FB-046
+  /** Stops `game`'s session after its start lease was lost, which cancels every upload, and keeps the reason for status. */
+  private async abortLostUpload(game: string, message: string): Promise<void> {
+    logger.warn('HelperSessionRegistry: stopping the session, its upload lease was lost', { game });
+    await this.stop(game);
+    this.lastError.set(game, message);
   }
 
   // @spec HELPER-FB-015

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   START_LEASE_TTL_SECONDS,
+  acquireUploadLease,
+  leaseBusyMessage,
+  releaseUploadLease,
+  renewUploadLease,
   startWithLease,
   type StartLeasePut,
   type StartWithLeaseOptions,
@@ -63,7 +67,7 @@ describe('startWithLease', () => {
     const findRunning = vi.fn(async () => false);
     const launch = vi.fn();
     const out = await startWithLease(base(put, { findRunning, launch }));
-    expect(out).toEqual({ status: 'in-progress' });
+    expect(out).toEqual({ status: 'in-progress', holder: 'start' });
     expect(findRunning).not.toHaveBeenCalled();
     expect(launch).not.toHaveBeenCalled();
   });
@@ -130,5 +134,66 @@ describe('startWithLease', () => {
       return {};
     });
     await expect(startWithLease(base(put, { launch: throwingLaunch }))).rejects.toThrow('boom');
+  });
+});
+
+describe('upload lease', () => {
+  const opts = (put: StartLeasePut) => ({ put, tableName: 'tbl', game: 'palworld', now: () => NOW_MS });
+
+  // @spec HELPER-FB-042
+  it('should record the holder on a start lease and ask for the row back on a failed condition', async () => {
+    const { put, inputs } = fakePut();
+    await startWithLease(base(put));
+    expect(inputs[0]).toMatchObject({ Item: { holder: 'start' }, ReturnValuesOnConditionCheckFailure: 'ALL_OLD' });
+  });
+
+  // @spec HELPER-FB-042
+  it('should report in-progress with holder upload, plain or DynamoDB-JSON, when an upload holds the lease', async () => {
+    for (const Item of [{ holder: 'upload' }, { holder: { S: 'upload' } }]) {
+      const { put } = fakePut(() => {
+        throw Object.assign(conditionFailure(), { Item });
+      });
+      expect(await startWithLease(base(put))).toEqual({ status: 'in-progress', holder: 'upload' });
+    }
+  });
+
+  // @spec HELPER-FB-042
+  it('should word the refusal by holder', () => {
+    expect(leaseBusyMessage('palworld', 'start')).toBe('A start for palworld is already in progress.');
+    expect(leaseBusyMessage('palworld', 'upload')).toMatch(/upload into palworld is in progress/i);
+  });
+
+  // @spec HELPER-FB-042
+  it('should acquire the lease as holder upload under the start lease condition', async () => {
+    const { put, inputs } = fakePut();
+    const out = await acquireUploadLease(opts(put));
+    expect(out.status).toBe('acquired');
+    expect(inputs[0]).toMatchObject({
+      Item: { pk: 'LAUNCH#palworld', sk: 'LOCK', holder: 'upload', expiresAt: NOW_S + 120 },
+      ConditionExpression: 'attribute_not_exists(pk) OR expiresAt < :now',
+    });
+  });
+
+  // @spec HELPER-FB-045
+  it('should report busy with the holder when a start holds the lease, and propagate other errors', async () => {
+    expect(await acquireUploadLease(opts(fakePut(() => { throw conditionFailure(); }).put))).toEqual({ status: 'busy', holder: 'start' });
+    await expect(acquireUploadLease(opts(fakePut(() => { throw new Error('net'); }).put))).rejects.toThrow('net');
+  });
+
+  // @spec HELPER-FB-044
+  it('should renew only while the row still carries the lease id', async () => {
+    const { put, inputs } = fakePut();
+    expect(await renewUploadLease(opts(put), 'L1')).toBe('renewed');
+    expect(inputs[0]).toMatchObject({ Item: { leaseId: 'L1', expiresAt: NOW_S + 120 }, ConditionExpression: 'leaseId = :id' });
+    expect(await renewUploadLease(opts(fakePut(() => { throw conditionFailure(); }).put), 'L1')).toBe('lost');
+    await expect(renewUploadLease(opts(fakePut(() => { throw new Error('net'); }).put), 'L1')).rejects.toThrow('net');
+  });
+
+  // @spec HELPER-FB-043
+  it('should release by writing an expired row guarded by the lease id, and never throw', async () => {
+    const { put, inputs } = fakePut();
+    await releaseUploadLease(opts(put), 'L1');
+    expect(inputs[0]).toMatchObject({ Item: { leaseId: 'L1', expiresAt: 0 }, ConditionExpression: 'leaseId = :id' });
+    await expect(releaseUploadLease(opts(fakePut(() => { throw new Error('net'); }).put), 'L1')).resolves.toBeUndefined();
   });
 });

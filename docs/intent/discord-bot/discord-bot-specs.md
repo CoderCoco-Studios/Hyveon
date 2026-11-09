@@ -63,6 +63,7 @@ EARS requirements for prefix `DISCORD`, the Discord Bot leaf described in `docs/
 - [x] **DISCORD-RUN-013**: If an unexpected error is thrown while the followup Lambda handles a job, then it shall reply "Command failed. Check server logs." (`followup/src/handler.ts:267-270`). (observed)
 - [x] **DISCORD-RUN-014**: If the Discord webhook PATCH request itself rejects (network failure), then `patchInteractionOriginal` shall log and swallow the failure, as its TSDoc states. (observed; `patchOriginal.ts:9-11`)
 - [x] **DISCORD-RUN-015**: If Discord answers the webhook PATCH with a non-2xx status, then `patchInteractionOriginal` shall log the status and response body without throwing (`patchOriginal.ts:28-31`). (observed)
+- [x] **DISCORD-RUN-016**: If an upload from the desktop app holds the start lease when the followup Lambda handles `start`, then it shall reply `"An upload into {game} is in progress. Wait for it to finish or cancel it, then start the server."` and issue no `RunTask` (`RT-TASK-LAUNCH-017`; `HELPER-FB-042`).
 
 ## Pending interactions
 
