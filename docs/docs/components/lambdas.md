@@ -194,9 +194,13 @@ Event shape (simplified):
      the handler returns `{status: 'skipped', reason: 'not_owner'}`.
    - A record exists but no TXT (written before ownership tracking) → the A
      record is deleted.
+   - TXT names the stopping task but no A record exists (an orphaned
+     ownership record) → the TXT record alone is deleted, sending its stored
+     TTL and value.
    - A or TXT lookup fails → no change, warning logged;
      `{status: 'skipped', reason: 'owner_unreadable'}`.
-   - Neither record exists (a duplicate `STOPPED`) → no change.
+   - Both lookups succeed and find neither record (a duplicate `STOPPED`) →
+     no change.
    No IAM beyond `ChangeResourceRecordSets` and `ListResourceRecordSets` is needed.
 4. Call `notifyDiscordIfPending()` — look up `PENDING#{taskArn}` in
    DynamoDB, format a final status message (including the resolved public IP
