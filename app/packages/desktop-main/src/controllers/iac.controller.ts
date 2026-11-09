@@ -158,7 +158,8 @@ interface IacPlanChunkMessage {
  * number. `result` is present only on a successful run (for a plan, the structured `changeSummary` and
  * artifact/hash/engine-version fields). `staleLock` is present on an apply or destroy failure that was a
  * `PulumiUnrecognizedLockError`, which can surface here rather than on the ack because `stack.up()`'s lock conflict is
- * only discovered once the operation is already streaming.
+ * only discovered once the operation is already streaming. `aborted` is `true` (with `exitCode: null` and no `error`)
+ * when the run settled because it was aborted, by an operator cancel or otherwise, rather than failing.
  *
  * @typeParam TResult - The service generator's terminal result type.
  */
@@ -168,6 +169,23 @@ interface IacPlanEndMessage<TResult> {
   error?: string;
   result?: TResult;
   staleLock?: StaleLockInfo;
+  aborted?: true;
+}
+
+/** Payload accepted by {@link IacController.cancelRun}. */
+interface IacCancelPayload {
+  runId: string;
+}
+
+/**
+ * Result {@link IacController.cancelRun} resolves with, never by throwing. `cancelled: true` means the named run is
+ * being driven by this app session and its abort was requested; `reason: 'not_running'` means it is not (never started,
+ * already settled, or owned by a previous session); `error` accompanies a malformed payload.
+ */
+interface IacCancelAck {
+  cancelled: boolean;
+  reason?: 'not_running';
+  error?: string;
 }
 
 /**
@@ -677,7 +695,10 @@ export class IacController implements OnModuleInit {
         next = await stream.next();
       }
       if (!sender.isDestroyed()) {
-        const endMessage: IacPlanEndMessage<TResult | undefined> = { runId, exitCode: 0, result: next.value };
+        const aborted = ac.signal.aborted && next.value === undefined;
+        const endMessage: IacPlanEndMessage<TResult | undefined> = aborted
+          ? { runId, exitCode: null, aborted: true }
+          : { runId, exitCode: 0, result: next.value };
         sender.send(channels.end, endMessage);
       }
     } catch (err) {
@@ -1218,6 +1239,40 @@ export class IacController implements OnModuleInit {
     } finally {
       sender.removeListener('destroyed', onDestroyed);
     }
+  }
+
+  // @spec IAC-RUN-CANCEL-001, IAC-RUN-CANCEL-002, IAC-RUN-CANCEL-003, IAC-ENGINE-LIFE-006
+  /**
+   * Cancels the in-flight plan, apply or destroy `payload.runId` by firing that run's `AbortController`, the same abort
+   * a destroyed window fires. The engine's escalating cancellation then stops the operation and the service settles the
+   * run record as `aborted` and releases the durable apply lock.
+   *
+   * @remarks
+   * Idempotent: a run stays registered until its stream settles, so a repeat cancel resolves `cancelled: true` again
+   * and aborting an aborted controller is a no-op. A run not driven by this session resolves `not_running` and touches
+   * nothing; a durable lock left by a previous session is recovered through the lock-clear flow instead. Generic
+   * bridge, resolves a single value.
+   *
+   * @param payload - Carries the `runId` to cancel.
+   * @returns A modelled ack; never throws.
+   */
+  @MessagePattern('iac.run.cancel')
+  async cancelRun(@Payload() payload: IacCancelPayload): Promise<IacCancelAck> {
+    const runId: unknown = payload?.runId;
+    logger.debug('IacController: iac.run.cancel invoked', { runId: isNonEmptyString(runId) ? runId : undefined });
+    if (!isNonEmptyString(runId)) {
+      const error = 'runId is required and must be a non-empty string';
+      logger.warn('cancel rejected: invalid payload', { error });
+      return { cancelled: false, error };
+    }
+    const ac = [this.activePlans, this.activeApplies, this.activeDestroys].map((active) => active.get(runId)).find(Boolean);
+    if (!ac) {
+      logger.info('cancel ignored: run is not being driven by this session', { runId });
+      return { cancelled: false, reason: 'not_running' };
+    }
+    logger.info('cancelling run on operator request', { runId });
+    ac.abort();
+    return { cancelled: true };
   }
 
   // @spec IAC-RUN-LCLR-010, IAC-RUN-LCLR-012

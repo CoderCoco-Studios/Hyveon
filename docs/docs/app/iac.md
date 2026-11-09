@@ -229,12 +229,27 @@ Only clear a lock you recognize as genuinely abandoned; clearing a lock that
 turns out to be a real in-progress run elsewhere risks two updates racing
 against the same state.
 
+## Cancel a running operation
+
+While a plan, apply, or destroy is streaming, a **Cancel plan**, **Cancel apply**, or **Cancel destroy** button sits beside the run's heading. It disappears once the run reaches a terminal status.
+
+Cancelling a plan takes effect at once. Cancelling an apply or destroy first asks you to confirm:
+
+> ### Cancel this apply?
+> Cancelling stops the engine mid-operation and can leave the infrastructure partially changed. The run is recorded as aborted; review the stack state before applying again.
+
+The confirm button reads **Stop apply** (or **Stop destroy**); **Cancel** dismisses the dialog and leaves the run going.
+
+Once you cancel, the button changes to a disabled **Cancelling…** while the engine winds down. The engine is asked to stop first and is abandoned if it does not exit within 30 seconds. The run is then recorded as **Aborted**, the apply lock is released, and the usual `Plan was aborted` / `Apply was aborted` / `Destroy was aborted` banner appears. An aborted apply that had already changed resources shows the [partial-apply banner](#a-failed-or-aborted-apply) instead, and cannot be retried.
+
+If the run finishes in the instant before the cancel arrives, nothing is aborted and the run keeps its real status. Closing the window cancels the in-flight run the same way. Cancel only reaches runs started by the current app session; a lock left behind by an earlier session is cleared through [Stale run locks](#stale-run-locks).
+
 ## Start over
 
 **Start over** appears after a failed plan, or once an apply reaches any
 terminal state. It resets the page back to its initial "Run plan" state.
 
-It is purely a UI reset. It does not cancel anything, delete any run record,
+It is purely a UI reset. It does not cancel anything (use [Cancel](#cancel-a-running-operation) for a running operation), delete any run record,
 revoke an approval, or remove the plan artifact — those all persist in run
 history. It also leaves the Destroy section untouched.
 

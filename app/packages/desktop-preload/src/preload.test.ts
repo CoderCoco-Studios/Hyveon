@@ -2003,6 +2003,34 @@ describe('preload dispatcher', () => {
     });
   });
 
+  // @spec IAC-RUN-IPC-006, IAC-RUN-CANCEL-002
+  describe('iac.cancel', () => {
+    it('should invoke the iac.run.cancel channel with a { runId } payload and resolve the ack', async () => {
+      const bridge = await loadPreloadBridge('0');
+      ipcInvoke.mockResolvedValue({ cancelled: true });
+      const iac = bridge['iac'] as { cancel: (runId: string) => Promise<unknown> };
+
+      const result = await iac.cancel('run-9');
+
+      expect(ipcInvoke).toHaveBeenCalledWith('iac.run.cancel', { runId: 'run-9' });
+      expect(result).toEqual({ cancelled: true });
+    });
+
+    it('should call the registered mock instead of ipcRenderer.invoke when iac.run.cancel is mocked', async () => {
+      const bridge = await loadPreloadBridge('1');
+      const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+      const mockHandler = vi.fn().mockResolvedValue({ cancelled: false, reason: 'not_running' });
+      testApi.mock('iac.run.cancel', mockHandler);
+      const iac = bridge['iac'] as { cancel: (runId: string) => Promise<unknown> };
+
+      const result = await iac.cancel('run-9');
+
+      expect(mockHandler).toHaveBeenCalledWith({ runId: 'run-9' });
+      expect(ipcInvoke).not.toHaveBeenCalled();
+      expect(result).toEqual({ cancelled: false, reason: 'not_running' });
+    });
+  });
+
   describe('iac.output', () => {
     /** Minimal `StackOutputs`-shaped fixture used across these tests. */
     const OUTPUTS = {

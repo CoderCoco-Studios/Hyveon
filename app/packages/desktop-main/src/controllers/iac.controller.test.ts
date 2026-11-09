@@ -224,6 +224,7 @@ describe('IacController', () => {
         ['destroy', 'iac.destroy'],
         ['resolveRollback', 'iac.rollback.resolve'],
         ['confirmRollback', 'iac.rollback.confirm'],
+        ['cancelRun', 'iac.run.cancel'],
         ['clearStaleLock', 'iac.lock.clear'],
         ['mintLockClearToken', 'iac.lock.clear.mintToken'],
       ] as const);
@@ -1324,6 +1325,131 @@ describe('IacController', () => {
       expect(destroyRunId).toBe(result.runId);
       expect(chunkRunId).toBe(result.runId);
       expect(destroySignal).toBeInstanceOf(AbortSignal);
+    });
+  });
+
+  // cancelRun
+
+  // @spec IAC-RUN-CANCEL-001, IAC-RUN-CANCEL-002, IAC-RUN-CANCEL-003, IAC-RUN-CANCEL-004, IAC-ENGINE-LIFE-006
+  describe('cancelRun', () => {
+    /** A generator that idles until `signal` aborts, then settles the way the service does on an abort: `undefined`. */
+    function idleUntilAborted(signal: AbortSignal): AsyncGenerator<PulumiRunChunk, undefined> {
+      async function* gen(): AsyncGenerator<PulumiRunChunk, undefined> {
+        yield { stream: 'stdout', line: 'running' };
+        await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+        return undefined;
+      }
+      return gen();
+    }
+
+    /** Start one run of each kind against a pulumi stub whose generators idle until aborted. */
+    async function startRuns() {
+      const pulumi = makePulumi();
+      let planSignal!: AbortSignal;
+      let applySignal!: AbortSignal;
+      let destroySignal!: AbortSignal;
+      vi.mocked(pulumi.preview).mockImplementation(((_v: unknown, signal: AbortSignal) => {
+        planSignal = signal;
+        return idleUntilAborted(signal);
+      }) as never);
+      vi.mocked(pulumi.apply).mockImplementation(((_r: unknown, _h: unknown, signal: AbortSignal) => {
+        applySignal = signal;
+        return idleUntilAborted(signal);
+      }) as never);
+      vi.mocked(pulumi.destroy).mockImplementation(((_t: unknown, signal: AbortSignal) => {
+        destroySignal = signal;
+        return idleUntilAborted(signal);
+      }) as never);
+      const controller = new IacController(pulumi, makeAudit().audit);
+      const plan = makeCtx();
+      const apply = makeCtx();
+      const destroy = makeCtx();
+      const planAck = await controller.plan({}, plan.ctx);
+      const applyAck = await controller.apply({ planRunId: 'plan-run-1', planHash: 'hash' }, apply.ctx);
+      const destroyAck = await controller.destroy({ confirmationToken: 'token' }, destroy.ctx);
+      await flushPromises();
+      return {
+        controller,
+        plan: { ...plan, runId: planAck.runId!, signal: () => planSignal },
+        apply: { ...apply, runId: applyAck.runId!, signal: () => applySignal },
+        destroy: { ...destroy, runId: destroyAck.runId!, signal: () => destroySignal },
+      };
+    }
+
+    it('should log on entry before doing anything else', async () => {
+      await new IacController(makePulumi()).cancelRun({ runId: 'x' });
+      expect(logger.debug).toHaveBeenCalledWith('IacController: iac.run.cancel invoked', { runId: 'x' });
+    });
+
+    it.each(['plan', 'apply', 'destroy'] as const)(
+      'should abort the in-flight %s run and resolve { cancelled: true }',
+      async (op) => {
+        const run = await startRuns();
+        const target = run[op];
+
+        expect(target.signal().aborted).toBe(false);
+        await expect(run.controller.cancelRun({ runId: target.runId })).resolves.toEqual({ cancelled: true });
+        expect(target.signal().aborted).toBe(true);
+        for (const other of (['plan', 'apply', 'destroy'] as const).filter((o) => o !== op)) {
+          expect(run[other].signal().aborted).toBe(false);
+        }
+      },
+    );
+
+    it('should send one terminal message with exitCode null and aborted true, then report the run as not running', async () => {
+      const run = await startRuns();
+      await run.controller.cancelRun({ runId: run.destroy.runId });
+      await flushPromises();
+
+      const ends = run.destroy.sender.send.mock.calls.filter(([channel]) => channel === 'iac.destroy.end');
+      expect(ends).toHaveLength(1);
+      expect(ends[0]?.[1]).toEqual({ runId: run.destroy.runId, exitCode: null, aborted: true });
+      expect(ends[0]?.[1]).not.toHaveProperty('error');
+      await expect(run.controller.cancelRun({ runId: run.destroy.runId })).resolves.toEqual({
+        cancelled: false,
+        reason: 'not_running',
+      });
+    });
+
+    it('should be idempotent: a second cancel before the run settles resolves { cancelled: true } again', async () => {
+      const run = await startRuns();
+      const acks = await Promise.all([
+        run.controller.cancelRun({ runId: run.apply.runId }),
+        run.controller.cancelRun({ runId: run.apply.runId }),
+      ]);
+      expect(acks).toEqual([{ cancelled: true }, { cancelled: true }]);
+      await flushPromises();
+      const ends = run.apply.sender.send.mock.calls.filter(([channel]) => channel === 'iac.apply.end');
+      expect(ends).toHaveLength(1);
+    });
+
+    it('should resolve not_running for an unknown or already-settled runId without throwing', async () => {
+      const controller = new IacController(makePulumi());
+      await expect(controller.cancelRun({ runId: 'never-started' })).resolves.toEqual({
+        cancelled: false,
+        reason: 'not_running',
+      });
+    });
+
+    it.each([undefined, null, {}, { runId: '' }, { runId: 42 }])(
+      'should resolve { cancelled: false, error } for an invalid payload %j',
+      async (payload) => {
+        const result = await new IacController(makePulumi()).cancelRun(payload as never);
+        expect(result).toEqual({ cancelled: false, error: expect.stringContaining('runId') });
+      },
+    );
+
+    it('should not emit an aborted end message for a run that settles without a cancel', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.destroy).mockImplementation(async function* () {
+        yield { stream: 'stdout', line: 'done' } as PulumiRunChunk;
+        return buildDestroyResult();
+      });
+      const { ctx, sender } = makeCtx();
+      await new IacController(pulumi, makeAudit().audit).destroy({ confirmationToken: 'token-abc' }, ctx);
+      await flushPromises();
+      const end = sender.send.mock.calls.find(([channel]) => channel === 'iac.destroy.end');
+      expect(end?.[1]).not.toHaveProperty('aborted');
     });
   });
 
