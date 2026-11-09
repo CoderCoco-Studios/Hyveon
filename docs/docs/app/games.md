@@ -195,7 +195,7 @@ Checking it exposes:
 
 | Field | Purpose |
 |---|---|
-| **Scheme** | `http` only. The check runs inside the VPC and probes the container directly by private IP, bypassing the Caddy sidecar, so TLS is not involved; a saved configuration declaring `https` is rejected at save time |
+| **Scheme** | `http` only. The check runs inside the VPC and probes the container directly by private IP, bypassing the Caddy sidecar, so TLS is not involved; a saved configuration declaring `https` is rejected at save time, and the wizard opens such a game or resumed draft with the scheme already set to `http` so it can be saved |
 | **Port** | A dropdown constrained to the ports declared above — you cannot target a port this game doesn't expose. On an HTTPS game the web port is listed first as `<port>/tcp (web port)`, followed by the additional ports |
 | **Method** | `GET`, `POST`, `PUT`, `PATCH`, or `HEAD` |
 | **Timeout (ms)** | 100–10000. Bounds the entire request as one wall-clock budget |

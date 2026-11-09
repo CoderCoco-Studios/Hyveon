@@ -339,6 +339,25 @@ describe('webPort draft conversion', () => {
   });
 });
 
+describe('draftFromGameServer health-check scheme', () => {
+  // @spec RT-HEALTH-VALID-010
+  it('should load a saved health check that still declares https with the scheme set to http', () => {
+    const healthCheck = {
+      kind: 'http' as const,
+      scheme: 'https',
+      port: 2456,
+      path: '/status',
+      method: 'GET' as const,
+      timeoutMs: 2000,
+      activeWhen: { jsonPath: 'ok', operator: 'exists' as const },
+    };
+    // @ts-expect-error a saved game from before http-only can still carry 'https'
+    const game: RedactedGameServer = makeExistingGame({ healthCheck });
+
+    expect(draftFromGameServer(game).healthCheck).toMatchObject({ enabled: true, scheme: 'http', port: 2456 });
+  });
+});
+
 describe('draftFromGameServer port protocol', () => {
   it('should lowercase a stored upper-case protocol so it matches the select options', () => {
     const game = makeExistingGame({ ports: [{ container: 25565, protocol: 'TCP' as 'tcp' }] });

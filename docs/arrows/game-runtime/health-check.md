@@ -5,7 +5,7 @@ Optionally ask a game "are you actually serving players?" over HTTP, so the watc
 ## Status
 
 **MAPPED** — mapped 2026-10-30 (git SHA `2822efd1`), not yet audited.
-The health-check Lambda takes the task's private IP from the watchdog's invoke payload and makes no ECS call; checks that declare a credential reach Secrets Manager through a conditional interface endpoint. Checks are plain `http` only (`RT-HEALTH-HTTP-005`, `RT-HEALTH-VALID-009`).
+The health-check Lambda takes the task's private IP from the watchdog's invoke payload and makes no ECS call; checks that declare a credential reach Secrets Manager through a conditional interface endpoint. Checks are plain `http` only (`RT-HEALTH-HTTP-005`, `RT-HEALTH-VALID-009`, `RT-HEALTH-VALID-010`).
 
 ## References
 
@@ -17,7 +17,7 @@ The health-check Lambda takes the task's private IP from the watchdog's invoke p
 - `docs/intent/game-runtime/health-check/health-check-design.md`
 
 ### EARS
-- `docs/intent/game-runtime/health-check/health-check-specs.md` (75 specs)
+- `docs/intent/game-runtime/health-check/health-check-specs.md` (76 specs)
 
 ### Tests
 - `app/packages/lambda/health-check/src/engine.test.ts`
@@ -73,12 +73,12 @@ The health-check Lambda takes the task's private IP from the watchdog's invoke p
 | Fail-active | `RT-HEALTH-FAIL-001` to `RT-HEALTH-FAIL-007` (the watchdog-side wrapper is `RT-WATCHDOG-HC-003`, `-004`, `-006`, `-008` to `-010`) | 7 | 0 | 0 |
 | Provisioning and runtime environment | `RT-HEALTH-PROV-001` to `RT-HEALTH-PROV-006` | 6 | 0 | 0 |
 | Network and permission confinement | `RT-HEALTH-NET-001` to `RT-HEALTH-NET-009` | 9 | 0 | 0 |
-| Save-time validation | `RT-HEALTH-VALID-001` to `RT-HEALTH-VALID-009` | 9 | 0 | 0 |
+| Save-time validation | `RT-HEALTH-VALID-001` to `RT-HEALTH-VALID-010` | 10 | 0 | 0 |
 | Logging | `RT-HEALTH-LOG-001` to `RT-HEALTH-LOG-004` | 4 | 0 | 0 |
 | Operator interface redaction | `RT-HEALTH-REDACT-001` to `RT-HEALTH-REDACT-004` | 4 | 0 | 0 |
 | App-owned credential lifecycle | `RT-HEALTH-CRED-001` to `RT-HEALTH-CRED-008` | 8 | 0 | 0 |
 
-**Summary:** 75 of 75 active specs implemented; 0 deferred; 0 gaps.
+**Summary:** 76 of 76 active specs implemented; 0 deferred; 0 gaps.
 
 ## Key Findings
 

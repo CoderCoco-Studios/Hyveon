@@ -84,6 +84,7 @@ EARS requirements for prefix `RT-HEALTH`; design in `health-check-design.md` (sa
 - [x] **RT-HEALTH-VALID-007**: When an operator saves a health check whose declared `headers` contain an `authorization` key or a value resembling a bearer token, basic-auth pair, or long API-key string, the game-server validator shall reject the save.
 - [x] **RT-HEALTH-VALID-008**: When an operator saves a health-check credential with `type: 'basic'` lacking a username or password, `type: 'bearer'` lacking a token, or `type: 'raw'` (or no type) lacking a Secrets Manager ARN matching `arn:aws:secretsmanager:<region>:<account>:secret:<name>`, the write-input validator shall reject the save.
 - [x] **RT-HEALTH-VALID-009**: When an operator saves, or the validator reads, a health check whose `scheme` is anything other than `http` (including `https`), the game-server validator shall reject it with an issue at `healthCheck.scheme` stating that only `http` is supported because the check runs inside the VPC against the task's private IP.
+- [x] **RT-HEALTH-VALID-010**: When the add/edit-game wizard loads a saved game or a resumed draft whose health check declares a `scheme` other than `http`, it shall load the scheme as `http`, so the form stays editable and saveable rather than holding a value its scheme control cannot change.
 
 ## Logging
 

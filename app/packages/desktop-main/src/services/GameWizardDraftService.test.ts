@@ -209,6 +209,14 @@ describe('GameWizardDraftService', () => {
       expect(service.get()?.draft.command).toEqual([]);
     });
 
+    // @spec RT-HEALTH-VALID-010
+    it('should load a resumed draft whose health check declares https with the scheme reset to http', () => {
+      const draft = { ...sampleDraft, healthCheck: { ...sampleDraft.healthCheck, enabled: true, scheme: 'https', port: 8080 } };
+      const service = new GameWizardDraftService(makeStore(makeStoredDraft(draft)));
+
+      expect(service.get()?.draft.healthCheck).toMatchObject({ enabled: true, scheme: 'http', port: 8080 });
+    });
+
     it('should accept a draft with a pinnedHostname string', () => {
       const service = new GameWizardDraftService(makeStore(makeStoredDraft({ ...sampleDraft, pinnedHostname: 'my_foundry_host' })));
 

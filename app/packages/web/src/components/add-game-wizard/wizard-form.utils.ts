@@ -140,7 +140,7 @@ export function createEmptyWizardDraft(): WizardDraft {
   };
 }
 
-// @spec GAME-RES-005, GAME-ENV-004, GAME-HTTPS-001, GAME-HOST-013
+// @spec GAME-RES-005, GAME-ENV-004, GAME-HTTPS-001, GAME-HOST-013, RT-HEALTH-VALID-010
 /**
  * Converts a declared {@link GameServer} entry into a {@link WizardDraft} —
  * the inverse of {@link draftToPayload}. Used to seed the wizard's edit flow
@@ -155,6 +155,8 @@ export function createEmptyWizardDraft(): WizardDraft {
  * fails `z.boolean()` in `validateGameServer`, so the form can't represent it
  * either way — the strict check just makes the draft show `false` instead of
  * a value the checkbox can't actually mean.
+ *
+ * `healthCheck.scheme` always loads as `http`, so a saved entry from before checks became http-only stays editable.
  */
 export function draftFromGameServer(game: RedactedGameServer): WizardDraft {
   return {
@@ -183,7 +185,7 @@ export function draftFromGameServer(game: RedactedGameServer): WizardDraft {
     healthCheck: game.healthCheck
       ? {
           enabled: true,
-          scheme: game.healthCheck.scheme,
+          scheme: 'http',
           port: game.healthCheck.port,
           path: game.healthCheck.path,
           method: game.healthCheck.method,
