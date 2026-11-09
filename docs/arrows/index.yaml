@@ -103,7 +103,7 @@ arrows:
     blocks: [infra-logs, discord-bot, helper-task]
     blockedBy: [program, engine, wizard-and-bootstrap]
     detail: game-runtime/task-and-dns.md
-    next: "Make the update-dns DELETE send the record's stored TTL and skip records whose IP does not belong to the stopping task."
+    next: null
     drift: null
 
   watchdog:
