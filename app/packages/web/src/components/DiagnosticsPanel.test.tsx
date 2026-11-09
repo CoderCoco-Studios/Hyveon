@@ -263,6 +263,24 @@ describe('DiagnosticsPanel', () => {
     vi.useRealTimers();
   });
 
+  // @spec APP-DIAG-PANEL-010
+  it('should keep an in-flight export when a later poll recovers from an error', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    apiMock.diagnosticsTail.mockRejectedValueOnce(new Error('Network error'));
+    apiMock.diagnosticsExportBundle.mockReturnValue(new Promise(() => {}));
+    render(<DiagnosticsPanel />);
+    await screen.findByRole('alert');
+
+    await user.click(screen.getByRole('button', { name: /Export diagnostics bundle/ }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(await screen.findByText(/Server started/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Exporting…/ })).toBeInTheDocument();
+  });
+
   describe('Export diagnostics bundle button', () => {
     // @spec APP-DIAG-BNDL-018
     it('should show a loading label while the export IPC call is in flight', async () => {

@@ -41,58 +41,60 @@ export function DiagnosticsPanel() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="flex flex-col gap-2">
-        <ErrorBanner>{error}</ErrorBanner>
-        <ExportBundleButton />
-        <StrayHelpersButton />
-      </div>
-    );
-  }
-
+  // One tree for both states, so the action buttons keep their position and in-flight state when a poll flips
+  // between error and success.
   return (
     <div className="flex flex-col gap-2">
-      {logPath && (
-        <p className="text-xs text-[var(--color-muted-foreground)]">
-          Log file: <span className="font-[var(--font-mono)]">{logPath}</span>
-        </p>
-      )}
+      {error ? (
+        <ErrorBanner>{error}</ErrorBanner>
+      ) : (
+        <>
+          {logPath && (
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              Log file: <span className="font-[var(--font-mono)]">{logPath}</span>
+            </p>
+          )}
 
-      <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 opacity-50" />
-          <Input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search visible lines…"
-            className="pl-8"
-          />
-        </div>
-        <Button variant={paused ? 'default' : 'secondary'} size="sm" onClick={togglePause} className="ml-auto">
-          {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-          {paused ? 'Resume' : 'Pause'}
-        </Button>
-      </div>
+          <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 opacity-50" />
+              <Input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search visible lines…"
+                className="pl-8"
+              />
+            </div>
+            <Button variant={paused ? 'default' : 'secondary'} size="sm" onClick={togglePause} className="ml-auto">
+              {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+              {paused ? 'Resume' : 'Pause'}
+            </Button>
+          </div>
+        </>
+      )}
 
       <ExportBundleButton />
 
       <StrayHelpersButton />
 
-      <LogLineList
-        ref={scrollRef}
-        data-testid="diagnostics-log-box"
-        className="h-96 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
-        lines={lines}
-        search={search}
-        emptyMessage="No log lines available."
-      />
+      {!error && (
+        <>
+          <LogLineList
+            ref={scrollRef}
+            data-testid="diagnostics-log-box"
+            className="h-96 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
+            lines={lines}
+            search={search}
+            emptyMessage="No log lines available."
+          />
 
-      <div className="text-xs text-[var(--color-muted-foreground)]">
-        {lines.length} line{lines.length === 1 ? '' : 's'}
-        {paused ? ' · paused' : ''}
-      </div>
+          <div className="text-xs text-[var(--color-muted-foreground)]">
+            {lines.length} line{lines.length === 1 ? '' : 's'}
+            {paused ? ' · paused' : ''}
+          </div>
+        </>
+      )}
     </div>
   );
 }
